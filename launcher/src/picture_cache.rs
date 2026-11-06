@@ -3,8 +3,8 @@
 //! (`eclipse_launcher::pictures`).
 //!
 //! GPUI's `img(path)` keeps every picture it ever drew, at full size, until the launcher quits,
-//! in RAM and in its sprite atlas: one 32768 × 16384 screenshot is 2 GiB, and Overview draws the
-//! three newest as soon as Home opens (24 GiB reported on Linux, 2026-11-05). And a picture
+//! in RAM and in its sprite atlas: one 32768 × 16384 screenshot is 2 GiB, and Home drew the
+//! three newest as soon as it opened (24 GiB reported on Linux, 2026-11-05). And a picture
 //! wider than the GPU's texture limit made GPUI's atlas add a max-size texture on every frame.
 //! Pictures are therefore made at the size the screen shows them, never above that limit
 //! (`pictures::drawn_side`, `pictures::gpu_limit`).
@@ -15,7 +15,7 @@ use std::collections::HashSet;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-/// A screenshot tile's widest (Overview's first), in points; made at this times the screen's scale.
+/// A screenshot tile's widest, in points; made at this times the screen's scale.
 const THUMB_POINTS: f32 = 360.;
 /// What the made pictures may take together, unless more than that is on screen at once.
 const BUDGET: u64 = 384 << 20;

@@ -413,7 +413,6 @@
   "Star on GitHub": "Op GitHub e Stär ginn",
   "Up to date: {instance} plays these mods.": "Aktuell: {instance} spillt dës Mods.",
   "On this computer": "Op dësem Computer",
-  "Needs preparing": "Braucht virbereeden",
   "Alpha": "Alpha",
   "{count} lines, the game is running": "{count} Linnen, d'Spill leeft",
   "from GitHub: {source}": "vun GitHub: {source}",
@@ -662,7 +661,6 @@
   "New world": "Nei Welt",
   "New world, seed {seed}": "Nei Welt, Som {seed}",
   "No worlds yet": "Nach keng Welten",
-  "Tick the EULA box to create the server.": "Wielt d'Këscht EULA fir de Server ze kreéieren.",
   "Who can join": "Wien ka matmaachen",
   "World": "Welt",
   "{count} worlds to pick from": "{count} Welte fir aus ze wielen",
@@ -1023,5 +1021,15 @@
   "No Eclipse modpacks yet": "No Eclipse modpacks yet",
   "No Eclipse resource packs yet": "No Eclipse resource packs yet",
   "No Eclipse shader packs yet": "No Eclipse shader packs yet",
-  "No Eclipse data packs yet": "No Eclipse data packs yet"
+  "No Eclipse data packs yet": "No Eclipse data packs yet",
+  "Agree to the Minecraft EULA to create the server.": "Agree to the Minecraft EULA to create the server.",
+  "Close the game first": "Close the game first",
+  "Commands": "Commands",
+  "Eclipse's own instance can't be deleted": "Eclipse's own instance can't be deleted",
+  "Not prepared": "Not prepared",
+  "Paste a friend's invite code first": "Paste a friend's invite code first",
+  "Prepare the game files to play": "Prepare the game files to play",
+  "Restoring": "Restoring",
+  "Copying the game files": "Copying the game files",
+  "Moving server to trash": "Moving server to trash"
 }

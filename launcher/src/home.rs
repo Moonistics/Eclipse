@@ -153,7 +153,6 @@ impl Launcher {
             .cloned()
             .or_else(|| java.is_some().then(String::new))
         else {
-            let memory = self.memory_row(cx);
             let state = self.first_version_state(cx);
             return div()
                 .flex()
@@ -168,8 +167,7 @@ impl Launcher {
                         .flex()
                         .flex_col()
                         .gap(px(layout::CARD_GAP))
-                        .child(ui::empty_card(state))
-                        .children(memory),
+                        .child(ui::empty_card(state)),
                 );
         };
         let prepared = backend::is_prepared(&tag);

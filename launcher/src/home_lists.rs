@@ -7,27 +7,11 @@ use crate::menus::{Asking, Menu};
 use crate::ui::{self, white};
 use eclipse_launcher::worlds::World;
 use eclipse_theme::glass::{ink, space};
-use gpui::{deferred, ExternalPaths};
+use gpui::ExternalPaths;
 use home_worlds_state::Action;
 use std::path::Path;
 
 impl Launcher {
-    /// Records whether the pointer is over the row `key`; the row then shows its actions.
-    pub(super) fn list_hover_listener(
-        &self,
-        key: SharedString,
-        cx: &mut Context<Self>,
-    ) -> ui::Listener<bool> {
-        Box::new(cx.listener(move |this, hovered: &bool, _, cx| {
-            if *hovered {
-                this.list_hover = Some(key.clone());
-            } else if this.list_hover.as_ref() == Some(&key) {
-                this.list_hover = None;
-            }
-            cx.notify();
-        }))
-    }
-
     /// Home's Worlds tab: the selected instance's worlds, the last played first.
     pub(super) fn worlds_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.selected_instance()?.home.clone();
@@ -87,7 +71,7 @@ impl Launcher {
 
     fn world_row(&mut self, w: &World, pictures: bool, cx: &mut Context<Self>) -> Div {
         let key = SharedString::from(format!("world-{}", w.folder));
-        let hovered = self.list_hover.as_ref() == Some(&key);
+        let hovered = ui::hover_within(&key);
         let menu_open = self.menu_is(&Menu::ListRow(key.clone()));
         let busy = self.worlds.busy.is_some();
         let this_busy = self.worlds.busy.as_ref() == Some(&w.folder);
@@ -95,8 +79,7 @@ impl Launcher {
         let mut facts = vec![tr(w.mode).to_string()];
         facts.extend(w.version.clone());
         facts.push(home_head::last_played(w.last_played));
-        let hover = self.list_hover_listener(key.clone(), cx);
-        let mut row = ui::list_row(key.clone(), hovered || menu_open, hover);
+        let mut row = ui::list_row(key.clone(), hovered || menu_open);
         if can_play {
             let folder = w.folder.clone();
             row = row
@@ -159,29 +142,15 @@ impl Launcher {
             ButtonKind::Ghost,
             ui::ButtonSize::Md,
             menu_open,
-        )
-        .on_press(cx.listener({
-            let key = key.clone();
-            move |this, event: &ClickEvent, window, cx| {
-                if !this.closed_by_this_press(event) {
-                    this.toggle_menu(Menu::ListRow(key.clone()), window, cx);
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }
-        }));
+        );
+        let more = self.menu_opener(more, Menu::ListRow(key.clone()), cx);
         let mut more = div().relative().child(more);
         if menu_open {
-            more = more.child(
-                deferred(
-                    div()
-                        .absolute()
-                        .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
-                        .right_0()
-                        .child(self.world_menu(w, cx)),
-                )
-                .with_priority(1),
-            );
+            more = more.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::End,
+                self.world_menu(w, cx),
+            ));
         }
         div().child(
             row.child(ui::item_text(w.name.clone(), facts.join(" · ")))
@@ -230,12 +199,7 @@ impl Launcher {
                 }))
                 .into_any_element()
         };
-        ui::popover("world-menu")
-            .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                this.close_menu();
-                this.menu_closed_at = Some(event.position);
-                cx.notify();
-            }))
+        self.menu_popover("world-menu", cx)
             .child(
                 ui::menu_row("world-menu-backup", "download-04", tr("Back up"), false).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -380,9 +344,8 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let key = SharedString::from(format!("server-{}", server.ip));
-        let hovered = self.list_hover.as_ref() == Some(&key);
+        let hovered = ui::hover_within(&key);
         let confirming = self.is_asking(&Asking::SavedServer(server.ip.clone()));
-        let hover = self.list_hover_listener(key.clone(), cx);
         let ip = server.ip.clone();
         // The dot and "address · 3 of 10", or "Offline" with Join off.
         let reach = self
@@ -453,31 +416,22 @@ impl Launcher {
                 .gap(px(space::SM))
                 .child(join)
                 .child(
-                    ui::icon_button(
-                        remove,
-                        "delete-02",
-                        tr("Remove…"),
-                        ButtonKind::Ghost,
-                        ui::ButtonSize::Md,
-                        false,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
+                    ui::remove_button(remove, tr("Remove…"), ui::ButtonSize::Md).on_press(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.asking = Some(Asking::SavedServer(gone.clone()));
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 )
         };
-        ui::list_row(key, hovered || confirming, hover)
-            .child(div().relative().flex_none().child(ui::dot(tone)))
+        ui::list_row(key, hovered || confirming)
             .when(pictures, |r| {
                 r.child(ui::row_picture(
                     icon.map(gpui::ImageSource::from),
                     "globe-02",
                 ))
             })
-            .child(ui::item_text(server.name, line))
+            .child(ui::item_text(server.name, ui::state_line(tone, line)))
             .child(end.relative().flex_none())
     }
 }

@@ -1,14 +1,12 @@
 //! Release notes: pulldown-cmark events into gpui elements.
 use crate::ui::{self, white};
-use eclipse_theme::glass::{ink, radius, space, step, EDGE};
+use eclipse_theme::glass::{ink, radius, space, step};
 use gpui::{
     div, prelude::*, px, AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString,
     StyledText,
 };
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
-
-const BULLET: f32 = 5.;
 
 const KEY_COLUMN: f32 = 180.;
 
@@ -192,11 +190,7 @@ pub fn render(source: &str) -> AnyElement {
                 .gap(px(space::MD))
                 .pl(px(depth as f32 * 16.))
                 .child(match number {
-                    None => div()
-                        .flex_none()
-                        .mt(px((step::BODY.line - BULLET) / 2.))
-                        .size(px(BULLET))
-                        .bg(white(ink::DIM)),
+                    None => ui::bullet(),
                     Some(n) => div()
                         .flex_none()
                         .w(px(16.))
@@ -214,7 +208,7 @@ pub fn render(source: &str) -> AnyElement {
                 .into_any_element(),
             Block::Rule => div()
                 .h(px(1.))
-                .bg(white(EDGE))
+                .bg(ui::edge())
                 .my(px(space::SM))
                 .into_any_element(),
             Block::Table(rows) => {
@@ -223,14 +217,14 @@ pub fn render(source: &str) -> AnyElement {
                     .flex_col()
                     .my(px(space::XS))
                     .border_t_1()
-                    .border_color(white(EDGE));
+                    .border_color(ui::edge());
                 for (i, row) in rows.into_iter().enumerate() {
                     let mut line = div()
                         .flex()
                         .gap(px(space::LG))
                         .py(px(space::SM))
                         .border_b_1()
-                        .border_color(white(EDGE));
+                        .border_color(ui::edge());
                     let columns = row.len();
                     for (j, (text, spans)) in row.into_iter().enumerate() {
                         // Two-column tables keep a narrow first column; wider ones share the width.

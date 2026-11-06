@@ -9,7 +9,7 @@ use eclipse_launcher::worlds::World;
 use eclipse_theme::glass::{ink, radius, space, step};
 use std::path::PathBuf;
 
-const WORLD_PACKS_INDENT: f32 = 62.;
+const WORLD_PACKS_INDENT: f32 = space::MD + ui::TILE_MD + space::MD;
 
 #[derive(Default)]
 pub(super) struct WorldPacks {
@@ -194,26 +194,18 @@ impl Launcher {
                     );
                 }
                 actions = actions.child(
-                    ui::button(
-                        remove_id,
-                        None,
-                        tr("Delete…"),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
+                    ui::remove_button(remove_id, tr("Delete…"), ui::ButtonSize::Md).on_press(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.asking = Some(Asking::WorldPack(file.clone()));
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 );
             }
             panel = panel.child(
                 ui::list_row(
                     SharedString::from(format!("world-pack-{}", pack.file)),
                     confirming,
-                    |_, _, _| {},
                 )
                 .child(ui::icon("package-01", ui::IconSize::Px16, white(ink::MUTED)).relative())
                 .child(ui::item_text(pack.file.clone(), pack.description.clone()))

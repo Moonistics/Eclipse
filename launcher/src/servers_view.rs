@@ -8,7 +8,7 @@ use eclipse_theme::glass::{ink, pixel_text, radius, space, step, TextStep};
 /// The right column's width.
 const SIDE: f32 = 320.;
 
-const LIST_ROW_PAD: f32 = 10.;
+const LIST_ROW_PAD: f32 = space::SM + space::XXS;
 
 const COMMAND_WIDTH: f32 = 520.;
 
@@ -21,10 +21,10 @@ const LOWER_TABS: [(Tab, &str); 3] = [
 
 /// A dot's tone for a server's state.
 fn tone(status: &Status) -> Tone {
-    match status.phase.as_str() {
-        "running" if status.crashes > 0 => Tone::Warn,
-        "running" => Tone::Live,
-        "stopped" => Tone::Off,
+    match () {
+        _ if status.serving() && status.crashes > 0 => Tone::Warn,
+        _ if status.serving() => Tone::Live,
+        _ if !status.running() => Tone::Off,
         _ => Tone::Busy,
     }
 }
@@ -325,9 +325,7 @@ impl Launcher {
                     .flex_col()
                     .gap(px(space::SM))
                     .child(ui::progress_bar(None))
-                    .child(
-                        ui::card_note(format!("{} {last}", tr(&format!("{label}…")))).truncate(),
-                    ),
+                    .child(ui::card_note(format!("{}… {last}", tr(&label))).truncate()),
             );
         }
         if let Some(p) = self.servers.problem.clone() {
@@ -544,23 +542,25 @@ impl Launcher {
                 .cloned()
                 .unwrap_or_else(Status::stopped);
             let current = self.servers.open.as_ref() == Some(&e.dir);
-            let line = match status.phase.as_str() {
-                "running" => trf(
+            let line = match () {
+                _ if status.serving() => trf(
                     "{online} of {max} online",
                     &[
                         ("online", &status.players.len().to_string()),
                         ("max", &status.max_players.unwrap_or(0).to_string()),
                     ],
                 ),
-                "stopped" => self.servers.stopped_line(&e.dir),
+                _ if !status.running() => self.servers.stopped_line(&e.dir),
                 _ => phase_label(&status),
             };
             let dir = e.dir.clone();
             list = list.child(
                 ui::row(format!("server-row-{}", e.dir.display()), current)
                     .pr(px(space::MD))
-                    .child(ui::item_text(e.name.clone(), line))
-                    .child(ui::dot(tone(&status)).relative())
+                    .child(ui::item_text(
+                        e.name.clone(),
+                        ui::state_line(tone(&status), line),
+                    ))
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.servers.polled = None;
                         this.servers.problem = None;
@@ -678,7 +678,7 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .gap(px(space::MD))
-                        .child(self.head(&p.uuid, 28.))
+                        .child(self.player_face(&p.uuid, ui::TILE_SM))
                         .child(
                             ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                                 .flex_1()

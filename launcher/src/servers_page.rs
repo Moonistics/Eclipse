@@ -30,7 +30,7 @@ const POLL_LIST: Duration = Duration::from_secs(3);
 /// Lines of the server's log kept on the page.
 const CONSOLE_KEEP: usize = 1000;
 
-const FACE: f32 = 28.;
+const FACE: f32 = ui::TILE_SM;
 
 const DELETE_CONTROLS: f32 = 260.;
 
@@ -133,7 +133,7 @@ impl Servers {
     }
 
     pub(super) fn is_up(&self, dir: &std::path::Path) -> bool {
-        self.statuses.get(dir).is_some_and(|s| s.phase == "running")
+        self.statuses.get(dir).is_some_and(Status::serving)
     }
 }
 
@@ -897,7 +897,7 @@ impl Launcher {
     }
 
     /// A player's face, from the default skin their UUID picks (the server knows no other).
-    pub(super) fn head(&mut self, uuid: &str, size: f32) -> Div {
+    pub(super) fn player_face(&mut self, uuid: &str, size: f32) -> Div {
         let resources = servers::game_files(&servers::runtime_root(), "26.3");
         let face = self
             .servers
@@ -930,7 +930,7 @@ impl Launcher {
     }
 
     /// A row's small button.
-    fn small(
+    fn player_action(
         &self,
         id: impl Into<SharedString>,
         label: &'static str,
@@ -1037,7 +1037,7 @@ impl Launcher {
                 .flex()
                 .flex_none()
                 .gap(px(space::SM))
-                .child(self.small(
+                .child(self.player_action(
                     format!("online-op-{}", p.name),
                     if op {
                         "Remove operator"
@@ -1051,14 +1051,14 @@ impl Launcher {
                         this.server_command("Changing operators", vec![verb.into(), n1.clone()]);
                     },
                 ))
-                .child(self.small(
+                .child(self.player_action(
                     format!("online-kick-{}", p.name),
                     "Kick",
                     running,
                     cx,
                     move |this| this.api_command(format!("kick {n2}")),
                 ))
-                .child(self.small(
+                .child(self.player_action(
                     format!("online-ban-{}", p.name),
                     "Ban",
                     running,
@@ -1073,7 +1073,7 @@ impl Launcher {
                 (true, None) => Some(tr("Operator").to_string()),
                 (false, ping) => ping,
             };
-            let face = self.head(&p.uuid, FACE);
+            let face = self.player_face(&p.uuid, FACE);
             online = online.child(self.static_row(
                 Some(face),
                 p.name.clone(),
@@ -1165,26 +1165,30 @@ impl Launcher {
             let op = is_op(&name);
             let listed = whitelist.iter().any(|(n, _)| n == &name);
             let (n1, n2) = (name.clone(), name.clone());
-            let mut actions = div()
-                .flex()
-                .flex_none()
-                .gap(px(space::SM))
-                .child(self.small(
-                    format!("allowed-op-{name}"),
-                    if op {
-                        "Remove operator"
-                    } else {
-                        "Make operator"
-                    },
-                    idle,
-                    cx,
-                    move |this| {
-                        let verb = if op { "deop" } else { "op" };
-                        this.server_command("Changing operators", vec![verb.into(), n1.clone()]);
-                    },
-                ));
+            let mut actions =
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap(px(space::SM))
+                    .child(self.player_action(
+                        format!("allowed-op-{name}"),
+                        if op {
+                            "Remove operator"
+                        } else {
+                            "Make operator"
+                        },
+                        idle,
+                        cx,
+                        move |this| {
+                            let verb = if op { "deop" } else { "op" };
+                            this.server_command(
+                                "Changing operators",
+                                vec![verb.into(), n1.clone()],
+                            );
+                        },
+                    ));
             if listed {
-                actions = actions.child(self.small(
+                actions = actions.child(self.player_action(
                     format!("allowed-remove-{name}"),
                     "Remove",
                     idle,
@@ -1200,7 +1204,7 @@ impl Launcher {
             let face = if uuid.is_empty() {
                 div().size(px(FACE)).flex_none()
             } else {
-                self.head(&uuid, FACE)
+                self.player_face(&uuid, FACE)
             };
             let about = match (op, listed) {
                 (true, true) => Some(tr("Operator: can run every command").to_string()),
@@ -1237,10 +1241,13 @@ impl Launcher {
             let mut list = div().flex().flex_col();
             for name in banned {
                 let n = name.clone();
-                let unban =
-                    self.small(format!("unban-{name}"), "Unban", running, cx, move |this| {
-                        this.api_command(format!("pardon {n}"))
-                    });
+                let unban = self.player_action(
+                    format!("unban-{name}"),
+                    "Unban",
+                    running,
+                    cx,
+                    move |this| this.api_command(format!("pardon {n}")),
+                );
                 list =
                     list.child(self.static_row(None, name, None, Some(unban.into_any_element())));
             }
@@ -1260,7 +1267,7 @@ impl Launcher {
     }
 
     /// A row of the settings form: a name, one line on it, and its control.
-    fn setting_row(&self, name: &str, about: String, control: AnyElement) -> Div {
+    fn server_setting_row(&self, name: &str, about: String, control: AnyElement) -> Div {
         self.setting_row_checked(name, about, None, control)
     }
 
@@ -1283,7 +1290,7 @@ impl Launcher {
         )
     }
 
-    fn switch_row(
+    fn server_switch_row(
         &self,
         id: &'static str,
         name: &'static str,
@@ -1294,7 +1301,7 @@ impl Launcher {
         let Some(press) = press else {
             let switch = ui::disabled(ui::toggle(id, on));
             return self
-                .setting_row(name, about, switch.into_any_element())
+                .server_setting_row(name, about, switch.into_any_element())
                 .into_any_element();
         };
         ui::toggle_row(
@@ -1308,7 +1315,7 @@ impl Launcher {
     }
 
     /// − value + for a number setting within `range`.
-    fn stepper(
+    fn server_stepper(
         &self,
         key: &'static str,
         range: std::ops::RangeInclusive<i64>,
@@ -1321,7 +1328,7 @@ impl Launcher {
         })
     }
 
-    fn choice(
+    fn server_segments(
         &self,
         id: &'static str,
         key: &'static str,
@@ -1406,7 +1413,7 @@ impl Launcher {
             .child(save("port-save", Field::ServerPort, cx))
             .into_any_element();
         let pvp_known = self.servers.pvp.filter(|_| running);
-        let pvp = self.switch_row(
+        let pvp = self.server_switch_row(
             "pvp",
             "Players can hurt each other (PvP)",
             if running {
@@ -1438,7 +1445,7 @@ impl Launcher {
         } else {
             tr("Used from the next start.")
         };
-        let accounts = self.switch_row(
+        let accounts = self.server_switch_row(
             "online-mode",
             "Require Microsoft sign-in",
             if accounts {
@@ -1462,35 +1469,35 @@ impl Launcher {
             .flex()
             .flex_col()
             .mx(px(-ui::SETTING_ROW_PADDING))
-            .child(self.setting_row("Message in the server list", later.into(), motd))
-            .child(self.setting_row(
+            .child(self.server_setting_row("Message in the server list", later.into(), motd))
+            .child(self.server_setting_row(
                 "Game mode",
                 format!("{} {live}", tr("For players who join for the first time.")),
-                self.choice("set-mode", "world.game_mode", &MODES, cx),
+                self.server_segments("set-mode", "world.game_mode", &MODES, cx),
             ))
-            .child(self.setting_row(
+            .child(self.server_setting_row(
                 "Difficulty",
                 live.into(),
-                self.choice("set-difficulty", "world.difficulty", &DIFFICULTIES, cx),
+                self.server_segments("set-difficulty", "world.difficulty", &DIFFICULTIES, cx),
             ))
             .child(pvp)
-            .child(self.setting_row(
+            .child(self.server_setting_row(
                 "Max players",
                 format!("{} {later}", tr("Operators can always join.")),
-                self.stepper("server.max_players", 1..=100, cx),
+                self.server_stepper("server.max_players", 1..=100, cx),
             ))
-            .child(self.setting_row(
+            .child(self.server_setting_row(
                 "View distance",
                 format!("{} {later}", tr("In chunks, 2 to 32. Lower runs lighter.")),
-                self.stepper("server.view_distance", 2..=32, cx),
+                self.server_stepper("server.view_distance", 2..=32, cx),
             ))
-            .child(self.setting_row(
+            .child(self.server_setting_row(
                 "Simulation distance",
                 format!(
                     "{} {later}",
                     tr("How far from players crops grow and mobs move, in chunks.")
                 ),
-                self.stepper("server.simulation_distance", 2..=32, cx),
+                self.server_stepper("server.simulation_distance", 2..=32, cx),
             ))
             .child(
                 self.setting_row_checked(
@@ -1568,8 +1575,7 @@ impl Launcher {
                 tr("Delete server…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
-            )
-            .text_color(ui::danger());
+            );
             let delete = if ready {
                 delete.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = Some(Asking::ServerDelete);
@@ -1587,7 +1593,7 @@ impl Launcher {
                     .text_align(gpui::TextAlign::Right),
             );
         }
-        self.setting_row(
+        self.server_setting_row(
             "Delete server",
             tr("Remove this server from Eclipse and move its worlds, settings and backups to the trash.").into(),
             controls.into_any_element(),
@@ -1598,7 +1604,7 @@ impl Launcher {
     fn background_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let on = self.servers.service.unwrap_or(false);
         let idle = self.servers.busy.is_none() && self.servers.service.is_some();
-        self.switch_row(
+        self.server_switch_row(
             "background",
             "Run in the background and at login",
             if on {
@@ -1721,14 +1727,14 @@ impl Launcher {
             .flex()
             .flex_col()
             .mx(px(-ui::SETTING_ROW_PADDING))
-            .child(self.setting_row("Eclipse version", about, control.into_any_element()));
+            .child(self.server_setting_row("Eclipse version", about, control.into_any_element()));
         if self.servers.setting("updates", "keep").is_some() {
-            rows = rows.child(self.setting_row(
+            rows = rows.child(self.server_setting_row(
                 "Older versions kept",
                 tr("Downloaded versions kept besides the one in use and the one an update can go back \
                  to.")
                     .into(),
-                self.stepper("updates.keep", 0..=5, cx),
+                self.server_stepper("updates.keep", 0..=5, cx),
             ));
         }
         div()

@@ -413,7 +413,6 @@
   "Star on GitHub": "Dar unha estrela en GitHub",
   "Up to date: {instance} plays these mods.": "Actualizado: {instance} reproduce estas modificacións.",
   "On this computer": "Neste ordenador",
-  "Needs preparing": "Necesita preparación",
   "Alpha": "Alfa",
   "{count} lines, the game is running": "{count} liñas, o xogo está a funcionar",
   "from GitHub: {source}": "de GitHub: {source}",
@@ -662,7 +661,6 @@
   "New world": "Novo mundo",
   "New world, seed {seed}": "Mundo novo, semente {seed}",
   "No worlds yet": "Aínda non hai mundos",
-  "Tick the EULA box to create the server.": "Marque a caixa EULA para crear o servidor.",
   "Who can join": "Quen pode unirse",
   "World": "mundo",
   "{count} worlds to pick from": "{count} mundos para escoller",
@@ -1023,5 +1021,15 @@
   "No Eclipse modpacks yet": "No Eclipse modpacks yet",
   "No Eclipse resource packs yet": "No Eclipse resource packs yet",
   "No Eclipse shader packs yet": "No Eclipse shader packs yet",
-  "No Eclipse data packs yet": "No Eclipse data packs yet"
+  "No Eclipse data packs yet": "No Eclipse data packs yet",
+  "Agree to the Minecraft EULA to create the server.": "Agree to the Minecraft EULA to create the server.",
+  "Close the game first": "Close the game first",
+  "Commands": "Commands",
+  "Eclipse's own instance can't be deleted": "Eclipse's own instance can't be deleted",
+  "Not prepared": "Not prepared",
+  "Paste a friend's invite code first": "Paste a friend's invite code first",
+  "Prepare the game files to play": "Prepare the game files to play",
+  "Restoring": "Restoring",
+  "Copying the game files": "Copying the game files",
+  "Moving server to trash": "Moving server to trash"
 }

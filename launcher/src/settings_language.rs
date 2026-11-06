@@ -6,8 +6,6 @@ use crate::menus::Menu;
 use crate::ui;
 use eclipse_launcher::i18n::Language;
 
-const LIST_MAX: f32 = 360.;
-
 /// What the dropdown shows for a choice: the system's, in the launcher's language with the
 /// language it follows, or a language's name in itself (never through the table: a table entry
 /// for "English" would rename the very entry a player looks for).
@@ -32,15 +30,10 @@ impl Launcher {
 
     /// The list: a popover like the others, its rows scrolling past ten.
     fn language_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut rows = div()
-            .id("language-list")
-            .flex()
-            .flex_col()
-            .max_h(px(LIST_MAX))
-            .overflow_y_scroll();
+        let mut menu = self.menu_popover("language-menu", cx);
         for choice in std::iter::once(None).chain(Language::ALL.map(Some)) {
             let id = choice.map_or("system", Language::code);
-            rows = rows.child(
+            menu = menu.child(
                 ui::pick_row(
                     format!("language-pick-{id}"),
                     choice_name(choice),
@@ -51,45 +44,21 @@ impl Launcher {
                 ),
             );
         }
-        // A solid backing: the backdrop doesn't paint under a popover whose rows scroll (seen on
-        // the desktop run), and the rows must stay legible.
-        let menu = ui::popover("language-menu")
-            .bg(ui::surface_colour(ui::Surface::Float))
-            .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                this.close_menu();
-                this.menu_closed_at = Some(event.position);
-                cx.notify();
-            }))
-            .child(rows);
-        // Anchored by its top right under the picker; it opens upwards instead when the window
-        // has no room below for it.
-        gpui::deferred(
-            div()
-                .absolute()
-                .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
-                .right_0()
-                .child(gpui::anchored().anchor(gpui::Anchor::TopRight).child(menu)),
-        )
-        .with_priority(1)
+        ui::menu_under(ui::ButtonSize::Md.height(), ui::Align::End, menu)
     }
 
     pub(super) fn language_row(&self, cx: &mut Context<Self>) -> Div {
-        let mut wrap = div().relative().child(
-            ui::dropdown(
-                "language-picker",
-                None,
-                choice_name(self.settings.language),
-                self.menu_is(&Menu::Language),
-                ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
-                if this.closed_by_this_press(event) {
-                    return;
-                }
-                this.toggle_menu(Menu::Language, window, cx);
-                cx.notify();
-            })),
+        let picker = ui::dropdown(
+            "language-picker",
+            tr("Language"),
+            None,
+            choice_name(self.settings.language),
+            self.menu_is(&Menu::Language),
+            ui::ButtonSize::Md,
         );
+        let mut wrap = div()
+            .relative()
+            .child(self.menu_opener(picker, Menu::Language, cx));
         if self.menu_is(&Menu::Language) {
             wrap = wrap.child(self.language_list(cx));
         }

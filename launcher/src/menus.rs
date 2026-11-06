@@ -64,6 +64,39 @@ impl Launcher {
         if self.open_menu.is_some() {
             self.opened_menu(window, cx);
         }
+        if self.menu_is(&Menu::Account) {
+            self.accounts = Accounts::load();
+            self.load_profile_heads();
+        }
+    }
+
+    pub(super) fn menu_opener(
+        &self,
+        el: Stateful<Div>,
+        menu: Menu,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        el.aria_expanded(self.menu_is(&menu)).on_press(cx.listener(
+            move |this, event: &ClickEvent, window, cx| {
+                cx.stop_propagation();
+                if !this.closed_by_this_press(event) {
+                    this.toggle_menu(menu.clone(), window, cx);
+                }
+                cx.notify();
+            },
+        ))
+    }
+
+    pub(super) fn menu_popover(
+        &self,
+        id: impl Into<SharedString>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        ui::popover(id).on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
+            this.close_menu();
+            this.menu_closed_at = Some(event.position);
+            cx.notify();
+        }))
     }
 
     pub(super) fn mod_detail_floats(&self) -> bool {
@@ -112,8 +145,7 @@ impl Launcher {
         let Some(opener) = self.menu_opener.take() else {
             return;
         };
-        let lost = window.focused(cx).is_none()
-            || ui::menu_focus().is_some_and(|m| m.contains_focused(window, cx));
+        let lost = window.focused(cx).is_none() || ui::menu_focus().contains_focused(window, cx);
         if lost {
             window.focus(&opener, cx);
         }
@@ -128,14 +160,30 @@ impl Launcher {
         let k = &ev.keystroke;
         match k.key.as_str() {
             "tab" => {
-                if k.modifiers.shift {
-                    window.focus_prev(cx);
-                } else {
-                    window.focus_next(cx);
+                if self.open_menu.is_some() {
+                    self.close_menu();
+                    if let Some(opener) = self.menu_opener.take() {
+                        window.focus(&opener, cx);
+                    }
+                }
+                if !ui::modal_tab(k.modifiers.shift, window, cx) {
+                    if k.modifiers.shift {
+                        window.focus_prev(cx);
+                    } else {
+                        window.focus_next(cx);
+                    }
                 }
             }
+            "f6" if ui::modal_open() => {}
             "f6" => {
-                let to_sidebar = k.modifiers.shift;
+                self.close_menus();
+                let in_content = self.content_focus.contains_focused(window, cx);
+                let in_side = self.side_focus.contains_focused(window, cx);
+                let to_sidebar = if in_content || in_side {
+                    in_content
+                } else {
+                    k.modifiers.shift
+                };
                 let region = if to_sidebar {
                     &self.side_focus
                 } else {
@@ -150,6 +198,9 @@ impl Launcher {
                 }
             }
             "escape" if self.confirm_escape() => {}
+            "escape" if self.page == Page::Mods && self.mods.browse.show_filters => {
+                self.mods.browse.show_filters = false;
+            }
             "escape" if self.native_log_escape() => {}
             "escape" if self.servers_escape() => {}
             "escape" if self.instance_escape() => {}
@@ -171,9 +222,9 @@ impl Launcher {
             f == self.root_focus || f == self.content_focus || f == self.side_focus
         });
         let pane = match self.page {
-            Page::Settings => &self.settings_pane,
+            Page::Settings => &self.settings_pane.handle,
             Page::InstanceEditor => match &self.instances.draft {
-                Some(d) => &d.scroll,
+                Some(d) => &d.scroll.handle,
                 None => &self.content_scroll.handle,
             },
             _ => &self.content_scroll.handle,

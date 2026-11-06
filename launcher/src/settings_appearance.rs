@@ -16,6 +16,7 @@ const CHIP: f32 = 24.;
 /// The hue strip under the swatches, in points: 0 to 360 degrees across it.
 const STRIP: f32 = 212.;
 const HUE_MARK: f32 = 3.;
+const HUE_KEY_STEP: f32 = 5.;
 
 impl Launcher {
     /// The theme Settings ask for, under the window's own light or dark: the player's look,
@@ -119,8 +120,14 @@ impl Launcher {
                     })),
             )
             .child(
-                self.field(Field::AccentHex, "#f5a524", 96., ui::ButtonSize::Md, cx)
-                    .ml(px(space::XS)),
+                self.field(
+                    Field::AccentHex,
+                    format!("#{:06x}", eclipse_theme::glass::ACCENT),
+                    96.,
+                    ui::ButtonSize::Md,
+                    cx,
+                )
+                .ml(px(space::XS)),
             );
         let control = div()
             .flex()
@@ -198,13 +205,30 @@ impl Launcher {
     }
 
     /// A strip of every hue: a click or a drag picks any of them, the swatches being shortcuts.
-    fn hue_strip(&self, cx: &mut Context<Self>) -> Div {
+    fn hue_strip(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let current = self.settings.accent.hue();
         let area = self.hue_area.clone();
         let ink = ui::white(eclipse_theme::glass::ink::FULL);
         // Hues per painted quad: 60 of them, fine enough at this width.
         const STEPS: usize = 60;
-        div()
+        let strip = div()
+            .id("accent-hue")
+            .role(gpui::Role::Slider)
+            .aria_label(tr("Accent colour"))
+            .aria_min_numeric_value(0.)
+            .aria_max_numeric_value(360.)
+            .when_some(current, |d, hue| d.aria_numeric_value(f64::from(hue)));
+        ui::focus_stop(strip)
+            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
+                let by = match ev.keystroke.key.as_str() {
+                    "left" | "down" => -HUE_KEY_STEP,
+                    "right" | "up" => HUE_KEY_STEP,
+                    _ => return,
+                };
+                this.step_hue(by);
+                cx.stop_propagation();
+                cx.notify();
+            }))
             .relative()
             .flex_none()
             .w(px(STRIP))
@@ -287,6 +311,13 @@ impl Launcher {
 
     /// The hue under the pointer, as the accent. Saving waits until the mouse comes up, so a drag
     /// writes `settings.json` once. A move that stays on the same degree changes nothing.
+    fn step_hue(&mut self, by: f32) {
+        let hue = self.settings.accent.hue().unwrap_or(0.);
+        self.settings.accent = Accent::custom((hue + by).rem_euclid(360.));
+        self.save_settings();
+        self.restyle = true;
+    }
+
     fn pick_hue(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
         let Some(area) = self.hue_area.get() else {
             return;

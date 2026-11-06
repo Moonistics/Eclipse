@@ -283,19 +283,12 @@ impl Launcher {
                         )),
                     )
                     .child(
-                        ui::button(
-                            remove_id,
-                            None,
-                            tr("Remove…"),
-                            ButtonKind::Secondary,
-                            ui::ButtonSize::Md,
-                        )
-                        .on_press(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
+                        ui::remove_button(remove_id, tr("Remove…"), ui::ButtonSize::Md).on_press(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.asking = Some(key.clone());
                                 cx.notify();
-                            },
-                        )),
+                            }),
+                        ),
                     )
             };
             let detail = trf(
@@ -306,7 +299,6 @@ impl Launcher {
                 ui::list_row(
                     SharedString::from(format!("registry-pack-{}", p.id)),
                     confirming,
-                    |_, _, _| {},
                 )
                 .child(ui::item_text(p.name.clone(), detail))
                 .child(right),
@@ -528,54 +520,51 @@ impl Launcher {
                 }
             },
         );
-        let row = |i: usize| {
-            let r = rows[i];
-            let (tone, status_label) = match r.status {
-                Status::Ported => (ui::Tone::Live, tr("Ported")),
-                Status::Partial => (ui::Tone::Accent(ui::look().accent_soft), tr("Partial")),
-                Status::NotYet => (ui::Tone::Warn, tr("Not yet")),
-                Status::NotNeeded => (ui::Tone::Off, tr("Not needed")),
+        let row =
+            |i: usize| {
+                let r = rows[i];
+                let (tone, status_label) = match r.status {
+                    Status::Ported => (ui::Tone::Live, tr("Ported")),
+                    Status::Partial => (ui::Tone::Accent(ui::look().accent_soft), tr("Partial")),
+                    Status::NotYet => (ui::Tone::Warn, tr("Not yet")),
+                    Status::NotNeeded => (ui::Tone::Off, tr("Not needed")),
+                };
+                let name = if r.name.is_empty() || r.name == r.key {
+                    r.key.clone()
+                } else {
+                    format!("{}  ({})", r.name, r.key)
+                };
+                // What it means in plain words, then the technical terms for modders. A report an
+                // older build wrote has no plain words.
+                let technical = format!("{} · {} · {}: {}", r.class, r.tier, r.license, r.reason);
+                let mut text = div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(space::XXS))
+                    .child(
+                        ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                            .truncate()
+                            .child(name),
+                    );
+                if !r.plain.is_empty() {
+                    text = text.child(
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                            .child(modpacks::row_plain(r)),
+                    );
+                }
+                ui::list_row(SharedString::from(format!("pack-row-{}", r.key)), false)
+                    .items_start()
+                    .child(text.child(
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(technical),
+                    ))
+                    .child(
+                        ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
+                            .flex_none()
+                            .child(ui::state_line(tone, status_label)),
+                    )
             };
-            let name = if r.name.is_empty() || r.name == r.key {
-                r.key.clone()
-            } else {
-                format!("{}  ({})", r.name, r.key)
-            };
-            // What it means in plain words, then the technical terms for modders. A report an
-            // older build wrote has no plain words.
-            let technical = format!("{} · {} · {}: {}", r.class, r.tier, r.license, r.reason);
-            let mut text = div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .gap(px(space::XXS))
-                .child(
-                    ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
-                        .truncate()
-                        .child(name),
-                );
-            if !r.plain.is_empty() {
-                text = text.child(
-                    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-                        .child(modpacks::row_plain(r)),
-                );
-            }
-            ui::list_row(
-                SharedString::from(format!("pack-row-{}", r.key)),
-                false,
-                |_, _, _| {},
-            )
-            .items_start()
-            .child(
-                text.child(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(technical)),
-            )
-            .child(
-                ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
-                    .flex_none()
-                    .child(ui::state_line(tone, status_label)),
-            )
-        };
         let headline = p.headline();
         let list = self.mods.report_list.column(
             &self.content_scroll.handle,

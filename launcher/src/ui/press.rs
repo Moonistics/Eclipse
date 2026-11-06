@@ -1,12 +1,13 @@
 use super::{color, light, look, tip_body};
+use crate::scrollbar::Scrollbar;
 use eclipse_theme::glass::{PAGE, PAPER};
 use gpui::{
     canvas, deferred, div, point, prelude::*, px, AnyElement, App, Bounds, ClickEvent, Div,
-    FocusHandle, KeyDownEvent, KeyUpEvent, Pixels, ScrollEvent, ScrollHandle, SharedString,
-    Stateful, StyleRefinement, Window,
+    Element, FocusHandle, KeyDownEvent, KeyUpEvent, Pixels, Role, ScrollEvent, ScrollHandle,
+    SharedString, Stateful, StyleRefinement, Window,
 };
 use std::cell::{Cell, RefCell};
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::rc::Rc;
 
 const REVEAL_MARGIN: f32 = 24.;
@@ -19,19 +20,39 @@ const INSET_RING: f32 = 2.;
 
 const TIP_GAP: f32 = 6.;
 
+const SPARE_HANDLES: usize = 32;
+
+const PAGE_STEP: usize = 8;
+
+const TYPE_AHEAD: std::time::Duration = std::time::Duration::from_millis(900);
+
 thread_local! {
     static SPOTS: RefCell<Vec<Rc<RefCell<Spot>>>> = const { RefCell::new(Vec::new()) };
-    static LISTS: RefCell<HashMap<SharedString, ScrollHandle>> = RefCell::default();
+    static LISTS: RefCell<HashMap<SharedString, Scrollbar>> = RefCell::default();
     static FOCUS_TIP: RefCell<Option<(SharedString, Bounds<Pixels>, FocusHandle)>> =
         const { RefCell::new(None) };
-    static MENU: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
     static MENU_OPENING: Cell<bool> = const { Cell::new(false) };
+    static HANDLES: RefCell<HashMap<SharedString, FocusHandle>> = RefCell::default();
+    static SPARE: RefCell<Vec<FocusHandle>> = const { RefCell::new(Vec::new()) };
+    static FOCUSED: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
+    static KEYBOARD: Cell<bool> = const { Cell::new(false) };
+    static MODALS: RefCell<Modals> = RefCell::default();
+    static CURSORS: RefCell<HashMap<SharedString, usize>> = RefCell::default();
+    static REVEAL_SOON: RefCell<HashSet<SharedString>> = RefCell::default();
+    static TYPED: RefCell<(String, Option<std::time::Instant>)> = RefCell::default();
+}
+
+#[derive(Default)]
+struct Modals {
+    shown: Vec<SharedString>,
+    last: Vec<SharedString>,
+    openers: HashMap<SharedString, FocusHandle>,
 }
 
 #[derive(Default)]
 struct Spot {
     bounds: Bounds<Pixels>,
-    panes: Vec<ScrollHandle>,
+    panes: Vec<(ScrollHandle, Pixels)>,
 }
 
 pub(super) fn forget_spots() {
@@ -43,49 +64,230 @@ pub trait Press: Sized {
 }
 
 impl Press for Stateful<Div> {
-    fn on_press(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        let filled = self
-            .interactivity()
-            .base_style
-            .background
-            .as_ref()
-            .and_then(gpui::Fill::color)
-            .and_then(|fill| fill.as_solid())
-            .is_some_and(|c| c.a >= 1.);
-        let el = self.tab_index(0).on_click(f);
-        let el = if filled {
-            el.focus_visible(ring)
-        } else {
-            el.focus_visible(inset_ring)
-        };
-        reveal_on_tab(el)
+    fn on_press(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        focus_stop(self).on_click(f)
     }
+}
+
+pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
+    let filled = el
+        .interactivity()
+        .base_style
+        .background
+        .as_ref()
+        .and_then(gpui::Fill::color)
+        .and_then(|fill| fill.as_solid())
+        .is_some_and(|c| c.a >= 1.);
+    let el = if el.a11y_role().is_none() {
+        el.role(Role::Button)
+    } else {
+        el
+    };
+    let el = el.tab_index(0);
+    let el = if filled {
+        el.focus_visible(ring)
+    } else {
+        el.focus_visible(inset_ring)
+    };
+    reveal_on_tab(el)
+}
+
+pub(super) fn note_focus(window: &Window, cx: &mut App) {
+    FOCUSED.set(window.focused(cx));
+    KEYBOARD.set(window.last_input_was_keyboard());
+    SPARE.with_borrow_mut(|spare| {
+        while spare.len() < SPARE_HANDLES {
+            spare.push(cx.focus_handle().tab_index(0).tab_stop(true));
+        }
+    });
+    MODALS.with_borrow_mut(|m| m.last = std::mem::take(&mut m.shown));
+}
+
+pub fn focus_for(key: impl Into<SharedString>) -> FocusHandle {
+    let key = key.into();
+    HANDLES.with_borrow_mut(|handles| {
+        handles
+            .entry(key)
+            .or_insert_with(|| {
+                SPARE
+                    .with_borrow_mut(Vec::pop)
+                    .expect("a spare focus handle each frame")
+            })
+            .clone()
+    })
+}
+
+pub fn has_focus(handle: &FocusHandle) -> bool {
+    FOCUSED.with_borrow(|f| f.as_ref() == Some(handle))
+}
+
+pub fn keyboard_focus(handle: &FocusHandle) -> bool {
+    KEYBOARD.get() && has_focus(handle)
 }
 
 pub fn reveal_on_tab(el: Stateful<Div>) -> Stateful<Div> {
     let spot: Rc<RefCell<Spot>> = Rc::default();
-    let seen = spot.clone();
-    el.child(measure(move |bounds| {
-        *seen.borrow_mut() = Spot {
+    el.child(spot_measure(spot.clone()))
+        .on_key_up(move |ev: &KeyUpEvent, window, cx| {
+            if ev.keystroke.key != "tab" {
+                return;
+            }
+            reveal_spot(&spot, window);
+            cx.stop_propagation();
+        })
+}
+
+fn spot_measure(spot: Rc<RefCell<Spot>>) -> impl IntoElement {
+    measure(move |bounds| {
+        *spot.borrow_mut() = Spot {
             bounds,
             panes: Vec::new(),
         };
-        SPOTS.with_borrow_mut(|spots| spots.push(seen));
-    }))
-    .on_key_up(move |ev: &KeyUpEvent, window, cx| {
-        if ev.keystroke.key != "tab" {
-            return;
-        }
-        let spot = spot.borrow();
-        let mut bounds = spot.bounds;
-        for pane in &spot.panes {
-            let before = pane.offset().y;
-            reveal(pane, bounds);
-            bounds.origin.y += pane.offset().y - before;
-            window.refresh();
-        }
-        cx.stop_propagation();
+        SPOTS.with_borrow_mut(|spots| spots.push(spot));
     })
+}
+
+fn reveal_spot(spot: &Rc<RefCell<Spot>>, window: &mut Window) {
+    let spot = spot.borrow();
+    let mut bounds = spot.bounds;
+    for (pane, measured_at) in &spot.panes {
+        bounds.origin.y += pane.offset().y - *measured_at;
+        let before = pane.offset().y;
+        reveal(pane, bounds);
+        bounds.origin.y += pane.offset().y - before;
+        window.refresh();
+    }
+}
+
+pub fn options(
+    mut list: Stateful<Div>,
+    rows: Vec<(Stateful<Div>, SharedString, bool)>,
+    follow: bool,
+    on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    let id = match list.interactivity().element_id.clone() {
+        Some(gpui::ElementId::Name(id)) => id,
+        _ => SharedString::from("options"),
+    };
+    let handle = focus_for(format!("options-{id}"));
+    let count = rows.len();
+    let labels: Vec<SharedString> = rows.iter().map(|r| r.1.clone()).collect();
+    let first = rows.iter().position(|r| r.2);
+    let kept = CURSORS.with_borrow(|c| c.get(&id).copied());
+    let cursor = if follow {
+        first.or(kept)
+    } else {
+        kept.or(first)
+    }
+    .unwrap_or(0)
+    .min(count.saturating_sub(1));
+    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), cursor));
+    let ringed = keyboard_focus(&handle);
+    let on_pick = Rc::new(on_pick);
+    let rows = rows.into_iter().enumerate().map(|(i, (row, label, on))| {
+        let (pick, key) = (on_pick.clone(), id.clone());
+        let row = row
+            .role(Role::ListBoxOption)
+            .aria_label(label)
+            .aria_selected(on)
+            .aria_position_in_set(i + 1)
+            .aria_size_of_set(count)
+            .cursor_pointer()
+            .on_click(move |_, window, cx| {
+                CURSORS.with_borrow_mut(|c| c.insert(key.clone(), i));
+                pick(i, window, cx);
+            });
+        if i != cursor {
+            return row;
+        }
+        let spot: Rc<RefCell<Spot>> = Rc::default();
+        let (seen, list) = (spot.clone(), id.clone());
+        row.child(spot_measure(spot))
+            .child(canvas(
+                move |_, window, _| {
+                    if REVEAL_SOON.with_borrow_mut(|r| r.remove(&list)) {
+                        window.on_next_frame(move |window, _| reveal_spot(&seen, window));
+                        window.request_animation_frame();
+                    }
+                },
+                |_, _, _, _| {},
+            ))
+            .when(ringed, |r| {
+                r.shadow(inset_shadow()).aria_active_descendant()
+            })
+    });
+    let key = id.clone();
+    let focus = handle.clone();
+    reveal_on_tab(
+        list.track_focus(&handle)
+            .role(Role::ListBox)
+            .children(rows)
+            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+                window.focus(&focus, cx)
+            })
+            .on_key_down(move |ev: &KeyDownEvent, window, cx| {
+                if count == 0 {
+                    return;
+                }
+                let k = &ev.keystroke;
+                let last = count - 1;
+                let cursor = CURSORS
+                    .with_borrow(|c| c.get(&key).copied())
+                    .unwrap_or(cursor)
+                    .min(last);
+                let to = match k.key.as_str() {
+                    "up" | "left" => cursor.saturating_sub(1),
+                    "down" | "right" => (cursor + 1).min(last),
+                    "pageup" => cursor.saturating_sub(PAGE_STEP),
+                    "pagedown" => (cursor + PAGE_STEP).min(last),
+                    "home" => 0,
+                    "end" => last,
+                    "space" | "enter" => {
+                        on_pick(cursor, window, cx);
+                        cx.stop_propagation();
+                        return;
+                    }
+                    _ => match typed_match(k, &labels, cursor) {
+                        Some(at) => at,
+                        None => return,
+                    },
+                };
+                CURSORS.with_borrow_mut(|c| c.insert(key.clone(), to));
+                REVEAL_SOON.with_borrow_mut(|r| r.insert(key.clone()));
+                if follow && to != cursor {
+                    on_pick(to, window, cx);
+                }
+                window.refresh();
+                cx.stop_propagation();
+            }),
+    )
+}
+
+fn typed_match(k: &gpui::Keystroke, labels: &[SharedString], cursor: usize) -> Option<usize> {
+    let m = &k.modifiers;
+    if m.control || m.alt || m.platform {
+        return None;
+    }
+    let typed = k.key_char.as_deref().filter(|c| c.chars().count() == 1)?;
+    if typed.trim().is_empty() {
+        return None;
+    }
+    let prefix = TYPED.with_borrow_mut(|(buffer, at)| {
+        if at.is_none_or(|at| at.elapsed() > TYPE_AHEAD) {
+            buffer.clear();
+        }
+        buffer.push_str(&typed.to_lowercase());
+        *at = Some(std::time::Instant::now());
+        buffer.clone()
+    });
+    let start = if prefix.chars().count() == 1 {
+        cursor + 1
+    } else {
+        cursor
+    };
+    (0..labels.len())
+        .map(|step| (start + step) % labels.len())
+        .find(|&i| labels[i].to_lowercase().starts_with(&prefix))
 }
 
 fn shadow(color: gpui::Hsla, spread: f32, inset: bool) -> gpui::BoxShadow {
@@ -109,8 +311,12 @@ fn ring(s: StyleRefinement) -> StyleRefinement {
     ])
 }
 
-fn inset_ring(s: StyleRefinement) -> StyleRefinement {
-    s.shadow(vec![shadow(color(look().accent_soft), INSET_RING, true)])
+pub(super) fn inset_ring(s: StyleRefinement) -> StyleRefinement {
+    s.shadow(inset_shadow())
+}
+
+fn inset_shadow() -> Vec<gpui::BoxShadow> {
+    vec![shadow(color(look().accent_soft), INSET_RING, true)]
 }
 
 pub fn gap_ring(s: StyleRefinement) -> StyleRefinement {
@@ -145,7 +351,7 @@ pub fn scroll_pane(id: impl Into<SharedString>, handle: &ScrollHandle) -> Statef
                         && at.x <= view.right()
                         && children.iter().any(|child| child.contains(&at));
                     if inside {
-                        spot.panes.push(pane.clone());
+                        spot.panes.push((pane.clone(), offset.y));
                     }
                 }
             })
@@ -157,8 +363,16 @@ pub fn scroll_pane(id: impl Into<SharedString>, handle: &ScrollHandle) -> Statef
 
 pub fn nested_list(id: impl Into<SharedString>) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let handle = LISTS.with_borrow_mut(|l| l.entry(id.clone()).or_default().clone());
+    let handle = LISTS.with_borrow_mut(|l| l.entry(id.clone()).or_default().handle.clone());
     hand_back_at_ends(scroll_pane(id, &handle), &handle)
+}
+
+pub fn with_scrollbar(mut list: Stateful<Div>) -> Div {
+    let Some(gpui::ElementId::Name(id)) = list.interactivity().element_id.clone() else {
+        return div().child(list);
+    };
+    let bar = LISTS.with_borrow_mut(|l| l.entry(id).or_default().clone());
+    bar.wrap_nested(list)
 }
 
 pub fn hand_back_at_ends(pane: Stateful<Div>, handle: &ScrollHandle) -> Stateful<Div> {
@@ -174,7 +388,7 @@ pub fn hand_back_at_ends(pane: Stateful<Div>, handle: &ScrollHandle) -> Stateful
 }
 
 pub fn scroll_list_to(id: impl Into<SharedString>, index: usize) {
-    LISTS.with_borrow_mut(|l| l.entry(id.into()).or_default().scroll_to_item(index));
+    LISTS.with_borrow_mut(|l| l.entry(id.into()).or_default().handle.scroll_to_item(index));
 }
 
 fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
@@ -221,22 +435,24 @@ pub fn focus_tip(window: &Window) -> Option<AnyElement> {
     )
 }
 
-pub fn set_menu_focus(handle: FocusHandle) {
-    MENU.set(Some(handle));
+pub fn menu_focus() -> FocusHandle {
+    focus_for("menu")
 }
 
-pub fn menu_focus() -> Option<FocusHandle> {
-    MENU.with_borrow(|m| m.clone())
+fn menu_start() -> FocusHandle {
+    focus_for("menu-start")
 }
 
 pub fn menu_opened() {
     MENU_OPENING.set(true);
 }
 
+pub fn starts_menu(row: Stateful<Div>) -> Stateful<Div> {
+    row.track_focus(&menu_start())
+}
+
 pub(super) fn menu_keys(menu: Stateful<Div>) -> Stateful<Div> {
-    let Some(handle) = menu_focus() else {
-        return menu;
-    };
+    let handle = menu_focus();
     let opening = handle.clone();
     menu.track_focus(&handle)
         .tab_group()
@@ -244,7 +460,12 @@ pub(super) fn menu_keys(menu: Stateful<Div>) -> Stateful<Div> {
         .child(canvas(
             move |_, window, cx| {
                 if MENU_OPENING.take() {
-                    window.defer(cx, move |window, cx| first_row(&opening, window, cx));
+                    window.defer(cx, move |window, cx| {
+                        window.focus(&menu_start(), cx);
+                        if !opening.contains_focused(window, cx) {
+                            first_row(&opening, window, cx);
+                        }
+                    });
                 }
             },
             |_, _, _, _| {},
@@ -274,6 +495,89 @@ pub(super) fn menu_keys(menu: Stateful<Div>) -> Stateful<Div> {
 fn first_row(menu: &FocusHandle, window: &mut Window, cx: &mut App) {
     window.focus(menu, cx);
     window.focus_next(cx);
+}
+
+pub fn modal_focus(id: &SharedString) -> FocusHandle {
+    focus_for(format!("modal-{id}"))
+}
+
+pub(super) fn modal_keys(scope: Stateful<Div>, id: SharedString) -> Stateful<Div> {
+    let handle = modal_focus(&id);
+    let opened = MODALS.with_borrow_mut(|m| {
+        m.shown.push(id.clone());
+        let opened = !m.last.contains(&id);
+        if let Some(opener) = FOCUSED.with_borrow(Clone::clone).filter(|_| opened) {
+            m.openers.entry(id.clone()).or_insert(opener);
+        }
+        opened
+    });
+    let watch = handle.clone();
+    scope
+        .track_focus(&handle)
+        .tab_group()
+        .tab_stop(false)
+        .child(canvas(
+            move |_, window, cx| {
+                if opened {
+                    let watch = watch.clone();
+                    window.defer(cx, move |window, cx| {
+                        if !watch.contains_focused(window, cx) {
+                            first_row(&watch, window, cx);
+                        }
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        ))
+}
+
+pub fn modal_opened_from(id: impl Into<SharedString>, opener: Option<FocusHandle>) {
+    if let Some(opener) = opener {
+        MODALS.with_borrow_mut(|m| m.openers.insert(id.into(), opener));
+    }
+}
+
+pub fn modal_open() -> bool {
+    MODALS.with_borrow(|m| !m.shown.is_empty())
+}
+
+pub fn modal_tab(back: bool, window: &mut Window, cx: &mut App) -> bool {
+    let Some(top) = MODALS.with_borrow(|m| m.shown.last().cloned()) else {
+        return false;
+    };
+    let scope = modal_focus(&top);
+    if back {
+        window.focus_prev(cx);
+    } else {
+        window.focus_next(cx);
+    }
+    if !scope.contains_focused(window, cx) || scope.is_focused(window) {
+        if back {
+            last_row(&scope, window, cx);
+        } else {
+            first_row(&scope, window, cx);
+        }
+    }
+    true
+}
+
+pub(super) fn return_from_modals(window: &mut Window, cx: &mut App) {
+    let closed: Vec<_> = MODALS.with_borrow_mut(|m| {
+        let gone: Vec<_> = m
+            .last
+            .iter()
+            .filter(|id| !m.shown.contains(id))
+            .cloned()
+            .collect();
+        gone.into_iter()
+            .filter_map(|id| Some((modal_focus(&id), m.openers.remove(&id)?)))
+            .collect()
+    });
+    for (scope, opener) in closed {
+        if scope.contains_focused(window, cx) {
+            window.focus(&opener, cx);
+        }
+    }
 }
 
 fn last_row(menu: &FocusHandle, window: &mut Window, cx: &mut App) {

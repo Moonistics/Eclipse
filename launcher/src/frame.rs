@@ -1,36 +1,51 @@
 use super::*;
 use crate::home_head::game_line;
 use crate::menus::{Asking, Menu};
-use crate::ui::{self, white, Tone};
+use crate::ui::{self, Tone};
 use eclipse_launcher::account::Player;
 use eclipse_launcher::instances::{Icon, Instance, Kind as InstanceKind};
-use eclipse_theme::glass::{fill, ink, radius, space, step};
-use gpui::{anchored, canvas, deferred, point, ScrollHandle};
+use eclipse_theme::glass::{ink, space, step};
+use gpui::{canvas, point, ScrollHandle};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
 
-pub use crate::layout::SIDEBAR;
-
 const ACCOUNT_CHIP: f32 = 52.;
 const ACCOUNT_CHIP_SHORT: f32 = 44.;
-const ACCOUNT_TOP: f32 = 10.;
-const ACCOUNT_TOP_SHORT: f32 = 8.;
-const ACCOUNT_HEAD: f32 = 32.;
-const MENU_HEAD: f32 = 30.;
-const NAV_TOP: f32 = 14.;
-const NAV_TOP_SHORT: f32 = 8.;
-const NAV_GAP: f32 = 2.;
-const LIST_TOP: f32 = 18.;
-const LIST_TOP_SHORT: f32 = 6.;
-const GROUP_TOP: f32 = 16.;
-const GROUP_BOTTOM: f32 = 6.;
+const ACCOUNT_TOP: f32 = ui::SIDEBAR_PAD;
+const ACCOUNT_TOP_SHORT: f32 = space::SM;
+const ACCOUNT_HEAD: f32 = ui::TILE_MD;
+const MENU_HEAD: f32 = ui::TILE_SM;
+const NAV_TOP: f32 = space::MD + space::XXS;
+const NAV_TOP_SHORT: f32 = space::SM;
+const NAV_GAP: f32 = space::XXS;
+const LIST_TOP: f32 = space::LG + space::XXS;
+const LIST_TOP_SHORT: f32 = space::XS + space::XXS;
+const GROUP_TOP: f32 = space::LG;
+const GROUP_BOTTOM: f32 = space::XS + space::XXS;
 const ROW_TILE: f32 = ui::TILE_MD;
-const MORE_INSET: f32 = 6.;
-const WINDOW_MARGIN: f32 = 8.;
+const MORE_INSET: f32 = space::XXS;
 
 const LONE_LABEL_PEEK: f32 = 20.;
 const NAV_INSET: f32 = ui::SIDEBAR_INSET - ui::SIDEBAR_PAD - 1.;
+
+fn name_room(window: f32, row_end: f32) -> f32 {
+    layout::sidebar(window)
+        - 2. * (ui::SIDEBAR_PAD + ui::ROW_EDGE)
+        - NAV_INSET
+        - row_end
+        - ROW_TILE
+        - space::MD
+}
+
+fn nav_room(window: f32) -> f32 {
+    layout::sidebar(window)
+        - 2. * (ui::SIDEBAR_PAD + ui::ROW_EDGE + NAV_INSET)
+        - NAV_ICON
+        - space::MD
+}
+
+const NAV_ICON: f32 = 16.;
 
 fn account_chip(compact: bool) -> f32 {
     if compact {
@@ -148,7 +163,7 @@ impl Launcher {
                         Tone::Accent(ui::look().accent_soft),
                         tr("Update available").into(),
                     ),
-                    (None, Some(_), _) if !prepared => (Tone::Warn, tr("Needs preparing").into()),
+                    (None, Some(_), _) if !prepared => (Tone::Warn, tr("Not prepared").into()),
                     (None, Some(tag), _) if self.native_build_of(tag).is_some() => {
                         let build = self.native_build_of(tag).unwrap_or_default();
                         (
@@ -217,9 +232,13 @@ impl Launcher {
             let icon = self.instance_icon(&i, ROW_TILE);
             let clicked = i.clone();
             let open = self.menu_is(&Menu::InstanceRow(i.id.clone()));
-            let menu_id = i.id.clone();
             // A right click on the row opens the same menu the ⋯ does.
             let right_id = i.id.clone();
+            let (row_id, more_id): (SharedString, SharedString) = (
+                format!("side-instance-{}", i.id).into(),
+                format!("side-more-{}", i.id).into(),
+            );
+            let lit = current || open || ui::hover_is(&row_id) || ui::hover_is(&more_id);
             let more = div()
                 .absolute()
                 .top_0()
@@ -227,31 +246,30 @@ impl Launcher {
                 .right(px(MORE_INSET))
                 .flex()
                 .items_center()
-                .child(
-                    ui::more_button(
-                        format!("side-more-{}", i.id),
-                        trf("{name} options", &[("name", &i.name)]),
-                        ButtonKind::Ghost,
-                        ui::ButtonSize::Sm,
-                        open,
-                    )
-                    .on_press(cx.listener(
-                        move |this, event: &ClickEvent, window, cx| {
-                            cx.stop_propagation();
-                            if this.closed_by_this_press(event) {
-                                return;
-                            }
-                            this.toggle_menu(Menu::InstanceRow(menu_id.clone()), window, cx);
-                            cx.notify();
-                        },
-                    )),
-                );
+                .child(ui::shown_on_focus(
+                    self.menu_opener(
+                        ui::more_button(
+                            more_id,
+                            trf("{name} options", &[("name", &i.name)]),
+                            ButtonKind::Ghost,
+                            ui::ButtonSize::Sm,
+                            open,
+                        ),
+                        Menu::InstanceRow(i.id.clone()),
+                        cx,
+                    ),
+                    lit,
+                ));
+            let room = name_room(self.window_width, row_end);
+            let clipped = ui::text_width(&i.name, step::BODY)
+                .max(ui::DOT_ROOM + ui::text_width(&state.1, step::NOTE));
+            let full = format!("{} · {}", i.name, state.1);
             list = list.child(
                 div()
                     .relative()
                     .child(measure(&self.row_menu.rows, i.id.clone()))
                     .child(
-                        ui::row(format!("side-instance-{}", i.id), current)
+                        ui::tip_when_clipped(ui::side_row(row_id, current), full, clipped, room)
                             .pr(px(row_end))
                             .pl(px(NAV_INSET))
                             .child(div().relative().flex_none().child(icon))
@@ -365,12 +383,25 @@ impl Launcher {
         icon: &'static str,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        ui::nav_row(format!("nav-{page:?}"), icon, tr(label), self.page == page)
-            .px(px(NAV_INSET))
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.go(page);
-                cx.notify();
-            }))
+        let label = tr(label);
+        let row = ui::nav_row(
+            format!("nav-{page:?}"),
+            icon,
+            label,
+            self.page == page,
+            ui::NavDensity::Sidebar,
+        );
+        ui::tip_when_clipped(
+            row,
+            label,
+            ui::press_width(&label.to_uppercase()),
+            nav_room(self.window_width),
+        )
+        .px(px(NAV_INSET))
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.go(page);
+            cx.notify();
+        }))
     }
 
     fn account_block(&mut self, compact: bool, cx: &mut Context<Self>) -> Div {
@@ -380,56 +411,41 @@ impl Launcher {
             _ => Some(profile_heads::offline_key(&name)),
         };
         let open = self.menu_is(&Menu::Account);
-        let chip =
-            ui::hoverable("account", radius::ROW, ui::Hover::Row)
+        let chip = ui::selected(
+            ui::hoverable("account", eclipse_theme::glass::radius::ROW, ui::Hover::Row)
+                .aria_label(name.clone())
+                .aria_description(how)
                 .flex()
                 .items_center()
                 .gap(px(space::MD))
                 .h(px(account_chip(compact)))
-                .px(px(ui::SIDEBAR_INSET - ui::SIDEBAR_PAD))
-                .rounded(px(radius::ROW))
-                .when(open, |d| d.bg(white(fill::ACTIVE)))
+                .pl(px(ui::SIDEBAR_INSET - ui::SIDEBAR_PAD))
+                .pr(px(
+                    MORE_INSET + (ui::ButtonSize::Sm.height() - NAV_ICON) / 2.
+                ))
                 .cursor_pointer()
-                .child(
-                    div()
-                        .relative()
-                        .flex_none()
-                        .size(px(ACCOUNT_HEAD))
-                        .rounded(px(radius::CONTROL))
-                        .overflow_hidden()
-                        .child(
-                            self.profile_heads
-                                .draw(face.as_deref(), ACCOUNT_HEAD, self.scale),
-                        ),
-                )
+                .child(ui::face(
+                    self.profile_heads
+                        .draw(face.as_deref(), ACCOUNT_HEAD, self.scale),
+                    ACCOUNT_HEAD,
+                ))
                 .child(ui::item_text(name, how))
-                .child(
-                    ui::icon("arrow-down-01", ui::IconSize::Px16, white(ink::MUTED))
-                        .relative()
-                        .with_transformation(gpui::Transformation::rotate(gpui::radians(
-                            if open { std::f32::consts::PI } else { 0. },
-                        ))),
-                )
-                .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
-                    if this.closed_by_this_press(event) {
-                        return;
-                    }
-                    this.toggle_menu(Menu::Account, window, cx);
-                    if this.menu_is(&Menu::Account) {
-                        this.accounts = Accounts::load();
-                        this.load_profile_heads();
-                    }
-                    cx.notify();
-                }));
+                .child(ui::chevron(open).relative()),
+            open,
+        );
+        let chip = self.menu_opener(chip, Menu::Account, cx);
         div()
-            .relative()
             .flex()
             .flex_col()
             .flex_none()
             .px(px(ui::SIDEBAR_PAD))
             .pt(px(account_top(compact)))
-            .child(chip)
-            .children(self.account_popover(compact, cx))
+            .child(
+                div()
+                    .relative()
+                    .child(chip)
+                    .children(self.account_popover(compact, cx)),
+            )
     }
 
     pub(super) fn sidebar(&mut self, cx: &mut Context<Self>) -> Div {
@@ -444,10 +460,9 @@ impl Launcher {
             .px(px(ui::SIDEBAR_PAD))
             .pt(px(if compact { NAV_TOP_SHORT } else { NAV_TOP }));
         for (page, label, icon) in Page::NAV {
-            nav = nav.child(
-                self.nav_item(page, label, icon, cx)
-                    .when(compact, |d| d.h(px(ui::NAV_ROW_SHORT))),
-            );
+            if page != Page::Settings {
+                nav = nav.child(self.nav_item(page, label, icon, cx));
+            }
         }
         let adding = self.page == Page::InstanceEditor
             && self
@@ -500,7 +515,7 @@ impl Launcher {
             let open = self.page == Page::Servers && self.servers.open.as_ref() == Some(&e.dir);
             let dir = e.dir.clone();
             server_rows = server_rows.child(
-                ui::row(format!("side-server-{}", e.dir.display()), open)
+                ui::side_row(format!("side-server-{}", e.dir.display()), open)
                     .pr(px(space::SM))
                     .pl(px(NAV_INSET))
                     .child(ui::tile(ROW_TILE).relative().child(ui::icon(
@@ -564,7 +579,7 @@ impl Launcher {
             .pt(px(space::MD))
             .pb(px(space::MD))
             .border_t_1()
-            .border_color(white(eclipse_theme::glass::EDGE));
+            .border_color(ui::edge());
         let caption = |text: String| {
             ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
                 .mt(px(space::XS))
@@ -581,6 +596,7 @@ impl Launcher {
                     right.map(|r| ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED).child(r)),
                 );
             ui::notice(
+                ui::Notice::Info,
                 "download-04",
                 div().flex().flex_col().child(head).child(body),
                 actions,
@@ -668,6 +684,7 @@ impl Launcher {
                     "computer-terminal-01",
                     tr("Mod build log"),
                     false,
+                    ui::NavDensity::Sidebar,
                 )
                 .px(px(NAV_INSET))
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -676,11 +693,9 @@ impl Launcher {
                 })),
             );
         }
+        let (_, settings, settings_icon) = Page::NAV[Page::NAV.len() - 1];
         foot = foot
-            .child(
-                self.nav_item(Page::Settings, "Settings", "sliders-horizontal", cx)
-                    .when(compact, |d| d.h(px(ui::NAV_ROW_SHORT))),
-            )
+            .child(self.nav_item(Page::Settings, settings, settings_icon, cx))
             .when(!compact, |d| {
                 d.child(
                     ui::text(step::CAPTION, FontWeight::NORMAL, ink::DIM)
@@ -700,11 +715,11 @@ impl Launcher {
             .flex()
             .flex_col()
             .flex_none()
-            .w(px(SIDEBAR))
+            .w(px(layout::sidebar(self.window_width)))
             .h_full()
             .bg(side)
             .border_r_1()
-            .border_color(white(eclipse_theme::glass::EDGE))
+            .border_color(ui::edge())
             .child(account)
             .child(nav)
             .child(header)
@@ -719,53 +734,41 @@ impl Launcher {
             return None;
         }
         let now = self.accounts.player();
-        let mut menu = ui::popover("account-menu").on_mouse_down_out(cx.listener(
-            |this, event: &MouseDownEvent, _, cx| {
-                this.close_menu();
-                this.menu_closed_at = Some(event.position);
-                cx.notify();
-            },
-        ));
+        let mut menu = self.menu_popover("account-menu", cx);
         for (who, name, how) in self.players() {
             let chosen = who == now;
             let face = match &who {
                 Player::Microsoft(uuid) => Some(uuid.clone()),
                 _ => Some(profile_heads::offline_key(&name)),
             };
-            menu = menu.child(
-                ui::menu_item(
-                    format!("account-pick-{name}"),
-                    name.into(),
-                    how.into(),
-                    false,
-                )
-                .pl(px(ui::PANEL_INSET + MENU_HEAD + ui::PANEL_INSET))
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left(px(ui::PANEL_INSET))
-                        .flex()
-                        .items_center()
-                        .child(
-                            div()
-                                .size(px(MENU_HEAD))
-                                .rounded(px(radius::CONTROL))
-                                .overflow_hidden()
-                                .child(self.profile_heads.draw(
-                                    face.as_deref(),
-                                    MENU_HEAD,
-                                    self.scale,
-                                )),
-                        ),
-                )
-                .when(chosen, |d| d.child(ui::tick()))
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let row = ui::menu_item(
+                format!("account-pick-{name}"),
+                name.into(),
+                how.into(),
+                false,
+            )
+            .pl(px(ui::PANEL_INSET + MENU_HEAD + ui::PANEL_INSET))
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left(px(ui::PANEL_INSET))
+                    .flex()
+                    .items_center()
+                    .child(ui::face(
+                        self.profile_heads
+                            .draw(face.as_deref(), MENU_HEAD, self.scale),
+                        MENU_HEAD,
+                    )),
+            )
+            .when(chosen, |d| d.child(ui::tick()));
+            menu = menu.child(if chosen { ui::starts_menu(row) } else { row }.on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.play_as(who.clone());
                     cx.notify();
-                })),
-            );
+                }),
+            ));
         }
         let sign_in = !matches!(now, Player::Microsoft(_))
             && eclipse_launcher::account::client_id().is_some();
@@ -794,14 +797,10 @@ impl Launcher {
                 }),
             ),
         ));
-        Some(deferred(
-            div()
-                .absolute()
-                .top(px(account_top(compact)
-                    + account_chip(compact)
-                    + ui::MENU_GAP / 2.))
-                .left(px(ui::SIDEBAR_PAD))
-                .child(menu),
+        Some(ui::menu_under(
+            account_chip(compact),
+            ui::Align::Start,
+            menu,
         ))
     }
 
@@ -818,7 +817,7 @@ impl Launcher {
             return None;
         };
         let row = self.row_menu.rows.borrow().get(&id).copied()?;
-        let at = point(row.right() - px(MORE_INSET) + px(ui::MENU_GAP), row.top());
+        let at = point(row.right() + px(ui::MENU_GAP), row.top());
         let item = |key: &'static str, icon: &'static str, label: String| {
             ui::menu_row(format!("row-menu-{key}"), icon, label, false)
         };
@@ -840,12 +839,8 @@ impl Launcher {
         } else {
             tr("Create a desktop shortcut")
         };
-        let mut menu = ui::popover("row-menu")
-            .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                this.close_menu();
-                this.menu_closed_at = Some(event.position);
-                cx.notify();
-            }))
+        let mut menu = self
+            .menu_popover("row-menu", cx)
             .child(
                 item("edit", "pencil-edit-02", tr("Edit instance").into()).on_press(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
@@ -937,19 +932,15 @@ impl Launcher {
                 }))
                 .into_any_element()
             } else {
-                ui::disabled(ask).into_any_element()
+                let why = if instance.kind == InstanceKind::Default {
+                    tr("Eclipse's own instance can't be deleted")
+                } else {
+                    tr("Close the game first")
+                };
+                ui::unavailable(ask, why).into_any_element()
             }
         };
         menu = menu.child(delete);
-        Some(
-            deferred(
-                anchored()
-                    .position(at)
-                    .snap_to_window_with_margin(px(WINDOW_MARGIN))
-                    .child(menu),
-            )
-            .with_priority(1)
-            .into_any_element(),
-        )
+        Some(ui::menu_beside(at, menu).into_any_element())
     }
 }

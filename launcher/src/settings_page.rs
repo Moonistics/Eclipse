@@ -81,10 +81,6 @@ impl SettingsSection {
 
 const SECTION_LIST_WIDTH: f32 = 240.;
 
-const SECTION_ROW: f32 = 32.;
-
-const SECTION_ROW_SHORT: f32 = 28.;
-
 const WIDE_CONTROL_BESIDE: f32 = 840.;
 
 const LANDING_SLACK: f32 = 1.;
@@ -145,22 +141,6 @@ fn folder_row(id: &'static str, name: &'static str, dir: std::path::PathBuf) -> 
     ui::setting_row(tr(name), Some(path), Some(open))
 }
 
-fn update_state(tone: ui::Tone, said: impl Into<SharedString>) -> AnyElement {
-    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-        .flex()
-        .gap(px(space::SM))
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .h(px(step::NOTE.line))
-                .child(ui::dot(tone)),
-        )
-        .child(div().min_w_0().child(said.into()))
-        .into_any_element()
-}
-
 /// The scroll spy: which section is being read, given each section's top from the pane's top
 /// (`tops`, in order), the pane's `height`, how far it is `scrolled` and how far it can be (`max`).
 /// The last section whose top passed a reading line, which sits at 30 % of the pane and slides
@@ -201,7 +181,7 @@ impl Launcher {
                 i
             }
             Some((jump, i)) if !jump.landed => {
-                self.settings_pane.scroll_to_top_of_item(i);
+                self.settings_pane.handle.scroll_to_top_of_item(i);
                 cx.notify();
                 i
             }
@@ -212,20 +192,18 @@ impl Launcher {
         };
         self.settings_marked = active;
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
-        let row_height = if ui::short_window() {
-            SECTION_ROW_SHORT
-        } else {
-            SECTION_ROW
-        };
         let entries = shown.iter().enumerate().map(|(i, &section)| {
             let id = format!("settings-section-{}", section.id());
             let entry = if tabs {
                 ui::tab(id, tr(section.name()), i == active)
             } else {
-                ui::nav_row(id, section.icon(), tr(section.name()), i == active)
-                    .h(px(row_height))
-                    .gap(px(space::SM))
-                    .px(px(space::SM))
+                ui::nav_row(
+                    id,
+                    section.icon(),
+                    tr(section.name()),
+                    i == active,
+                    ui::NavDensity::List,
+                )
             };
             entry.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.settings_jump = Some(Jump {
@@ -235,8 +213,9 @@ impl Launcher {
                 cx.notify();
             }))
         });
-        let pane = ui::scroll_pane("settings-pane", &self.settings_pane)
+        let pane = ui::scroll_pane("settings-pane", &self.settings_pane.handle)
             .size_full()
+            .pr(px(Scrollbar::ROOM))
             // A scroll redraws the pane from its layer without rendering the page again, so the
             // list follows it here: on the next frame, once the offset has moved, and only when
             // the section changed.
@@ -259,8 +238,9 @@ impl Launcher {
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .child(pane)
-            .children(ui::more_below_fade(&self.settings_pane, self.theme.page));
+            .max_w(px(layout::SETTINGS_COLUMN_MAX + Scrollbar::ROOM))
+            .mr(px(-Scrollbar::ROOM))
+            .child(self.settings_pane.wrap(pane).size_full());
         let body = if tabs {
             div()
                 .flex()
@@ -318,16 +298,16 @@ impl Launcher {
     }
 
     fn settings_resting_at(&self, i: usize) -> bool {
-        let pane = self.settings_pane.bounds();
-        let Some(card) = self.settings_pane.bounds_for_item(i) else {
+        let pane = self.settings_pane.handle.bounds();
+        let Some(card) = self.settings_pane.handle.bounds_for_item(i) else {
             return false;
         };
         if pane.size.height <= px(0.) {
             return false;
         }
-        let max = f32::from(self.settings_pane.max_offset().y);
+        let max = f32::from(self.settings_pane.handle.max_offset().y);
         let resting = f32::from(card.top() - pane.top()).clamp(0., max);
-        (resting + f32::from(self.settings_pane.offset().y)).abs() < LANDING_SLACK
+        (resting + f32::from(self.settings_pane.handle.offset().y)).abs() < LANDING_SLACK
     }
 
     pub(super) fn wide_controls_beside(&self) -> bool {
@@ -345,17 +325,17 @@ impl Launcher {
     /// the scroll is taken off them here. Reading them as they were left the list on the first
     /// section until the pane hit its end.
     fn settings_section(&self, count: usize) -> usize {
-        let pane = self.settings_pane.bounds();
-        let scrolled = -self.settings_pane.offset().y;
+        let pane = self.settings_pane.handle.bounds();
+        let scrolled = -self.settings_pane.handle.offset().y;
         let tops: Vec<f32> = (0..count)
-            .map_while(|i| self.settings_pane.bounds_for_item(i))
+            .map_while(|i| self.settings_pane.handle.bounds_for_item(i))
             .map(|b| f32::from(b.top() - pane.top() - scrolled))
             .collect();
         spy(
             &tops,
             f32::from(pane.size.height),
             f32::from(scrolled),
-            f32::from(self.settings_pane.max_offset().y),
+            f32::from(self.settings_pane.handle.max_offset().y),
         )
     }
 
@@ -463,11 +443,11 @@ impl Launcher {
                 _ => tag,
             });
         let state = match (&self.installing, &self.updates.eclipse) {
-            (Some((_, done)), _) => Some(update_state(
+            (Some((_, done)), _) => Some(ui::state_note(
                 ui::Tone::Busy,
                 format!("{} {:.0}%", tr("Installing"), done * 100.),
             )),
-            (None, Some(r)) => Some(update_state(
+            (None, Some(r)) => Some(ui::state_note(
                 ui::Tone::Accent(ui::look().accent_soft),
                 trf("{version} available", &[("version", update_name(r))]),
             )),
@@ -477,7 +457,7 @@ impl Launcher {
                     && !self.checking_updates
                     && self.update_error.is_none() =>
             {
-                Some(update_state(ui::Tone::Live, tr("Up to date")))
+                Some(ui::state_note(ui::Tone::Live, tr("Up to date")))
             }
             _ => None,
         };
@@ -501,23 +481,23 @@ impl Launcher {
                 .into_any_element()
             });
         update_tile(
-            instance_page::mark_tile(self.eclipse_mark(instance_page::MARK)).into_any_element(),
+            ui::mark_tile(self.eclipse_mark(ui::MARK)).into_any_element(),
             "Eclipse".into(),
             installed.unwrap_or_else(|| tr("Not installed").to_string()),
-            state,
+            state.map(IntoElement::into_any_element),
             install,
         )
     }
 
     fn launcher_update_tile(&mut self, cx: &mut Context<Self>) -> Div {
         let available = |version: &str| {
-            update_state(
+            ui::state_note(
                 ui::Tone::Accent(ui::look().accent_soft),
                 trf("{version} available", &[("version", version)]),
             )
         };
         let state = match &self.self_update {
-            SelfUpdate::Downloading(version, done) => Some(update_state(
+            SelfUpdate::Downloading(version, done) => Some(ui::state_note(
                 ui::Tone::Busy,
                 trf(
                     "Downloading {version}, {percent}%",
@@ -528,17 +508,14 @@ impl Launcher {
                 ),
             )),
             SelfUpdate::Ready(version) => Some(available(version)),
-            SelfUpdate::Stuck(None) => Some(update_state(
+            SelfUpdate::Stuck(None) => Some(ui::state_note(
                 ui::Tone::Warn,
                 self.launcher_update_help(None),
             )),
-            SelfUpdate::Stuck(Some(e)) | SelfUpdate::Failed(e) => Some(
-                ui::error_note(trf(
-                    "The update failed: {error}",
-                    &[("error", ui::plain_error(e))],
-                ))
-                .into_any_element(),
-            ),
+            SelfUpdate::Stuck(Some(e)) | SelfUpdate::Failed(e) => Some(ui::error_note(trf(
+                "The update failed: {error}",
+                &[("error", ui::plain_error(e))],
+            ))),
             SelfUpdate::Idle => match &self.updates.launcher {
                 Some(r) => Some(available(
                     backend::launcher_version(&r.tag).unwrap_or_default(),
@@ -547,7 +524,7 @@ impl Launcher {
                     && !self.checking_updates
                     && self.update_error.is_none() =>
                 {
-                    Some(update_state(ui::Tone::Live, tr("Up to date")))
+                    Some(ui::state_note(ui::Tone::Live, tr("Up to date")))
                 }
                 None => None,
             },
@@ -589,7 +566,7 @@ impl Launcher {
                 .into_any_element(),
             tr("Launcher").into(),
             backend::VERSION.to_string(),
-            state,
+            state.map(IntoElement::into_any_element),
             action,
         )
     }

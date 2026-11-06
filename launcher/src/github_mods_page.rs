@@ -497,13 +497,7 @@ impl Launcher {
                 }),
             ));
         }
-        let remove = ui::button(
-            remove_id,
-            None,
-            tr("Remove…"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        );
+        let remove = ui::remove_button(remove_id, tr("Remove…"), ui::ButtonSize::Md);
         let file = row.file.clone();
         right = right.child(if busy {
             ui::disabled(remove)
@@ -530,7 +524,6 @@ impl Launcher {
         ui::list_row(
             SharedString::from(format!("native-row-{}", row.id)),
             confirming,
-            |_, _, _| {},
         )
         .child(icons::slot(None, &row.id, mods_page::MOD_TILE))
         .child(ui::item_text(

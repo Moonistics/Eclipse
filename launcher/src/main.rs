@@ -141,21 +141,13 @@ impl Page {
     }
 
     /// Every page, with its name and icon.
-    const ALL: [(Page, &'static str, &'static str); 6] = [
-        (Page::Home, "Home", "home"),
-        (Page::Mods, "Mods", "package"),
-        (Page::Servers, "Servers", "server"),
-        (Page::Versions, "Versions", "archive"),
-        (Page::Notes, "Patch notes", "notes"),
-        (Page::Settings, "Settings", "sliders"),
-    ];
-
-    const NAV: [(Page, &'static str, &'static str); 5] = [
+    const NAV: [(Page, &'static str, &'static str); 6] = [
         (Page::Home, "Home", "dashboard-square-01"),
         (Page::Mods, "Mods", "puzzle"),
         (Page::Servers, "Servers", "computer"),
         (Page::Versions, "Versions", "package-01"),
         (Page::Notes, "Patch notes", "information-circle"),
+        (Page::Settings, "Settings", "sliders-horizontal"),
     ];
 }
 
@@ -199,7 +191,7 @@ struct Launcher {
     switches: usize,
     content_scroll: Scrollbar,
     /// The Settings page's own scroll: its sections beside their list.
-    settings_pane: gpui::ScrollHandle,
+    settings_pane: Scrollbar,
     /// The section the Settings list marked when last drawn (`settings_page`).
     settings_marked: usize,
     settings_jump: Option<settings_page::Jump>,
@@ -309,11 +301,11 @@ struct Launcher {
     servers: servers_page::Servers,
     /// Its Friends over the internet panel (`internet.rs`).
     internet: internet::Internet,
-    /// The window's own focus, so Tab reaches the controls when nothing else has the keyboard.
     /// The palette (⌘K), while open (`palette`).
     palette: Option<palette::Palette>,
     /// The toast last drawn (`toast`), by its number.
     toast_seen: Option<u64>,
+    /// The window's own focus, so Tab reaches the controls when nothing else has the keyboard.
     root_focus: FocusHandle,
     side_focus: FocusHandle,
     content_focus: FocusHandle,
@@ -347,7 +339,7 @@ struct Launcher {
     starting_client: Option<String>,
     /// Play was pressed on a version not prepared yet: it starts once this preparation ends well.
     play_when_prepared: Option<String>,
-    /// The window's width at the last frame: Home's head lays out by it, as the mockup's `xl`.
+    /// The window's width at the last frame: the sidebar and Home's head lay out by it.
     window_width: f32,
     /// The window's longer side in points, and the screen's pixels per point: the size pictures
     /// are made at (`picture_cache`).
@@ -377,9 +369,6 @@ struct Launcher {
     download_seen: Option<(Instant, usize)>,
     /// The tab open under Home's head (`home_tabs.rs`).
     home_tab: home_tabs::HomeTab,
-    /// The list row under the pointer in Home's tabs (a world, a server): it shows its
-    /// actions then.
-    list_hover: Option<SharedString>,
     /// When the running game was first seen running, for Home's "Playing for…".
     client_since: Option<Instant>,
     /// The selected instance's mods, for Home's Mods tab (`instance_mods.rs`).
@@ -418,7 +407,7 @@ struct Launcher {
     world_packs: datapacks_page::WorldPacks,
     export: Option<export_page::ExportPanel>,
     launch: Option<launch_page::LaunchPanel>,
-    /// The memory row on Home.
+    /// The memory row on Edit instance.
     memory_slider: launch_page::MemorySlider,
     importing: import_page::Importing,
     console: console_page::Console,
@@ -483,13 +472,12 @@ impl Launcher {
         // Pin the window's chrome (macOS title bar) to the choice before the theme reads
         // `window.appearance()`, so both draw the same look.
         titlebar::apply_appearance(window, settings.appearance);
-        ui::set_menu_focus(cx.focus_handle());
         let mut this = Self {
             theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
             page: Page::from_env(),
             switches: 0,
             content_scroll: Scrollbar::default(),
-            settings_pane: gpui::ScrollHandle::new(),
+            settings_pane: Scrollbar::default(),
             settings_marked: 0,
             settings_jump: None,
             mods_sticky: sticky::Sticky::default(),
@@ -596,7 +584,6 @@ impl Launcher {
             prepare_started: None,
             download_seen: None,
             home_tab: home_tabs::HomeTab::from_env(),
-            list_hover: None,
             client_since: None,
             instance_mods: Default::default(),
             project_icons: Default::default(),
@@ -702,7 +689,7 @@ impl Launcher {
         Some(
             div()
                 .flex_none()
-                .px(px(layout::PAGE_GUTTER))
+                .px(px(layout::gutter(self.window_width)))
                 .py(px(space::MD))
                 .child(
                     ui::card(radius::PANEL)
@@ -1551,7 +1538,12 @@ impl Render for Launcher {
             self.theme = self.settings_theme(window);
         }
         let size = window.viewport_size();
-        ui::begin_frame(&self.theme, f32::from(size.height) < layout::SHORT_WINDOW);
+        ui::begin_frame(
+            &self.theme,
+            f32::from(size.height) < layout::SHORT_WINDOW,
+            window,
+            cx,
+        );
         self.scale = window.scale_factor();
         self.perf.frame();
         if self.bench.as_ref().is_some_and(perf::Bench::scrolling) {
@@ -1646,7 +1638,7 @@ impl Render for Launcher {
                                                 .flex()
                                                 .w_full()
                                                 .min_w_0()
-                                                .px(px(layout::PAGE_GUTTER))
+                                                .px(px(layout::gutter(self.window_width)))
                                                 .pb(px(layout::PAGE_FOOT))
                                                 // Settings and the New instance page scroll
                                                 // their own pane under a still title.
@@ -1655,7 +1647,7 @@ impl Render for Launcher {
                                                         self.page,
                                                         Page::Settings | Page::InstanceEditor
                                                     ),
-                                                    |d| d.h_full().pb(px(layout::CONTENT_INSET)),
+                                                    |d| d.h_full().pb_0(),
                                                 )
                                                 .child(
                                                     div()
@@ -1691,8 +1683,6 @@ impl Render for Launcher {
             }
         }
         root = root.children(self.toast_float());
-        root = root.children(ui::focus_tip(window));
-        ui::end_frame(window);
         if let Some(palette) = self.palette_overlay(window, cx) {
             root = root.child(palette);
         }
@@ -1702,6 +1692,8 @@ impl Render for Launcher {
         if self.asking_owner() {
             root = root.child(self.owner_screen(cx));
         }
+        root = root.children(ui::focus_tip(window));
+        ui::end_frame(window, cx);
         div()
             .flex()
             .flex_col()
@@ -1839,8 +1831,6 @@ fn main() {
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_MEDIUM),
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_SEMIBOLD),
                     Cow::Borrowed(eclipse_theme::fonts::MONOCRAFT_REGULAR),
-                    Cow::Borrowed(eclipse_theme::fonts::MONOCRAFT_SEMIBOLD),
-                    Cow::Borrowed(eclipse_theme::fonts::MONOCRAFT_BOLD),
                 ])
                 .expect("bundled fonts");
             cx.bind_keys(key_bindings());
@@ -1863,7 +1853,11 @@ fn main() {
             }
             #[cfg(not(windows))]
             let _ = setup_window;
-            let (width, height) = layout::DEFAULT_WINDOW;
+            let display = cx.primary_display().map(|d| {
+                let shown = d.visible_bounds().size;
+                (f32::from(shown.width), f32::from(shown.height))
+            });
+            let (width, height) = layout::default_window(display);
             let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
             cx.open_window(
                 WindowOptions {

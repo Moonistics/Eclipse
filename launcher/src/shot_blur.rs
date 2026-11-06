@@ -1,8 +1,7 @@
-//! Blurring the screenshots on screen (the mockup's `PrivacyToggle`, `launcher-views.tsx`): the
-//! eye button beside Overview's and the Screenshots tab's pictures, which draws them as
-//! `blur-2xl` would. GPUI has no image filter, so each picture is made once, small and blurred,
-//! in the background (`picture_cache`), and drawn stretched. For the session only, like the
-//! mockup's.
+//! Blurring the screenshots on screen: the eye button beside the Screenshots tab's pictures,
+//! which draws them as `blur-2xl` would. GPUI has no image filter, so each picture is made once,
+//! small and blurred, in the background (`picture_cache`), and drawn stretched. For the session
+//! only.
 use super::*;
 use crate::picture_cache::Look;
 use crate::ui::{self, white};
@@ -12,7 +11,7 @@ use std::path::Path;
 use std::sync::Arc;
 
 /// The blurred copy is made this wide (and 16:9 tall), its blur this many of its pixels: about
-/// the mockup's 40 px over its tiles (163 to 335 px wide).
+/// 40 px over the tiles (163 to 335 px wide).
 const SMALL: (u32, u32) = (96, 54);
 const SIGMA: f32 = 15.;
 /// Then smoothed up to this, so the stretched picture shows no texels.

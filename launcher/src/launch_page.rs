@@ -247,12 +247,6 @@ impl Launcher {
         }
     }
 
-    /// The maximum Java heap size for the selected Java instance, as a card on Home.
-    pub(super) fn memory_row(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let row = self.memory_setting(cx)?;
-        Some(ui::card(radius::PANEL).p(px(ui::LIST_INSET)).child(row))
-    }
-
     /// Maximum memory as a setting row: the name and what it does on the left, the slider and
     /// the box in MB on the right. Saved to the instance as it is set.
     pub(super) fn memory_setting(&mut self, cx: &mut Context<Self>) -> Option<Div> {

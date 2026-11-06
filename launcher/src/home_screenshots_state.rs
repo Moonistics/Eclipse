@@ -20,8 +20,8 @@ pub(super) struct Screenshots {
     pub(super) list: Vec<Shot>,
     fresh: bool,
     pub(super) all: bool,
-    /// The picture open in the viewer, by its place in `list`.
-    pub(super) viewing: Option<usize>,
+    /// The picture open in the viewer.
+    pub(super) viewing: Option<PathBuf>,
     /// What the last action did, or why it failed.
     pub(super) note: Option<Result<String, String>>,
 }
@@ -42,15 +42,23 @@ impl Launcher {
             };
         }
         if !self.screenshots.fresh {
+            let at = self.viewing_at();
             // One directory listing: cheap enough while drawing.
             self.screenshots.list = screenshots::list(&home);
             self.screenshots.fresh = true;
-            let last = self.screenshots.list.len().checked_sub(1);
-            self.screenshots.viewing = self
-                .screenshots
-                .viewing
-                .and_then(|i| last.map(|l| i.min(l)));
+            if self.viewing_at().is_none() {
+                let last = self.screenshots.list.len().checked_sub(1);
+                self.screenshots.viewing = at
+                    .zip(last)
+                    .and_then(|(i, l)| self.screenshots.list.get(i.min(l)))
+                    .map(|s| s.path.clone());
+            }
         }
+    }
+
+    fn viewing_at(&self) -> Option<usize> {
+        let path = self.screenshots.viewing.as_ref()?;
+        self.screenshots.list.iter().position(|s| &s.path == path)
     }
 
     /// Escape closes the viewer. Whether it did.
@@ -62,7 +70,7 @@ impl Launcher {
 
     /// ← and → in the viewer: the newer and the older picture. Whether it moved.
     pub(super) fn screenshot_step(&mut self, older: bool) -> bool {
-        let Some(i) = self.screenshots.viewing else {
+        let Some(i) = self.viewing_at() else {
             return false;
         };
         let next = match older {
@@ -70,7 +78,7 @@ impl Launcher {
             false => i.checked_sub(1),
         };
         if let Some(n) = next {
-            self.screenshots.viewing = Some(n);
+            self.screenshots.viewing = self.screenshots.list.get(n).map(|s| s.path.clone());
             self.stop_asking(|a| *a == Asking::Screenshot);
             self.screenshots.note = None;
         }
@@ -117,7 +125,7 @@ impl Launcher {
 
     /// The viewer over the whole window, while a picture is open.
     pub(super) fn screenshot_viewer(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let i = self.screenshots.viewing?;
+        let i = self.viewing_at()?;
         let shot = self.screenshots.list.get(i)?.clone();
         let count = self.screenshots.list.len();
         // Every pixel the window can show; its tile stands in while it is made.
@@ -268,20 +276,12 @@ impl Launcher {
             .child(div().children(note))
             .child(actions);
         Some(
-            div()
-                .id("screenshot-viewer")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
+            ui::sheet("screenshot-viewer", shot.name.clone())
                 .flex()
                 .flex_col()
                 .gap(px(space::LG))
                 .px(px(space::XXL))
                 .py(px(space::XL))
-                .bg(ui::surface_colour(ui::Surface::Float))
-                .on_scroll(|_, _, cx| cx.stop_propagation())
-                .occlude()
                 .child(top)
                 .child(
                     // The picture fills what the bars leave, whatever its own size.

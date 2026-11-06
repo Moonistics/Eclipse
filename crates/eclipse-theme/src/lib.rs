@@ -28,8 +28,6 @@ pub mod fonts {
     pub const GEIST_SEMIBOLD: &[u8] = include_bytes!("../fonts/Geist-SemiBold.ttf");
     pub const GEIST_MONO: &[u8] = include_bytes!("../fonts/GeistMono-Regular.ttf");
     pub const MONOCRAFT_REGULAR: &[u8] = include_bytes!("../fonts/Monocraft-Regular.ttf");
-    pub const MONOCRAFT_SEMIBOLD: &[u8] = include_bytes!("../fonts/Monocraft-SemiBold.ttf");
-    pub const MONOCRAFT_BOLD: &[u8] = include_bytes!("../fonts/Monocraft-Bold.ttf");
     pub const PIXEL_MEDIUM: &[u8] = include_bytes!("../fonts/PixelifySans-Medium.ttf");
     pub const PIXEL_SEMIBOLD: &[u8] = include_bytes!("../fonts/PixelifySans-SemiBold.ttf");
     pub const PIXEL_BOLD: &[u8] = include_bytes!("../fonts/PixelifySans-Bold.ttf");

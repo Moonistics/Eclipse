@@ -14,7 +14,7 @@ fn problem_line(id: String, error: &str) -> Div {
     let copy = error
         .trim_end()
         .contains('\n')
-        .then(|| ui::copy_details(format!("{id}-copy"), error.to_owned(), ui::ButtonSize::Sm));
+        .then(|| ui::copy_details(format!("{id}-copy"), error.to_owned(), ui::ButtonSize::Md));
     ui::error_line(
         ui::plain_error(error).to_string(),
         copy.into_iter()
@@ -340,18 +340,12 @@ impl Launcher {
             );
         }
         d.child(
-            ui::icon_button(
-                bin,
-                "delete-02",
-                tr("Remove…"),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
-                false,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.asking = Some(Asking::Version(t3.clone()));
-                cx.notify();
-            })),
+            ui::remove_button(bin, tr("Remove…"), ui::ButtonSize::Md).on_press(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
+                    this.asking = Some(Asking::Version(t3.clone()));
+                    cx.notify();
+                },
+            )),
         )
     }
 

@@ -338,12 +338,7 @@ impl Launcher {
                 ),
         };
         Some(
-            div()
-                .id("native-log")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
+            ui::sheet("native-log", tr("Mod build log"))
                 .overflow_hidden()
                 .min_w_0()
                 .flex()
@@ -351,9 +346,6 @@ impl Launcher {
                 .gap(px(space::LG))
                 .px(px(space::XXL))
                 .py(px(space::XL))
-                .bg(ui::surface_colour(ui::Surface::Float))
-                .on_scroll(|_, _, cx| cx.stop_propagation())
-                .occlude()
                 .child(top)
                 .child(actions)
                 .children(self.native_step.as_ref().map(|now| {

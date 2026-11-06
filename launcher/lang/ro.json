@@ -415,7 +415,6 @@
   "Star on GitHub": "Dă o stea pe GitHub",
   "Up to date: {instance} plays these mods.": "Actualizat: {instance} joacă aceste moduri.",
   "On this computer": "Pe acest computer",
-  "Needs preparing": "Necesita pregatire",
   "Alpha": "Alfa",
   "{count} lines, the game is running": "{count} linii, jocul rulează",
   "from GitHub: {source}": "din GitHub: {source}",
@@ -664,7 +663,6 @@
   "New world": "Lume nouă",
   "New world, seed {seed}": "Lume nouă, sămânță {seed}",
   "No worlds yet": "Încă nu există lumi",
-  "Tick the EULA box to create the server.": "Bifați caseta EULA pentru a crea serverul.",
   "Who can join": "Cine se poate alătura",
   "World": "Lumea",
   "{count} worlds to pick from": "{count} lumi din care să alegeți",
@@ -1023,5 +1021,15 @@
   "No Eclipse modpacks yet": "No Eclipse modpacks yet",
   "No Eclipse resource packs yet": "No Eclipse resource packs yet",
   "No Eclipse shader packs yet": "No Eclipse shader packs yet",
-  "No Eclipse data packs yet": "No Eclipse data packs yet"
+  "No Eclipse data packs yet": "No Eclipse data packs yet",
+  "Agree to the Minecraft EULA to create the server.": "Agree to the Minecraft EULA to create the server.",
+  "Close the game first": "Close the game first",
+  "Commands": "Commands",
+  "Eclipse's own instance can't be deleted": "Eclipse's own instance can't be deleted",
+  "Not prepared": "Not prepared",
+  "Paste a friend's invite code first": "Paste a friend's invite code first",
+  "Prepare the game files to play": "Prepare the game files to play",
+  "Restoring": "Restoring",
+  "Copying the game files": "Copying the game files",
+  "Moving server to trash": "Moving server to trash"
 }

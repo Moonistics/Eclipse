@@ -18,12 +18,11 @@ const COLOURS: [u32; 7] = [
     0x3b82f6, 0x14b8a6, 0x22c55e, 0xeab308, 0xf97316, 0xef4444, 0x8b8a99,
 ];
 const PREVIEW_ICON: f32 = ui::TILE_LG;
-const PREVIEW_ICON_SHORT: f32 = 32.;
-pub(super) const MARK_TILE: f32 = ui::TILE_LG;
-pub(super) const MARK: f32 = 32.;
-const CHOICE_ICON: f32 = 40.;
+const PREVIEW_ICON_SHORT: f32 = ui::TILE_MD;
+const CHOICE_ICON: f32 = ui::TILE_MD;
 const NAME_FIELD_WIDTH: f32 = 340.;
 const ECLIPSE_LIST: f32 = 248.;
+const ECLIPSE_COLUMN: f32 = 240.;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
@@ -33,37 +32,13 @@ pub(super) fn loaders() -> Vec<Loader> {
         .collect()
 }
 
-pub(super) fn mark_tile(mark: impl IntoElement) -> Div {
-    ui::tile(MARK_TILE).relative().child(mark)
-}
-
-fn card_head(title: SharedString, aside: Option<AnyElement>) -> Div {
-    div()
-        .relative()
-        .flex()
-        .items_center()
-        .justify_between()
-        .gap(px(space::LG))
-        .h(px(ui::ButtonSize::Md.height()))
-        .mb(px(space::MD))
-        .child(ui::label(title))
-        .children(aside)
-}
-
-pub(super) fn section_card(
-    id: &'static str,
-    title: SharedString,
-    aside: Option<AnyElement>,
-    body: impl IntoElement,
-) -> Stateful<Div> {
-    ui::card(radius::PANEL)
-        .id(id)
-        .flex()
-        .flex_col()
-        .flex_none()
-        .p(px(ui::CARD_PADDING))
-        .child(card_head(title, aside))
-        .child(div().relative().child(body))
+fn foot_height() -> f32 {
+    let icon = if ui::short_window() {
+        PREVIEW_ICON_SHORT
+    } else {
+        PREVIEW_ICON
+    };
+    icon + 2. * ui::PANEL_INSET
 }
 
 fn icon_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
@@ -132,19 +107,23 @@ impl Launcher {
                     .into_any_element()
             }));
         }
-        let pane = ui::scroll_pane("instance-pane", &scroll)
+        let foot = self.instance_foot(editing.as_ref(), kind, copy, busy, error, cx);
+        let pane = ui::scroll_pane("instance-pane", &scroll.handle)
             .flex()
             .flex_col()
             .size_full()
             .gap(px(layout::CARD_GAP))
-            .pb(px(space::SM))
+            .pr(px(Scrollbar::ROOM))
+            .pb(px(foot_height() / 2. + layout::CARD_GAP))
             .children(cards);
         let pane = div()
             .relative()
             .flex_1()
             .min_h_0()
-            .child(pane)
-            .children(ui::more_below_fade(&scroll, self.theme.page));
+            .mr(px(-Scrollbar::ROOM))
+            .pb(px(layout::CONTENT_INSET + foot_height() / 2.))
+            .child(scroll.wrap(pane).size_full())
+            .child(foot);
         div()
             .flex()
             .flex_col()
@@ -152,7 +131,6 @@ impl Launcher {
             .h_full()
             .child(ui::page_head(title, note))
             .child(pane)
-            .child(self.instance_foot(editing.as_ref(), kind, copy, busy, error, cx))
     }
 
     /// The loader a modded instance plays (or will).
@@ -329,7 +307,8 @@ impl Launcher {
             None => String::new(),
         };
         let mut cards = Vec::new();
-        for k in [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded] {
+        let kinds = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
+        for k in kinds {
             let (id, title, note) = match k {
                 NewKind::Eclipse => ("eclipse", tr("Eclipse"), tr("Faster Minecraft").to_string()),
                 NewKind::Vanilla => (
@@ -340,15 +319,15 @@ impl Launcher {
                 NewKind::Modded => ("modded", tr("Modded"), modded.clone()),
             };
             let mark = match k {
-                NewKind::Modded => self.modded_mark(MARK),
-                _ => self.auto_mark(k, loader, MARK),
+                NewKind::Modded => self.modded_mark(ui::MARK),
+                _ => self.auto_mark(k, loader, ui::MARK),
             };
             let card = ui::choice(format!("new-kind-{id}"), k == kind)
                 .items_center()
                 .gap(px(space::LG))
                 .p(px(space::MD))
                 .min_w_0()
-                .child(mark_tile(mark))
+                .child(ui::mark_tile(mark))
                 .child(
                     div()
                         .relative()
@@ -366,14 +345,15 @@ impl Launcher {
                         )
                         .child(ui::card_note(note)),
                 );
-            cards.push(if !switches {
-                card.cursor_default().when(k != kind, ui::disabled)
-            } else {
-                card.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.pick_kind(k, cx);
-                    cx.notify();
-                }))
-            });
+            cards.push((
+                if switches {
+                    card
+                } else {
+                    card.cursor_default().when(k != kind, ui::disabled)
+                },
+                title.into(),
+                k == kind,
+            ));
         }
         // A modpack becomes an instance by being imported, on the Mods page. Edit offers it too.
         let import = (!busy).then(|| {
@@ -390,16 +370,23 @@ impl Launcher {
             }))
             .into_any_element()
         });
-        section_card(
-            "instance-game",
-            tr("Game").into(),
-            import,
-            div()
-                .grid()
-                .grid_cols(cards.len() as u16)
-                .gap(px(space::MD))
-                .children(cards),
-        )
+        let grid = div()
+            .id("instance-game-choices")
+            .grid()
+            .grid_cols(cards.len() as u16)
+            .gap(px(space::MD));
+        let grid = if switches {
+            let this = cx.entity().downgrade();
+            ui::options(grid, cards, true, move |i, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.pick_kind(kinds[i], cx);
+                    cx.notify();
+                });
+            })
+        } else {
+            grid.children(cards.into_iter().map(|(card, _, _)| card))
+        };
+        ui::section_card("instance-game", tr("Game"), import, grid)
     }
 
     fn name_and_group(
@@ -426,13 +413,9 @@ impl Launcher {
             )
             .w_full();
         let labelled = |label: &'static str, field: Stateful<Div>| {
-            div()
-                .flex()
-                .flex_col()
+            ui::labelled_field(tr(label), field.aria_label(tr(label)))
                 .flex_1()
                 .min_w_0()
-                .child(card_head(tr(label).into(), None))
-                .child(field)
         };
         ui::card(radius::PANEL)
             .id("instance-name")
@@ -548,20 +531,20 @@ impl Launcher {
         };
         ui::card(radius::PANEL)
             .id("instance-foot")
+            .absolute()
+            .left_0()
+            .right(px(Scrollbar::ROOM))
+            .bottom(px(layout::CONTENT_INSET))
             .flex()
-            .flex_none()
             .items_center()
             .gap(px(space::LG))
-            .mt(px(space::MD))
             .p(px(ui::PANEL_INSET))
             .child(
-                ui::hover_over("instance-preview-icon", radius::ROW, icon)
-                    .flex_none()
-                    .cursor_pointer()
-                    .tooltip(ui::tip(tr("Choose image…")))
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                ui::picture_button("instance-preview-icon", icon, tr("Choose image…")).on_press(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.choose_instance_picture(cx);
-                    })),
+                    }),
+                ),
             )
             .child(
                 div()
@@ -598,41 +581,49 @@ impl Launcher {
         let soft = ui::look().accent_soft;
         let follows = self.followed_version();
         let chosen = self.draft_eclipse();
-        let rows: Vec<_> = self
-            .eclipse_choices()
-            .into_iter()
+        let tags = self.eclipse_choices();
+        let rows: Vec<_> = tags
+            .iter()
             .enumerate()
             .map(|(i, tag)| {
-                let latest = follows.as_ref() == Some(&tag);
                 let newest = i == 0;
-                let on = chosen.as_ref() == Some(&tag);
-                let date =
-                    eclipse_launcher::nightly::date_of(&tag).map(|d| dates::published(d, ""));
-                let pick = tag.clone();
-                ui::list_choice(format!("eclipse-version-{tag}"), on)
+                let on = chosen.as_ref() == Some(tag);
+                let date = eclipse_launcher::nightly::date_of(tag).map(|d| dates::published(d, ""));
+                let label = version_label(tag);
+                let row = ui::list_choice(format!("eclipse-version-{tag}"), on)
                     .py(px(space::MD))
-                    .child(ui::item_text(version_label(&tag), date.unwrap_or_default()).flex_1())
+                    .child(
+                        ui::item_text(label.clone(), date.unwrap_or_default())
+                            .flex_none()
+                            .w(px(ECLIPSE_COLUMN)),
+                    )
                     .children(newest.then(|| {
                         ui::text(
                             eclipse_theme::glass::step::NOTE,
                             FontWeight::NORMAL,
                             ink::FULL,
                         )
-                        .text_color(ui::color(soft))
-                        .child(tr("Newest"))
+                        .child(ui::state_line(ui::Tone::Accent(soft), tr("Newest")))
                     }))
-                    .child(ui::tick_slot(on))
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(d) = &mut this.instances.draft {
-                            d.pin = (!latest).then(|| pick.clone());
-                        }
-                        cx.notify();
-                    }))
+                    .child(ui::tick_slot(on));
+                (row, SharedString::from(label), on)
             })
             .collect();
         let list = ui::list_box("eclipse-versions", ECLIPSE_LIST);
         let list = match (&self.releases, rows.is_empty()) {
-            (_, false) => list.children(rows),
+            (_, false) => {
+                let this = cx.entity().downgrade();
+                ui::options(list, rows, true, move |i, _, cx| {
+                    let pick = tags[i].clone();
+                    let _ = this.update(cx, |this, cx| {
+                        let latest = follows.as_ref() == Some(&pick);
+                        if let Some(d) = &mut this.instances.draft {
+                            d.pin = (!latest).then(|| pick.clone());
+                        }
+                        cx.notify();
+                    });
+                })
+            }
             (Load::Loading, true) => list.child(ui::loading_state(
                 "eclipse-versions-loading",
                 tr("Loading versions…"),
@@ -656,11 +647,11 @@ impl Launcher {
                 vec![],
             )),
         };
-        section_card(
+        ui::section_card(
             "instance-eclipse-version",
-            tr("Eclipse version").into(),
+            tr("Eclipse version"),
             None,
-            list,
+            ui::with_scrollbar(list),
         )
     }
 
@@ -671,8 +662,8 @@ impl Launcher {
             .as_ref()
             .map_or_else(|| "Eclipse".into(), |i| i.name.clone());
         let icon = match &selected {
-            Some(i) => self.instance_icon(i, MARK),
-            None => self.eclipse_mark(MARK),
+            Some(i) => self.instance_icon(i, ui::MARK),
+            None => self.eclipse_mark(ui::MARK),
         };
         let card = |on: bool, id: &'static str| {
             ui::choice(id, on)
@@ -681,32 +672,39 @@ impl Launcher {
                 .items_center()
                 .gap(px(space::LG))
                 .p(px(space::MD))
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if let Some(d) = &mut this.instances.draft {
-                        d.copy = id == "instance-from-copy";
-                    }
-                    cx.notify();
-                }))
         };
+        let copy_title = trf("A copy of {name}", &[("name", &from)]);
         let empty = card(!copy, "instance-from-empty")
-            .child(mark_tile(ui::icon(
+            .child(ui::mark_tile(ui::icon(
                 "plus-sign",
                 ui::IconSize::Px32,
                 ui::icon_tone(!copy),
             )))
             .child(ui::item_text(tr("Empty"), tr("A fresh game folder")));
         let copied = card(copy, "instance-from-copy")
-            .child(mark_tile(icon))
+            .child(ui::mark_tile(icon))
             .child(ui::item_text(
-                trf("A copy of {name}", &[("name", &from)]),
+                copy_title.clone(),
                 tr("Its mods, worlds and options"),
             ));
-        section_card(
-            "instance-start-from",
-            tr("Start from").into(),
-            None,
-            div().flex().gap(px(space::MD)).child(empty).child(copied),
-        )
+        let this = cx.entity().downgrade();
+        let choices = ui::options(
+            div().id("instance-start-choices").flex().gap(px(space::MD)),
+            vec![
+                (empty, tr("Empty").into(), !copy),
+                (copied, copy_title.into(), copy),
+            ],
+            true,
+            move |i, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(d) = &mut this.instances.draft {
+                        d.copy = i == 1;
+                    }
+                    cx.notify();
+                });
+            },
+        );
+        ui::section_card("instance-start-from", tr("Start from"), None, choices)
     }
 
     /// The icons: the instance's own mark, the loaders' logos and the prepared files' blocks and
@@ -883,7 +881,7 @@ impl Launcher {
                 .child(tr("Prepare a version to use block and item icons.")),
             );
         }
-        section_card("instance-icon", tr("Icon").into(), None, body)
+        ui::section_card("instance-icon", tr("Icon"), None, body)
     }
 }
 

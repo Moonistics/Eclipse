@@ -5,9 +5,9 @@ use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Instance, Plays, Unkept};
 use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
-use eclipse_theme::glass::{fill, ink, radius, space};
+use eclipse_theme::glass::{fill, ink, space};
 use fields::Field;
-use instance_page::{loaders, mark_tile, section_card, MARK, MARK_TILE};
+use instance_page::loaders;
 use instance_state::{JavaChoice, LoaderVersions, NewKind, VersionList};
 
 /// Mojang versions listed at most: the search finds the others.
@@ -16,6 +16,7 @@ const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 154.;
 const SEARCH_FIELD_WIDTH: f32 = 600.;
 const VERSION_COLUMN: f32 = 160.;
+const DATE_COLUMN: f32 = 220.;
 
 fn released(time: &str) -> String {
     dates::published(time.get(..10).unwrap_or_default(), "")
@@ -87,20 +88,23 @@ impl Launcher {
                 ))
             }
             VersionList::Ready(versions) => {
-                let rows: Vec<_> = versions
+                let shown: Vec<_> = versions
                     .of(choice.snapshots, choice.old)
                     .filter(|v| search.is_empty() || v.id.to_lowercase().contains(&search))
                     .take(ROWS)
+                    .collect();
+                let ids: Vec<String> = shown.iter().map(|v| v.id.clone()).collect();
+                let rows: Vec<_> = shown
+                    .into_iter()
                     .map(|v| {
                         let on = chosen.as_deref() == Some(v.id.as_str());
-                        let id = v.id.clone();
                         let kind = match v.kind {
                             VersionKind::Release => "Release",
                             VersionKind::Snapshot => "Snapshot",
                             VersionKind::OldBeta => "Beta",
                             VersionKind::OldAlpha => "Alpha",
                         };
-                        ui::list_choice(format!("mc-{}", v.id), on)
+                        let row = ui::list_choice(format!("mc-{}", v.id), on)
                             .py(px(space::SM))
                             .child(
                                 ui::text(
@@ -119,18 +123,17 @@ impl Launcher {
                                     FontWeight::NORMAL,
                                     ink::MUTED,
                                 )
-                                .flex_1()
+                                .w(px(DATE_COLUMN))
+                                .flex_none()
+                                .truncate()
                                 .child(format!(
                                     "{} · {}",
                                     tr(kind),
                                     released(&v.released)
                                 )),
                             )
-                            .child(ui::tick_slot(on))
-                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.change(|j| j.version = Some(id.clone()));
-                                cx.notify();
-                            }))
+                            .child(ui::tick_slot(on));
+                        (row, SharedString::from(v.id.clone()), on)
                     })
                     .collect();
                 let reveal = self.instances.draft.as_mut().map(|d| {
@@ -157,26 +160,43 @@ impl Launcher {
                         vec![],
                     ))
                 } else {
-                    ui::list_box("mc-versions", height).children(rows)
+                    let this = cx.entity().downgrade();
+                    ui::options(
+                        ui::list_box("mc-versions", height),
+                        rows,
+                        true,
+                        move |i, _, cx| {
+                            let id = ids[i].clone();
+                            let _ = this.update(cx, |this, cx| {
+                                this.change(|j| j.version = Some(id));
+                                cx.notify();
+                            });
+                        },
+                    )
                 }
             }
         };
-        section_card(
+        ui::section_card(
             "instance-minecraft-version",
-            tr("Minecraft version").into(),
+            tr("Minecraft version"),
             Some(filters.into_any_element()),
-            div().flex().flex_col().child(field).child(list),
+            div()
+                .flex()
+                .flex_col()
+                .child(field)
+                .child(ui::with_scrollbar(list)),
         )
     }
 
     pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let now = self.draft_loader();
         let version = self.loader_version_shown(cx);
-        let mut grid = div().grid().grid_cols(2).gap(px(space::MD));
-        for loader in loaders() {
-            let logo = match self.loader_logo(loader.id(), MARK) {
-                Some(image) => mark_tile(ui::image_tile(image, MARK)),
-                None => ui::letter_tile(white(fill::BUTTON), loader.name(), MARK_TILE),
+        let mut cards = Vec::new();
+        let all = loaders();
+        for &loader in &all {
+            let logo = match self.loader_logo(loader.id(), ui::MARK) {
+                Some(image) => ui::mark_tile(ui::image_tile(image, ui::MARK)),
+                None => ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG),
             };
             let title = match &version {
                 Some(v) if loader == now => format!("{} {v}", loader.name()),
@@ -189,21 +209,33 @@ impl Launcher {
                 "forge" => tr("Mods and packs for older versions"),
                 _ => "",
             };
-            grid = grid.child(
-                ui::choice(format!("loader-{}", loader.id()), loader == now)
-                    .items_center()
-                    .gap(px(space::LG))
-                    .p(px(space::MD))
-                    .min_w_0()
-                    .child(logo)
-                    .child(ui::item_text(title, note))
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.change(|j| j.loader = loader);
-                        cx.notify();
-                    })),
-            );
+            let card = ui::choice(format!("loader-{}", loader.id()), loader == now)
+                .items_center()
+                .gap(px(space::LG))
+                .p(px(space::MD))
+                .min_w_0()
+                .child(logo)
+                .child(ui::item_text(title, note));
+            cards.push((card, SharedString::from(loader.name()), loader == now));
         }
-        section_card("instance-loader", tr("Mod loader").into(), None, grid)
+        let this = cx.entity().downgrade();
+        let grid = ui::options(
+            div()
+                .id("instance-loader-choices")
+                .grid()
+                .grid_cols(2)
+                .gap(px(space::MD)),
+            cards,
+            true,
+            move |i, _, cx| {
+                let loader = all[i];
+                let _ = this.update(cx, |this, cx| {
+                    this.change(|j| j.loader = loader);
+                    cx.notify();
+                });
+            },
+        );
+        ui::section_card("instance-loader", tr("Mod loader"), None, grid)
     }
 
     fn loader_version_shown(&mut self, cx: &mut Context<Self>) -> Option<String> {
@@ -286,39 +318,20 @@ impl Launcher {
         if lines.is_empty() {
             return None;
         }
-        let warn = ui::warn();
-        Some(
-            div()
-                .flex()
-                .flex_none()
-                .gap(px(space::MD))
-                .p(px(space::LG))
-                .rounded(px(radius::POPOVER))
-                .bg(warn.opacity(fill::SELECTED))
-                .child(ui::icon("information-circle", ui::IconSize::Px16, warn))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(space::SM))
-                        .min_w_0()
-                        .child(
-                            ui::text(
-                                eclipse_theme::glass::step::LEAD,
-                                FontWeight::SEMIBOLD,
-                                ink::FULL,
-                            )
-                            .child(tr("Before you switch")),
-                        )
-                        .children(lines.into_iter().map(|l| {
-                            ui::text(
-                                eclipse_theme::glass::step::NOTE,
-                                FontWeight::NORMAL,
-                                ink::BODY,
-                            )
-                            .child(l)
-                        })),
-                ),
-        )
+        let said = div()
+            .flex()
+            .flex_col()
+            .gap(px(space::SM))
+            .min_w_0()
+            .child(ui::card_title(tr("Before you switch")))
+            .children(lines.into_iter().map(|l| {
+                ui::text(
+                    eclipse_theme::glass::step::NOTE,
+                    FontWeight::NORMAL,
+                    ink::BODY,
+                )
+                .child(l)
+            }));
+        Some(ui::notice(ui::Notice::Warn, "information-circle", said, vec![]).flex_none())
     }
 }

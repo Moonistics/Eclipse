@@ -11,6 +11,9 @@ pub const EDGE: f32 = 0.07;
 pub const EDGE_LIGHT: f32 = 0.12;
 pub const FIELD_EDGE: f32 = 0.34;
 pub const FIELD_EDGE_LIGHT: f32 = 0.48;
+pub const SELECTED_EDGE: f32 = FIELD_EDGE;
+pub const SELECTED_EDGE_LIGHT: f32 = FIELD_EDGE_LIGHT;
+pub const SWITCH_EDGE_LIGHT: f32 = 0.56;
 pub const ON_LIGHT: u32 = 0x14151c;
 /// A running game or server, and a ready instance.
 pub const LIVE: u32 = 0x4ade80;
@@ -29,6 +32,8 @@ pub const DISPLAY_FONT: &str = "Monocraft";
 pub const MONOCRAFT_PIXEL: f32 = 9.;
 
 pub const MONOCRAFT_ADVANCE: f32 = 6.;
+
+pub const GEIST_ADVANCE: f32 = 7.5;
 
 pub mod pixel_text {
     use super::MONOCRAFT_PIXEL;
@@ -124,9 +129,9 @@ pub mod fill {
     pub const PRIMARY_HOVER: f32 = 0.14;
     pub const FIELD: f32 = 0.07;
     pub const BUTTON: f32 = 0.08;
+    pub const BUTTON_LIGHT: f32 = 0.12;
     pub const SELECTED: f32 = 0.1;
     pub const ACTIVE: f32 = 0.12;
-    pub const WELL: f32 = 0.04;
     pub const WELL_SHADE: f32 = 0.25;
     pub const DANGER: f32 = 0.12;
 }
@@ -137,7 +142,7 @@ pub const FIELD_BG_FOCUS: u32 = 0x222735;
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glass {
     pub accent: u32,
-    /// The accent mixed half with white: progress bars, ticks, the focus ring, links.
+    /// The accent mixed with white (62 % accent): progress bars, the focus ring, links.
     pub accent_soft: u32,
     pub mark: u32,
     /// Text on the accent: white, or [`ON_LIGHT`] on a light accent.
@@ -290,7 +295,7 @@ pub fn mix_oklab(a: u32, b: u32, p: f32) -> u32 {
     from_oklab([0, 1, 2].map(|i| x[i] * p + y[i] * (1. - p)))
 }
 
-/// WCAG relative luminance, as the mockup's `luminance` picks the label colour on the accent.
+/// WCAG relative luminance, which picks the label colour on the accent.
 pub fn luminance(c: u32) -> f32 {
     let [r, g, b] = [16, 8, 0].map(|s| {
         let v = ((c >> s) & 255) as f32 / 255.;
@@ -313,7 +318,7 @@ mod tests {
             .all(|s| (((a >> s) & 255) as i32 - ((b >> s) & 255) as i32).abs() <= 1)
     }
 
-    /// Chrome's own results for the mockup's `color-mix` sums (getComputedStyle, then a 1 px
+    /// Chrome's own results for these `color-mix` sums (getComputedStyle, then a 1 px
     /// canvas for the sRGB bytes): an independent check of the OKLab maths and the plate's mix.
     #[test]
     fn mixes_match_the_browser() {
@@ -411,6 +416,20 @@ mod tests {
         }
         let ratio = crate::contrast(over(ON_LIGHT, FIELD_EDGE_LIGHT, PAPER), PAPER);
         assert!(ratio >= 3., "light field edge: {ratio:.2}");
+    }
+
+    #[test]
+    fn a_chosen_card_shows_its_edge() {
+        use crate::night::over;
+        let look = Glass::default_look();
+        for card in [look.plate, FLOAT] {
+            let plate = over(0xffffff, fill::SELECTED, card);
+            let ratio = crate::contrast(over(0xffffff, SELECTED_EDGE, plate), card);
+            assert!(ratio >= 3., "chosen edge on #{card:06x}: {ratio:.2}");
+        }
+        let plate = over(ON_LIGHT, fill::SELECTED, PAPER);
+        let ratio = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, plate), PAPER);
+        assert!(ratio >= 3., "light chosen edge: {ratio:.2}");
     }
 
     #[test]

@@ -11,6 +11,7 @@ use std::time::Instant;
 
 thread_local! {
     static OFF: RefCell<HashSet<SharedString>> = RefCell::default();
+    static INSIDE: RefCell<HashSet<SharedString>> = RefCell::default();
     static LEFT_DISABLED: Cell<bool> = const { Cell::new(false) };
 }
 
@@ -78,10 +79,21 @@ pub fn hover_is(id: &SharedString) -> bool {
         .is_some_and(|(h, _)| h == id)
 }
 
+pub fn hover_within(id: &SharedString) -> bool {
+    INSIDE.with_borrow(|inside| inside.contains(id))
+}
+
 /// Records that `id` is now hovered or not, for [`hover_fade`]: an element whose own hover
 /// listener does more calls it.
 pub fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
     let hovered = hovered && !OFF.with_borrow(|off| off.contains(id));
+    INSIDE.with_borrow_mut(|inside| {
+        if hovered {
+            inside.insert(id.clone());
+        } else {
+            inside.remove(id);
+        }
+    });
     let mut state = HOVER.lock().unwrap();
     let is_on = state.on.as_ref().is_some_and(|(h, _)| h == id);
     if hovered && !is_on {
@@ -94,7 +106,26 @@ pub fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
     window.refresh();
 }
 
-pub fn disabled(mut el: Stateful<Div>) -> Stateful<Div> {
+pub fn disabled(el: Stateful<Div>) -> Stateful<Div> {
+    unhovered(el)
+        .opacity(crate::theme::DISABLED)
+        .cursor_default()
+        .tab_stop(false)
+}
+
+pub fn unavailable(el: Stateful<Div>, why: impl Into<SharedString>) -> Stateful<Div> {
+    let why: SharedString = why.into();
+    let el = super::focus_stop(
+        unhovered(el)
+            .opacity(crate::theme::DISABLED)
+            .cursor_default(),
+    )
+    .aria_description(why.clone())
+    .tooltip(super::tip(why.clone()));
+    super::tip_on_focus(el, why)
+}
+
+pub(super) fn unhovered(mut el: Stateful<Div>) -> Stateful<Div> {
     if let Some(ElementId::Name(id)) = el.interactivity().element_id.clone() {
         let mut state = HOVER.lock().unwrap();
         if state.on.as_ref().is_some_and(|(h, _)| *h == id) {
@@ -103,16 +134,15 @@ pub fn disabled(mut el: Stateful<Div>) -> Stateful<Div> {
         }
         OFF.with_borrow_mut(|off| off.insert(id));
     }
-    el.opacity(crate::theme::DISABLED)
-        .cursor_default()
-        .tab_stop(false)
+    el
 }
 
 pub(super) fn forget_disabled() {
     OFF.with_borrow_mut(HashSet::clear);
 }
 
-pub fn end_frame(window: &mut Window) {
+pub fn end_frame(window: &mut Window, cx: &mut gpui::App) {
+    super::return_from_modals(window, cx);
     if LEFT_DISABLED.take() {
         window.request_animation_frame();
     }

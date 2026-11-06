@@ -585,16 +585,12 @@ impl Launcher {
                     };
                     let date = inv.created.get(..10).unwrap_or_default();
                     rows = rows.child(
-                        ui::list_row(
-                            SharedString::from(format!("ts-invite-{}", inv.id)),
-                            false,
-                            |_, _, _| {},
-                        )
-                        .child(ui::item_text(
-                            who,
-                            trf("Made {date}", &[("date", &dates::published(date, ""))]),
-                        ))
-                        .child(withdraw.flex_none()),
+                        ui::list_row(SharedString::from(format!("ts-invite-{}", inv.id)), false)
+                            .child(ui::item_text(
+                                who,
+                                trf("Made {date}", &[("date", &dates::published(date, ""))]),
+                            ))
+                            .child(withdraw.flex_none()),
                     );
                 }
                 d = d.child(rows);

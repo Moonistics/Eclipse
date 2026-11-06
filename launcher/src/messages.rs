@@ -6,7 +6,7 @@ impl Launcher {
         self.perf.tick();
         match self.bench.as_mut().map(|b| b.tick(&self.perf)) {
             Some(perf::Step::Go(page)) => {
-                let pages: Vec<Page> = Page::ALL.iter().map(|p| p.0).collect();
+                let pages: Vec<Page> = Page::NAV.iter().map(|p| p.0).collect();
                 self.go(pages[page % pages.len()]);
                 changed = true;
             }

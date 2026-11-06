@@ -415,7 +415,6 @@
   "Star on GitHub": "Anna tähti GitHubissa",
   "Up to date: {instance} plays these mods.": "Ajantasainen: {instance} toistaa näitä modeja.",
   "On this computer": "Tällä tietokoneella",
-  "Needs preparing": "Vaatii valmistautumista",
   "Alpha": "Alpha",
   "{count} lines, the game is running": "{count} riviä, peli on käynnissä",
   "from GitHub: {source}": "GitHubista: {source}",
@@ -664,7 +663,6 @@
   "New world": "Uusi maailma",
   "New world, seed {seed}": "Uusi maailma, siemen {seed}",
   "No worlds yet": "Ei vielä maailmoja",
-  "Tick the EULA box to create the server.": "Luo palvelin valitsemalla EULA-ruutu.",
   "Who can join": "Kuka voi liittyä",
   "World": "Maailma",
   "{count} worlds to pick from": "{count} maailmoja, joista valita",
@@ -1023,5 +1021,15 @@
   "No Eclipse modpacks yet": "No Eclipse modpacks yet",
   "No Eclipse resource packs yet": "No Eclipse resource packs yet",
   "No Eclipse shader packs yet": "No Eclipse shader packs yet",
-  "No Eclipse data packs yet": "No Eclipse data packs yet"
+  "No Eclipse data packs yet": "No Eclipse data packs yet",
+  "Agree to the Minecraft EULA to create the server.": "Agree to the Minecraft EULA to create the server.",
+  "Close the game first": "Close the game first",
+  "Commands": "Commands",
+  "Eclipse's own instance can't be deleted": "Eclipse's own instance can't be deleted",
+  "Not prepared": "Not prepared",
+  "Paste a friend's invite code first": "Paste a friend's invite code first",
+  "Prepare the game files to play": "Prepare the game files to play",
+  "Restoring": "Restoring",
+  "Copying the game files": "Copying the game files",
+  "Moving server to trash": "Moving server to trash"
 }

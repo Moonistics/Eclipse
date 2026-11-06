@@ -81,8 +81,9 @@ impl Launcher {
             .gap_x(px(space::MD))
             .gap_y(px(space::LG))
             .mt(px(space::MD))
-            .children(list.into_iter().take(shown).enumerate().map(|(i, shot)| {
+            .children(list.into_iter().take(shown).map(|shot| {
                 let picture = pictures.next();
+                let path = shot.path.clone();
                 div()
                     .id(SharedString::from(format!("screenshot-{}", shot.name)))
                     .min_w_0()
@@ -107,7 +108,7 @@ impl Launcher {
                         .child(shot.name.clone()),
                     )
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.screenshots.viewing = Some(i);
+                        this.screenshots.viewing = Some(path.clone());
                         this.stop_asking(|a| *a == Asking::Screenshot);
                         this.screenshots.note = None;
                         cx.notify();
@@ -135,7 +136,7 @@ impl Launcher {
                 })),
             )
         });
-        let error = match (&self.screenshots.note, self.screenshots.viewing) {
+        let error = match (&self.screenshots.note, &self.screenshots.viewing) {
             (Some(Err(e)), None) => Some(div().mt(px(space::SM)).child(ui::error_note(e.clone()))),
             _ => None,
         };

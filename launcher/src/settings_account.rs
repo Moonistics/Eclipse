@@ -11,7 +11,7 @@ use crate::ui::{self, white, Tone};
 use account::Player;
 use eclipse_theme::glass::{fill, ink, radius, space, step};
 
-const HEAD: f32 = 80.;
+const HEAD: f32 = ui::FACE_XL;
 const MICROSOFT_MIN: f32 = 280.;
 const MICROSOFT_LOGO: f32 = 36.;
 const DIVIDER: f32 = 1.;
@@ -25,9 +25,7 @@ impl Launcher {
         if self.sign_in_under_names() {
             return left;
         }
-        let right = self
-            .microsoft_card(cx)
-            .border_color(white(eclipse_theme::glass::EDGE));
+        let right = self.microsoft_card(cx).border_color(ui::edge());
         let wide = self.window_width >= crate::layout::ACCOUNT_CARDS_BESIDE
             && (account::client_id().is_some() || !self.accounts.accounts.is_empty());
         div()
@@ -39,7 +37,7 @@ impl Launcher {
                     div()
                         .h(px(DIVIDER))
                         .mx(px(ui::SETTING_ROW_PADDING))
-                        .bg(white(eclipse_theme::glass::EDGE)),
+                        .bg(ui::edge()),
                 )
             })
             .child(right.when(wide, |d| d.flex_1().min_w(px(MICROSOFT_MIN)).border_l_1()))
@@ -79,12 +77,10 @@ impl Launcher {
                 )
             }
         };
-        let head = div()
-            .flex_none()
-            .size(px(HEAD))
-            .rounded(px(radius::PANEL))
-            .overflow_hidden()
-            .child(self.profile_heads.draw(face.as_deref(), HEAD, self.scale));
+        let head = ui::face(
+            self.profile_heads.draw(face.as_deref(), HEAD, self.scale),
+            HEAD,
+        );
         let header = div()
             .flex()
             .items_center()
@@ -174,21 +170,13 @@ impl Launcher {
                 )
                 .when(!plays, |d| {
                     d.child(
-                        ui::icon_button(
-                            forget_id,
-                            "cancel-01",
-                            tr("Remove…"),
-                            ButtonKind::Ghost,
-                            ui::ButtonSize::Sm,
-                            false,
-                        )
-                        .on_press(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
+                        ui::remove_button(forget_id, tr("Remove…"), ui::ButtonSize::Sm).on_press(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
                                 this.asking = Some(asked.clone());
                                 cx.notify();
-                            },
-                        )),
+                            }),
+                        ),
                     )
                 }),
             );
@@ -269,7 +257,7 @@ impl Launcher {
             .flex_col()
             .child(header)
             .when(show_names, |d| {
-                d.child(ui::label(tr("Offline names")).mt(px(space::XXL)))
+                d.child(ui::section_title(tr("Offline names")).mt(px(space::XXL)))
             })
             .when(show_names || has_chips, |d| {
                 d.child(

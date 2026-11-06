@@ -128,11 +128,10 @@ impl Launcher {
             PackKind::Shader => "shader",
         };
         let key = SharedString::from(format!("pack-{kind}-{}", pack.file));
-        let hovered = self.list_hover.as_ref() == Some(&key);
+        let hovered = ui::hover_within(&key);
         let which = (pack.kind, pack.file.clone());
         let confirming = self.is_asking(&Asking::GamePack(which.0, which.1.clone()));
         let running = self.client.is_some();
-        let hover = self.list_hover_listener(key.clone(), cx);
         let mut note = vec![match (pack.kind, pack.enabled) {
             (PackKind::Resource, true) => tr("Resource pack · on"),
             (PackKind::Resource, false) => tr("Resource pack · off"),
@@ -180,14 +179,7 @@ impl Launcher {
                 }),
             )
         } else {
-            let ask = ui::icon_button(
-                remove,
-                "delete-02",
-                tr("Delete…"),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
-                false,
-            );
+            let ask = ui::remove_button(remove, tr("Delete…"), ui::ButtonSize::Md);
             let ask = if running {
                 ui::disabled(ask)
             } else {
@@ -203,7 +195,7 @@ impl Launcher {
                 .child(ask)
                 .child(toggle)
         };
-        ui::list_row(key, hovered || confirming, hover)
+        ui::list_row(key, hovered || confirming)
             .child(ui::row_picture(icon, "package-01"))
             .child(ui::item_text(pack.title.clone(), note.join(" · ")))
             .child(end.relative().flex_none())

@@ -142,8 +142,7 @@ impl Launcher {
 
     fn mod_row(&mut self, row: ModRow, busy: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = SharedString::from(format!("mod-{}", row.file));
-        let hovered = self.list_hover.as_ref() == Some(&key);
-        let hover = self.list_hover_listener(key.clone(), cx);
+        let hovered = ui::hover_within(&key);
         // The lists' plain tile without one.
         let known = row.icon.is_some()
             || row
@@ -218,7 +217,7 @@ impl Launcher {
                 )
             }
         };
-        ui::list_row(key, hovered, hover)
+        ui::list_row(key, hovered)
             .child(icon)
             .child(ui::item_text(row.name.clone(), note))
             .children(update.map(|u| u.relative()))

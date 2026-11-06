@@ -413,7 +413,6 @@
   "Star on GitHub": "GitHub ನಲ್ಲಿ ನಕ್ಷತ್ರ ನೀಡಿ",
   "Up to date: {instance} plays these mods.": "ನವೀಕೃತ: {instance} ಈ ಮೋಡ್‌ಗಳನ್ನು ಪ್ಲೇ ಮಾಡುತ್ತದೆ.",
   "On this computer": "ಈ ಕಂಪ್ಯೂಟರ್‌ನಲ್ಲಿ",
-  "Needs preparing": "ತಯಾರಿ ಅಗತ್ಯವಿದೆ",
   "Alpha": "ಆಲ್ಫಾ",
   "{count} lines, the game is running": "{count} ಸಾಲುಗಳು, ಆಟವು ಚಾಲನೆಯಲ್ಲಿದೆ",
   "from GitHub: {source}": "GitHub ರಿಂದ: {source}",
@@ -662,7 +661,6 @@
   "New world": "ಹೊಸ ಪ್ರಪಂಚ",
   "New world, seed {seed}": "ಹೊಸ ಪ್ರಪಂಚ, ಬೀಜ {seed}",
   "No worlds yet": "ಇನ್ನೂ ಯಾವುದೇ ಪ್ರಪಂಚಗಳಿಲ್ಲ",
-  "Tick the EULA box to create the server.": "ಸರ್ವರ್ ರಚಿಸಲು EULA ಬಾಕ್ಸ್ ಅನ್ನು ಟಿಕ್ ಮಾಡಿ.",
   "Who can join": "ಯಾರು ಸೇರಬಹುದು",
   "World": "ವಿಶ್ವ",
   "{count} worlds to pick from": "ಆಯ್ಕೆ ಮಾಡಲು {count} ಪ್ರಪಂಚಗಳು",
@@ -1023,5 +1021,15 @@
   "No Eclipse modpacks yet": "No Eclipse modpacks yet",
   "No Eclipse resource packs yet": "No Eclipse resource packs yet",
   "No Eclipse shader packs yet": "No Eclipse shader packs yet",
-  "No Eclipse data packs yet": "No Eclipse data packs yet"
+  "No Eclipse data packs yet": "No Eclipse data packs yet",
+  "Agree to the Minecraft EULA to create the server.": "Agree to the Minecraft EULA to create the server.",
+  "Close the game first": "Close the game first",
+  "Commands": "Commands",
+  "Eclipse's own instance can't be deleted": "Eclipse's own instance can't be deleted",
+  "Not prepared": "Not prepared",
+  "Paste a friend's invite code first": "Paste a friend's invite code first",
+  "Prepare the game files to play": "Prepare the game files to play",
+  "Restoring": "Restoring",
+  "Copying the game files": "Copying the game files",
+  "Moving server to trash": "Moving server to trash"
 }

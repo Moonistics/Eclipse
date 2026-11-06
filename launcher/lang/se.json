@@ -415,7 +415,6 @@
   "Star on GitHub": "Atte nástti GitHubas",
   "Up to date: {instance} plays these mods.": "Ođasmahttojuvvon: {instance} speallá dáid modusaid.",
   "On this computer": "Dán dihtoris",
-  "Needs preparing": "Dárbbaša ráhkkaneami",
   "Alpha": "Alfa",
   "{count} lines, the game is running": "{count} linnjá, speallu lea jođus",
   "from GitHub: {source}": "rájes GitHub: {source}",
@@ -664,7 +663,6 @@
   "New world": "Ođđa máilbmi",
   "New world, seed {seed}": "Ođđa máilbmi, sieđga {seed}",
   "No worlds yet": "Ii leat máilbmi vuos",
-  "Tick the EULA box to create the server.": "Merke EULA-ruvttu vai sáhtát ráhkadit bálvaleaddji.",
   "Who can join": "Gii sáhttá searvat",
   "World": "Máilbmi",
   "{count} worlds to pick from": "{count} máilmmiid gaskkas maid sáhttá válljet",
@@ -1023,5 +1021,15 @@
   "No Eclipse modpacks yet": "No Eclipse modpacks yet",
   "No Eclipse resource packs yet": "No Eclipse resource packs yet",
   "No Eclipse shader packs yet": "No Eclipse shader packs yet",
-  "No Eclipse data packs yet": "No Eclipse data packs yet"
+  "No Eclipse data packs yet": "No Eclipse data packs yet",
+  "Agree to the Minecraft EULA to create the server.": "Agree to the Minecraft EULA to create the server.",
+  "Close the game first": "Close the game first",
+  "Commands": "Commands",
+  "Eclipse's own instance can't be deleted": "Eclipse's own instance can't be deleted",
+  "Not prepared": "Not prepared",
+  "Paste a friend's invite code first": "Paste a friend's invite code first",
+  "Prepare the game files to play": "Prepare the game files to play",
+  "Restoring": "Restoring",
+  "Copying the game files": "Copying the game files",
+  "Moving server to trash": "Moving server to trash"
 }

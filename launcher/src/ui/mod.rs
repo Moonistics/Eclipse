@@ -20,8 +20,8 @@ use eclipse_theme::glass::{
     ink, light_ink, pixel_text as pixel, space, step, Glass, TextStep, MONOCRAFT_PIXEL, ON_LIGHT,
 };
 use gpui::{
-    div, prelude::*, px, rgb, svg, AnimationExt, App, Div, FontWeight, Hsla, SharedString, Svg,
-    Window,
+    div, prelude::*, px, rgb, svg, AnimationExt, App, Div, FontWeight, Hsla, Role, SharedString,
+    Stateful, Svg, Window,
 };
 use std::cell::Cell;
 
@@ -47,17 +47,17 @@ pub const PANEL_INSET: f32 = CARD_PADDING / 2.;
 
 pub const LIST_INSET: f32 = space::SM;
 
-pub const SIDEBAR_INSET: f32 = 20.;
+pub const SIDEBAR_INSET: f32 = space::LG + space::XS;
 
-pub const SIDEBAR_PAD: f32 = 10.;
+pub const SIDEBAR_PAD: f32 = space::SM + space::XXS;
 
 pub const TITLE_NOTE_GAP: f32 = space::MD;
 
-const PAGE_TITLE_TOP: f32 = 40.;
+const PAGE_TITLE_TOP: f32 = space::XXL + space::SM;
 
-const PAGE_TITLE_TOP_SHORT: f32 = 20.;
+const PAGE_TITLE_TOP_SHORT: f32 = space::LG + space::XS;
 
-const PAGE_HEAD_GAP: f32 = 28.;
+const PAGE_HEAD_GAP: f32 = space::XL + space::XS;
 
 const PAGE_HEAD_GAP_SHORT: f32 = space::LG;
 
@@ -66,6 +66,8 @@ const PAGE_NOTE_WIDTH: f32 = 615.;
 const TIP_PAD: f32 = space::SM;
 
 const DOT: f32 = 7.;
+
+pub const DOT_ROOM: f32 = DOT + space::SM;
 
 const BAR_HEIGHT: f32 = 4.;
 
@@ -81,11 +83,12 @@ pub const TILE_MD: f32 = 36.;
 
 pub const TILE_LG: f32 = 48.;
 
-pub fn begin_frame(theme: &Theme, short: bool) {
+pub fn begin_frame(theme: &Theme, short: bool, window: &Window, cx: &mut App) {
     LOOK.set(theme.look);
     LIGHT.set(!theme.dark);
     SHORT.set(short);
     press::forget_spots();
+    press::note_focus(window, cx);
     hover::forget_disabled();
 }
 
@@ -169,6 +172,10 @@ pub fn text(step: TextStep, weight: FontWeight, a: f32) -> Div {
         .text_color(white(a))
 }
 
+pub fn text_width(text: &str, step: TextStep) -> f32 {
+    text.chars().count() as f32 * eclipse_theme::glass::GEIST_ADVANCE * step.size / step::BODY.size
+}
+
 pub fn on_pixel_grid(size: f32) -> f32 {
     ((size / MONOCRAFT_PIXEL).floor() * MONOCRAFT_PIXEL).max(MONOCRAFT_PIXEL)
 }
@@ -184,6 +191,12 @@ pub fn pixel_text(size: f32) -> Div {
 pub fn label(text: impl Into<SharedString>) -> Div {
     let text: SharedString = text.into();
     self::text(step::LABEL, FontWeight::SEMIBOLD, ink::DIM).child(text.to_uppercase())
+}
+
+pub fn section_title(title: impl Into<SharedString>) -> Div {
+    pixel_text(pixel::PRESS)
+        .text_color(white(ink::FULL))
+        .child(title.into())
 }
 
 pub fn card_title(title: impl Into<SharedString>) -> Div {
@@ -213,13 +226,15 @@ pub fn page_gap() -> f32 {
 }
 
 pub fn page_head(title: impl Into<SharedString>, note: impl Into<SharedString>) -> Div {
-    let note: SharedString = note.into();
+    let (title, note): (SharedString, SharedString) = (title.into(), note.into());
     div()
         .flex()
         .flex_col()
         .pt(px(page_top()))
         .mb(px(page_gap()))
-        .child(entity_title(title, pixel::PAGE_TITLE))
+        .child(
+            heading("page-title", title.clone(), 1).child(entity_title(title, pixel::PAGE_TITLE)),
+        )
         .when(!note.is_empty(), |d| {
             d.child(
                 text(step::LEAD, FontWeight::NORMAL, ink::BODY)
@@ -232,14 +247,22 @@ pub fn page_head(title: impl Into<SharedString>, note: impl Into<SharedString>) 
 
 pub fn entity_title(text: impl Into<SharedString>, size: f32) -> Div {
     pixel_text(size)
-        .font_weight(FontWeight::BOLD)
         .text_color(white(ink::FULL))
         .child(text.into())
+}
+
+pub fn heading(id: impl Into<SharedString>, title: SharedString, level: usize) -> Stateful<Div> {
+    div()
+        .id(id.into())
+        .role(Role::Heading)
+        .aria_level(level)
+        .aria_label(title)
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum IconSize {
     Px16,
+    Px24,
     Px32,
 }
 
@@ -247,6 +270,7 @@ impl IconSize {
     pub fn px(self) -> f32 {
         match self {
             IconSize::Px16 => 16.,
+            IconSize::Px24 => 24.,
             IconSize::Px32 => 32.,
         }
     }
@@ -271,26 +295,38 @@ pub enum Tone {
     Off,
 }
 
-pub fn dot(tone: Tone) -> Div {
-    let c = match tone {
+pub fn tone_colour(tone: Tone) -> Hsla {
+    match tone {
         Tone::Live => live(),
         Tone::Busy | Tone::Warn => warn(),
         Tone::Accent(soft) => color(soft),
         Tone::Off => white(ink::DIM),
-    };
-    div().flex_none().size(px(DOT)).rounded_full().bg(c)
+    }
+}
+
+pub fn dot(tone: Tone) -> Div {
+    div()
+        .flex_none()
+        .size(px(DOT))
+        .rounded_full()
+        .bg(tone_colour(tone))
 }
 
 /// The progress bar: a thin round track filled in the accent's soft shade.
-pub fn bar(value: f32) -> Div {
+pub fn bar(value: f32) -> Stateful<Div> {
     bar_track()
+        .aria_numeric_value(f64::from(value.clamp(0., 1.)))
         .w_full()
         .child(bar_fill().left_0().w(gpui::relative(value.clamp(0., 1.))))
 }
 
 /// A thin bar. A known fraction eases from its previous value; an unknown one shuttles slowly.
-pub fn progress_bar(fraction: Option<(f32, f32)>) -> Div {
+pub fn progress_bar(fraction: Option<(f32, f32)>) -> Stateful<Div> {
     let track = bar_track().flex_1();
+    let track = match fraction {
+        Some((_, to)) => track.aria_numeric_value(f64::from(to.clamp(0., 1.))),
+        None => track,
+    };
     let still = crate::motion::still();
     match fraction {
         Some((_, to)) if still => {
@@ -317,8 +353,12 @@ pub fn progress_bar(fraction: Option<(f32, f32)>) -> Div {
     }
 }
 
-fn bar_track() -> Div {
+fn bar_track() -> Stateful<Div> {
     div()
+        .id("progress")
+        .role(Role::ProgressIndicator)
+        .aria_min_numeric_value(0.)
+        .aria_max_numeric_value(1.)
         .relative()
         .h(px(BAR_HEIGHT))
         .rounded_full()
@@ -350,7 +390,7 @@ fn tip_body(text: SharedString) -> Div {
         .rounded(px(eclipse_theme::glass::radius::CONTROL))
         .bg(surface_colour(Surface::Float))
         .border_1()
-        .border_color(white(eclipse_theme::glass::EDGE))
+        .border_color(edge())
         .shadow_md()
         .child(self::text(step::CAPTION, FontWeight::NORMAL, ink::FULL).child(text))
 }
@@ -360,4 +400,126 @@ pub fn tip(
 ) -> impl Fn(&mut Window, &mut App) -> gpui::AnyView + 'static {
     let text: SharedString = text.into();
     move |_, cx| cx.new(|_| Tip(text.clone())).into()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use gpui::accesskit::{Node, Toggled};
+    use gpui::Element;
+
+    fn read(el: &impl Element) -> (Option<Role>, Node) {
+        let mut node = Node::new(Role::Unknown);
+        el.write_a11y_info(&mut node);
+        (el.a11y_role(), node)
+    }
+
+    #[test]
+    fn controls_say_what_they_are_and_what_state_they_are_in() {
+        let (role, n) = read(&button(
+            "save",
+            None,
+            "Save",
+            ButtonKind::Secondary,
+            ButtonSize::Md,
+        ));
+        assert_eq!((role, n.label()), (Some(Role::Button), Some("Save")));
+
+        let (role, n) = read(&more_button(
+            "side-more",
+            "Survival options",
+            ButtonKind::Ghost,
+            ButtonSize::Sm,
+            true,
+        ));
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(n.label(), Some("Survival options"));
+        assert_eq!(n.is_expanded(), Some(true));
+
+        let (role, n) = read(&toggle("motion", true));
+        assert_eq!(
+            (role, n.toggled()),
+            (Some(Role::Switch), Some(Toggled::True))
+        );
+
+        let (role, n) = read(&toggle_row("auto", "Install automatically", None, false));
+        assert_eq!(role, Some(Role::Switch));
+        assert_eq!(n.label(), Some("Install automatically"));
+        assert_eq!(n.toggled(), Some(Toggled::False));
+
+        let (role, n) = read(&tab("home-tab-worlds", "Worlds", true));
+        assert_eq!((role, n.is_selected()), (Some(Role::Tab), Some(true)));
+        assert_eq!(read(&tab_strip("home-tabs", [])).0, Some(Role::TabList));
+
+        let (role, n) = read(&nav_row(
+            "nav-home",
+            "home",
+            "Home",
+            true,
+            NavDensity::Sidebar,
+        ));
+        assert_eq!((role, n.is_selected()), (Some(Role::Link), Some(true)));
+        assert_eq!(n.label(), Some("Home"));
+
+        let (role, n) = read(&dropdown(
+            "picker",
+            "Version",
+            None,
+            "Nightly",
+            false,
+            ButtonSize::Md,
+        ));
+        assert_eq!((role, n.is_expanded()), (Some(Role::ComboBox), Some(false)));
+        assert_eq!(n.label(), Some("Version"));
+
+        let (role, n) = read(&menu_row(
+            "row-menu-edit",
+            "pencil-edit-02",
+            "Edit instance",
+            false,
+        ));
+        assert_eq!(
+            (role, n.label()),
+            (Some(Role::MenuItem), Some("Edit instance"))
+        );
+
+        let (role, n) = read(&pick_row("language-pick-de", "Deutsch", false));
+        assert_eq!(role, Some(Role::MenuItemRadio));
+        assert_eq!(n.toggled(), Some(Toggled::False));
+
+        let (role, n) = read(&progress_bar(Some((0., 0.5))));
+        assert_eq!(role, Some(Role::ProgressIndicator));
+        assert_eq!(n.numeric_value(), Some(0.5));
+
+        let (role, n) = read(&stepper("players", 10, 1..=100, |_, _, _| {}));
+        assert_eq!(
+            (role, n.numeric_value()),
+            (Some(Role::SpinButton), Some(10.))
+        );
+
+        let (role, _) = read(&segments(
+            "difficulty",
+            &[(1, SharedString::from("Easy"))],
+            1,
+            |_, _, _| {},
+        ));
+        assert_eq!(role, Some(Role::RadioGroup));
+
+        let (role, n) = read(&link("eula", "Read the EULA"));
+        assert_eq!((role, n.label()), (Some(Role::Link), Some("Read the EULA")));
+
+        let (role, n) = read(&heading("page-title", "Settings".into(), 1));
+        assert_eq!((role, n.level()), (Some(Role::Heading), Some(1)));
+    }
+
+    #[test]
+    fn a_control_that_cant_be_pressed_says_why() {
+        let blocked = unavailable(
+            button("join", None, "Join", ButtonKind::Secondary, ButtonSize::Md),
+            "Paste a friend's invite code first",
+        );
+        let (role, n) = read(&blocked);
+        assert_eq!(role, Some(Role::Button));
+        assert_eq!(n.description(), Some("Paste a friend's invite code first"));
+    }
 }

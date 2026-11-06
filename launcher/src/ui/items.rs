@@ -1,11 +1,13 @@
 use super::{
-    color, danger, disabled, dot, hoverable, icon, look, row_fill, text, white, ButtonSize, Hover,
-    IconSize, Tone, PANEL_INSET, SETTING_ROW_GAP, TILE_MD,
+    color, danger, disabled, dot, edge, hoverable, icon, light, look, row_fill, starts_menu, text,
+    warn, white, ButtonSize, Hover, IconSize, Tone, PANEL_INSET, SETTING_ROW_GAP, TILE_MD, TILE_SM,
 };
-use eclipse_theme::glass::{fill, ink, radius, space, step, EDGE};
+use eclipse_theme::glass::{
+    fill, ink, radius, space, step, ON_LIGHT, PAPER, SELECTED_EDGE, SELECTED_EDGE_LIGHT,
+};
 use gpui::{
-    div, prelude::*, px, AnyElement, App, Div, ExternalPaths, FontWeight, Hsla, ImageSource,
-    SharedString, Stateful, Window,
+    div, point, prelude::*, px, AnyElement, BoxShadow, Div, ExternalPaths, FontWeight, Hsla,
+    ImageSource, Role, SharedString, Stateful, Toggled,
 };
 
 const SETTING_NOTE_WIDTH: f32 = 560.;
@@ -14,30 +16,63 @@ const NOTE_LINE_HEIGHT: f32 = 44.;
 
 const TICK_SLOT: f32 = 20.;
 
+const RAISE_SHADE: f32 = 0.06;
+
+pub const ROW_EDGE: f32 = 1.;
+
 pub fn selected(d: Stateful<Div>, on: bool) -> Stateful<Div> {
     d.rounded(px(radius::ROW))
-        .border_1()
-        .when(on, |d| {
-            d.bg(white(fill::SELECTED)).border_color(white(EDGE))
-        })
+        .border(px(ROW_EDGE))
+        .when(on, |d| d.bg(white(fill::SELECTED)).border_color(edge()))
         .when(!on, |d| d.border_color(gpui::transparent_black()))
 }
 
+pub fn side_selected(d: Stateful<Div>, on: bool) -> Stateful<Div> {
+    if !(on && light()) {
+        return selected(d, on);
+    }
+    d.rounded(px(radius::ROW))
+        .border(px(ROW_EDGE))
+        .bg(color(PAPER))
+        .border_color(edge())
+        .shadow(vec![BoxShadow {
+            color: color(ON_LIGHT).opacity(RAISE_SHADE),
+            offset: point(px(0.), px(1.)),
+            blur_radius: px(0.),
+            spread_radius: px(0.),
+            inset: false,
+        }])
+}
+
+pub fn chosen(d: Stateful<Div>, on: bool) -> Stateful<Div> {
+    let edge = if light() {
+        color(ON_LIGHT).opacity(SELECTED_EDGE_LIGHT)
+    } else {
+        gpui::white().opacity(SELECTED_EDGE)
+    };
+    selected(d, on).when(on, |d| d.border_color(edge))
+}
+
 pub fn row(id: impl Into<SharedString>, current: bool) -> Stateful<Div> {
-    selected(
-        hoverable(id, radius::ROW, Hover::Row)
-            .flex()
-            .items_center()
-            .gap(px(space::MD))
-            .w_full()
-            .p(px(space::SM))
-            .cursor_pointer(),
-        current,
-    )
+    selected(row_body(id), current)
+}
+
+pub fn side_row(id: impl Into<SharedString>, current: bool) -> Stateful<Div> {
+    side_selected(row_body(id), current)
+}
+
+fn row_body(id: impl Into<SharedString>) -> Stateful<Div> {
+    hoverable(id, radius::ROW, Hover::Row)
+        .flex()
+        .items_center()
+        .gap(px(space::MD))
+        .w_full()
+        .p(px(space::SM))
+        .cursor_pointer()
 }
 
 pub fn choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    selected(
+    chosen(
         hoverable(id, radius::ROW, Hover::Row)
             .flex()
             .cursor_pointer(),
@@ -107,6 +142,40 @@ pub fn state_line(tone: Tone, state: impl Into<SharedString>) -> Div {
         .child(div().min_w_0().truncate().child(state.into()))
 }
 
+fn state_lines(tone: Tone, state: SharedString, line: f32) -> Div {
+    div()
+        .flex()
+        .gap(px(space::SM))
+        .min_w_0()
+        .child(
+            div()
+                .flex()
+                .flex_none()
+                .items_center()
+                .h(px(line))
+                .child(dot(tone)),
+        )
+        .child(div().min_w_0().child(state))
+}
+
+pub fn state_note(tone: Tone, state: impl Into<SharedString>) -> Div {
+    text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(state_lines(
+        tone,
+        state.into(),
+        step::NOTE.line,
+    ))
+}
+
+pub fn state_title(tone: Tone, state: impl Into<SharedString>) -> Div {
+    let tint = match tone {
+        Tone::Live | Tone::Warn => super::tone_colour(tone),
+        _ => white(ink::DIM),
+    };
+    text(step::BODY, FontWeight::MEDIUM, ink::FULL)
+        .text_color(tint)
+        .child(state_lines(tone, state.into(), step::BODY.line))
+}
+
 pub fn row_picture(image: Option<ImageSource>, fallback: &'static str) -> AnyElement {
     match image {
         Some(image) => super::image_tile(image, TILE_MD),
@@ -123,11 +192,41 @@ pub fn chip(
     name: impl Into<SharedString>,
     on: bool,
 ) -> Stateful<Div> {
-    selected(
+    chosen(
         chip_body(hoverable(id, radius::ROW, Hover::Row), face, name)
             .when(!on, |d| d.bg(white(fill::HOVER)).cursor_pointer()),
         on,
     )
+}
+
+pub fn filter_chip(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    on: bool,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let label: SharedString = label.into();
+    let tone = if on || super::hover_is(&id) {
+        ink::FULL
+    } else {
+        ink::MUTED
+    };
+    chosen(
+        hoverable(id, radius::CONTROL, Hover::Row)
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(space::XS))
+            .h(px(ButtonSize::Sm.height()))
+            .px(px(space::MD))
+            .bg(white(fill::BUTTON))
+            .cursor_pointer()
+            .text_color(white(tone))
+            .children(on.then(tick))
+            .child(super::press_text().relative().child(label.to_uppercase())),
+        on,
+    )
+    .rounded(px(radius::CONTROL))
 }
 
 pub fn person_chip(face: impl IntoElement, name: impl Into<SharedString>) -> Div {
@@ -147,15 +246,7 @@ fn chip_body<E: Styled + ParentElement>(
         .h(px(CHIP))
         .pl(px(space::SM))
         .pr(px(space::MD))
-        .child(
-            div()
-                .relative()
-                .flex_none()
-                .size(px(CHIP_FACE))
-                .rounded(px(radius::ROW))
-                .overflow_hidden()
-                .child(face),
-        )
+        .child(super::face(face, CHIP_FACE))
         .child(
             text(step::BODY, FontWeight::MEDIUM, ink::FULL)
                 .relative()
@@ -165,24 +256,19 @@ fn chip_body<E: Styled + ParentElement>(
 
 pub const CHIP: f32 = 44.;
 
-pub const CHIP_FACE: f32 = 30.;
+pub const CHIP_FACE: f32 = TILE_SM;
 
 pub fn drop_target(el: Stateful<Div>) -> Stateful<Div> {
     el.drag_over::<ExternalPaths>(|s, _, _, _| s.bg(white(fill::SELECTED)))
 }
 
-/// A list row, faintly filled under the pointer. `on_hover` hears the pointer come and go too,
-/// for rows that show their actions then. `held`: the row keeps its fill while the pointer is on
-/// one of its buttons or its menu is open, as CSS's `:hover` stays on a parent.
-pub fn list_row(
-    id: impl Into<SharedString>,
-    held: bool,
-    on_hover: impl Fn(&bool, &mut Window, &mut App) + 'static,
-) -> Stateful<Div> {
-    let id = id.into();
-    let key = id.clone();
-    div()
-        .id(id.clone())
+/// A list row, faintly filled under the pointer (`hover_within` tells a row's own code, for
+/// rows that show their actions then), and while the pointer is on one of its buttons, as CSS's
+/// `:hover` stays on a parent. `held`: it keeps its fill while its menu is open.
+pub fn list_row(id: impl Into<SharedString>, held: bool) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let held = held || super::hover_within(&id);
+    super::track_hover(div().id(id.clone()), id.clone())
         .relative()
         .flex()
         .items_center()
@@ -192,10 +278,6 @@ pub fn list_row(
         .py(px(space::MD))
         .rounded(px(radius::ROW))
         .child(row_fill(&id, radius::ROW, held))
-        .on_hover(move |hovered, window, cx| {
-            super::note_hover(&key, *hovered, window);
-            on_hover(hovered, window, cx);
-        })
 }
 
 /// A popover's row: text after a muted icon, filled under the pointer. `danger` colours it red.
@@ -205,6 +287,7 @@ pub fn menu_row(
     label: impl Into<SharedString>,
     danger: bool,
 ) -> Stateful<Div> {
+    let label: SharedString = label.into();
     let (fg, icon_color, hover) = if danger {
         let c = self::danger();
         (c, c, Hover::Danger)
@@ -212,6 +295,8 @@ pub fn menu_row(
         (white(ink::FULL), white(ink::MUTED), Hover::Row)
     };
     hoverable(id, radius::CONTROL, hover)
+        .role(Role::MenuItem)
+        .aria_label(label.clone())
         .flex()
         .items_center()
         .gap(px(space::MD))
@@ -225,7 +310,7 @@ pub fn menu_row(
             text(step::BODY, FontWeight::NORMAL, ink::FULL)
                 .relative()
                 .text_color(fg)
-                .child(label.into()),
+                .child(label),
         )
 }
 
@@ -239,6 +324,9 @@ pub fn menu_item(
     locked: bool,
 ) -> Stateful<Div> {
     let d = hoverable(id, radius::CONTROL, Hover::Row)
+        .role(Role::MenuItem)
+        .aria_label(label.clone())
+        .when(!note.is_empty(), |d| d.aria_description(note.clone()))
         .flex()
         .items_center()
         .justify_between()
@@ -269,7 +357,11 @@ pub fn pick_row(
     label: impl Into<SharedString>,
     picked: bool,
 ) -> Stateful<Div> {
-    hoverable(id, radius::CONTROL, Hover::Row)
+    let label: SharedString = label.into();
+    let row = hoverable(id, radius::CONTROL, Hover::Row)
+        .role(Role::MenuItemRadio)
+        .aria_toggled(Toggled::from(picked))
+        .aria_label(label.clone())
         .flex()
         .items_center()
         .justify_between()
@@ -283,9 +375,14 @@ pub fn pick_row(
             text(step::BODY, FontWeight::NORMAL, ink::FULL)
                 .relative()
                 .truncate()
-                .child(label.into()),
+                .child(label),
         )
-        .children(picked.then(tick))
+        .children(picked.then(tick));
+    if picked {
+        starts_menu(row)
+    } else {
+        row
+    }
 }
 
 pub fn tick() -> gpui::Svg {
@@ -411,7 +508,22 @@ pub fn notice_line(dot: Hsla, text: impl Into<SharedString>) -> Div {
         )
 }
 
-pub fn notice(icon_name: &'static str, said: impl IntoElement, actions: Vec<AnyElement>) -> Div {
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Notice {
+    Info,
+    Warn,
+}
+
+pub fn notice(
+    kind: Notice,
+    icon_name: &'static str,
+    said: impl IntoElement,
+    actions: Vec<AnyElement>,
+) -> Div {
+    let (plate, mark) = match kind {
+        Notice::Warn => (warn().opacity(fill::DANGER), warn()),
+        Notice::Info => (white(fill::HOVER), white(ink::BODY)),
+    };
     div()
         .relative()
         .flex()
@@ -419,7 +531,7 @@ pub fn notice(icon_name: &'static str, said: impl IntoElement, actions: Vec<AnyE
         .gap(px(space::MD))
         .p(px(PANEL_INSET))
         .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
+        .bg(plate)
         .child(
             div()
                 .flex()
@@ -430,7 +542,7 @@ pub fn notice(icon_name: &'static str, said: impl IntoElement, actions: Vec<AnyE
                         .flex()
                         .items_center()
                         .h(px(step::BODY.line))
-                        .child(icon(icon_name, IconSize::Px16, white(ink::BODY))),
+                        .child(icon(icon_name, IconSize::Px16, mark)),
                 )
                 .child(
                     text(step::BODY, FontWeight::NORMAL, ink::FULL)

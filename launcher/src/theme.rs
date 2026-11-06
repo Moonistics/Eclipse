@@ -21,8 +21,6 @@ pub const QUICK: Duration = tokens::QUICK.duration();
 pub struct Theme {
     /// The look's colours for the accent.
     pub look: tokens::glass::Glass,
-    /// The page behind everything the sky doesn't cover.
-    pub page: Hsla,
     pub side: Hsla,
     /// The scene's colours (`scene.rs`).
     pub night: Night,
@@ -69,11 +67,6 @@ impl Theme {
         let look = if dark { look } else { look.light() };
         Self {
             look,
-            page: c(if dark {
-                tokens::glass::PAGE
-            } else {
-                night.page
-            }),
             side: c(if dark { BASE } else { night.side }),
             night,
             dark,
@@ -130,6 +123,24 @@ mod tests {
         for bg in [Glass::default_look().plate, FLOAT] {
             let edge = contrast(over(0xffffff, ink::DIM, bg), bg);
             assert!(edge >= 3.0, "off switch on #{bg:06x}: {edge:.2}");
+        }
+    }
+
+    #[test]
+    fn a_light_switch_that_is_on_shows_its_edge() {
+        use eclipse_theme::glass::SWITCH_EDGE_LIGHT;
+        let hues = (0..360).map(|hue| Accent::custom(hue as f32));
+        for accent in Accent::ALL.into_iter().chain(hues) {
+            let look = Glass::new(accent.rgb()).light();
+            let rim = over(ON_LIGHT, SWITCH_EDGE_LIGHT, look.accent);
+            for bg in light_surfaces() {
+                let ratio = contrast(rim, bg);
+                assert!(
+                    ratio >= 3.0,
+                    "{}: on switch on #{bg:06x}: {ratio:.2}",
+                    accent.name()
+                );
+            }
         }
     }
 

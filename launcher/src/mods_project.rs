@@ -154,8 +154,6 @@ pub(super) enum Loaded {
 /// Images fetched at once.
 const IMAGE_WORKERS: usize = 4;
 
-const LEADING_SLOT: f32 = 24.;
-
 const FILTER_NAME: f32 = 120.;
 
 const PAGE_TEXT: f32 = 760.;
@@ -354,27 +352,20 @@ impl Launcher {
         } else {
             tr("Filters").to_string()
         };
-        let sliders = div()
-            .flex()
-            .items_center()
-            .justify_center()
-            .size(px(LEADING_SLOT))
-            .child(ui::icon(
-                "sliders-horizontal",
-                ui::IconSize::Px16,
-                white(ink::MUTED),
-            ));
-        ui::dropdown(
+        let button = ui::button(
             "mods-filters",
-            Some(sliders.into_any_element()),
+            Some("sliders-horizontal"),
             label,
-            shown,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.mods.browse.show_filters = !this.mods.browse.show_filters;
-            cx.notify();
-        }))
+        );
+        ui::selected(button, shown)
+            .rounded(px(eclipse_theme::glass::radius::CONTROL))
+            .aria_expanded(shown)
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods.browse.show_filters = !this.mods.browse.show_filters;
+                cx.notify();
+            }))
     }
 
     /// The filter panel: loader, version, environment and categories when shown, only categories
@@ -401,99 +392,120 @@ impl Launcher {
                 ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr("Loading filters")),
             ));
         };
-        // A chip: on or off, one value of a filter.
-        let chip = |id: String, label: String, on: bool| {
-            ui::selected(
-                ui::button(id, None, label, ButtonKind::Secondary, ui::ButtonSize::Sm),
-                on,
+        let loaders = {
+            let values = tags.loaders.clone();
+            let chips = values
+                .iter()
+                .map(|l| {
+                    let on = f.loader.as_deref() == Some(l.as_str());
+                    (format!("mods-loader-{l}"), l.clone(), on)
+                })
+                .collect();
+            self.filter_row("mods-loaders", "Loader", None, chips, cx, move |f, i| {
+                let v = values[i].clone();
+                f.loader = if f.loader.as_ref() == Some(&v) {
+                    None
+                } else {
+                    Some(v)
+                };
+            })
+        };
+        let versions = {
+            let values: Vec<String> = tags.game_versions.iter().take(12).cloned().collect();
+            let chips = values
+                .iter()
+                .map(|v| {
+                    let on = f.game_version.as_deref() == Some(v.as_str());
+                    (format!("mods-version-{v}"), v.clone(), on)
+                })
+                .collect();
+            let grass = self
+                .grass_mark(20.)
+                .map(|grass| img(grass).size(px(20.)).flex_none().into_any_element());
+            self.filter_row(
+                "mods-versions",
+                "Game version",
+                grass,
+                chips,
+                cx,
+                move |f, i| {
+                    let v = values[i].clone();
+                    f.game_version = if f.game_version.as_ref() == Some(&v) {
+                        None
+                    } else {
+                        Some(v)
+                    };
+                },
             )
         };
-        let row = |title: &'static str| {
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(space::XS))
-                .child(ui::label(tr(title)).w(px(FILTER_NAME)))
+        let environment = {
+            let chips = Environment::ALL
+                .iter()
+                .map(|e| {
+                    let on = f.environment == Some(*e);
+                    (format!("mods-env-{e:?}"), e.label().to_string(), on)
+                })
+                .collect();
+            self.filter_row(
+                "mods-environments",
+                "Environment",
+                None,
+                chips,
+                cx,
+                |f, i| {
+                    let e = Environment::ALL[i];
+                    f.environment = if f.environment == Some(e) {
+                        None
+                    } else {
+                        Some(e)
+                    };
+                },
+            )
         };
-        let mut loaders = row("Loader");
-        for l in &tags.loaders {
-            let on = f.loader.as_deref() == Some(l.as_str());
-            let value = l.clone();
-            loaders = loaders.child(chip(format!("mods-loader-{l}"), l.clone(), on).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let v = value.clone();
-                    this.mods_filter(|f| f.loader = if on { None } else { Some(v) });
-                    cx.notify();
-                }),
-            ));
-        }
-        let mut versions = row("Game version");
-        if let Some(grass) = self.grass_mark(20.) {
-            versions = versions.child(img(grass).size(px(20.)).flex_none());
-        }
-        for v in tags.game_versions.iter().take(12) {
-            let on = f.game_version.as_deref() == Some(v.as_str());
-            let value = v.clone();
-            versions = versions.child(chip(format!("mods-version-{v}"), v.clone(), on).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let v = value.clone();
-                    this.mods_filter(|f| f.game_version = if on { None } else { Some(v) });
-                    cx.notify();
-                }),
-            ));
-        }
-        let mut environment = row("Environment");
-        for e in Environment::ALL {
-            let on = f.environment == Some(e);
-            environment = environment.child(
-                chip(format!("mods-env-{e:?}"), e.label().into(), on).on_press(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        this.mods_filter(|f| f.environment = if on { None } else { Some(e) });
-                        cx.notify();
-                    },
-                )),
-            );
-        }
-        let mut categories = row("Categories");
-        for c in &tags.categories {
-            let on = f.categories.contains(&c.name);
-            let value = c.name.clone();
-            categories = categories.child(
-                chip(format!("mods-cat-{}", c.name), category_name(&c.name), on).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        let v = value.clone();
-                        this.mods_filter(|f| {
-                            if !f.categories.contains(&v) {
-                                f.categories.push(v);
-                            } else {
-                                f.categories.retain(|x| *x != v);
-                            }
-                        });
-                        cx.notify();
-                    }),
-                ),
-            );
-        }
+        let categories = {
+            let values: Vec<String> = tags.categories.iter().map(|c| c.name.clone()).collect();
+            let chips = values
+                .iter()
+                .map(|c| {
+                    let on = f.categories.contains(c);
+                    (format!("mods-cat-{c}"), category_name(c), on)
+                })
+                .collect();
+            self.filter_row(
+                "mods-categories",
+                "Categories",
+                None,
+                chips,
+                cx,
+                move |f, i| {
+                    let v = values[i].clone();
+                    if !f.categories.contains(&v) {
+                        f.categories.push(v);
+                    } else {
+                        f.categories.retain(|x| *x != v);
+                    }
+                },
+            )
+        };
         let _ = CATEGORY_NAMES;
-        let mut tag_row = row("Tags");
-        for tag in &tags.tags {
-            let on = f.tags.contains(tag);
-            let value = tag.clone();
-            tag_row = tag_row.child(chip(format!("mods-tag-{tag}"), tag_name(tag), on).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let v = value.clone();
-                    this.mods_filter(|f| {
-                        if !f.tags.contains(&v) {
-                            f.tags.push(v);
-                        } else {
-                            f.tags.retain(|x| *x != v);
-                        }
-                    });
-                    cx.notify();
-                }),
-            ));
-        }
+        let tag_row = {
+            let values = tags.tags.clone();
+            let chips = values
+                .iter()
+                .map(|tag| {
+                    let on = f.tags.contains(tag);
+                    (format!("mods-tag-{tag}"), tag_name(tag), on)
+                })
+                .collect();
+            self.filter_row("mods-tags", "Tags", None, chips, cx, move |f, i| {
+                let v = values[i].clone();
+                if !f.tags.contains(&v) {
+                    f.tags.push(v);
+                } else {
+                    f.tags.retain(|x| *x != v);
+                }
+            })
+        };
         let clear = ui::button(
             "mods-clear",
             None,
@@ -516,6 +528,36 @@ impl Launcher {
             bar = bar.child(div().flex().child(clear));
         }
         Some(bar)
+    }
+
+    fn filter_row(
+        &self,
+        id: &'static str,
+        title: &'static str,
+        lead: Option<AnyElement>,
+        chips: Vec<(String, String, bool)>,
+        cx: &mut Context<Self>,
+        pick: impl Fn(&mut Filters, usize) + 'static,
+    ) -> Stateful<Div> {
+        let this = cx.entity().downgrade();
+        let rows = chips
+            .into_iter()
+            .map(|(id, label, on)| (ui::filter_chip(id, label.clone(), on), label.into(), on))
+            .collect();
+        let list = div()
+            .id(id)
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(space::XS))
+            .child(ui::label(tr(title)).w(px(FILTER_NAME)))
+            .children(lead);
+        ui::options(list, rows, false, move |i, _, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.mods_filter(|f| pick(f, i));
+                cx.notify();
+            });
+        })
     }
 
     /// What the filters pick, each a chip with a cross that removes it, then Clear filters.
@@ -930,7 +972,6 @@ impl Launcher {
                             ui::list_row(
                                 SharedString::from(format!("mods-project-version-{}", v.id)),
                                 false,
-                                |_, _, _| {},
                             )
                             .child(ui::item_text(v.number.clone(), detail.join(" · ")))
                             .children(list[i].verdict.as_ref().map(|verdict| {

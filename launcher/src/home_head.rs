@@ -3,8 +3,7 @@
 use super::*;
 use crate::menus::Menu;
 use crate::ui::{self};
-use eclipse_theme::glass::{ink, radius, space};
-use gpui::deferred;
+use eclipse_theme::glass::{ink, space};
 use std::time::Instant;
 
 const PLAY: f32 = 240.;
@@ -13,8 +12,7 @@ const PICKER: f32 = 170.;
 const PICKER_WIDE: f32 = 220.;
 const INVITE_MIN: f32 = 200.;
 const INVITE_MAX: f32 = 420.;
-const INVITE_JOIN_INSET: f32 = 10.;
-const ICON: f32 = 40.;
+const ICON: f32 = ui::TILE_LG;
 
 /// Play, the version and the big icons are this tall.
 fn tall() -> f32 {
@@ -32,13 +30,14 @@ impl Launcher {
             (None, Some(_)) => self.client_since = None,
             _ => {}
         }
+        let (play, blocked) = self.play_group(tag, prepared || java.is_some(), cx);
         let actions = div()
             .mt(px(ui::page_gap()))
             .flex()
             .flex_wrap()
             .items_center()
             .gap(px(space::MD))
-            .child(self.play_group(tag, prepared || java.is_some(), cx))
+            .child(play)
             .children(java.is_none().then(|| self.version_picker(cx)))
             .children(self.folder_button())
             .children(java.is_none().then(|| self.invite_field(tag, cx)));
@@ -48,7 +47,7 @@ impl Launcher {
             .min_w_0()
             .pt(px(ui::page_top()))
             .child(self.home_title(cx))
-            .child(self.played_text())
+            .child(self.played_text(blocked))
             .child(actions)
     }
 
@@ -58,13 +57,11 @@ impl Launcher {
             return div();
         };
         let edit = instance.clone();
-        let icon = ui::hover_over(
+        let icon = ui::picture_button(
             "home-instance-icon",
-            radius::ROW,
             self.instance_icon(&instance, ICON),
+            tr("Edit instance"),
         )
-        .cursor_pointer()
-        .tooltip(ui::tip(tr("Edit instance")))
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.open_instance_page(Some(edit.clone()));
             cx.notify();
@@ -74,7 +71,7 @@ impl Launcher {
             .items_center()
             .gap(px(space::LG))
             .min_w_0()
-            .child(ui::tip_on_focus(icon, tr("Edit instance").into()))
+            .child(icon)
             .child(
                 ui::entity_title(instance.name, eclipse_theme::glass::pixel_text::PAGE_TITLE)
                     .min_w_0()
@@ -84,7 +81,7 @@ impl Launcher {
 
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
-    fn played_text(&self) -> Div {
+    fn played_text(&self, blocked: bool) -> Div {
         let line = match (self.client_since, self.selected_instance()) {
             (Some(since), _) => trf(
                 "Playing for {time} now. Have fun!",
@@ -99,6 +96,7 @@ impl Launcher {
                             ("when", &last_played(when)),
                         ],
                     ),
+                    None if blocked => tr("Prepare the game files to play").into(),
                     None => tr("Not played yet").into(),
                 };
                 match &i.java {
@@ -119,7 +117,7 @@ impl Launcher {
 
     /// Play and its ⋯ menu: Stop while the game runs, Update when the launcher's version has a
     /// newer one, the progress while preparing, updating or starting.
-    fn play_group(&mut self, tag: &str, ready: bool, cx: &mut Context<Self>) -> Div {
+    fn play_group(&mut self, tag: &str, ready: bool, cx: &mut Context<Self>) -> (Div, bool) {
         let running = self.client.is_some();
         let follows = self
             .selected_instance()
@@ -154,7 +152,11 @@ impl Launcher {
             _ => None,
         };
         let open = self.menu_is(&Menu::Play);
-        let kind = if running && busy.is_none() {
+        let blocked = busy.is_none()
+            && !running
+            && update.is_none()
+            && play_press(ready, self.owner, false) == PlayPress::Nothing;
+        let kind = if (running && busy.is_none()) || blocked {
             ButtonKind::Secondary
         } else {
             ButtonKind::Primary
@@ -165,13 +167,8 @@ impl Launcher {
             kind,
             ui::ButtonSize::Hero,
             open,
-        )
-        .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
-            if !this.closed_by_this_press(event) {
-                this.toggle_menu(Menu::Play, window, cx);
-            }
-            cx.notify();
-        }));
+        );
+        let more = self.menu_opener(more, Menu::Play, cx);
         let focus = self.play_focus.clone();
         let main = match busy {
             Some((label, progress)) => {
@@ -233,9 +230,21 @@ impl Launcher {
             }
         };
         let wide = self.window_width >= layout::HOME_HEAD_WIDE;
+        let split = if blocked {
+            ui::split_unavailable(
+                "play",
+                Some("play"),
+                tr("Play"),
+                ui::ButtonSize::Hero,
+                more,
+                tr("Prepare the game files to play"),
+            )
+        } else {
+            ui::split(main, more, kind)
+        };
         let mut wrap = div()
             .relative()
-            .child(ui::split(main, more, kind).min_w(px(if wide { PLAY_WIDE } else { PLAY })));
+            .child(split.min_w(px(if wide { PLAY_WIDE } else { PLAY })));
         if open {
             let locked = running || busy.is_some();
             let mut items: Vec<(&'static str, &'static str, &'static str, bool, PlayItem)> =
@@ -279,13 +288,7 @@ impl Launcher {
                     PlayItem::Command,
                 ));
             }
-            let mut menu = ui::popover("play-menu").on_mouse_down_out(cx.listener(
-                |this, event: &MouseDownEvent, _, cx| {
-                    this.close_menu();
-                    this.menu_closed_at = Some(event.position);
-                    cx.notify();
-                },
-            ));
+            let mut menu = self.menu_popover("play-menu", cx);
             for (key, icon, label, locked, what) in items {
                 let id = id.clone();
                 let row = ui::menu_row(key, icon, label, false);
@@ -311,18 +314,9 @@ impl Launcher {
                     }))
                 });
             }
-            wrap = wrap.child(
-                deferred(
-                    div()
-                        .absolute()
-                        .top(px(tall() + ui::MENU_GAP))
-                        .left_0()
-                        .child(menu),
-                )
-                .with_priority(1),
-            );
+            wrap = wrap.child(ui::menu_under(tall(), ui::Align::Start, menu));
         }
-        wrap
+        (wrap, blocked)
     }
 
     /// The version: "Version" over the one played, a chevron that turns while its list is open;
@@ -356,30 +350,24 @@ impl Launcher {
                 )
                 .child(label),
             );
-        let button = ui::dropdown("picker", None, value, open, ui::ButtonSize::Hero)
-            .gap(px(space::XL))
-            .min_w(px(if self.window_width >= layout::HOME_HEAD_WIDE {
-                PICKER_WIDE
-            } else {
-                PICKER
-            }))
-            .pl(px(space::LG))
-            .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
-                if !this.closed_by_this_press(event) {
-                    this.toggle_menu(Menu::Version, window, cx);
-                }
-                cx.notify();
-            }));
+        let button = ui::dropdown(
+            "picker",
+            tr("Version"),
+            None,
+            value,
+            open,
+            ui::ButtonSize::Hero,
+        )
+        .min_w(px(if self.window_width >= layout::HOME_HEAD_WIDE {
+            PICKER_WIDE
+        } else {
+            PICKER
+        }));
+        let button = self.menu_opener(button, Menu::Version, cx);
         let mut wrap = div().relative().child(button);
         if open {
             let follows = self.launcher_version().cloned();
-            let mut menu = ui::popover("picker-menu").on_mouse_down_out(cx.listener(
-                |this, event: &MouseDownEvent, _, cx| {
-                    this.close_menu();
-                    this.menu_closed_at = Some(event.position);
-                    cx.notify();
-                },
-            ));
+            let mut menu = self.menu_popover("picker-menu", cx);
             for tag in &self.installed {
                 let chosen = self.selected() == Some(tag);
                 let latest = follows.as_ref() == Some(tag);
@@ -392,15 +380,15 @@ impl Launcher {
                     tag.clone()
                 };
                 let pick = tag.clone();
-                menu = menu.child(
-                    ui::menu_item(format!("pick-{tag}"), name.into(), note, false)
-                        .when(chosen, |d| d.child(ui::tick()))
-                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.pin_version((!latest).then(|| pick.clone()));
-                            this.close_menu();
-                            cx.notify();
-                        })),
-                );
+                let row = ui::menu_item(format!("pick-{tag}"), name.into(), note, false)
+                    .when(chosen, |d| d.child(ui::tick()));
+                menu = menu.child(if chosen { ui::starts_menu(row) } else { row }.on_press(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.pin_version((!latest).then(|| pick.clone()));
+                        this.close_menu();
+                        cx.notify();
+                    }),
+                ));
             }
             menu = menu.child(
                 ui::menu_item("manage", tr("Manage versions").into(), String::new(), false)
@@ -410,16 +398,7 @@ impl Launcher {
                         cx.notify();
                     })),
             );
-            wrap = wrap.child(
-                deferred(
-                    div()
-                        .absolute()
-                        .top(px(tall() + ui::MENU_GAP))
-                        .left_0()
-                        .child(menu),
-                )
-                .with_priority(1),
-            );
+            wrap = wrap.child(ui::menu_under(tall(), ui::Align::Start, menu));
         }
         wrap
     }
@@ -462,8 +441,10 @@ impl Launcher {
                 this.join_friend();
                 cx.notify();
             }))
+        } else if !valid {
+            ui::unavailable(join, tr("Paste a friend's invite code first"))
         } else {
-            ui::disabled(join)
+            ui::unavailable(join, tr("Prepare the game files to play"))
         };
         let wide = self.window_width >= layout::HOME_HEAD_WIDE;
         let field = self
@@ -476,8 +457,7 @@ impl Launcher {
                 Some(join.into_any_element()),
                 cx,
             )
-            .w_full()
-            .pr(px(INVITE_JOIN_INSET));
+            .w_full();
         div()
             .relative()
             .flex_1()

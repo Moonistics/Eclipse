@@ -7,9 +7,13 @@ use std::{cell::Cell, rc::Rc};
 
 const GUTTER: f32 = 12.;
 
+const EDGE_INSET: f32 = 2.;
+
 const THUMB_WIDTH: f32 = 8.;
 
-const THUMB: f32 = 0.24;
+const THUMB: f32 = 0.36;
+
+const THUMB_LIGHT: f32 = 0.5;
 
 #[derive(Clone, Default)]
 pub(crate) struct Scrollbar {
@@ -51,13 +55,29 @@ impl Geometry {
 }
 
 impl Scrollbar {
+    pub const ROOM: f32 = GUTTER + EDGE_INSET;
+
     /// Wrap the scroll container, reserving a narrow gutter so the bar never covers controls.
     pub fn wrap(&self, content: Stateful<Div>) -> Div {
+        // The bar lies over the page's own margin, as an overlay scrollbar does.
+        // Nested scroll areas must not also move the page behind them.
+        self.frame(content.on_scroll(|_, _, cx| cx.stop_propagation()))
+    }
+
+    pub fn wrap_nested(&self, content: Stateful<Div>) -> Div {
+        self.frame(content)
+    }
+
+    fn frame(&self, content: Stateful<Div>) -> Div {
         let state = self.clone();
-        let (track_color, thumb_color, held_color) = (
+        let thumb_color = if crate::ui::light() {
+            crate::ui::color(eclipse_theme::glass::ON_LIGHT).opacity(THUMB_LIGHT)
+        } else {
+            gpui::white().opacity(THUMB)
+        };
+        let (track_color, held_color) = (
             gpui::transparent_black(),
-            crate::ui::white(THUMB),
-            crate::ui::white(eclipse_theme::glass::ink::DIM),
+            crate::ui::white(eclipse_theme::glass::ink::FULL),
         );
         div()
             .relative()
@@ -65,13 +85,7 @@ impl Scrollbar {
             .flex_col()
             .min_h_0()
             .min_w_0()
-            .child(
-                content
-                    .track_scroll(&self.handle)
-                    // The bar lies over the page's own margin, as an overlay scrollbar does.
-                    // Nested scroll areas must not also move the page behind them.
-                    .on_scroll(|_, _, cx| cx.stop_propagation()),
-            )
+            .child(content.track_scroll(&self.handle))
             .child(
                 canvas(
                     move |bounds, window, _| {
@@ -162,7 +176,7 @@ impl Scrollbar {
                     },
                 )
                 .absolute()
-                .right(px(2.))
+                .right(px(EDGE_INSET))
                 .top_0()
                 .bottom_0()
                 .w(px(GUTTER)),
@@ -172,7 +186,24 @@ impl Scrollbar {
 
 #[cfg(test)]
 mod tests {
-    use super::Geometry;
+    use super::{Geometry, THUMB, THUMB_LIGHT};
+
+    #[test]
+    fn the_thumb_stands_out_from_what_it_scrolls_over() {
+        use eclipse_theme::contrast;
+        use eclipse_theme::glass::{dark_surfaces, light_surfaces, Glass, ON_LIGHT};
+        use eclipse_theme::night::{over, NIGHT, UNCARDED_STOPS};
+        let look = Glass::default_look();
+        let sky = NIGHT.sky.into_iter().take(UNCARDED_STOPS);
+        for bg in dark_surfaces(&look).into_iter().chain(sky) {
+            let ratio = contrast(over(0xffffff, THUMB, bg), bg);
+            assert!(ratio >= 3.0, "thumb on #{bg:06x}: {ratio:.2}");
+        }
+        for bg in light_surfaces() {
+            let ratio = contrast(over(ON_LIGHT, THUMB_LIGHT, bg), bg);
+            assert!(ratio >= 3.0, "light thumb on #{bg:06x}: {ratio:.2}");
+        }
+    }
 
     #[test]
     fn hides_without_overflow() {

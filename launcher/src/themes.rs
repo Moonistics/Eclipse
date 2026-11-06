@@ -40,7 +40,7 @@ pub fn theme(id: Option<&str>) -> Option<&'static Theme> {
     THEMES.iter().find(|t| Some(t.id) == id)
 }
 
-/// The look's colour for each of [`Accent::ALL`]: the mockup's swatches.
+/// The look's colour for each of [`Accent::ALL`]: the swatches Settings offers.
 pub const SWATCHES: [u32; 7] = [
     0xf5a524, 0x2563eb, 0x0f766e, 0x15803d, 0x6b4bff, 0xdc2626, 0xbe185d,
 ];

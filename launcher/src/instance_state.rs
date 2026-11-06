@@ -48,7 +48,7 @@ pub(super) const TEXTURES: [&str; 24] = [
 pub(super) struct InstanceDraft {
     pub(super) editing: Option<String>,
     pub(super) back: Page,
-    pub(super) scroll: gpui::ScrollHandle,
+    pub(super) scroll: Scrollbar,
     /// A new instance copies the selected one's worlds, options and packs.
     pub(super) copy: bool,
     pub(super) icon: Option<Icon>,
@@ -184,7 +184,7 @@ impl Launcher {
             picture: None,
             editing: editing.map(|i| i.id),
             back,
-            scroll: gpui::ScrollHandle::new(),
+            scroll: Scrollbar::default(),
             copy: false,
             error: None,
             busy: false,
@@ -358,7 +358,7 @@ impl Launcher {
                             d.error = Some(e.clone());
                         }
                         if this.page != Page::InstanceEditor {
-                            crate::toast::say(e);
+                            crate::toast::say_error(e);
                         }
                     }
                 }
@@ -394,7 +394,7 @@ impl Launcher {
                 }
                 self.reload_instances();
             }
-            Err(e) => crate::toast::say(e),
+            Err(e) => crate::toast::say_error(e),
         }
     }
 }

@@ -70,9 +70,14 @@ impl Launcher {
     /// ⌘K: the palette opens, or closes when it is open.
     pub(super) fn palette_toggle(&mut self, window: &mut Window, cx: &mut Context<Self>) {
         if self.palette.take().is_some() {
-            window.focus(&self.root_focus, cx);
             return;
         }
+        if self.close_menus() {
+            if let Some(opener) = self.menu_opener.take() {
+                window.focus(&opener, cx);
+            }
+        }
+        ui::modal_opened_from("palette-scrim", window.focused(cx));
         self.fields.text(Field::PaletteSearch).set(String::new());
         let focus = self.fields.handle(Field::PaletteSearch, cx);
         window.focus(&focus, cx);
@@ -84,9 +89,8 @@ impl Launcher {
         });
     }
 
-    fn palette_close(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+    fn palette_close(&mut self) {
         self.palette = None;
-        window.focus(&self.root_focus, cx);
     }
 
     /// The commands for `q` (lower case, trimmed).
@@ -104,7 +108,7 @@ impl Launcher {
                 });
             }
         }
-        for (page, label, _) in Page::ALL {
+        for (page, label, _) in Page::NAV {
             all.push(Command {
                 label: trf("Open {page}", &[("page", tr(label))]),
                 hint: tr("Page").to_string(),
@@ -149,8 +153,8 @@ impl Launcher {
         all
     }
 
-    fn palette_run(&mut self, run: Run, window: &mut Window, cx: &mut Context<Self>) {
-        self.palette_close(window, cx);
+    fn palette_run(&mut self, run: Run, cx: &mut Context<Self>) {
+        self.palette_close();
         match run {
             Run::Play(id) => {
                 let Some(instance) = self.instances.list.iter().find(|i| i.id == id).cloned()
@@ -251,7 +255,7 @@ impl Launcher {
                 )
                 .child(tr("Esc")),
             )
-            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
+            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
                 let Some(p) = this.palette.as_mut() else {
                     return;
                 };
@@ -268,10 +272,10 @@ impl Launcher {
                             let index = p.index;
                             let list = this.palette_commands(&q);
                             if let Some(c) = list.into_iter().nth(index) {
-                                this.palette_run(c.run, window, cx);
+                                this.palette_run(c.run, cx);
                             }
                         }
-                        Key::Escape => this.palette_close(window, cx),
+                        Key::Escape => this.palette_close(),
                         Key::Edited => {
                             p.index = 0;
                             this.palette_ask();
@@ -326,8 +330,8 @@ impl Launcher {
                         }
                     }
                 }))
-                .on_press(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                    this.palette_run(run.clone(), window, cx);
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.palette_run(run.clone(), cx);
                     cx.notify();
                 }))
                 .child(
@@ -371,35 +375,16 @@ impl Launcher {
             .p(px(space::SM))
             .child(div().relative().child(field).child(rows))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
+        let dismiss = cx.listener(|this, _: &MouseDownEvent, _, cx| {
+            this.palette_close();
+            cx.notify();
+        });
         Some(
-            div()
-                .id("palette-scrim")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
+            ui::modal("palette-scrim", tr("Commands"), Some(Box::new(dismiss)))
                 .flex()
                 .justify_center()
                 .items_start()
                 .pt(px(h * CARD_TOP))
-                .occlude()
-                .on_scroll(|_, _, cx| cx.stop_propagation())
-                .child(ui::scrim_backdrop())
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .bg(ui::scrim())
-                        .on_mouse_down(
-                            gpui::MouseButton::Left,
-                            cx.listener(|this, _: &MouseDownEvent, window, cx| {
-                                this.palette_close(window, cx);
-                                cx.notify();
-                            }),
-                        ),
-                )
                 .child(card),
         )
     }

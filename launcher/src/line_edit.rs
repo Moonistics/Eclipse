@@ -78,6 +78,13 @@ impl Default for LineEdit {
 const HISTORY: usize = 100;
 
 impl LineEdit {
+    pub(super) fn with_max(max: usize) -> Self {
+        LineEdit {
+            max,
+            ..LineEdit::default()
+        }
+    }
+
     pub(super) fn new(text: String, max: usize, visible: usize) -> Self {
         let caret = text.chars().count();
         let mut e = LineEdit {

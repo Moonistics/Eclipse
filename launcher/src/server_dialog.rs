@@ -18,8 +18,6 @@ static COVERS: LazyLock<[Arc<gpui::Image>; 3]> = LazyLock::new(|| {
     ]
 });
 
-const TICKBOX: f32 = 22.;
-
 const FRIEND_FACE: f32 = ui::CHIP_FACE;
 const FRIEND_FIELD: f32 = 260.;
 
@@ -28,11 +26,18 @@ const DIALOG_MAX: (f32, f32) = (1180., 840.);
 const ASIDE_WIDTH: f32 = 360.;
 
 /// Each game mode's line under its name.
-const MODE_NOTES: [&str; 3] = [
-    "Gather, build and stay alive",
-    "Fly and build with every block",
-    "Play a map the way it was made",
+const MODE_NOTES: [(&str, &str); 3] = [
+    ("survival", "Gather, build and stay alive"),
+    ("creative", "Fly and build with every block"),
+    ("adventure", "Play a map the way it was made"),
 ];
+
+fn mode_note(mode: &str) -> &'static str {
+    MODE_NOTES
+        .iter()
+        .find(|(id, _)| *id == mode)
+        .map_or("", |(_, note)| note)
+}
 
 /// A player name Minecraft accepts: 3 to 16 letters, digits or underscores.
 fn valid_name(name: &str) -> bool {
@@ -79,29 +84,16 @@ impl Launcher {
             .children(aside)
             .child(main);
         Some(
-            div()
-                .id("create-dialog")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p(px(space::XL))
-                .occlude()
-                .on_scroll(|_, _, cx| cx.stop_propagation())
-                .child(ui::scrim_backdrop())
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .bg(ui::scrim())
-                        .on_mouse_down(gpui::MouseButton::Left, close),
-                )
-                .child(card),
+            ui::modal(
+                "create-dialog",
+                tr("Create a server"),
+                Some(Box::new(close)),
+            )
+            .flex()
+            .items_center()
+            .justify_center()
+            .p(px(space::XL))
+            .child(card),
         )
     }
 
@@ -330,10 +322,10 @@ impl Launcher {
                         })),
                 );
             }
-            list.into_any_element()
+            ui::with_scrollbar(list).into_any_element()
         };
         let world = ui::field_group(
-            tr("World").into(),
+            tr("World"),
             None,
             div()
                 .flex()
@@ -344,22 +336,31 @@ impl Launcher {
         );
 
         // The game mode, three cards.
-        let modes = div()
-            .flex()
-            .gap(px(space::MD))
-            .children(MODES.iter().enumerate().map(|(i, &(id, label))| {
-                ui::choice(SharedString::from(format!("create-mode-{id}")), mode == id)
+        let mode_cards = MODES
+            .iter()
+            .map(|&(id, label)| {
+                let card = ui::choice(SharedString::from(format!("create-mode-{id}")), mode == id)
                     .flex_1()
                     .min_w_0()
                     .p(px(space::LG))
-                    .child(ui::item_text(tr(label), tr(MODE_NOTES[i]).to_string()))
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(c) = &mut this.servers.create {
-                            c.mode = id;
-                        }
-                        cx.notify();
-                    }))
-            }));
+                    .child(ui::item_text(tr(label), tr(mode_note(id)).to_string()));
+                (card, SharedString::from(tr(label)), mode == id)
+            })
+            .collect();
+        let this = cx.entity().downgrade();
+        let modes = ui::options(
+            div().id("create-modes").flex().gap(px(space::MD)),
+            mode_cards,
+            true,
+            move |i, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(c) = &mut this.servers.create {
+                        c.mode = MODES[i].0;
+                    }
+                    cx.notify();
+                });
+            },
+        );
 
         // The difficulty and the players stepper.
         let this = cx.entity().downgrade();
@@ -386,40 +387,53 @@ impl Launcher {
             .justify_between()
             .gap(px(space::XXL))
             .child(ui::field_group(
-                tr("Difficulty").into(),
+                tr("Difficulty"),
                 None,
                 div().flex().child(difficulties),
             ))
             .child(ui::field_group(
-                tr("Max players").into(),
+                tr("Max players"),
                 None,
                 div().flex().child(players),
             ));
 
         // Who may join: friends only (their names, the first an operator) or anyone.
-        let mut who = div().flex().flex_col().child(
-            div()
-                .flex()
-                .gap(px(space::MD))
-                .child(
+        let this = cx.entity().downgrade();
+        let joins = ui::options(
+            div().id("create-who").flex().gap(px(space::MD)),
+            vec![
+                (
                     card(
                         "create-friends",
                         friends_only,
                         tr("Friends only").into(),
                         tr("Only players you list can join").to_string(),
-                    )
-                    .on_press(set(cx, |c| c.friends_only = true)),
-                )
-                .child(
+                    ),
+                    tr("Friends only").into(),
+                    friends_only,
+                ),
+                (
                     card(
                         "create-anyone",
                         !friends_only,
                         tr("Anyone with the address").into(),
                         tr("Share the address only with people you trust").to_string(),
-                    )
-                    .on_press(set(cx, |c| c.friends_only = false)),
+                    ),
+                    tr("Anyone with the address").into(),
+                    !friends_only,
                 ),
+            ],
+            true,
+            move |i, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(c) = &mut this.servers.create {
+                        c.friends_only = i == 0;
+                    }
+                    cx.notify();
+                });
+            },
         );
+        let mut who = div().flex().flex_col().child(joins);
         if friends_only {
             who = who
                 .child(self.create_friends(&friends, cx))
@@ -439,8 +453,7 @@ impl Launcher {
         .bg(ui::inset())
         .on_press(set(cx, |c| c.check_accounts = !c.check_accounts));
 
-        let body = div()
-            .id("create-body")
+        let body = ui::scroll_pane("create-body", &self.servers.create_scroll.handle)
             .flex()
             .flex_col()
             .flex_1()
@@ -448,9 +461,8 @@ impl Launcher {
             .gap(px(space::XXL))
             .px(px(space::XXL))
             .pb(px(space::XXL))
-            .overflow_y_scroll()
             .child(ui::field_group(
-                tr("Name").into(),
+                tr("Name"),
                 None,
                 self.field(
                     Field::NewServerName,
@@ -462,9 +474,9 @@ impl Launcher {
                 .w_full(),
             ))
             .child(world)
-            .child(ui::field_group(tr("Game mode").into(), None, modes))
+            .child(ui::field_group(tr("Game mode"), None, modes))
             .child(numbers)
-            .child(ui::field_group(tr("Who can join").into(), None, who))
+            .child(ui::field_group(tr("Who can join"), None, who))
             .child(accounts);
         div()
             .flex()
@@ -499,7 +511,7 @@ impl Launcher {
             .gap(px(space::SM));
         for (i, name) in friends.iter().enumerate() {
             let face = match &own {
-                Some((n, uuid)) if n == name => self.head(uuid, FRIEND_FACE),
+                Some((n, uuid)) if n == name => self.player_face(uuid, FRIEND_FACE),
                 _ => ui::tile(FRIEND_FACE).child(ui::icon(
                     "user",
                     ui::IconSize::Px16,
@@ -553,18 +565,15 @@ impl Launcher {
         } else {
             ui::disabled(add)
         };
-        chips.child(
-            self.field_with(
-                Field::NewServerFriend,
-                None,
-                tr("Add a friend's name"),
-                FRIEND_FIELD,
-                ui::ButtonSize::Lg,
-                Some(add.into_any_element()),
-                cx,
-            )
-            .pr(px(space::SM)),
-        )
+        chips.child(self.field_with(
+            Field::NewServerFriend,
+            None,
+            tr("Add a friend's name"),
+            FRIEND_FIELD,
+            ui::ButtonSize::Lg,
+            Some(add.into_any_element()),
+            cx,
+        ))
     }
 
     /// The name typed in the friend field joins the list, if Minecraft would take it.
@@ -585,39 +594,7 @@ impl Launcher {
             return div();
         };
         let (eula, missing, creating) = (c.eula, c.eula_missing, self.servers.creating);
-        let look = ui::look();
-        let tickbox = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(TICKBOX))
-            .rounded(px(radius::CONTROL))
-            .bg(if eula {
-                ui::color(look.accent)
-            } else {
-                ui::field_bg(false)
-            })
-            .when(!eula, |d| d.border_1().border_color(ui::field_edge()))
-            .when(eula, |d| {
-                d.child(ui::icon(
-                    "tick-02",
-                    ui::IconSize::Px16,
-                    ui::color(look.on_accent),
-                ))
-            });
-        let agree = div()
-            .id("create-eula")
-            .flex()
-            .items_center()
-            .gap(px(space::MD))
-            .cursor_pointer()
-            .child(tickbox)
-            .child(
-                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                    .when(missing, |d| d.text_color(ui::danger()))
-                    .child(tr("I agree to the Minecraft EULA")),
-            )
+        let agree = ui::toggle_label("create-eula", tr("I agree to the Minecraft EULA"), eula)
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 if let Some(c) = &mut this.servers.create {
                     c.eula = !c.eula;
@@ -635,7 +612,7 @@ impl Launcher {
             Some(ui::error_note(p.message.clone()))
         } else if missing {
             Some(ui::error_note(tr(
-                "Tick the EULA box to create the server.",
+                "Agree to the Minecraft EULA to create the server.",
             )))
         } else {
             None

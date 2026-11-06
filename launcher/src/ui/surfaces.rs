@@ -1,21 +1,25 @@
 use super::{
-    button, card_title, color, copy_details, danger, hand_back_at_ends, icon, inset, light, look,
-    menu_keys, nested_list, scroll_pane, text, tile, white, ButtonKind, ButtonSize, IconSize,
-    Press, PANEL_INSET, TILE_LG,
+    button, color, copy_details, danger, hand_back_at_ends, heading, icon, inset, light, look,
+    menu_keys, modal_keys, nested_list, scroll_pane, section_title, text, tile, white, ButtonKind,
+    ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG,
 };
 use eclipse_theme::glass::{
     fill, ink, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT, PAPER,
 };
 use gpui::{
-    div, prelude::*, px, AnyElement, App, ClickEvent, Div, FontWeight, Hsla, ScrollHandle,
-    SharedString, Stateful, Window,
+    anchored, deferred, div, point, prelude::*, px, AnyElement, App, ClickEvent, Div, FontWeight,
+    Hsla, MouseDownEvent, Pixels, Point, Role, ScrollHandle, SharedString, Stateful, Window,
 };
 
 pub const POPOVER_WIDTH: f32 = 280.;
 
+const POPOVER_MAX_HEIGHT: f32 = 360.;
+
 pub const MENU_GAP: f32 = space::SM;
 
-const POPOVER_PAD: f32 = 6.;
+const POPOVER_PAD: f32 = space::XS + space::XXS;
+
+const CORNER_FLOAT_WIDTH: f32 = 440.;
 
 const EMPTY_NOTE_WIDTH: f32 = 520.;
 
@@ -25,9 +29,9 @@ const MORE_BELOW_FADE: f32 = 32.;
 
 const STATE_ACTIONS_GAP: f32 = 20.;
 
-const SCRIM: f32 = 0.5;
+const SCRIM_SHADE: f32 = 0.5;
 
-const SCRIM_LIGHT: f32 = 0.2;
+const SCRIM_SHADE_LIGHT: f32 = 0.2;
 
 const LOG_HEIGHT: f32 = 320.;
 
@@ -80,15 +84,107 @@ pub fn float_card(radius: f32) -> Div {
 
 pub fn popover(id: impl Into<SharedString>) -> Stateful<Div> {
     menu_keys(
-        float_card(radius::POPOVER)
+        nested_list(id)
+            .role(Role::Menu)
+            .rounded(px(radius::POPOVER))
+            .bg(surface_colour(Surface::Float))
+            .border_1()
+            .border_color(edge())
             .shadow_lg()
             .w(px(POPOVER_WIDTH))
+            .max_h(px(POPOVER_MAX_HEIGHT))
             .p(px(POPOVER_PAD))
             .flex()
             .flex_col()
-            .id(id.into())
             .occlude(),
     )
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Align {
+    Start,
+    End,
+}
+
+pub fn menu_under(opener_height: f32, align: Align, menu: Stateful<Div>) -> Div {
+    let (spot, anchor) = match align {
+        Align::Start => (div().absolute().top_0().left_0(), gpui::Anchor::TopLeft),
+        Align::End => (div().absolute().top_0().right_0(), gpui::Anchor::TopRight),
+    };
+    spot.child(
+        deferred(
+            anchored()
+                .anchor(anchor)
+                .offset(point(px(0.), px(opener_height + MENU_GAP)))
+                .child(div().pb(px(MENU_GAP)).child(super::with_scrollbar(menu))),
+        )
+        .with_priority(1),
+    )
+}
+
+pub fn menu_beside(at: Point<Pixels>, menu: Stateful<Div>) -> impl IntoElement {
+    deferred(
+        anchored()
+            .position(at)
+            .snap_to_window_with_margin(px(MENU_GAP))
+            .child(super::with_scrollbar(menu)),
+    )
+    .with_priority(1)
+}
+
+pub fn modal(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    dismiss: Option<Listener<MouseDownEvent>>,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let shade = div().absolute().top_0().left_0().size_full().bg(scrim());
+    let shade = match dismiss {
+        Some(dismiss) => shade.on_mouse_down(gpui::MouseButton::Left, dismiss),
+        None => shade,
+    };
+    modal_keys(
+        div()
+            .id(id.clone())
+            .role(Role::Dialog)
+            .aria_label(title.into())
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .occlude()
+            .on_scroll(|_, _, cx| cx.stop_propagation())
+            .child(scrim_backdrop())
+            .child(shade),
+        id,
+    )
+}
+
+pub fn sheet(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    modal_keys(
+        div()
+            .id(id.clone())
+            .role(Role::Dialog)
+            .aria_label(title.into())
+            .absolute()
+            .top_0()
+            .left_0()
+            .size_full()
+            .bg(surface_colour(Surface::Float))
+            .occlude()
+            .on_scroll(|_, _, cx| cx.stop_propagation()),
+        id,
+    )
+}
+
+pub fn corner_float(content: impl IntoElement) -> Div {
+    div()
+        .absolute()
+        .right(px(space::XL))
+        .bottom(px(space::XL))
+        .max_w(px(CORNER_FLOAT_WIDTH))
+        .child(content)
 }
 
 /// What a dialog or the palette lays over the launcher: GPUI can't blur what it drew, so a
@@ -100,7 +196,11 @@ pub fn scrim_backdrop() -> impl IntoElement {
 /// The scrim over [`scrim_backdrop`]: lighter in the light appearance, so the dimmed launcher
 /// stays day-lit.
 pub fn scrim() -> Hsla {
-    color(eclipse_theme::glass::SCRIM).opacity(if light() { SCRIM_LIGHT } else { SCRIM })
+    color(eclipse_theme::glass::SCRIM).opacity(if light() {
+        SCRIM_SHADE_LIGHT
+    } else {
+        SCRIM_SHADE
+    })
 }
 
 /// A dialog's plate, round at `radius`: its piece of the scene under the scrim's dimming, then
@@ -118,7 +218,7 @@ pub fn dialog_plate(radius: f32) -> Div {
     card(radius)
         // Light plates are already day-lit: no dimming under them.
         .child(layer(
-            color(eclipse_theme::glass::SCRIM).opacity(if light() { 0. } else { SCRIM }),
+            color(eclipse_theme::glass::SCRIM).opacity(if light() { 0. } else { SCRIM_SHADE }),
         ))
         .child(layer(white(fill::HOVER)))
 }
@@ -131,7 +231,7 @@ pub fn dialog_colour() -> Hsla {
 
 fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) -> Stateful<Div> {
     div()
-        .id(id)
+        .id(id.clone())
         .relative()
         .flex()
         .flex_col()
@@ -139,7 +239,11 @@ fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) 
         .p(px(PANEL_INSET))
         .text_center()
         .child(glyph)
-        .child(card_title(title).mt(px(space::LG)))
+        .child(
+            heading(format!("{id}-title"), title.clone(), 2)
+                .mt(px(space::LG))
+                .child(section_title(title)),
+        )
         .when(!note.is_empty(), |d| {
             d.child(
                 empty_style()
@@ -173,12 +277,12 @@ pub fn empty_state(
 ) -> Stateful<Div> {
     let note: SharedString = note.into();
     debug_assert!(!note.is_empty(), "an empty state says what to do next");
-    let glyph = tile(TILE_LG).child(icon(icon_name, IconSize::Px32, white(ink::MUTED)));
+    let glyph = tile(TILE_LG).child(icon(icon_name, IconSize::Px24, white(ink::MUTED)));
     self::actions(state(id.into(), glyph, title.into(), note), actions)
 }
 
 pub fn loading_state(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
-    let glyph = tile(TILE_LG).child(icon("clock", IconSize::Px32, white(ink::MUTED)));
+    let glyph = tile(TILE_LG).child(icon("clock", IconSize::Px24, white(ink::MUTED)));
     state(id.into(), glyph, title.into(), SharedString::default())
 }
 
@@ -200,7 +304,7 @@ pub fn error_state_with(
     retry: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px32, danger()));
+    let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px24, danger()));
     let retry = button(
         format!("{id}-retry"),
         None,
@@ -240,22 +344,53 @@ fn empty_style() -> Div {
 }
 
 /// A group of fields: its heading, anything `aside` at its right, then `body`.
-pub fn field_group(title: SharedString, aside: Option<Div>, body: impl IntoElement) -> Div {
+pub fn field_group(
+    title: impl Into<SharedString>,
+    aside: Option<AnyElement>,
+    body: impl IntoElement,
+) -> Div {
     div()
+        .relative()
         .flex()
         .flex_col()
         .flex_none()
         .child(
             div()
                 .flex()
-                .items_end()
+                .items_center()
                 .justify_between()
                 .gap(px(space::LG))
+                .h(px(ButtonSize::Md.height()))
                 .mb(px(space::MD))
-                .child(super::label(title))
+                .child(section_title(title))
                 .children(aside),
         )
-        .child(body)
+        .child(div().relative().child(body))
+}
+
+pub fn labelled_field(label: impl Into<SharedString>, field: impl IntoElement) -> Div {
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .gap(px(space::SM))
+        .child(super::label(label))
+        .child(field)
+}
+
+pub fn section_card(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    aside: Option<AnyElement>,
+    body: impl IntoElement,
+) -> Stateful<Div> {
+    card(radius::PANEL)
+        .id(id.into())
+        .flex()
+        .flex_col()
+        .flex_none()
+        .p(px(super::CARD_PADDING))
+        .child(field_group(title, aside, body))
 }
 
 pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
@@ -341,7 +476,7 @@ pub fn field(focused: bool, invalid: bool, size: ButtonSize) -> Div {
         .h(px(size.height()))
         .px(px(pad))
         .overflow_hidden()
-        .rounded(px(radius::ROW))
+        .rounded(px(radius::CONTROL))
         .bg(if invalid {
             danger_fill()
         } else {
@@ -351,7 +486,7 @@ pub fn field(focused: bool, invalid: bool, size: ButtonSize) -> Div {
         .border_color(if invalid { danger() } else { field_edge() })
         .font_family(eclipse_theme::glass::FONT)
         .text_size(px(text.size))
-        .when(focused, |d| d.child(focus_ring(radius::ROW)))
+        .when(focused, |d| d.child(focus_ring(radius::CONTROL)))
 }
 
 pub fn field_icon(name: &'static str) -> AnyElement {

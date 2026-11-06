@@ -202,7 +202,7 @@ impl Drop for Perf {
 /// What a window started by `eclipse-launcher benchmark` does next (`Launcher::drain`, every 80 ms).
 pub enum Step {
     Wait,
-    /// Show this page (an index into `Page::ALL`, wrapping).
+    /// Show this page (an index into `Page::NAV`, wrapping).
     Go(usize),
     /// Show the longest list (Versions) and scroll it on every frame while [`Bench::scrolling`].
     Scroll,

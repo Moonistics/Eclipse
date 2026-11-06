@@ -21,13 +21,13 @@ use java_instance::Target;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// The kinds, as the Mods page's tabs: name and icon.
-const KINDS: [(PackKind, &str, &str); 5] = [
-    (PackKind::Mod, "Mods", "box"),
-    (PackKind::Modpack, "Modpacks", "archive"),
-    (PackKind::ResourcePack, "Resource packs", "image"),
-    (PackKind::Shader, "Shader packs", "zap"),
-    (PackKind::DataPack, "Data packs", "notes"),
+/// The kinds, as the Mods page's tabs.
+const KINDS: [(PackKind, &str); 5] = [
+    (PackKind::Mod, "Mods"),
+    (PackKind::Modpack, "Modpacks"),
+    (PackKind::ResourcePack, "Resource packs"),
+    (PackKind::Shader, "Shader packs"),
+    (PackKind::DataPack, "Data packs"),
 ];
 /// Java mods checked at once.
 const CHECKING: usize = 2;
@@ -1085,22 +1085,12 @@ impl Launcher {
             let folder = path.file_name().unwrap_or_default().to_string_lossy();
             let id = SharedString::from(format!("mods-world-{folder}"));
             let path = path.clone();
-            chips = chips.child(
-                ui::selected(
-                    ui::button(
-                        id,
-                        None,
-                        name.clone(),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Sm,
-                    ),
-                    on,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            chips = chips.child(ui::filter_chip(id, name.clone(), on).on_press(cx.listener(
+                move |this, _: &ClickEvent, _, cx| {
                     this.mods.world = Some(path.clone());
                     cx.notify();
-                })),
-            );
+                },
+            )));
         }
         chips
     }
@@ -1109,54 +1099,41 @@ impl Launcher {
     /// sandboxed, and what the build takes. Its button installs the mod.
     fn native_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
         self.mods.native_notice.as_ref()?;
+        let cancel = ui::button(
+            "native-notice-cancel",
+            None,
+            tr("Cancel"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods.native_notice = None;
+            cx.notify();
+        }));
+        let install = ui::button(
+            "native-notice-install",
+            None,
+            tr("Install"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.native_mods_noticed = true;
+            this.save_settings();
+            if let Some((source, id, known)) = this.mods.native_notice.take() {
+                this.mods_install(source, id, known);
+            }
+            cx.notify();
+        }));
         Some(
             ui::card(radius::PANEL)
-                .flex()
-                .flex_col()
-                .gap(px(space::LG))
-                .p(px(ui::CARD_PADDING))
-                .child(ui::error_note(tr(native_status::NOTICE)))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(space::SM))
-                        .child(
-                            ui::button(
-                                "native-notice-install",
-                                None,
-                                tr("Install"),
-                                ButtonKind::Secondary,
-                                ui::ButtonSize::Md,
-                            )
-                            .on_press(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
-                                    this.settings.native_mods_noticed = true;
-                                    this.save_settings();
-                                    if let Some((source, id, known)) =
-                                        this.mods.native_notice.take()
-                                    {
-                                        this.mods_install(source, id, known);
-                                    }
-                                    cx.notify();
-                                },
-                            )),
-                        )
-                        .child(
-                            ui::button(
-                                "native-notice-cancel",
-                                None,
-                                tr("Cancel"),
-                                ButtonKind::Ghost,
-                                ui::ButtonSize::Md,
-                            )
-                            .on_press(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
-                                    this.mods.native_notice = None;
-                                    cx.notify();
-                                },
-                            )),
-                        ),
-                ),
+                .p(px(ui::LIST_INSET))
+                .child(ui::notice(
+                    ui::Notice::Warn,
+                    "alert-circle",
+                    tr(native_status::NOTICE),
+                    vec![cancel.into_any_element(), install.into_any_element()],
+                )),
         )
     }
 
@@ -1285,17 +1262,11 @@ impl Launcher {
             let confirming = self.is_asking(&Asking::Mod(e.project.clone()));
             let remove_id = SharedString::from(format!("mods-remove-{}", e.project));
             let id = e.project.clone();
-            let remove = ui::button(
-                remove_id.clone(),
-                None,
-                tr("Remove…"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Sm,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.asking = Some(Asking::Mod(id.clone()));
-                cx.notify();
-            }));
+            let remove = ui::remove_button(remove_id.clone(), tr("Remove…"), ui::ButtonSize::Md)
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.asking = Some(Asking::Mod(id.clone()));
+                    cx.notify();
+                }));
             let on = match &self.mods.java {
                 _ if e.kind != PackKind::Mod => None,
                 Some(_) => Some(java_instance::is_on(&self.mods.home(), e)),
@@ -1384,7 +1355,6 @@ impl Launcher {
             ui::list_row(
                 SharedString::from(format!("mods-installed-{}", e.project)),
                 confirming,
-                |_, _, _| {},
             )
             .child(icon)
             .child(ui::item_text(e.title.clone(), note).children(skipped))
@@ -1820,7 +1790,7 @@ pub(super) fn native_panel() -> Div {
         .mt(px(space::MD))
         .pt(px(space::MD))
         .border_t_1()
-        .border_color(ui::white(eclipse_theme::glass::EDGE))
+        .border_color(ui::edge())
 }
 
 #[cfg(test)]

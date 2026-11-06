@@ -1,13 +1,16 @@
 use super::{
-    color, disabled, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected,
-    setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, LIST_INSET, PANEL_INSET,
+    color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected,
+    setting_text, surface_colour, tip, tip_on_focus, white, Hover, IconSize, Press, Surface,
+    LIST_INSET, PANEL_INSET,
 };
 use eclipse_theme::glass::{
-    fill, ink, pixel_text::PRESS, radius, space, step, EDGE, ON_LIGHT, PAPER,
+    fill, ink,
+    pixel_text::{CARD_TITLE, PRESS},
+    radius, space, step, ON_LIGHT, PAPER, SWITCH_EDGE_LIGHT,
 };
 use gpui::{
-    div, prelude::*, px, AnyElement, App, ClickEvent, ClipboardItem, Div, FontWeight, SharedString,
-    Stateful, Window,
+    div, prelude::*, px, AnyElement, App, ClickEvent, ClipboardItem, Div, FontWeight, Hsla, Role,
+    SharedString, Stateful, Toggled, Window,
 };
 
 pub const SWITCH_WIDTH: f32 = 40.;
@@ -31,6 +34,12 @@ const SPLIT_RULE: f32 = 0.2;
 const BUSY_TRACK: f32 = 0.35;
 
 const LINK_MIN_HEIGHT: f32 = 24.;
+
+const TAB_UNDERLINE: f32 = 3.;
+
+const NAV_ROW_LIST: f32 = 32.;
+
+const NAV_ROW_LIST_SHORT: f32 = 28.;
 
 const STEPPER_VALUE_WIDTH: f32 = 48.;
 
@@ -62,9 +71,23 @@ impl ButtonSize {
     fn pad(self) -> f32 {
         match self {
             ButtonSize::Sm => space::MD,
-            ButtonSize::Md => 14.,
-            ButtonSize::Lg => 18.,
+            ButtonSize::Md => space::MD + space::XXS,
+            ButtonSize::Lg => space::LG + space::XXS,
             ButtonSize::Hero => space::XL,
+        }
+    }
+
+    fn label(self) -> Div {
+        match self {
+            ButtonSize::Hero => pixel_text(CARD_TITLE),
+            _ => press_text(),
+        }
+    }
+
+    fn icon(self) -> IconSize {
+        match self {
+            ButtonSize::Hero => IconSize::Px24,
+            _ => IconSize::Px16,
         }
     }
 }
@@ -112,20 +135,41 @@ pub fn button(
     size: ButtonSize,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let label: SharedString = label.into();
     let look = look();
     let tone = match kind {
         ButtonKind::Primary => color(look.on_accent),
-        ButtonKind::Secondary => white(ink::FULL),
-        ButtonKind::Ghost if hover_is(&id) => white(ink::FULL),
-        ButtonKind::Ghost => white(ink::BODY),
+        _ if hover_is(&id) => white(ink::FULL),
+        _ => white(ink::BODY),
     };
     let hover = match kind {
         ButtonKind::Primary => Hover::Primary,
         ButtonKind::Secondary => Hover::Row,
         ButtonKind::Ghost => Hover::Bare,
     };
-    let d = hoverable(id, radius::CONTROL, hover)
+    let d = button_face(
+        hoverable(id, radius::CONTROL, hover),
+        icon_name,
+        label,
+        size,
+        tone,
+    );
+    match kind {
+        ButtonKind::Primary => bevel(d.bg(color(look.accent))),
+        ButtonKind::Secondary => secondary(d),
+        ButtonKind::Ghost => d,
+    }
+}
+
+fn button_face(
+    d: Stateful<Div>,
+    icon_name: Option<&'static str>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    tone: Hsla,
+) -> Stateful<Div> {
+    let label: SharedString = label.into();
+    d.role(Role::Button)
+        .when(!label.is_empty(), |d| d.aria_label(label.clone()))
         .flex()
         .flex_none()
         .items_center()
@@ -137,15 +181,27 @@ pub fn button(
         .overflow_hidden()
         .cursor_pointer()
         .text_color(tone)
-        .children(icon_name.map(|n| icon(n, IconSize::Px16, tone).relative()))
+        .children(icon_name.map(|n| icon(n, size.icon(), tone).relative()))
         .when(!label.is_empty(), |d| {
-            d.child(press_text().relative().child(label.to_uppercase()))
-        });
-    match kind {
-        ButtonKind::Primary => bevel(d.bg(color(look.accent)).font_weight(FontWeight::BOLD)),
-        ButtonKind::Secondary => d.bg(white(fill::BUTTON)),
-        ButtonKind::Ghost => d,
-    }
+            d.child(size.label().relative().child(label.to_uppercase()))
+        })
+}
+
+fn secondary_fill() -> Hsla {
+    white(if super::light() {
+        fill::BUTTON_LIGHT
+    } else {
+        fill::BUTTON
+    })
+}
+
+fn secondary(d: Stateful<Div>) -> Stateful<Div> {
+    d.bg(secondary_fill())
+        .when(super::light(), |d| d.border_1().border_color(edge()))
+}
+
+pub fn solid_secondary() -> Hsla {
+    surface_colour(Surface::Card).blend(secondary_fill())
 }
 
 pub fn primary(
@@ -170,7 +226,8 @@ pub fn icon_button(
     let tone = match kind {
         ButtonKind::Primary => color(look.on_accent),
         ButtonKind::Secondary => white(ink::FULL),
-        ButtonKind::Ghost if active || hover_is(&id) => white(ink::FULL),
+        ButtonKind::Ghost if active => super::icon_tone(true),
+        ButtonKind::Ghost if hover_is(&id) => white(ink::FULL),
         ButtonKind::Ghost => white(ink::MUTED),
     };
     let hover = match kind {
@@ -179,6 +236,8 @@ pub fn icon_button(
         ButtonKind::Ghost => Hover::Bare,
     };
     let d = hoverable(id, radius::CONTROL, hover)
+        .role(Role::Button)
+        .aria_label(label.clone())
         .flex()
         .flex_none()
         .items_center()
@@ -187,17 +246,25 @@ pub fn icon_button(
         .rounded(px(radius::CONTROL))
         .overflow_hidden()
         .cursor_pointer()
-        .when(active, |d| {
+        .when(active && kind != ButtonKind::Ghost, |d| {
             d.child(div().absolute().size_full().bg(white(fill::ACTIVE)))
         })
         .child(icon(name, IconSize::Px16, tone).relative())
         .tooltip(tip(label.clone()));
     let d = match kind {
         ButtonKind::Primary => bevel(d.bg(color(look.accent))),
-        ButtonKind::Secondary => d.bg(white(fill::BUTTON)),
-        ButtonKind::Ghost => d,
+        ButtonKind::Secondary => secondary(d),
+        ButtonKind::Ghost => selected(d, active).rounded(px(radius::CONTROL)),
     };
     tip_on_focus(d, label)
+}
+
+pub fn remove_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+) -> Stateful<Div> {
+    icon_button(id, "delete-02", label, ButtonKind::Ghost, size, false)
 }
 
 pub fn more_button(
@@ -207,13 +274,13 @@ pub fn more_button(
     size: ButtonSize,
     open: bool,
 ) -> Stateful<Div> {
-    icon_button(id, "more-horizontal", label, kind, size, open)
+    icon_button(id, "more-horizontal", label, kind, size, open).aria_expanded(open)
 }
 
 pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div {
     let rule = match kind {
         ButtonKind::Primary => color(look().on_accent).opacity(SPLIT_RULE),
-        _ => white(EDGE),
+        _ => edge(),
     };
     div()
         .flex()
@@ -225,6 +292,33 @@ pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div 
                 .border_color(rule)
                 .focus_visible(gap_ring),
         )
+}
+
+pub fn split_unavailable(
+    id: impl Into<SharedString>,
+    icon_name: Option<&'static str>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    more: Stateful<Div>,
+    why: impl Into<SharedString>,
+) -> Div {
+    let why: SharedString = why.into();
+    let main = super::focus_stop(button_face(
+        super::unhovered(div().id(id.into())),
+        icon_name,
+        label,
+        size,
+        white(ink::DIM),
+    ))
+    .cursor_default()
+    .bg(solid_secondary())
+    .aria_description(why.clone())
+    .tooltip(tip(why.clone()));
+    split(
+        tip_on_focus(main, why),
+        more.bg(solid_secondary()),
+        ButtonKind::Secondary,
+    )
 }
 
 pub fn confirm(
@@ -308,6 +402,11 @@ pub fn primary_busy(
             .px(px(size.pad()))
             .rounded(px(radius::CONTROL))
             .overflow_hidden()
+            .role(Role::ProgressIndicator)
+            .aria_label(label.clone())
+            .when_some(progress, |d, p| {
+                d.aria_numeric_value(f64::from(p.clamp(0., 1.)))
+            })
             .bg(color(look.accent).opacity(BUSY_TRACK))
             .child(
                 div()
@@ -322,7 +421,6 @@ pub fn primary_busy(
                 press_text()
                     .relative()
                     .whitespace_nowrap()
-                    .font_weight(FontWeight::BOLD)
                     .text_color(color(look.on_accent))
                     .child(
                         match progress {
@@ -382,6 +480,10 @@ pub fn stepper(
     );
     div()
         .id(id.clone())
+        .role(Role::SpinButton)
+        .aria_numeric_value(value as f64)
+        .aria_min_numeric_value(*range.start() as f64)
+        .aria_max_numeric_value(*range.end() as f64)
         .flex()
         .items_center()
         .gap(px(space::XS))
@@ -400,6 +502,12 @@ pub fn stepper(
 }
 
 pub fn toggle(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
+    switch_face(id, on)
+        .role(Role::Switch)
+        .aria_toggled(Toggled::from(on))
+}
+
+fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
     let id: SharedString = id.into();
     let inset = (SWITCH_HEIGHT - 2. * SWITCH_EDGE - SWITCH_KNOB) / 2.;
     let travel = SWITCH_WIDTH - 2. * (SWITCH_EDGE + inset) - SWITCH_KNOB;
@@ -418,11 +526,10 @@ pub fn toggle(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
         KNOB_SHINE,
     );
     let knob = crate::motion::knob(&id, on, knob, inset, travel);
-    let look = look();
-    let track = if super::light() {
-        look.mark
-    } else {
-        look.accent
+    let rim = match (on, super::light()) {
+        (true, true) => color(ON_LIGHT).opacity(SWITCH_EDGE_LIGHT),
+        (true, false) => gpui::transparent_black(),
+        (false, _) => white(ink::DIM),
     };
     div()
         .id(id)
@@ -432,29 +539,28 @@ pub fn toggle(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
         .h(px(SWITCH_HEIGHT))
         .rounded(px(radius::BLOCK))
         .bg(if on {
-            color(track)
+            color(look().accent)
         } else {
             white(fill::ACTIVE)
         })
         .border(px(SWITCH_EDGE))
-        .border_color(if on {
-            gpui::transparent_black()
-        } else {
-            white(ink::DIM)
-        })
+        .border_color(rim)
         .cursor_pointer()
         .child(knob)
 }
 
 pub fn toggle_row(
     id: impl Into<SharedString>,
-    title: impl IntoElement,
+    title: impl Into<SharedString>,
     note: Option<AnyElement>,
     on: bool,
 ) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let switch = toggle(format!("{id}-switch"), on);
+    let (id, title): (SharedString, SharedString) = (id.into(), title.into());
+    let switch = switch_face(format!("{id}-switch"), on);
     hoverable(id, radius::ROW, Hover::Row)
+        .role(Role::Switch)
+        .aria_toggled(Toggled::from(on))
+        .aria_label(title.clone())
         .flex()
         .items_center()
         .gap(px(SETTING_ROW_GAP))
@@ -465,17 +571,20 @@ pub fn toggle_row(
         .child(switch)
 }
 
-pub const SETTING_ROW_GAP: f32 = 40.;
+pub const SETTING_ROW_GAP: f32 = space::XXL + space::SM;
 
 pub fn toggle_label(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     on: bool,
 ) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let switch = toggle(format!("{id}-switch"), on);
+    let (id, label): (SharedString, SharedString) = (id.into(), label.into());
+    let switch = switch_face(format!("{id}-switch"), on);
     let tone = if hover_is(&id) { ink::FULL } else { ink::BODY };
     super::track_hover(div().id(id.clone()), id)
+        .role(Role::Switch)
+        .aria_toggled(Toggled::from(on))
+        .aria_label(label.clone())
         .flex()
         .flex_none()
         .items_center()
@@ -483,7 +592,7 @@ pub fn toggle_label(
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
         .child(switch)
-        .child(super::text(step::NOTE, FontWeight::NORMAL, tone).child(label.into()))
+        .child(super::text(step::NOTE, FontWeight::NORMAL, tone).child(label))
 }
 
 /// A segmented control (the server dialog's difficulty): options on a faint track, the chosen
@@ -497,6 +606,7 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     let id: SharedString = id.into();
     div()
         .id(id.clone())
+        .role(Role::RadioGroup)
         .flex()
         .flex_none()
         .gap(px(space::XS))
@@ -508,6 +618,9 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
             let pick = on_pick.clone();
             let segment = selected(
                 hoverable(format!("{id}-{value:?}"), radius::CONTROL, Hover::Row)
+                    .role(Role::RadioButton)
+                    .aria_toggled(Toggled::from(active))
+                    .aria_label(label.clone())
                     .flex()
                     .items_center()
                     .h(px(ButtonSize::Sm.height()))
@@ -542,12 +655,16 @@ fn padded_tab(
     } else {
         ink::MUTED
     };
+    let text: SharedString = text.into();
     let d = super::track_hover(div().id(id.clone()), id)
+        .role(Role::Tab)
+        .aria_selected(open)
+        .aria_label(text.clone())
         .relative()
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(space::SM))
+        .gap(px(TAB_COUNT_GAP))
         .h(px(ButtonSize::Md.height()))
         .px(px(pad))
         .rounded(px(radius::CONTROL))
@@ -560,17 +677,23 @@ fn padded_tab(
                     .left(px(pad))
                     .right(px(pad))
                     .bottom_0()
-                    .h(px(2.))
-                    .bg(color(look().mark)),
+                    .h(px(TAB_UNDERLINE))
+                    .bg(color(look().accent)),
             )
         });
-    let text: SharedString = text.into();
     d.when(!text.is_empty(), |d| {
         d.child(press_text().child(text.to_uppercase()))
     })
 }
 
-pub const TAB_PAD: f32 = 10.;
+pub const TAB_PAD: f32 = space::SM + space::XXS;
+
+const TAB_COUNT_GAP: f32 = space::SM;
+
+pub fn tab_width(label: &str, count: Option<usize>, pad: f32) -> f32 {
+    let count = count.map_or(0., |n| TAB_COUNT_GAP + press_width(&n.to_string()));
+    press_width(label) + count + 2. * pad
+}
 
 pub const TAB_PAD_TIGHT: f32 = space::SM;
 
@@ -590,6 +713,7 @@ pub fn tab_strip_padded(
 ) -> Stateful<Div> {
     div()
         .id(id.into())
+        .role(Role::TabList)
         .flex()
         .flex_wrap()
         .items_center()
@@ -614,11 +738,36 @@ pub fn count_tab(
     }))
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum NavDensity {
+    Sidebar,
+    List,
+}
+
+impl NavDensity {
+    fn height(self) -> f32 {
+        match self {
+            NavDensity::Sidebar if super::short_window() => NAV_ROW_SHORT,
+            NavDensity::Sidebar => NAV_ROW,
+            NavDensity::List if super::short_window() => NAV_ROW_LIST_SHORT,
+            NavDensity::List => NAV_ROW_LIST,
+        }
+    }
+
+    fn gap(self) -> f32 {
+        match self {
+            NavDensity::Sidebar => space::MD,
+            NavDensity::List => space::SM,
+        }
+    }
+}
+
 pub fn nav_row(
     id: impl Into<SharedString>,
     icon_name: &'static str,
     text: impl Into<SharedString>,
     current: bool,
+    density: NavDensity,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
     let text: SharedString = text.into();
@@ -627,26 +776,51 @@ pub fn nav_row(
     } else {
         ink::BODY
     };
-    selected(
-        hoverable(id, radius::ROW, Hover::Row)
-            .flex()
-            .flex_none()
-            .items_center()
-            .gap(px(space::MD))
-            .h(px(NAV_ROW))
-            .px(px(space::MD))
-            .cursor_pointer()
-            .text_color(white(tone))
-            .child(icon(icon_name, IconSize::Px16, super::icon_tone(current)).relative())
-            .child(
-                press_text()
-                    .relative()
-                    .min_w_0()
-                    .truncate()
-                    .child(text.to_uppercase()),
-            ),
-        current,
-    )
+    let row = hoverable(id, radius::ROW, Hover::Row)
+        .role(Role::Link)
+        .aria_selected(current)
+        .aria_label(text.clone())
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(density.gap()))
+        .h(px(density.height()))
+        .px(px(density.gap()))
+        .cursor_pointer()
+        .text_color(white(tone))
+        .child(icon(icon_name, IconSize::Px16, super::icon_tone(current)).relative())
+        .child(
+            press_text()
+                .relative()
+                .min_w_0()
+                .truncate()
+                .child(text.to_uppercase()),
+        );
+    match density {
+        NavDensity::Sidebar => super::side_selected(row, current),
+        NavDensity::List => selected(row, current),
+    }
+}
+
+pub fn shown_on_focus(el: Stateful<Div>, shown: bool) -> Stateful<Div> {
+    if shown {
+        return el;
+    }
+    el.opacity(0.)
+        .focus_visible(|s| super::inset_ring(s).opacity(1.))
+}
+
+pub fn tip_when_clipped(
+    el: Stateful<Div>,
+    full: impl Into<SharedString>,
+    width: f32,
+    room: f32,
+) -> Stateful<Div> {
+    if width < room {
+        return el;
+    }
+    let full: SharedString = full.into();
+    tip_on_focus(el.tooltip(tip(full.clone())), full)
 }
 
 pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {
@@ -656,42 +830,57 @@ pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stat
     } else {
         color(look().accent_soft)
     };
+    let label: SharedString = label.into();
     super::track_hover(
         super::text(step::BODY, FontWeight::MEDIUM, ink::FULL).id(id.clone()),
         id,
     )
+    .role(Role::Link)
+    .aria_label(label.clone())
     .flex()
     .flex_none()
     .items_center()
     .min_h(px(LINK_MIN_HEIGHT))
     .text_color(tone)
     .cursor_pointer()
-    .child(label.into())
+    .child(label)
 }
 
 pub const NAV_ROW: f32 = 40.;
 
 pub const NAV_ROW_SHORT: f32 = 36.;
 
+pub fn chevron(open: bool) -> gpui::Svg {
+    icon("arrow-down-01", IconSize::Px16, white(ink::MUTED)).with_transformation(
+        gpui::Transformation::rotate(gpui::radians(if open { std::f32::consts::PI } else { 0. })),
+    )
+}
+
 pub fn dropdown(
     id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
     leading: Option<AnyElement>,
     label: impl IntoElement,
     open: bool,
     size: ButtonSize,
 ) -> Stateful<Div> {
-    let chevron = icon("arrow-down-01", IconSize::Px16, white(ink::MUTED)).with_transformation(
-        gpui::Transformation::rotate(gpui::radians(if open { std::f32::consts::PI } else { 0. })),
-    );
-    hoverable(id, radius::ROW, Hover::Row)
+    let (gap, pad) = match (size, leading.is_some()) {
+        (ButtonSize::Hero, _) => (space::XL, space::LG),
+        (_, true) => (space::SM, space::SM),
+        (_, false) => (space::SM, size.pad()),
+    };
+    hoverable(id, radius::CONTROL, Hover::Row)
+        .role(Role::ComboBox)
+        .aria_label(name.into())
+        .aria_expanded(open)
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(space::SM))
+        .gap(px(gap))
         .h(px(size.height()))
-        .pl(px(if leading.is_some() { space::SM } else { 14. }))
+        .pl(px(pad))
         .pr(px(space::MD))
-        .rounded(px(radius::ROW))
+        .rounded(px(radius::CONTROL))
         .bg(super::field_bg(open))
         .border_1()
         .border_color(super::field_edge())
@@ -701,7 +890,7 @@ pub fn dropdown(
         .text_color(white(ink::FULL))
         .children(leading.map(|l| div().relative().child(l)))
         .child(div().relative().flex_1().min_w_0().truncate().child(label))
-        .child(chevron.relative())
+        .child(chevron(open).relative())
 }
 
 pub fn translated<T: Copy>(options: &[(T, &str)]) -> Vec<(T, SharedString)> {

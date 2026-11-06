@@ -122,8 +122,7 @@ impl Launcher {
         let viewing = self.collection.view.is_some();
         // The body scrolls inside the card, so the answers stay at its foot however short the
         // window and however long what would be sent.
-        let body = div()
-            .id("ask-body")
+        let body = ui::scroll_pane("ask-body", &self.collection.body_scroll.handle)
             .flex()
             .flex_col()
             .min_h_0()
@@ -131,7 +130,6 @@ impl Launcher {
             .px(px(ui::CARD_PADDING))
             .pt(px(ui::CARD_PADDING))
             .pb(px(ui::PANEL_INSET))
-            .overflow_y_scroll()
             .child(ui::label(tr("Data collection")))
             .child(ui::entity_title(
                 tr("Help make Eclipse faster and steadier?"),
@@ -205,30 +203,18 @@ impl Launcher {
             .max_h_full()
             .child(self.collection.body_scroll.wrap(body))
             .child(answers);
-        div()
-            .id("consent")
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
-            .flex()
-            .flex_col()
-            .items_center()
-            .justify_center()
-            .px(px(space::XXL))
-            .py(px(space::XL))
-            .on_scroll(|_, _, cx| cx.stop_propagation())
-            .occlude()
-            .child(ui::scrim_backdrop())
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .bg(ui::scrim()),
-            )
-            .child(card)
+        ui::modal(
+            "consent",
+            tr("Help make Eclipse faster and steadier?"),
+            None,
+        )
+        .flex()
+        .flex_col()
+        .items_center()
+        .justify_center()
+        .px(px(space::XXL))
+        .py(px(space::XL))
+        .child(card)
     }
 
     /// Settings' data collection: a switch per kind, then the player's data.

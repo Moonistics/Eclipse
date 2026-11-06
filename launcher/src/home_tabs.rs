@@ -3,7 +3,7 @@
 //! console. One at a time, instead of one long page. The strip, and under it one card with the
 //! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
 use super::*;
-use crate::ui::{self, white};
+use crate::ui;
 use eclipse_theme::glass::{ink, radius, space, step};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
@@ -65,16 +65,6 @@ impl Launcher {
 
 const NOTES_WIDTH: f32 = 720.;
 
-const BULLET: f32 = 5.;
-
-const COUNT_GAP: f32 = 8.;
-
-fn tab_width(label: &str, count: Option<usize>, pad: f32) -> f32 {
-    2. * pad
-        + ui::press_width(label)
-        + count.map_or(0., |n| COUNT_GAP + ui::press_width(&n.to_string()))
-}
-
 impl Launcher {
     pub(super) fn home_tab_card(&mut self, cx: &mut Context<Self>) -> Div {
         let tabs = self.home_tab_list(cx);
@@ -103,7 +93,7 @@ impl Launcher {
         let fits = |pad: f32, counts: bool| {
             let width: f32 = named
                 .iter()
-                .map(|(_, name, n)| tab_width(name, n.filter(|_| counts), pad))
+                .map(|(_, name, n)| ui::tab_width(name, n.filter(|_| counts), pad))
                 .sum();
             width <= content + 2. * pad
         };
@@ -185,22 +175,11 @@ impl Launcher {
         };
         let many = sections.len() > 1;
         let bullet = |item: String| {
-            div()
-                .flex()
-                .gap(px(space::MD))
-                .child(
-                    div()
-                        .flex_none()
-                        .mt(px((step::BODY.line - BULLET) / 2.))
-                        .size(px(BULLET))
-                        .rounded_full()
-                        .bg(white(ink::DIM)),
-                )
-                .child(
-                    ui::text(step::BODY, FontWeight::NORMAL, ink::STRONG)
-                        .min_w_0()
-                        .child(item),
-                )
+            div().flex().gap(px(space::MD)).child(ui::bullet()).child(
+                ui::text(step::BODY, FontWeight::NORMAL, ink::STRONG)
+                    .min_w_0()
+                    .child(item),
+            )
         };
         let list = div()
             .flex()

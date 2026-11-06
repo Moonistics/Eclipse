@@ -124,43 +124,34 @@ impl Launcher {
             (Some(Err(e)), _) => ui::error_note(e.clone()),
             (None, _) => return None,
         };
-        Some(
-            div()
-                .absolute()
-                .bottom(px(24.))
-                .right(px(24.))
+        Some(ui::corner_float(
+            ui::float_card(radius::POPOVER)
                 .w(px(IMPORT_NOTE_WIDTH))
+                .flex()
+                .items_center()
+                .gap(px(space::MD))
+                .p(px(ui::PANEL_INSET))
+                .shadow_lg()
+                .child(ui::icon(
+                    "download-04",
+                    ui::IconSize::Px16,
+                    white(ink::MUTED),
+                ))
+                .child(div().flex_1().min_w_0().child(line))
                 .child(
-                    ui::float_card(radius::POPOVER)
-                        .w_full()
-                        .flex()
-                        .items_center()
-                        .gap(px(space::MD))
-                        .p(px(ui::PANEL_INSET))
-                        .shadow_lg()
-                        .child(ui::icon(
-                            "download-04",
-                            ui::IconSize::Px16,
-                            white(ink::MUTED),
-                        ))
-                        .child(div().flex_1().min_w_0().child(line))
-                        .child(
-                            ui::icon_button(
-                                "import-close",
-                                "cancel-01",
-                                tr("Close"),
-                                ButtonKind::Ghost,
-                                ui::ButtonSize::Sm,
-                                false,
-                            )
-                            .on_press(cx.listener(
-                                |this, _: &ClickEvent, _, cx| {
-                                    this.importing.note = None;
-                                    cx.notify();
-                                },
-                            )),
-                        ),
+                    ui::icon_button(
+                        "import-close",
+                        "cancel-01",
+                        tr("Close"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Sm,
+                        false,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.importing.note = None;
+                        cx.notify();
+                    })),
                 ),
-        )
+        ))
     }
 }

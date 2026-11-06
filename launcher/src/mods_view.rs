@@ -59,7 +59,7 @@ impl Launcher {
         let open = self.mods.kind;
         let tabs = ui::tab_strip(
             "mods-tabs",
-            KINDS.into_iter().map(|(kind, label, _)| {
+            KINDS.into_iter().map(|(kind, label)| {
                 ui::tab(
                     SharedString::from(format!("mods-tab-{kind:?}")),
                     tr(label),
@@ -284,27 +284,16 @@ impl Launcher {
         let open = self.menu_is(&Menu::ModsTarget);
         let button = ui::dropdown(
             "mods-target",
+            tr("Install to"),
             Some(self.instance_icon(&current, ui::TILE_SM)),
             current.name.clone(),
             open,
             ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
-            if this.closed_by_this_press(event) {
-                return;
-            }
-            this.toggle_menu(Menu::ModsTarget, window, cx);
-            cx.notify();
-        }));
+        );
+        let button = self.menu_opener(button, Menu::ModsTarget, cx);
         let mut wrap = div().relative().flex_none().child(button);
         if open {
-            let mut menu = ui::popover("mods-target-menu").on_mouse_down_out(cx.listener(
-                |this, event: &MouseDownEvent, _, cx| {
-                    this.close_menu();
-                    this.menu_closed_at = Some(event.position);
-                    cx.notify();
-                },
-            ));
+            let mut menu = self.menu_popover("mods-target-menu", cx);
             for i in choices {
                 let picked = i.id == current.id;
                 menu = menu.child(
@@ -324,16 +313,11 @@ impl Launcher {
                     )),
                 );
             }
-            wrap = wrap.child(
-                gpui::deferred(
-                    div()
-                        .absolute()
-                        .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
-                        .left_0()
-                        .child(menu),
-                )
-                .with_priority(1),
-            );
+            wrap = wrap.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::Start,
+                menu,
+            ));
         }
         Some(row.child(note(tr("Install to").into())).child(wrap))
     }
@@ -394,7 +378,12 @@ impl Launcher {
                 .id("mods-vanilla")
                 .mx(px(space::XS))
                 .mb(px(space::SM))
-                .child(ui::notice("information-circle", said, actions)),
+                .child(ui::notice(
+                    ui::Notice::Info,
+                    "information-circle",
+                    said,
+                    actions,
+                )),
         )
     }
 
@@ -433,27 +422,16 @@ impl Launcher {
         let open = self.menu_is(&Menu::ModsSort);
         let button = ui::dropdown(
             "mods-sort",
+            trf("Sort by: {order}", &[("order", tr(name))]),
             None,
             trf("Sort by: {order}", &[("order", tr(name))]),
             open,
             ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
-            if this.closed_by_this_press(event) {
-                return;
-            }
-            this.toggle_menu(Menu::ModsSort, window, cx);
-            cx.notify();
-        }));
+        );
+        let button = self.menu_opener(button, Menu::ModsSort, cx);
         let mut wrap = div().relative().flex_none().child(button);
         if open {
-            let mut menu = ui::popover("mods-sort-menu").on_mouse_down_out(cx.listener(
-                |this, event: &MouseDownEvent, _, cx| {
-                    this.close_menu();
-                    this.menu_closed_at = Some(event.position);
-                    cx.notify();
-                },
-            ));
+            let mut menu = self.menu_popover("mods-sort-menu", cx);
             for &(value, label) in &sorts {
                 menu = menu.child(
                     ui::pick_row(
@@ -470,16 +448,11 @@ impl Launcher {
                     )),
                 );
             }
-            wrap = wrap.child(
-                gpui::deferred(
-                    div()
-                        .absolute()
-                        .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
-                        .right_0()
-                        .child(menu),
-                )
-                .with_priority(1),
-            );
+            wrap = wrap.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::End,
+                menu,
+            ));
         }
         wrap
     }
@@ -619,15 +592,13 @@ impl Launcher {
                 };
                 let known = p.clone();
                 let button_id = SharedString::from(format!("mods-row-install-{}", p.id));
-                let lit = current || ui::hover_is(&row_id) || ui::hover_is(&button_id);
                 let button = ui::button(
                     button_id,
                     None,
                     label,
                     ButtonKind::Secondary,
                     ui::ButtonSize::Sm,
-                )
-                .text_color(white(if lit { ink::FULL } else { ink::MUTED }));
+                );
                 if can_install {
                     button
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -750,7 +721,7 @@ impl Launcher {
     fn mod_detail(&mut self, instance: &str, cx: &mut Context<Self>) -> Option<Div> {
         let p = self.mods_picked()?;
         let vanilla = self.mods_vanilla_target();
-        let icon = self.mods_icon(&p, 64.);
+        let icon = self.mods_icon(&p, ui::TILE_LG);
         let m = &self.mods;
         let support = m.support(&p);
         let entry = m.entry(&p).cloned();
@@ -771,32 +742,12 @@ impl Launcher {
                 ui::Tone::Warn if vanilla.is_some() => ui::Tone::Off,
                 known => known,
             };
-            let color = match tone {
-                ui::Tone::Live => ui::live(),
-                ui::Tone::Warn => ui::warn(),
-                _ => white(ink::DIM),
-            };
             div()
                 .mt(px(space::LG))
                 .flex()
                 .flex_col()
                 .gap(px(space::XS))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(space::SM))
-                        .child(ui::dot(tone))
-                        .child(
-                            ui::text(
-                                eclipse_theme::glass::step::BODY,
-                                FontWeight::MEDIUM,
-                                ink::FULL,
-                            )
-                            .text_color(color)
-                            .child(said),
-                        ),
-                )
+                .child(ui::state_title(tone, said))
                 .children(reason.map(|r| {
                     ui::text(
                         eclipse_theme::glass::step::NOTE,

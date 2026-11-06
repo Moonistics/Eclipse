@@ -230,27 +230,11 @@ impl Launcher {
                 .child(tr("Waiting for Microsoft…")),
             );
         }
-        div()
-            .id("owner-gate")
-            .absolute()
-            .top_0()
-            .left_0()
-            .size_full()
+        ui::modal("owner-gate", tr("Sign in to play"), None)
             .flex()
             .items_center()
             .justify_center()
             .p(px(space::XL))
-            .on_scroll(|_, _, cx| cx.stop_propagation())
-            .occlude()
-            .child(ui::scrim_backdrop())
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left_0()
-                    .size_full()
-                    .bg(ui::scrim()),
-            )
             .child(card)
     }
 }

@@ -435,7 +435,7 @@ impl Render for Setup {
         // metadata every frame for it.
         self.wake_in(Duration::from_millis(500), cx);
         let t = self.theme;
-        ui::begin_frame(&t, false);
+        ui::begin_frame(&t, false, window, cx);
         self.scene.update(cx, |scene, _| scene.set_look(&t.night));
         let sky = self.scene.clone().into_any_element();
         let card = self.card(cx);

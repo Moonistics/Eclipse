@@ -1022,6 +1022,10 @@ impl Status {
     pub fn running(&self) -> bool {
         self.phase != "stopped"
     }
+
+    pub fn serving(&self) -> bool {
+        self.phase == "running"
+    }
 }
 
 /// The status of the server in `dir`: what its API says, or stopped.

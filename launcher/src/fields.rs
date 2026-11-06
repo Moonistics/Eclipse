@@ -1,7 +1,7 @@
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
 use crate::ui;
-use eclipse_theme::glass::space;
+use eclipse_theme::glass::{space, GEIST_ADVANCE};
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(super) enum Field {
@@ -31,7 +31,7 @@ pub(super) enum Field {
     LaunchWrapper,
     LaunchEnv,
     PostExit,
-    /// Home's memory row (`launch_page.rs`).
+    /// Edit instance's memory row (`launch_page.rs`).
     MemoryLimit,
     /// Settings' new offline name (`settings_account.rs`).
     OfflineName,
@@ -46,49 +46,16 @@ pub(super) enum Field {
 }
 
 impl Field {
-    const ALL: [Field; 29] = [
-        Field::NewServerName,
-        Field::NewServerSeed,
-        Field::NewServerFriend,
-        Field::ServerCommand,
-        Field::ServerPlayer,
-        Field::ServerMotd,
-        Field::ServerPort,
-        Field::TailscaleToken,
-        Field::FriendEmail,
-        Field::InstanceName,
-        Field::InstanceGroup,
-        Field::VersionSearch,
-        Field::InstanceModsFilter,
-        Field::MultiplayerName,
-        Field::MultiplayerAddress,
-        Field::ConsoleSearch,
-        Field::PreLaunch,
-        Field::LaunchWrapper,
-        Field::LaunchEnv,
-        Field::PostExit,
-        Field::MemoryLimit,
-        Field::OfflineName,
-        Field::AccentHex,
-        Field::InviteCode,
-        Field::ModsSearch,
-        Field::GithubLink,
-        Field::GameArgs,
-        Field::Proxy,
-        Field::PaletteSearch,
-    ];
-
     fn empty(self) -> LineEdit {
-        let (max, visible) = match self {
-            Field::InviteCode => (256, 32),
-            Field::GameArgs => (1024, 38),
-            Field::Proxy => (256, 44),
-            Field::ModsSearch => (100, 40),
-            Field::GithubLink => (300, 40),
-            Field::PaletteSearch => (80, 40),
+        let max = match self {
+            Field::InviteCode | Field::Proxy => 256,
+            Field::GameArgs => 1024,
+            Field::ModsSearch => 100,
+            Field::GithubLink => 300,
+            Field::PaletteSearch => 80,
             _ => return LineEdit::default(),
         };
-        LineEdit::new(String::new(), max, visible)
+        LineEdit::with_max(max)
     }
 }
 
@@ -152,16 +119,18 @@ impl Fields {
         if let Some(h) = self.focus_soon.take().and_then(|f| self.focus.get(&f)) {
             window.focus(h, cx);
         }
-        self.focused = Field::ALL
-            .into_iter()
-            .find(|f| self.focus.get(f).is_some_and(|h| h.is_focused(window)));
+        self.focused = self
+            .focus
+            .iter()
+            .find(|(_, h)| h.is_focused(window))
+            .map(|(f, _)| *f);
         if self.focused.is_some() && self.focused != self.selected {
             self.selected = None;
         }
     }
 }
 
-const GEIST_ADVANCE: f32 = 7.5;
+const TRAILING_INSET: f32 = space::SM + space::XXS;
 
 fn visible_chars(width: f32, size: ui::ButtonSize) -> usize {
     let pad = if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
@@ -199,16 +168,22 @@ impl Launcher {
         let focused = self.fields.has_focus(f);
         let selected = focused && self.fields.selected == Some(f);
         let invalid = self.fields.invalid.is_some_and(|(g, _)| g == f);
+        let secret = f == Field::TailscaleToken;
+        let placeholder: SharedString = placeholder.into();
         self.fields.text(f).show(visible_chars(width, size));
         let content = line_edit::content_with(
             self.fields.text(f),
             focused,
             selected,
-            f == Field::TailscaleToken,
-            placeholder.into(),
+            secret,
+            placeholder.clone(),
         );
         let field = ui::field(focused, invalid, size)
             .id(SharedString::from(format!("field-{f:?}")))
+            .role(gpui::Role::TextInput)
+            .aria_label(placeholder.clone())
+            .aria_placeholder(placeholder)
+            .when(!secret, |d| d.aria_value(self.fields.value(f).to_string()))
             .w(px(width))
             .cursor_text()
             .children(lead.map(|l| div().relative().flex_none().child(l)))
@@ -220,6 +195,7 @@ impl Launcher {
                     .overflow_hidden()
                     .child(content),
             )
+            .when(trailing.is_some(), |d| d.pr(px(TRAILING_INSET)))
             .children(trailing.map(|t| div().relative().flex_none().child(t)));
         self.text_input(f, field, cx)
     }
