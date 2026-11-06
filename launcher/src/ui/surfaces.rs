@@ -188,6 +188,16 @@ pub fn error_state(
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
+    error_state_with(id, title, error, on_retry, None)
+}
+
+pub fn error_state_with(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    error: &str,
+    on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    extra: Option<Stateful<Div>>,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
     let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px32, danger()));
     let retry = primary(
@@ -199,7 +209,7 @@ pub fn error_state(
     let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
     actions(
         state(id, glyph, title.into(), plain_error(error).into()),
-        vec![retry, copy],
+        std::iter::once(retry).chain(extra).chain([copy]).collect(),
     )
 }
 

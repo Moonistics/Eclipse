@@ -329,13 +329,13 @@ impl Launcher {
     /// A source with several mods: one, or all.
     fn github_choice(&self, found: &Resolved, mods: &[Packed], cx: &mut Context<Self>) -> Div {
         let mut buttons = div().flex().flex_wrap().gap(px(space::SM));
-        for (i, p) in mods.iter().enumerate() {
+        for p in mods {
             let (found, all, id) = (found.clone(), mods.to_vec(), p.id.clone());
             buttons = buttons.child(
                 ui::button(
-                    SharedString::from(format!("github-pick-{i}")),
+                    SharedString::from(format!("github-pick-{id}")),
                     None,
-                    tr(&format!("{} {}", p.id, p.version)),
+                    format!("{} {}", p.id, p.version),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
@@ -391,7 +391,7 @@ impl Launcher {
                 ui::button(
                     SharedString::from(format!("github-update-{id}")),
                     None,
-                    tr(&trf("Update to {version}", &[("version", &latest.label())])),
+                    trf("Update to {version}", &[("version", &latest.label())]),
                     ButtonKind::Primary,
                     ui::ButtonSize::Md,
                 )

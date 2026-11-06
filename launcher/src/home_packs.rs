@@ -1,6 +1,6 @@
 //! Home's Packs tab: one row per resource or shader pack, its picture, "Resource pack · on" and
-//! a switch that turns it on or off. Add pack… and Open folder head the list; packs dropped on it
-//! are added; Delete asks first, in place.
+//! a switch that turns it on or off. Find packs, Add from file… and the packs folder head the
+//! list; packs dropped on it are added; Delete asks first, in place.
 use super::*;
 use crate::menus::Asking;
 use crate::ui::{self};
@@ -29,28 +29,40 @@ impl Launcher {
                 cx.notify();
             }));
         let add = || {
-            cx.listener(
+            ui::button(
+                "packs-add",
+                Some("plus-sign"),
+                tr("Add from file…"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(
                 |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
                     this.choose_packs(cx);
                     cx.notify();
                 },
-            )
+            ))
         };
-        if count == 0 {
-            let add = ui::button(
-                "packs-add",
-                Some("plus-sign"),
-                tr("Add pack…"),
-                ButtonKind::Secondary,
+        let find = |kind| {
+            ui::button(
+                "packs-find",
+                Some("search-01"),
+                tr("Find packs"),
+                kind,
                 ui::ButtonSize::Md,
             )
-            .on_press(add());
+            .on_press(home_mods::find_on_mods_page(
+                eclipse_launcher::browser::Kind::ResourcePack,
+                cx,
+            ))
+        };
+        if count == 0 {
             return Some(body.child(ui::empty_state(
                 "packs-empty",
                 "package-01",
-                tr("No packs yet"),
-                tr("Add a resource pack or shader pack from a file."),
-                vec![add],
+                tr("No resource packs or shader packs yet"),
+                tr("Resource packs change textures and sounds; shader packs change the lighting."),
+                vec![find(ButtonKind::Primary), add()],
             )));
         }
         let note = match count {
@@ -66,28 +78,21 @@ impl Launcher {
                 div()
                     .flex()
                     .gap(px(space::SM))
+                    .child(find(ButtonKind::Secondary))
+                    .child(add())
                     .child(
-                        ui::button(
+                        ui::icon_button(
                             "packs-folder",
-                            None,
-                            tr("Open folder"),
+                            "folder-01",
+                            tr("Open packs folder"),
                             ButtonKind::Secondary,
                             ui::ButtonSize::Md,
+                            false,
                         )
                         .on_press(move |_, _, cx| {
                             let _ = std::fs::create_dir_all(&folder);
                             crate::toast::open(cx, &folder);
                         }),
-                    )
-                    .child(
-                        ui::button(
-                            "packs-add",
-                            Some("plus-sign"),
-                            tr("Add pack…"),
-                            ButtonKind::Secondary,
-                            ui::ButtonSize::Md,
-                        )
-                        .on_press(add()),
                     ),
             ),
         );

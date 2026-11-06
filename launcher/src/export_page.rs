@@ -127,10 +127,10 @@ impl Launcher {
                     .child(tr("No worlds to put in.")),
             );
         }
-        for (n, (_, name, on)) in panel.worlds.iter().enumerate() {
+        for (n, (folder, name, on)) in panel.worlds.iter().enumerate() {
             worlds = worlds.child(
                 ui::toggle_label(
-                    SharedString::from(format!("export-world-{n}")),
+                    SharedString::from(format!("export-world-{folder}")),
                     name.clone(),
                     *on,
                 )

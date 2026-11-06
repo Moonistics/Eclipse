@@ -184,7 +184,11 @@ impl Launcher {
             .as_ref()
             .filter(|_| self.page == Page::InstanceEditor)
             .and_then(|d| d.editing.clone());
-        let selected = editing.or_else(|| self.selected_instance().map(|i| i.id.clone()));
+        let selected = editing.or_else(|| {
+            (self.page == Page::Home)
+                .then(|| self.selected_instance().map(|i| i.id.clone()))
+                .flatten()
+        });
         let on_packs = self.page == Page::Mods && self.mods.on_modpacks();
         let mut out = Vec::new();
         let mut group = None;
@@ -202,12 +206,8 @@ impl Launcher {
                     out.push(group_label(g.clone(), &self.row_menu.labels).into_any_element());
                 }
             }
-            // The chosen instance stays marked on every page, unless a ported pack's page is
-            // open: that row is the one shown then.
             let current = match i.kind {
-                InstanceKind::Default | InstanceKind::Own => {
-                    !(on_packs && self.pack_open.is_some()) && selected.as_ref() == Some(&i.id)
-                }
+                InstanceKind::Default | InstanceKind::Own => selected.as_ref() == Some(&i.id),
                 InstanceKind::Port => {
                     on_packs && self.pack_open.as_deref() == Some(&i.id["port:".len()..])
                 }
@@ -805,9 +805,9 @@ impl Launcher {
         ))
     }
 
-    /// The ⋯ menu of a sidebar row, beside it: Edit…, Duplicate…, Open folder, Export…,
-    /// launch settings, the desktop shortcut, then Delete… (then asked to confirm). Each acts on
-    /// that instance.
+    /// The ⋯ menu of a sidebar row, beside it: Edit instance, Duplicate…, Open instance folder,
+    /// Export…, launch settings, the desktop shortcut, then Delete… (then asked to confirm). Each
+    /// acts on that instance.
     pub(super) fn row_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let Some(Menu::InstanceRow(id)) = self.open_menu.clone() else {
             return None;
@@ -847,7 +847,7 @@ impl Launcher {
                 cx.notify();
             }))
             .child(
-                item("edit", "pencil-edit-02", tr("Edit…").into()).on_press(cx.listener(
+                item("edit", "pencil-edit-02", tr("Edit instance").into()).on_press(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         this.open_instance_page(Some(edit.clone()));
@@ -865,14 +865,14 @@ impl Launcher {
                 )),
             )
             .child(
-                item("folder", "folder-01", tr("Open folder").into()).on_press(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
+                item("folder", "folder-01", tr("Open instance folder").into()).on_press(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         let _ = std::fs::create_dir_all(&home);
                         crate::toast::open(cx, &home);
                         cx.notify();
-                    },
-                )),
+                    }),
+                ),
             )
             .child(
                 item("export", "upload-04", tr("Export…").into()).on_press(cx.listener(

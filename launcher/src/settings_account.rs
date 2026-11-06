@@ -14,6 +14,7 @@ use eclipse_theme::glass::{fill, ink, radius, space, step};
 const HEAD: f32 = 80.;
 const MICROSOFT_MIN: f32 = 280.;
 const MICROSOFT_LOGO: f32 = 36.;
+const DIVIDER: f32 = 1.;
 
 impl Launcher {
     pub(super) fn account_card(&mut self, cx: &mut Context<Self>) -> Div {
@@ -21,6 +22,9 @@ impl Launcher {
             .who_plays_card(cx)
             .min_w_0()
             .p(px(ui::SETTING_ROW_PADDING));
+        if self.sign_in_under_names() {
+            return left;
+        }
         let right = self
             .microsoft_card(cx)
             .border_color(white(eclipse_theme::glass::EDGE));
@@ -30,11 +34,15 @@ impl Launcher {
             .flex()
             .when(!wide, |d| d.flex_col())
             .child(left.when(wide, |d| d.flex_1()))
-            .child(
-                right
-                    .when(wide, |d| d.flex_1().min_w(px(MICROSOFT_MIN)).border_l_1())
-                    .when(!wide, |d| d.border_t_1()),
-            )
+            .when(!wide, |d| {
+                d.child(
+                    div()
+                        .h(px(DIVIDER))
+                        .mx(px(ui::SETTING_ROW_PADDING))
+                        .bg(white(eclipse_theme::glass::EDGE)),
+                )
+            })
+            .child(right.when(wide, |d| d.flex_1().min_w(px(MICROSOFT_MIN)).border_l_1()))
     }
 
     /// The player now, the offline names and the field to add one.
@@ -234,26 +242,61 @@ impl Launcher {
                     None,
                     tr("Add"),
                     ButtonKind::Secondary,
-                    ui::ButtonSize::Lg,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.offline_name_enter();
                     cx.notify();
                 })),
             );
-        let can_add = self.settings.dev_offline || self.owner != Some(false);
+        let can_add = self.can_add_offline_names();
+        let can_sign_in = account::client_id().is_some();
+        let show_names = can_add || can_sign_in;
+        let has_chips = !self.accounts.offline.is_empty() || self.offline_name.is_some();
+        let sign_in =
+            self.sign_in_under_names().then(|| {
+                div().flex().mt(px(space::LG)).child(
+                    microsoft::white_button("names-sign-in").on_press(cx.listener(
+                        |this, _: &ClickEvent, _, cx| {
+                            this.start_sign_in();
+                            cx.notify();
+                        },
+                    )),
+                )
+            });
         div()
             .flex()
             .flex_col()
             .child(header)
-            .child(ui::label(tr("Offline names")).mt(px(space::XXL)))
-            .child(chips.when(can_add, |d| d.child(add)))
-            .when(!can_add, |d| {
+            .when(show_names, |d| {
+                d.child(ui::label(tr("Offline names")).mt(px(space::XXL)))
+            })
+            .when(show_names || has_chips, |d| {
+                d.child(
+                    chips
+                        .when(can_add, |d| d.child(add))
+                        .when(!show_names, |d| d.mt(px(space::XL))),
+                )
+            })
+            .when(!can_add && can_sign_in, |d| {
                 d.child(ui::card_note(tr(
-                    "Sign in once with a Microsoft account that owns Minecraft: Java Edition to use offline names.",
+                    "Sign in once with an account that owns Java Edition to pick your own player name.",
                 )))
             })
+            .children(sign_in)
             .children(self.skin_panel(cx).map(|p| p.mt(px(space::LG))))
+    }
+
+    fn can_add_offline_names(&self) -> bool {
+        self.settings.dev_offline || self.owner != Some(false)
+    }
+
+    fn sign_in_under_names(&self) -> bool {
+        account::client_id().is_some()
+            && !self.can_add_offline_names()
+            && self.accounts.accounts.is_empty()
+            && self.sign_in_target.is_none()
+            && self.sign_in_state.is_none()
     }
 
     /// An offline name's chip: its head and name, a tick and a stronger fill on the one playing.
@@ -337,18 +380,18 @@ impl Launcher {
         let mut rows = div().flex().flex_col();
         let mut n = 0;
         let selected = self.accounts.selected.clone();
-        for (i, a) in self.accounts.accounts.clone().into_iter().enumerate() {
+        for a in self.accounts.accounts.clone() {
             let plays = selected.as_ref() == Some(&a.uuid);
             let uuid = a.uuid.clone();
             let mut actions = div().flex().gap(px(space::XS));
             if plays {
                 actions = actions.child(
                     ui::button(
-                        format!("offline-{i}"),
+                        format!("play-offline-{}", a.uuid),
                         None,
                         tr("Play offline"),
-                        ButtonKind::Ghost,
-                        ui::ButtonSize::Md,
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Sm,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         let mut accounts = Accounts::load();
@@ -363,11 +406,11 @@ impl Launcher {
                 let uuid = uuid.clone();
                 actions = actions.child(
                     ui::button(
-                        format!("select-{i}"),
+                        format!("play-as-{}", a.uuid),
                         None,
                         tr("Play as"),
                         ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
+                        ui::ButtonSize::Sm,
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
@@ -395,7 +438,7 @@ impl Launcher {
                 status.is_some_and(|s| s.state == account::session::State::SignInRequired);
             let refresh_id = uuid.clone();
             let refresh = ui::button(
-                format!("refresh-{i}"),
+                format!("refresh-{}", a.uuid),
                 None,
                 tr(if busy {
                     "Checking…"
@@ -404,8 +447,8 @@ impl Launcher {
                 } else {
                     "Refresh"
                 }),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
             );
             actions = actions.child(if busy {
                 ui::disabled(refresh)
@@ -420,11 +463,11 @@ impl Launcher {
                 }))
             });
             let sign_out = ui::button(
-                format!("sign-out-{i}"),
+                format!("sign-out-{}", a.uuid),
                 None,
                 tr("Sign out"),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
             );
             actions = actions.child(if busy {
                 ui::disabled(sign_out)

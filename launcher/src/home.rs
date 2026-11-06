@@ -5,6 +5,7 @@ use crate::ui::{self, Tone};
 use eclipse_theme::glass::{ink, space, step};
 
 const STEPS_WIDTH: f32 = 620.;
+const INSTALL_BAR_WIDTH: f32 = 320.;
 
 impl Launcher {
     /// How long the download under way has left, from its pace since it was first seen: none
@@ -152,38 +153,24 @@ impl Launcher {
             .cloned()
             .or_else(|| java.is_some().then(String::new))
         else {
-            // No hero without a version: the page starts at its title like the others.
             let memory = self.memory_row(cx);
-            // The first version, downloading since an instance was made to play it.
-            let waiting = match &self.installing {
-                Some((_, p)) => format!("{} {:.0}%", tr("Installing"), p * 100.),
-                None => tr("No version installed").to_string(),
-            };
-            let choose = ui::button(
-                "go-versions",
-                None,
-                tr("Choose a version"),
-                ButtonKind::Primary,
-                ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.go(Page::Versions);
-                cx.notify();
-            }));
+            let state = self.first_version_state(cx);
             return div()
                 .flex()
                 .flex_col()
-                .gap(px(space::XL))
-                .pt(px(space::XL))
-                .child(ui::page_head(tr("Play"), ""))
-                .child(ui::empty_card(ui::empty_state(
-                    "play-no-version",
-                    "package-01",
-                    waiting,
-                    tr("Choose a version to play."),
-                    vec![choose],
-                )))
-                .children(memory);
+                .child(
+                    self.home_title(cx)
+                        .pt(px(ui::page_top()))
+                        .mb(px(ui::page_gap())),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(layout::CARD_GAP))
+                        .child(ui::empty_card(state))
+                        .children(memory),
+                );
         };
         let prepared = backend::is_prepared(&tag);
         let version = java
@@ -212,6 +199,112 @@ impl Launcher {
             page = page.child(self.crash_notice(crash, cx));
         }
         page
+    }
+
+    fn first_version_state(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        if self.installing.is_some() {
+            return ui::loading_state("play-installing", tr("Installing Eclipse")).child(
+                div()
+                    .flex()
+                    .w_full()
+                    .max_w(px(INSTALL_BAR_WIDTH))
+                    .mt(px(space::LG))
+                    .child(ui::progress_bar(Some(self.bar))),
+            );
+        }
+        let update = self.updates.eclipse.as_ref().map(|r| r.tag.clone());
+        let install_failed = self
+            .install_error
+            .as_ref()
+            .filter(|(tag, _)| update.as_ref() == Some(tag))
+            .map(|(_, e)| e.clone());
+        if let Some(e) = install_failed {
+            return ui::error_state(
+                "play-download-failed",
+                tr("Couldn't download Eclipse"),
+                &e,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.install_update();
+                    cx.notify();
+                }),
+            );
+        }
+        if let Some(e) = self.update_error.clone() {
+            return ui::error_state_with(
+                "play-download-failed",
+                tr("Couldn't download Eclipse"),
+                &e,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.update_error = None;
+                    this.releases = Load::Loading;
+                    this.fetch_startup_releases();
+                    cx.notify();
+                }),
+                Some(Self::proxy_settings_button("play-download-failed", cx)),
+            );
+        }
+        let choose = |kind| {
+            ui::button(
+                "go-versions",
+                None,
+                tr("Choose a version"),
+                kind,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.go(Page::Versions);
+                cx.notify();
+            }))
+        };
+        if matches!(self.releases, Load::Loading) && update.is_none() {
+            return ui::loading_state("play-checking", tr("Looking for the newest Eclipse…"));
+        }
+        if let Some(own) = self.selected_instance().and_then(|i| i.version.clone()) {
+            let name = eclipse_launcher::nightly::label(&own)
+                .or_else(|| build_import::label(&own))
+                .unwrap_or(own);
+            return ui::empty_state(
+                "play-not-installed",
+                "package-01",
+                trf("{version} isn't installed", &[("version", &name)]),
+                tr("Choose a version to play."),
+                vec![choose(ButtonKind::Primary)],
+            );
+        }
+        let no_build =
+            matches!(&self.releases, Load::Ready(list) if !list.iter().any(|r| r.asset.is_some()));
+        if no_build {
+            return ui::empty_state(
+                "play-not-installed",
+                "package-01",
+                tr("Eclipse isn't installed yet"),
+                tr("There's no Eclipse build for this computer yet."),
+                vec![choose(ButtonKind::Secondary)],
+            );
+        }
+        let install = ui::button(
+            "play-install",
+            Some("download-04"),
+            tr("Install Eclipse"),
+            ButtonKind::Primary,
+            ui::ButtonSize::Md,
+        );
+        let install = match update {
+            Some(_) => install.track_focus(&self.play_focus).on_press(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
+                    this.install_update();
+                    cx.notify();
+                },
+            )),
+            None => ui::disabled(install),
+        };
+        ui::empty_state(
+            "play-not-installed",
+            "package-01",
+            tr("Eclipse isn't installed yet"),
+            tr("Install the newest version to start playing."),
+            vec![install, choose(ButtonKind::Secondary)],
+        )
     }
 
     /// "Eclipse crashed": the report and the logs, and where to report it.

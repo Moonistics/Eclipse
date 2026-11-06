@@ -384,7 +384,7 @@ impl Launcher {
         let mut play = ui::button(
             "pack-play",
             None,
-            tr(&play_label),
+            play_label,
             ButtonKind::Primary,
             ui::ButtonSize::Md,
         );
@@ -400,17 +400,23 @@ impl Launcher {
         let port_label = if p.indexed_resources == 0 {
             trf("Port {count} mods", &[("count", &p.portable.to_string())])
         } else if p.portable == 0 {
-            format!("Get {} resource packs", p.indexed_resources)
+            trf(
+                "Get {count} resource packs",
+                &[("count", &p.indexed_resources.to_string())],
+            )
         } else {
-            format!(
-                "Port {} mods + {} resource packs",
-                p.portable, p.indexed_resources
+            trf(
+                "Port {mods} mods + {packs} resource packs",
+                &[
+                    ("mods", &p.portable.to_string()),
+                    ("packs", &p.indexed_resources.to_string()),
+                ],
             )
         };
         let mut port = ui::button(
             "pack-port",
             None,
-            tr(&port_label),
+            port_label,
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
@@ -556,7 +562,7 @@ impl Launcher {
                 );
             }
             ui::list_row(
-                SharedString::from(format!("pack-row-{i}")),
+                SharedString::from(format!("pack-row-{}", r.key)),
                 false,
                 |_, _, _| {},
             )

@@ -41,7 +41,7 @@ impl Launcher {
             .child(self.play_group(tag, prepared || java.is_some(), cx))
             .children(java.is_none().then(|| self.version_picker(cx)))
             .children(self.folder_button())
-            .child(self.invite_field(tag, cx));
+            .children(java.is_none().then(|| self.invite_field(tag, cx)));
         div()
             .flex()
             .flex_col()
@@ -53,7 +53,7 @@ impl Launcher {
     }
 
     /// The instance's icon tile and its name. The icon opens the instance's Edit page.
-    fn home_title(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn home_title(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(instance) = self.selected_instance().cloned() else {
             return div();
         };
@@ -159,13 +159,9 @@ impl Launcher {
         } else {
             ButtonKind::Primary
         };
-        let name = self
-            .selected_instance()
-            .map(|i| i.name.clone())
-            .unwrap_or_default();
         let more = ui::more_button(
             "play-more",
-            trf("{name} options", &[("name", &name)]),
+            tr("Play options"),
             kind,
             ui::ButtonSize::Hero,
             open,
@@ -242,71 +238,43 @@ impl Launcher {
             .child(ui::split(main, more, kind).min_w(px(if wide { PLAY_WIDE } else { PLAY })));
         if open {
             let locked = running || busy.is_some();
-            let mut items: Vec<(&'static str, SharedString, String, bool, PlayItem)> = Vec::new();
+            let mut items: Vec<(&'static str, &'static str, &'static str, bool, PlayItem)> =
+                Vec::new();
             if update.is_some() {
                 items.push((
                     "play-skip",
-                    tr("Play without updating").into(),
-                    String::new(),
+                    "play",
+                    tr("Play without updating"),
                     locked || !ready,
                     PlayItem::Play,
                 ));
             }
             if !tag.is_empty() {
-                let version = backend::game_version(tag);
                 items.push((
                     "play-prepare",
+                    "package-01",
                     tr(if backend::is_prepared(tag) {
                         "Prepare game files again"
                     } else {
                         "Prepare game files"
-                    })
-                    .into(),
-                    trf(
-                        "Uses your copy of Minecraft {version}",
-                        &[("version", &version)],
-                    ),
+                    }),
                     locked,
                     PlayItem::Prepare,
                 ));
                 items.push((
                     "play-minecraft-folder",
-                    tr("Choose the Minecraft folder").into(),
-                    self.settings
-                        .minecraft_dir
-                        .as_deref()
-                        .map_or_else(|| tr("Not found").into(), short),
+                    "folder-01",
+                    tr("Choose the Minecraft folder"),
                     false,
                     PlayItem::MinecraftFolder,
                 ));
             }
-            let instance = self.selected_instance().cloned();
-            let id = instance.as_ref().map(|i| (i.id.clone(), i.name.clone()));
-            if let Some((id, _)) = &id {
-                items.push((
-                    "play-edit",
-                    tr("Edit instance").into(),
-                    String::new(),
-                    false,
-                    PlayItem::Edit,
-                ));
-                let has = self.has_shortcut(id);
-                items.push((
-                    "play-shortcut",
-                    tr(if has {
-                        "Remove the desktop shortcut"
-                    } else {
-                        "Create a desktop shortcut"
-                    })
-                    .into(),
-                    String::new(),
-                    false,
-                    PlayItem::Shortcut,
-                ));
+            let id = self.selected_instance().map(|i| i.id.clone());
+            if id.is_some() {
                 items.push((
                     "play-command",
-                    tr("Copy the launch command").into(),
-                    launch_command(id),
+                    "computer-terminal-01",
+                    tr("Copy the launch command"),
                     false,
                     PlayItem::Command,
                 ));
@@ -318,26 +286,20 @@ impl Launcher {
                     cx.notify();
                 },
             ));
-            for (key, label, note, locked, what) in items {
-                let (id, edit) = (id.clone(), instance.clone());
-                let item = ui::menu_item(key, label, note, locked);
+            for (key, icon, label, locked, what) in items {
+                let id = id.clone();
+                let row = ui::menu_row(key, icon, label, false);
                 menu = menu.child(if locked {
-                    item
+                    ui::disabled(row)
                 } else {
-                    item.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         match what {
                             PlayItem::Prepare => this.prepare(backend::MinecraftFrom::Install),
                             PlayItem::Play => this.play(),
                             PlayItem::MinecraftFolder => this.choose_folder(cx),
-                            PlayItem::Edit => this.open_instance_page(edit.clone()),
-                            PlayItem::Shortcut => {
-                                if let Some((id, name)) = id.clone() {
-                                    this.toggle_shortcut(id, name);
-                                }
-                            }
                             PlayItem::Command => {
-                                if let Some((id, _)) = &id {
+                                if let Some(id) = &id {
                                     clipboard::copy_to_clipboard(
                                         cx,
                                         gpui::ClipboardItem::new_string(launch_command(id)),
@@ -468,7 +430,7 @@ impl Launcher {
             ui::icon_button(
                 "home-folder",
                 "folder-01",
-                tr("Open folder"),
+                tr("Open instance folder"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Hero,
                 false,
@@ -482,9 +444,12 @@ impl Launcher {
 
     /// The invite code field: what its row leaves, up to [`INVITE_MAX`] below
     /// [`layout::HOME_HEAD_WIDE`]; the icon inside on the left, Join inside on the right.
-    fn invite_field(&mut self, tag: &str, cx: &mut Context<Self>) -> Stateful<Div> {
-        let valid = eclipse_friends::invite::parse(self.fields.value(Field::InviteCode)).is_some();
-        let can = valid && (tag.is_empty() || self.can_start(tag));
+    fn invite_field(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
+        let code = self.fields.value(Field::InviteCode);
+        let valid = eclipse_friends::invite::parse(code).is_some();
+        let wrong = !valid && !code.trim().is_empty();
+        self.fields.set_field_invalid(Field::InviteCode, wrong);
+        let can = valid && self.can_start(tag);
         let join = ui::button(
             "join-friend",
             None,
@@ -501,19 +466,31 @@ impl Launcher {
             ui::disabled(join)
         };
         let wide = self.window_width >= layout::HOME_HEAD_WIDE;
-        self.field_with(
-            Field::InviteCode,
-            Some(ui::field_icon("user-add-01")),
-            tr("Paste a friend's invite code"),
-            INVITE_MAX,
-            ui::ButtonSize::Hero,
-            Some(join.into_any_element()),
-            cx,
-        )
-        .flex_1()
-        .min_w(px(INVITE_MIN))
-        .when(!wide, |d| d.max_w(px(INVITE_MAX)))
-        .pr(px(INVITE_JOIN_INSET))
+        let field = self
+            .field_with(
+                Field::InviteCode,
+                Some(ui::field_icon("user-add-01")),
+                tr("Paste a friend's invite code"),
+                INVITE_MAX,
+                ui::ButtonSize::Hero,
+                Some(join.into_any_element()),
+                cx,
+            )
+            .w_full()
+            .pr(px(INVITE_JOIN_INSET));
+        div()
+            .relative()
+            .flex_1()
+            .min_w(px(INVITE_MIN))
+            .when(!wide, |d| d.max_w(px(INVITE_MAX)))
+            .child(field)
+            .children(wrong.then(|| {
+                ui::error_note(tr("That isn't an invite code."))
+                    .absolute()
+                    .top(px(tall() + space::XS))
+                    .left_0()
+                    .right_0()
+            }))
     }
 }
 
@@ -568,8 +545,6 @@ enum PlayItem {
     Prepare,
     Play,
     MinecraftFolder,
-    Edit,
-    Shortcut,
     Command,
 }
 

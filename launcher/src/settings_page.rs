@@ -87,6 +87,14 @@ const SECTION_ROW_SHORT: f32 = 28.;
 
 const WIDE_CONTROL_BESIDE: f32 = 840.;
 
+const LANDING_SLACK: f32 = 1.;
+
+#[derive(Clone, Copy)]
+pub(super) struct Jump {
+    to: SettingsSection,
+    landed: bool,
+}
+
 fn card() -> Div {
     ui::card(radius::PANEL)
         .flex()
@@ -94,8 +102,13 @@ fn card() -> Div {
         .p(px(ui::LIST_INSET))
 }
 
-/// An About tile: its lead, name, a line under it and what it does.
-fn about_tile(lead: AnyElement, title: String, note: String, action: AnyElement) -> Div {
+fn update_tile(
+    lead: AnyElement,
+    name: SharedString,
+    version: String,
+    state: Option<AnyElement>,
+    action: Option<AnyElement>,
+) -> Div {
     div()
         .flex()
         .flex_col()
@@ -105,25 +118,47 @@ fn about_tile(lead: AnyElement, title: String, note: String, action: AnyElement)
         .bg(ui::inset())
         .p(px(space::XL))
         .child(div().child(lead))
-        .child(
-            ui::text(step::LEAD, FontWeight::SEMIBOLD, ink::FULL)
-                .mt(px(space::LG))
-                .child(title),
-        )
-        .child(
-            ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                .mt(px(space::XXS))
-                .truncate()
-                .child(note),
-        )
+        .child(ui::card_title(name).mt(px(space::LG)))
+        .child(ui::card_note(version).mt(px(space::XXS)).truncate())
+        .children(state.map(|s| div().mt(px(space::MD)).child(s)))
+        .children(action.map(|a| div().mt(px(space::LG)).flex().child(a)))
+}
+
+fn folder_row(id: &'static str, name: &'static str, dir: std::path::PathBuf) -> Div {
+    let path = div()
+        .font_family(theme::MONO)
+        .text_size(px(step::CAPTION.size))
+        .child(short(&dir))
+        .into_any_element();
+    let open = ui::button(
+        id,
+        None,
+        tr("Open"),
+        ButtonKind::Secondary,
+        ui::ButtonSize::Md,
+    )
+    .on_press(move |_, _, cx| {
+        let _ = std::fs::create_dir_all(&dir);
+        crate::toast::open(cx, &dir);
+    })
+    .into_any_element();
+    ui::setting_row(tr(name), Some(path), Some(open))
+}
+
+fn update_state(tone: ui::Tone, said: impl Into<SharedString>) -> AnyElement {
+    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+        .flex()
+        .gap(px(space::SM))
         .child(
             div()
-                .mt(px(space::LG))
                 .flex()
-                .flex_col()
-                .items_start()
-                .child(action),
+                .flex_none()
+                .items_center()
+                .h(px(step::NOTE.line))
+                .child(ui::dot(tone)),
         )
+        .child(div().min_w_0().child(said.into()))
+        .into_any_element()
 }
 
 /// The scroll spy: which section is being read, given each section's top from the pane's top
@@ -154,7 +189,27 @@ impl Launcher {
             .map(|&section| self.settings_card(section, cx))
             .collect();
         let count = shown.len();
-        let active = self.settings_section(count);
+        let jump = self
+            .settings_jump
+            .and_then(|j| Some((j, shown.iter().position(|&s| s == j.to)?)));
+        let active = match jump {
+            Some((jump, i)) if self.settings_resting_at(i) => {
+                self.settings_jump = Some(Jump {
+                    landed: true,
+                    ..jump
+                });
+                i
+            }
+            Some((jump, i)) if !jump.landed => {
+                self.settings_pane.scroll_to_top_of_item(i);
+                cx.notify();
+                i
+            }
+            _ => {
+                self.settings_jump = None;
+                self.settings_section(count)
+            }
+        };
         self.settings_marked = active;
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
         let row_height = if ui::short_window() {
@@ -162,7 +217,7 @@ impl Launcher {
         } else {
             SECTION_ROW
         };
-        let entries = shown.iter().enumerate().map(|(i, section)| {
+        let entries = shown.iter().enumerate().map(|(i, &section)| {
             let id = format!("settings-section-{}", section.id());
             let entry = if tabs {
                 ui::tab(id, tr(section.name()), i == active)
@@ -173,7 +228,10 @@ impl Launcher {
                     .px(px(space::SM))
             };
             entry.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.settings_pane.scroll_to_top_of_item(i);
+                this.settings_jump = Some(Jump {
+                    to: section,
+                    landed: false,
+                });
                 cx.notify();
             }))
         });
@@ -182,7 +240,8 @@ impl Launcher {
             // A scroll redraws the pane from its layer without rendering the page again, so the
             // list follows it here: on the next frame, once the offset has moved, and only when
             // the section changed.
-            .on_scroll(cx.listener(move |_, _: &gpui::ScrollEvent, window, cx| {
+            .on_scroll(cx.listener(move |this, _: &gpui::ScrollEvent, window, cx| {
+                this.settings_jump = None;
                 cx.on_next_frame(window, move |this, _, cx| {
                     if this.settings_section(count) != this.settings_marked {
                         cx.notify();
@@ -236,6 +295,27 @@ impl Launcher {
             .child(body)
     }
 
+    pub(super) fn show_settings(&mut self, section: SettingsSection) {
+        self.go(Page::Settings);
+        self.settings_jump = Some(Jump {
+            to: section,
+            landed: false,
+        });
+    }
+
+    fn settings_resting_at(&self, i: usize) -> bool {
+        let pane = self.settings_pane.bounds();
+        let Some(card) = self.settings_pane.bounds_for_item(i) else {
+            return false;
+        };
+        if pane.size.height <= px(0.) {
+            return false;
+        }
+        let max = f32::from(self.settings_pane.max_offset().y);
+        let resting = f32::from(card.top() - pane.top()).clamp(0., max);
+        (resting + f32::from(self.settings_pane.offset().y)).abs() < LANDING_SLACK
+    }
+
     pub(super) fn wide_controls_beside(&self) -> bool {
         let content = layout::content_width(self.window_width);
         let list = if self.window_width < layout::SETTINGS_LIST_BESIDE {
@@ -284,9 +364,27 @@ impl Launcher {
     /// The Game card's Native mods row: native mods are always on, so the row picks the profile
     /// they build with, as the Mods page does.
     fn native_mods_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let (picker, said) = self.native_profile_picker("settings-native-profile", cx);
+        ui::setting_row_fit(
+            self.wide_controls_beside(),
+            tr("Native mod build"),
+            Some(
+                div()
+                    .child(format!("{} {said}.", tr("Experimental.")))
+                    .into_any_element(),
+            ),
+            picker.into_any_element(),
+        )
+    }
+
+    pub(super) fn native_profile_picker(
+        &self,
+        id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> (Stateful<Div>, &'static str) {
         let profile = native_mods::Profile::chosen(&self.settings);
         let picker = ui::segments(
-            "settings-native-profile",
+            id,
             &ui::translated(&[
                 (native_mods::Profile::Performance, "Performance"),
                 (native_mods::Profile::Dev, "Dev"),
@@ -311,16 +409,7 @@ impl Launcher {
             native_mods::Profile::Dev => tr("For mod authors: faster rebuilds, slower game"),
             native_mods::Profile::Release => tr("Slower to build, slightly faster game"),
         };
-        ui::setting_row_fit(
-            self.wide_controls_beside(),
-            tr("Native mod build"),
-            Some(
-                div()
-                    .child(format!("{} {said}.", tr("Experimental.")))
-                    .into_any_element(),
-            ),
-            picker.into_any_element(),
-        )
+        (picker, said)
     }
 
     fn reduce_motion_row(&mut self, cx: &mut Context<Self>) -> Div {
@@ -348,18 +437,10 @@ impl Launcher {
         ui::setting_row(tr("Reduce motion"), None, Some(picker.into_any_element()))
     }
 
-    /// About's three tiles: Eclipse and its update, the launcher and its own, and the data folder.
-    fn about_tiles(
-        &mut self,
-        eclipse: String,
-        eclipse_action: Option<AnyElement>,
-        launcher: String,
-        launcher_action: Option<AnyElement>,
-    ) -> Div {
+    fn eclipse_update_tile(&mut self, cx: &mut Context<Self>) -> Div {
         let installed = self
-            .settings
-            .selected
-            .clone()
+            .launcher_version()
+            .cloned()
             .map(|tag| match &self.releases {
                 Load::Ready(list) => list
                     .iter()
@@ -367,85 +448,192 @@ impl Launcher {
                     .map_or(tag.clone(), |r| update_name(r).to_owned()),
                 _ => tag,
             });
-        let tone = if self.updates.eclipse.is_some() {
-            ui::Tone::Accent(ui::look().accent_soft)
-        } else if self.update_error.is_some() {
-            ui::Tone::Warn
-        } else if self.checked.is_some() {
-            ui::Tone::Live
-        } else {
-            ui::Tone::Busy
+        let state = match (&self.installing, &self.updates.eclipse) {
+            (Some((_, done)), _) => Some(update_state(
+                ui::Tone::Busy,
+                format!("{} {:.0}%", tr("Installing"), done * 100.),
+            )),
+            (None, Some(r)) => Some(update_state(
+                ui::Tone::Accent(ui::look().accent_soft),
+                trf("{version} available", &[("version", update_name(r))]),
+            )),
+            (None, None)
+                if installed.is_some() && self.checked.is_some() && self.update_error.is_none() =>
+            {
+                Some(update_state(ui::Tone::Live, tr("Up to date")))
+            }
+            _ => None,
         };
-        let colour = match tone {
-            ui::Tone::Live => ui::live(),
-            ui::Tone::Warn => ui::warn(),
-            _ => white(ink::BODY),
-        };
-        let status = ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-            .flex()
-            .w_full()
-            .gap(px(space::SM))
-            .text_color(colour)
-            .child(
-                div()
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .h(px(step::NOTE.line))
-                    .child(ui::dot(tone)),
-            )
-            .child(div().min_w_0().child(eclipse));
-        let square = |icon: &'static str| {
-            ui::tile(ui::TILE_LG)
-                .child(ui::icon(icon, ui::IconSize::Px16, white(ink::STRONG)))
+        let install = self
+            .updates
+            .eclipse
+            .as_ref()
+            .filter(|_| self.installing.is_none())
+            .map(|_| {
+                ui::button(
+                    "settings-install",
+                    None,
+                    tr("Install"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.install_update();
+                    cx.notify();
+                }))
                 .into_any_element()
+            });
+        update_tile(
+            instance_page::mark_tile(self.eclipse_mark(instance_page::MARK)).into_any_element(),
+            "Eclipse".into(),
+            installed.unwrap_or_else(|| tr("Not installed").to_string()),
+            state,
+            install,
+        )
+    }
+
+    fn launcher_update_tile(&mut self, cx: &mut Context<Self>) -> Div {
+        let available = |version: &str| {
+            update_state(
+                ui::Tone::Accent(ui::look().accent_soft),
+                trf("{version} available", &[("version", version)]),
+            )
         };
-        let open = ui::button(
-            "about-open-data",
+        let state = match &self.self_update {
+            SelfUpdate::Downloading(version, done) => Some(update_state(
+                ui::Tone::Busy,
+                trf(
+                    "Downloading {version}, {percent}%",
+                    &[
+                        ("version", version),
+                        ("percent", &format!("{:.0}", done * 100.)),
+                    ],
+                ),
+            )),
+            SelfUpdate::Ready(version) => Some(available(version)),
+            SelfUpdate::Stuck(None) => Some(update_state(
+                ui::Tone::Warn,
+                self.launcher_update_help(None),
+            )),
+            SelfUpdate::Stuck(Some(e)) | SelfUpdate::Failed(e) => Some(
+                ui::error_note(trf(
+                    "The update failed: {error}",
+                    &[("error", ui::plain_error(e))],
+                ))
+                .into_any_element(),
+            ),
+            SelfUpdate::Idle => match &self.updates.launcher {
+                Some(r) => Some(available(
+                    backend::launcher_version(&r.tag).unwrap_or_default(),
+                )),
+                None if self.checked.is_some() && self.update_error.is_none() => {
+                    Some(update_state(ui::Tone::Live, tr("Up to date")))
+                }
+                None => None,
+            },
+        };
+        let action = match &self.self_update {
+            SelfUpdate::Ready(_) => Some(
+                ui::button(
+                    "update-settings",
+                    None,
+                    tr("Update"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.apply_launcher_update(cx);
+                    cx.notify();
+                }))
+                .into_any_element(),
+            ),
+            SelfUpdate::Stuck(_) if self.launcher_download_available() => {
+                let url = backend::download_page(&self.links.website);
+                Some(
+                    ui::button(
+                        "download-settings",
+                        None,
+                        tr("Download again"),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| cx.open_url(&url))
+                    .into_any_element(),
+                )
+            }
+            _ => None,
+        };
+        update_tile(
+            ui::tile(ui::TILE_LG)
+                .child(ui::icon("computer", ui::IconSize::Px32, white(ink::STRONG)))
+                .into_any_element(),
+            tr("Launcher").into(),
+            backend::VERSION.to_string(),
+            state,
+            action,
+        )
+    }
+
+    fn check_updates_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let check = ui::button(
+            "check-updates",
             None,
-            tr("Open"),
+            tr("Check for updates"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         )
-        .on_press(|_, _, cx| crate::toast::open(cx, &backend::data_dir()))
-        .into_any_element();
-        div()
-            .flex()
-            .gap(px(space::SM))
-            .child(about_tile(
-                self.eclipse_mark(42.),
-                "Eclipse".into(),
-                installed.unwrap_or_else(|| tr("Nightly").to_string()),
-                div()
-                    .flex()
-                    .flex_col()
-                    .items_start()
-                    .w_full()
-                    .gap(px(space::MD))
-                    .child(status)
-                    .children(eclipse_action)
-                    .into_any_element(),
-            ))
-            .child(about_tile(
-                square("computer"),
-                tr("Launcher").to_string(),
-                launcher,
-                div().children(launcher_action).into_any_element(),
-            ))
-            .child(about_tile(
-                square("folder-01"),
-                tr("Data folder").to_string(),
-                short(&backend::data_dir()),
-                open,
-            ))
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.check_updates();
+            cx.notify();
+        }));
+        let failed = self.update_error.as_ref().map(|e| {
+            ui::error_line(
+                tr("Couldn't check for updates"),
+                vec![
+                    ui::copy_details("check-updates-copy", e.clone(), ui::ButtonSize::Md)
+                        .into_any_element(),
+                ],
+            )
+            .mt(px(space::SM))
+        });
+        let beside = match (&failed, self.checked) {
+            (Some(_), _) => {
+                Some(Self::proxy_settings_button("check-updates", cx).into_any_element())
+            }
+            (None, Some(at)) => {
+                let when = home_head::last_played(std::time::SystemTime::now() - at.elapsed());
+                Some(
+                    ui::card_note(trf("Last checked {when}", &[("when", &when)]))
+                        .into_any_element(),
+                )
+            }
+            (None, None) => None,
+        };
+        div().flex().flex_col().children(failed).child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(space::MD))
+                .p(px(ui::SETTING_ROW_PADDING))
+                .child(check)
+                .children(beside),
+        )
     }
 
-    /// The cards, one per entry of [`SECTIONS`], in its order.
     fn settings_card(&mut self, section: SettingsSection, cx: &mut Context<Self>) -> Stateful<Div> {
         let card = card().id(format!("settings-{}", section.id()));
         match section {
             SettingsSection::Account => card.child(self.account_card(cx)),
             SettingsSection::Updates => card
+                .child(
+                    div()
+                        .flex()
+                        .gap(px(space::SM))
+                        .child(self.eclipse_update_tile(cx))
+                        .child(self.launcher_update_tile(cx)),
+                )
+                .child(self.check_updates_row(cx))
                 .child(self.auto_install_row(cx))
                 .child(self.auto_prune_row(cx))
                 .child(self.mods_auto_update_row(cx)),
@@ -466,41 +654,17 @@ impl Launcher {
             SettingsSection::Ai => card
                 .child(self.ai_features_row(cx))
                 .children(self.agents_section(cx)),
-            SettingsSection::About => {
-                let mono = |s: String| {
-                    div()
-                        .font_family(theme::MONO)
-                        .text_size(px(step::CAPTION.size))
-                        .child(s)
-                        .into_any_element()
-                };
-                let (eclipse, eclipse_action) = self.eclipse_status(cx);
-                let (launcher, launcher_action) = self.launcher_status(cx);
-                card.child(self.about_tiles(eclipse, eclipse_action, launcher, launcher_action))
-                    .child(ui::setting_row(
-                        tr("Logs"),
-                        Some(mono(short(&backend::logs_dir()))),
-                        Some(
-                            ui::button(
-                                "open-logs",
-                                None,
-                                tr("Open"),
-                                ButtonKind::Secondary,
-                                ui::ButtonSize::Md,
-                            )
-                            .on_press(|_, _, cx| {
-                                let dir = backend::logs_dir();
-                                let _ = std::fs::create_dir_all(&dir);
-                                crate::toast::open(cx, &dir);
-                            })
-                            .into_any_element(),
-                        ),
-                    ))
-                    .when(cfg!(target_os = "linux"), |d| {
-                        d.child(self.menu_entry_row(cx))
-                    })
-                    .children(self.dev_options_section(cx))
-            }
+            SettingsSection::About => card
+                .child(folder_row(
+                    "about-open-data",
+                    "Data folder",
+                    backend::data_dir(),
+                ))
+                .child(folder_row("open-logs", "Logs", backend::logs_dir()))
+                .when(cfg!(target_os = "linux"), |d| {
+                    d.child(self.menu_entry_row(cx))
+                })
+                .children(self.dev_options_section(cx)),
             SettingsSection::DataCollection => card.child(self.collection_section(cx)),
         }
     }
@@ -561,131 +725,6 @@ impl Launcher {
             };
             cx.notify();
         }))
-    }
-
-    fn eclipse_status(&mut self, cx: &mut Context<Self>) -> (String, Option<AnyElement>) {
-        let eclipse = match (&self.updates.eclipse, &self.update_error) {
-            (Some(r), _) => trf("{version} available", &[("version", update_name(r))]),
-            (None, Some(e)) => ui::plain_error(e).to_string(),
-            (None, None) if self.checked.is_some() => tr("Up to date").to_string(),
-            _ => tr("Checking…").to_string(),
-        };
-        let eclipse_action = self
-            .updates
-            .eclipse
-            .as_ref()
-            .filter(|_| self.installing.is_none())
-            .map(|_| {
-                ui::button(
-                    "settings-install",
-                    None,
-                    tr("Install"),
-                    ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.install_update();
-                    cx.notify();
-                }))
-                .into_any_element()
-            });
-        (eclipse, eclipse_action)
-    }
-
-    fn launcher_status(&mut self, cx: &mut Context<Self>) -> (String, Option<AnyElement>) {
-        let launcher = match &self.self_update {
-            SelfUpdate::Downloading(v, p) => {
-                let done = format!("{:.0}", p * 100.);
-                let said = trf(
-                    "downloading {version}, {percent}%",
-                    &[("version", v), ("percent", &done)],
-                );
-                format!("{}  ·  {said}", backend::VERSION)
-            }
-            SelfUpdate::Ready(v) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                trf("{version} available", &[("version", v)])
-            ),
-            SelfUpdate::Stuck(Some(e)) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                trf("the update failed: {error}", &[("error", e)])
-            ),
-            SelfUpdate::Stuck(None) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                self.launcher_update_help(None)
-            ),
-            SelfUpdate::Failed(e) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                trf("the update failed: {error}", &[("error", e)])
-            ),
-            SelfUpdate::Idle => match &self.updates.launcher {
-                Some(r) => format!(
-                    "{}  ·  {}",
-                    backend::VERSION,
-                    trf(
-                        "{version} available",
-                        &[(
-                            "version",
-                            backend::launcher_version(&r.tag).unwrap_or_default()
-                        )]
-                    )
-                ),
-                None if self.checked.is_some() && self.update_error.is_none() => {
-                    format!("{}  ·  {}", backend::VERSION, tr("up to date"))
-                }
-                None => backend::VERSION.to_string(),
-            },
-        };
-        let launcher_action = match &self.self_update {
-            SelfUpdate::Ready(_) => Some(
-                ui::button(
-                    "update-settings",
-                    None,
-                    tr("Update"),
-                    ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.apply_launcher_update(cx);
-                    cx.notify();
-                }))
-                .into_any_element(),
-            ),
-            SelfUpdate::Stuck(_) if self.launcher_download_available() => {
-                let url = backend::download_page(&self.links.website);
-                Some(
-                    ui::button(
-                        "download-settings",
-                        None,
-                        tr("Download again"),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
-                    )
-                    .on_press(move |_, _, cx| cx.open_url(&url))
-                    .into_any_element(),
-                )
-            }
-            SelfUpdate::Downloading(..) | SelfUpdate::Stuck(_) => None,
-            _ => Some(
-                ui::button(
-                    "check",
-                    None,
-                    tr("Check now"),
-                    ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.check_updates();
-                    cx.notify();
-                }))
-                .into_any_element(),
-            ),
-        };
-        (launcher, launcher_action)
     }
 
     fn colour_mode_row(&mut self, cx: &mut Context<Self>) -> Div {

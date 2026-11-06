@@ -284,7 +284,7 @@ impl Launcher {
             "ts-check",
             None,
             tr("Check again"),
-            ButtonKind::Ghost,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -545,7 +545,7 @@ impl Launcher {
         match self.internet.invites.clone() {
             Some(Ok(list)) if !list.is_empty() => {
                 let mut rows = div().flex().flex_col();
-                for (n, inv) in list.into_iter().enumerate() {
+                for inv in list {
                     let who = match (&inv.accepted_by, &inv.email) {
                         (Some(by), _) => format!("Shared with {by}"),
                         (None, Some(email)) => format!("Sent to {email}, not accepted yet"),
@@ -553,7 +553,7 @@ impl Launcher {
                     };
                     let id = inv.id.clone();
                     let withdraw = ui::button(
-                        SharedString::from(format!("ts-revoke-{n}")),
+                        SharedString::from(format!("ts-revoke-{}", inv.id)),
                         None,
                         tr(if inv.accepted {
                             "Stop sharing"
@@ -580,7 +580,7 @@ impl Launcher {
                     let date = inv.created.get(..10).unwrap_or_default();
                     rows = rows.child(
                         ui::list_row(
-                            SharedString::from(format!("ts-invite-{n}")),
+                            SharedString::from(format!("ts-invite-{}", inv.id)),
                             false,
                             |_, _, _| {},
                         )

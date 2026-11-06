@@ -16,7 +16,7 @@ impl Launcher {
                 )))
             }
             Load::Failed(e) => {
-                return page.child(ui::empty_card(ui::error_state(
+                return page.child(ui::empty_card(ui::error_state_with(
                     "notes-failed",
                     tr("Couldn't load patch notes"),
                     e,
@@ -24,6 +24,7 @@ impl Launcher {
                         this.fetch_releases();
                         cx.notify();
                     }),
+                    Some(Self::proxy_settings_button("notes-failed", cx)),
                 )));
             }
             Load::Ready(r) if r.is_empty() => {

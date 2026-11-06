@@ -1,7 +1,7 @@
-//! The selected instance's tabs under Home's head: the changelog of the Eclipse version it
+//! The selected instance's tabs under Home's head: the patch notes of the Eclipse version it
 //! plays, then its mods, worlds, servers, packs, screenshots and, once the game has said something, its
 //! console. One at a time, instead of one long page. The strip, and under it one card with the
-//! open tab. Changelog shows the changes in the Eclipse version the instance plays.
+//! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
 use super::*;
 use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, space, step};
@@ -9,7 +9,7 @@ use eclipse_theme::glass::{ink, radius, space, step};
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum HomeTab {
     #[default]
-    Changelog,
+    PatchNotes,
     Mods,
     Worlds,
     Multiplayer,
@@ -29,25 +29,25 @@ impl HomeTab {
             Ok("packs") => HomeTab::Packs,
             Ok("screenshots") => HomeTab::Screenshots,
             Ok("console") => HomeTab::Console,
-            _ => HomeTab::Changelog,
+            _ => HomeTab::PatchNotes,
         }
     }
 }
 
 impl Launcher {
     /// The tabs the selected instance has now, with how many things each holds (None: not known
-    /// yet, or nothing to count). The changelog only for Eclipse, Console only once there
+    /// yet, or nothing to count). Patch notes only for Eclipse, Console only once there
     /// is something to show.
     pub(super) fn home_tab_list(
         &mut self,
         cx: &mut Context<Self>,
     ) -> Vec<(HomeTab, Option<usize>)> {
         let Some(eclipse) = self.selected_instance().map(|i| i.java.is_none()) else {
-            return vec![(HomeTab::Changelog, None)];
+            return vec![(HomeTab::PatchNotes, None)];
         };
         let mut tabs = Vec::new();
         if eclipse {
-            tabs.push((HomeTab::Changelog, None));
+            tabs.push((HomeTab::PatchNotes, None));
         }
         if self.has_mods_tab() {
             tabs.push((HomeTab::Mods, self.instance_mods_count(cx)));
@@ -88,7 +88,7 @@ impl Launcher {
             .into_iter()
             .map(|(tab, count)| {
                 let name = match tab {
-                    HomeTab::Changelog => tr("Changelog"),
+                    HomeTab::PatchNotes => tr("Patch notes"),
                     HomeTab::Mods => tr("Mods"),
                     HomeTab::Worlds => tr("Worlds"),
                     HomeTab::Multiplayer => tr("Multiplayer"),
@@ -118,7 +118,7 @@ impl Launcher {
             }),
         );
         let body: Option<AnyElement> = match open {
-            HomeTab::Changelog => Some(self.changelog(cx).into_any_element()),
+            HomeTab::PatchNotes => Some(self.patch_notes(cx).into_any_element()),
             HomeTab::Mods => Some(self.mods_tab(cx).into_any_element()),
             HomeTab::Worlds => self.worlds_tab(cx).map(IntoElement::into_any_element),
             HomeTab::Multiplayer => self.multiplayer_tab(cx).map(IntoElement::into_any_element),
@@ -135,33 +135,34 @@ impl Launcher {
         )
     }
 
-    /// Changelog: the changes in the Eclipse version played, by section (the newest Nightly's
+    /// Patch notes: the changes in the Eclipse version played, by section (the newest Nightly's
     /// when that version lists none), else the newest launcher release's; All patch notes opens
     /// Patch notes.
-    fn changelog(&self, cx: &mut Context<Self>) -> Div {
+    fn patch_notes(&self, cx: &mut Context<Self>) -> Div {
         let source = match &self.releases {
             Load::Loading => {
                 return div().child(ui::loading_state(
-                    "changelog-loading",
+                    "patch-notes-loading",
                     tr("Loading patch notes…"),
                 ))
             }
             Load::Failed(e) => {
-                return div().child(ui::error_state(
-                    "changelog-failed",
+                return div().child(ui::error_state_with(
+                    "patch-notes-failed",
                     tr("Couldn't load patch notes"),
                     e,
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.fetch_releases();
                         cx.notify();
                     }),
+                    Some(Self::proxy_settings_button("patch-notes-failed", cx)),
                 ));
             }
             Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),
         };
         let Some((note, sections)) = source.filter(|(_, sections)| !sections.is_empty()) else {
             return div().child(ui::empty_state(
-                "changelog-empty",
+                "patch-notes-empty",
                 "information-circle",
                 tr("No patch notes yet"),
                 tr("Patch notes come with each Eclipse release."),
@@ -205,7 +206,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .child(ui::list_head(note).child(
-                ui::link("changelog-all", tr("All patch notes")).on_press(cx.listener(
+                ui::link("patch-notes-all", tr("All patch notes")).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.go(Page::Notes);
                         cx.notify();
@@ -219,7 +220,7 @@ impl Launcher {
 /// A release's changes: each section's name and its lines.
 type Sections = Vec<(String, Vec<String>)>;
 
-/// The changelog from `releases` and the line over it: the release `played` installs as when it
+/// The patch notes from `releases` and the line over it: the release `played` installs as when it
 /// lists changes, else the newest Nightly that does ("Nightly 2026-11-01 · 4aa6854");
 /// without a version played, the newest launcher release ("Launcher 0.2.37 · Nov 2").
 fn patch_source(releases: &[Release], played: Option<&str>) -> Option<(String, Sections)> {

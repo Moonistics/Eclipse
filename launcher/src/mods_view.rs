@@ -17,6 +17,8 @@ use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, radius, space};
 
 const DETAIL: f32 = 360.;
+const VANILLA_ACTION: ui::ButtonSize = ui::ButtonSize::Md;
+const FLOAT_MIN_HEIGHT: f32 = 240.;
 
 impl Launcher {
     /// The search's placeholder: the registry's count when it is listed whole.
@@ -98,20 +100,25 @@ impl Launcher {
         let java = self.mods.java_for(self.mods.kind).is_some();
         let registry = self.mods.source == SourceId::Eclipse && !java;
         let everything = self.mods.everything;
+        let other_versions = !registry && !java && self.mods.kind != PackKind::Modpack;
         let extras = div()
             .flex()
             .flex_col()
             .gap(px(space::MD))
             .px(px(space::XS))
             .pb(px(space::SM))
-            .when(!registry && !java, |d| {
+            .when(other_versions, |d| {
                 d.child(
-                    ui::toggle_label("mods-everything", tr("Show all results"), everything)
-                        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.mods.everything = !this.mods.everything;
-                            this.mods_search(0);
-                            cx.notify();
-                        })),
+                    ui::toggle_label(
+                        "mods-everything",
+                        tr("Include other Minecraft versions"),
+                        everything,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.mods.everything = !this.mods.everything;
+                        this.mods_search(0);
+                        cx.notify();
+                    })),
                 )
             })
             .when(switches(self.mods.kind) && !java, |d| {
@@ -154,6 +161,7 @@ impl Launcher {
                     .top(px(down))
                     .child(self.mods_sticky.panel());
             }
+            let scroll = &self.mods.float_scroll;
             let close = ui::icon_button(
                 "mods-detail-close",
                 "cancel-01",
@@ -163,8 +171,8 @@ impl Launcher {
                 false,
             )
             .absolute()
-            .top(px(16.))
-            .right(px(16.))
+            .top(px(space::LG))
+            .right(px(space::LG))
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.mods.picked = None;
                 this.asking = None;
@@ -177,8 +185,17 @@ impl Launcher {
                 .top(px(down))
                 .shadow_lg()
                 .occlude()
-                .child(d)
+                .child(
+                    ui::hand_back_at_ends(ui::scroll_pane("mods-detail-scroll", scroll), scroll)
+                        .max_h(px(self.mods_float_room()))
+                        .child(d),
+                )
+                .children(
+                    ui::more_below_fade(scroll, ui::surface_colour(ui::Surface::Card))
+                        .map(|fade| fade.rounded_b(px(radius::PANEL))),
+                )
                 .child(self.mods_sticky.panel())
+                .child(self.mods_float_top(cx))
                 .child(close)
         });
         let cards = div()
@@ -214,6 +231,34 @@ impl Launcher {
                     .mt(px(layout::CARD_GAP))
                     .children(more),
             )
+    }
+
+    fn mods_float_room(&self) -> f32 {
+        let view = f32::from(self.content_scroll.handle.bounds().size.height);
+        (view - self.mods.float_top.get() - layout::CARD_GAP).max(FLOAT_MIN_HEIGHT)
+    }
+
+    fn mods_float_top(&self, cx: &mut Context<Self>) -> impl IntoElement {
+        let (top, pane, this) = (
+            self.mods.float_top.clone(),
+            self.content_scroll.handle.clone(),
+            cx.entity().downgrade(),
+        );
+        gpui::canvas(
+            move |bounds, window, _| {
+                let now = f32::from(bounds.top() - pane.bounds().top()).max(0.);
+                if (top.replace(now) - now).abs() >= 1. {
+                    window.on_next_frame(move |_, cx| {
+                        let _ = this.update(cx, |_, cx| cx.notify());
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
     }
 
     fn mods_target(&mut self, cx: &mut Context<Self>) -> Option<Div> {
@@ -316,7 +361,7 @@ impl Launcher {
         let create = ui::primary(
             "mods-new-fabric",
             tr("Create a Fabric instance"),
-            ui::ButtonSize::Sm,
+            VANILLA_ACTION,
         )
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.mods_new_fabric(minecraft.clone(), cx);
@@ -328,7 +373,7 @@ impl Launcher {
                 None,
                 tr("Choose another instance"),
                 ButtonKind::Secondary,
-                ui::ButtonSize::Sm,
+                VANILLA_ACTION,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.open_menu = Some(Menu::ModsTarget);
@@ -362,13 +407,7 @@ impl Launcher {
             self.mods.source,
             move |source, _, cx| {
                 let _ = this.update(cx, |this, cx| {
-                    if this.mods.source != source {
-                        this.mods.source = source;
-                        this.mods.browse.filters = Default::default();
-                        this.mods.browse.open = None;
-                        this.mods.picked = None;
-                        this.mods_search(0);
-                    }
+                    this.mods_set_source(source);
                     cx.notify();
                 });
             },
@@ -464,6 +503,7 @@ impl Launcher {
                 return div().child(ui::loading_state("mods-searching", tr("Searching…")));
             }
             let mut actions = Vec::new();
+            let filtered = mods_project::active_filters(&m.browse.filters) > 0;
             let (title, note) = if let Some(target) = m.java_for(m.kind) {
                 (
                     trf(
@@ -480,9 +520,38 @@ impl Launcher {
                     ),
                     tr("Try other words."),
                 )
-            } else if m.source == SourceId::Eclipse {
-                (tr("No Eclipse mods match yet").to_string(), "")
-            } else if m.everything {
+            } else if m.source == SourceId::Eclipse && !filtered {
+                let title = tr(match m.kind {
+                    PackKind::Mod => "No Eclipse mods yet",
+                    PackKind::Modpack => "No Eclipse modpacks yet",
+                    PackKind::ResourcePack => "No Eclipse resource packs yet",
+                    PackKind::Shader => "No Eclipse shader packs yet",
+                    PackKind::DataPack => "No Eclipse data packs yet",
+                });
+                if !switches(m.kind) {
+                    (
+                        title.to_string(),
+                        tr("They show here once their authors publish them."),
+                    )
+                } else {
+                    actions.push(
+                        ui::button(
+                            "mods-search-modrinth",
+                            None,
+                            tr("Search Modrinth"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.mods_set_source(SourceId::Modrinth);
+                                cx.notify();
+                            },
+                        )),
+                    );
+                    (title.to_string(), tr("Search Modrinth instead."))
+                }
+            } else if filtered || m.everything || m.kind == PackKind::Modpack {
                 (
                     tr("Nothing found").to_string(),
                     tr("Try other words or clear the filters."),
@@ -492,7 +561,7 @@ impl Launcher {
                     ui::button(
                         "mods-show-all",
                         None,
-                        tr("Show all results"),
+                        tr("Include other Minecraft versions"),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
@@ -502,7 +571,10 @@ impl Launcher {
                         cx.notify();
                     })),
                 );
-                (tr("Nothing found that runs in Eclipse").to_string(), "")
+                (
+                    tr("Nothing found that runs in Eclipse").to_string(),
+                    tr("Some made for other Minecraft versions still run."),
+                )
             };
             return div().child(ui::empty_state(
                 "mods-no-results",
@@ -584,12 +656,13 @@ impl Launcher {
                 let support = m.support(&p);
                 let said = match (m.java_for(p.kind), support.reason()) {
                     (Some(_), Some(reason)) => Some(reason.to_string()),
-                    (None, _) if m.java.is_none() && p.kind != PackKind::Modpack => {
-                        Some(tr(support.label()).to_string())
-                    }
+                    (None, _) if m.java.is_none() && p.kind != PackKind::Modpack => Some(trf(
+                        "{support} in Eclipse",
+                        &[("support", tr(support.label()))],
+                    )),
                     _ => None,
                 };
-                let said = said.filter(|_| support != Support::Works && !checking);
+                let said = said.filter(|_| !vanilla && support != Support::Works && !checking);
                 let quiet = vanilla || !support.installable();
                 said.map(|said| {
                     let line = ui::text(
@@ -607,10 +680,7 @@ impl Launcher {
                 })
             };
             let id = p.id.clone();
-            let by = match p.kind {
-                PackKind::Mod | PackKind::Shader => p.author.clone(),
-                _ => tr(kind_name(p.kind)).to_string(),
-            };
+            let by = p.author.clone();
             let summary = p.summary.split_whitespace().collect::<Vec<_>>().join(" ");
             list = list.child(
                 ui::row(row_id, current)
@@ -620,6 +690,9 @@ impl Launcher {
                     .child(action)
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.mods.picked = Some(id.clone());
+                        this.mods
+                            .float_scroll
+                            .set_offset(gpui::point(px(0.), px(0.)));
                         this.asking = None;
                         cx.notify();
                     })),
@@ -822,7 +895,7 @@ impl Launcher {
                     None,
                     tr("Create a Fabric instance"),
                     ButtonKind::Secondary,
-                    ui::ButtonSize::Lg,
+                    VANILLA_ACTION,
                 )
                 .w_full()
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -932,16 +1005,5 @@ fn page_label(kind: PackKind) -> &'static str {
         PackKind::ResourcePack => "Open resource pack page",
         PackKind::Shader => "Open shader pack page",
         PackKind::DataPack => "Open data pack page",
-    }
-}
-
-/// One project's kind, for a Modrinth result's second word (`Resource pack`).
-fn kind_name(kind: PackKind) -> &'static str {
-    match kind {
-        PackKind::Mod => "Mod",
-        PackKind::Modpack => "Modpack",
-        PackKind::ResourcePack => "Resource pack",
-        PackKind::Shader => "Shader pack",
-        PackKind::DataPack => "Data pack",
     }
 }

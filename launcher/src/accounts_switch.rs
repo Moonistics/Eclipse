@@ -14,10 +14,10 @@ impl Launcher {
                     .map_or_else(String::new, |a| a.name.clone()),
                 tr("Microsoft account"),
             ),
-            Player::Offline(name) => (name, tr("Not signed in")),
+            Player::Offline(name) => (name, tr("Offline account")),
             Player::GameName => (
                 self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-                tr("Not signed in"),
+                tr("Offline account"),
             ),
         }
     }

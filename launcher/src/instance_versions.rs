@@ -14,6 +14,8 @@ use instance_state::{JavaChoice, LoaderVersions, NewKind, VersionList};
 const ROWS: usize = 60;
 const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 154.;
+const SEARCH_FIELD_WIDTH: f32 = 600.;
+const VERSION_COLUMN: f32 = 160.;
 
 fn released(time: &str) -> String {
     dates::published(time.get(..10).unwrap_or_default(), "")
@@ -56,7 +58,7 @@ impl Launcher {
                 Field::VersionSearch,
                 Some(ui::field_icon("search-01")),
                 tr("Search versions"),
-                600.,
+                SEARCH_FIELD_WIDTH,
                 ui::ButtonSize::Lg,
                 None,
                 cx,
@@ -70,16 +72,19 @@ impl Launcher {
                     "mc-versions-loading",
                     tr("Loading Minecraft versions…"),
                 )),
-            VersionList::Failed(e) => ui::list_box("mc-versions", height).child(ui::error_state(
-                "mc-versions-failed",
-                tr("Couldn't load Minecraft versions"),
-                e,
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.instances.versions = VersionList::NotAsked;
-                    this.load_versions(cx);
-                    cx.notify();
-                }),
-            )),
+            VersionList::Failed(e) => {
+                ui::list_box("mc-versions", height).child(ui::error_state_with(
+                    "mc-versions-failed",
+                    tr("Couldn't load Minecraft versions"),
+                    e,
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.instances.versions = VersionList::NotAsked;
+                        this.load_versions(cx);
+                        cx.notify();
+                    }),
+                    Some(Self::proxy_settings_button("mc-versions-failed", cx)),
+                ))
+            }
             VersionList::Ready(versions) => {
                 let rows: Vec<_> = versions
                     .of(choice.snapshots, choice.old)
@@ -102,7 +107,7 @@ impl Launcher {
                                     FontWeight::SEMIBOLD,
                                     ink::FULL,
                                 )
-                                .w(px(160.))
+                                .w(px(VERSION_COLUMN))
                                 .flex_none()
                                 .truncate()
                                 .child(v.id.clone()),
@@ -177,10 +182,10 @@ impl Launcher {
                 _ => loader.name().to_string(),
             };
             let note = match loader.id() {
-                "fabric" => tr("Light and fast to update"),
+                "fabric" => tr("Most mods for new versions"),
                 "quilt" => tr("Fabric mods run here too"),
                 "neoforge" => tr("The big modpacks' home"),
-                "forge" => tr("For older packs"),
+                "forge" => tr("Mods and packs for older versions"),
                 _ => "",
             };
             grid = grid.child(

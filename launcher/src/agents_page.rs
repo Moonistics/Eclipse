@@ -10,8 +10,7 @@ use eclipse_theme::glass::{ink, radius, space, step};
 
 #[derive(Default)]
 pub(crate) struct AgentsUi {
-    /// The client shown, an index into `agents::clients`.
-    client: usize,
+    client: Option<&'static str>,
     /// Which Copy button just copied.
     copied: Option<&'static str>,
     /// A command or test running.
@@ -39,33 +38,32 @@ impl Launcher {
         }
         let exe = &backend::update_target();
         let clients = agents::clients(exe);
-        let pick = self.agents.client.min(clients.len() - 1);
-        let client = &clients[pick];
-        let this = cx.entity().downgrade();
-        let options: Vec<(usize, &'static str)> = clients
+        let client = clients
             .iter()
-            .enumerate()
-            .map(|(i, c)| (i, c.name))
-            .collect();
+            .find(|c| Some(c.id) == self.agents.client)
+            .unwrap_or(&clients[0]);
+        let this = cx.entity().downgrade();
+        let options: Vec<(&'static str, &'static str)> =
+            clients.iter().map(|c| (c.id, c.name)).collect();
         let picker = ui::segments(
             "agent-client",
             &ui::translated(&options),
-            pick,
-            move |i, _, cx| {
+            client.id,
+            move |id, _, cx| {
                 let _ = this.update(cx, |this, cx| {
-                    this.agents.client = i;
+                    this.agents.client = Some(id);
                     this.agents.copied = None;
                     this.agents.status = None;
                     cx.notify();
                 });
             },
         );
-        let copy = |id: &'static str, text: String, cx: &mut Context<Self>| {
+        let copy = |id: &'static str, label: &'static str, text: String, cx: &mut Context<Self>| {
             let copied = self.agents.copied == Some(id);
             ui::button(
                 id,
                 Some("copy-01"),
-                tr(if copied { "Copied" } else { "Copy" }),
+                tr(if copied { "Copied" } else { label }),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
@@ -135,6 +133,7 @@ impl Launcher {
                 .child(code(&line).w_full())
                 .child(div().flex().gap(px(space::SM)).child(add).child(copy(
                     "agent-copy-command",
+                    "Copy command",
                     line.clone(),
                     cx,
                 )));
@@ -184,7 +183,12 @@ impl Launcher {
                 div()
                     .flex()
                     .gap(px(space::SM))
-                    .child(copy("agent-copy-config", client.config.clone(), cx))
+                    .child(copy(
+                        "agent-copy-config",
+                        "Copy config",
+                        client.config.clone(),
+                        cx,
+                    ))
                     .child(test),
             );
         if let Some((ok, message)) = &self.agents.status {

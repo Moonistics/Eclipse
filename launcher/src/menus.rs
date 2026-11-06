@@ -21,7 +21,7 @@ pub(super) enum Asking {
     PortedPack(String),
     Mod(String),
     GamePack(PackKind, String),
-    SavedServer(usize),
+    SavedServer(String),
     WorldPack(String),
     GithubMod(String),
     Screenshot,

@@ -1,7 +1,7 @@
 //! The Eclipse versions page: each Nightly on its own card (its name, Newest on the first, when
 //! it came out and which instances play it), Install or Use and a bin on the right; the space
-//! versions take, Import a game build, the native and imported builds, install progress and
-//! errors, the confirmation before a removal.
+//! versions take, Import a version from file, the native and imported builds, install progress
+//! and errors, the confirmation before a removal.
 
 use super::*;
 use crate::menus::Asking;
@@ -24,6 +24,20 @@ fn problem_line(id: String, error: &str) -> Div {
 }
 
 impl Launcher {
+    pub(super) fn proxy_settings_button(id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        ui::button(
+            format!("{id}-proxy"),
+            Some("globe-02"),
+            tr("Proxy settings"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.show_settings(settings_page::SettingsSection::Network);
+            cx.notify();
+        }))
+    }
+
     /// The Versions page; `on_disk` and `used` as `versions_page` measured them.
     pub(super) fn versions_view(
         &self,
@@ -38,7 +52,7 @@ impl Launcher {
             ui::button(
                 "import-build",
                 None,
-                tr("Import a game build…"),
+                tr("Import a version from file…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
@@ -47,6 +61,7 @@ impl Launcher {
         };
         let head = div()
             .flex()
+            .flex_wrap()
             .items_end()
             .justify_between()
             .gap(px(space::LG))
@@ -90,7 +105,7 @@ impl Launcher {
                 )))
             }
             Load::Failed(e) => {
-                return page.child(ui::empty_card(ui::error_state(
+                return page.child(ui::empty_card(ui::error_state_with(
                     "releases-failed",
                     tr("Couldn't load versions"),
                     e,
@@ -98,6 +113,7 @@ impl Launcher {
                         this.fetch_releases();
                         cx.notify();
                     }),
+                    Some(Self::proxy_settings_button("releases-failed", cx)),
                 )));
             }
             Load::Ready(r) if r.is_empty() => {

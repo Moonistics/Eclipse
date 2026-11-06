@@ -84,7 +84,7 @@ fn tag_name(tag: &str) -> String {
     format!("#{tag}")
 }
 
-fn active_filters(f: &Filters) -> usize {
+pub(super) fn active_filters(f: &Filters) -> usize {
     f.categories.len()
         + f.tags.len()
         + f.loader.is_some() as usize
@@ -824,18 +824,18 @@ impl Launcher {
                     ui::button(
                         "mods-link-page",
                         None,
-                        tr(&trf("Open on {source}", &[("source", p.source.label())])),
+                        trf("Open on {source}", &[("source", p.source.label())]),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(move |_, _, cx| cx.open_url(&page_url)),
                 );
             }
-            for (i, l) in d.links.iter().enumerate() {
+            for l in &d.links {
                 let url = l.url.clone();
                 links = links.child(
                     ui::button(
-                        format!("mods-link-{i}"),
+                        format!("mods-link-{url}"),
                         None,
                         tr(&l.label.clone()),
                         ButtonKind::Ghost,
@@ -928,7 +928,7 @@ impl Launcher {
                                 detail.push(format!("{} · {:.1} MB", f.name, f.size as f64 / 1e6));
                             }
                             ui::list_row(
-                                SharedString::from(format!("mods-version-{i}")),
+                                SharedString::from(format!("mods-project-version-{}", v.id)),
                                 false,
                                 |_, _, _| {},
                             )
@@ -1005,7 +1005,7 @@ impl Launcher {
             strip = strip.child(
                 ui::selected(
                     div()
-                        .id(SharedString::from(format!("mods-shot-{i}")))
+                        .id(SharedString::from(format!("mods-shot-{}", g.url)))
                         .flex_none()
                         .p(px(space::XXS))
                         .cursor_pointer()

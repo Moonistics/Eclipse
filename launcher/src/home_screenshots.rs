@@ -29,7 +29,7 @@ impl Launcher {
             .flex()
             .items_center()
             .justify_between()
-            .h(px(32.))
+            .h(px(ui::ButtonSize::Sm.height()))
             .child(
                 ui::text(
                     eclipse_theme::glass::step::NOTE,
@@ -48,7 +48,7 @@ impl Launcher {
                         ui::icon_button(
                             "screenshots-folder",
                             "folder-01",
-                            tr("Open folder"),
+                            tr("Open screenshots folder"),
                             ButtonKind::Ghost,
                             ui::ButtonSize::Sm,
                             false,
@@ -84,7 +84,7 @@ impl Launcher {
             .children(list.into_iter().take(shown).enumerate().map(|(i, shot)| {
                 let picture = pictures.next();
                 div()
-                    .id(SharedString::from(format!("screenshot-{i}")))
+                    .id(SharedString::from(format!("screenshot-{}", shot.name)))
                     .min_w_0()
                     .cursor_pointer()
                     .child(

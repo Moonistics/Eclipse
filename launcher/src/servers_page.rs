@@ -938,7 +938,13 @@ impl Launcher {
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self) + 'static,
     ) -> Stateful<Div> {
-        let b = ui::button(id, None, tr(label), ButtonKind::Ghost, ui::ButtonSize::Sm);
+        let b = ui::button(
+            id,
+            None,
+            tr(label),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Sm,
+        );
         if enabled {
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 action(this);
@@ -1030,7 +1036,7 @@ impl Launcher {
             let actions = div()
                 .flex()
                 .flex_none()
-                .gap(px(space::XXS))
+                .gap(px(space::SM))
                 .child(self.small(
                     format!("online-op-{}", p.name),
                     if op {
@@ -1162,7 +1168,7 @@ impl Launcher {
             let mut actions = div()
                 .flex()
                 .flex_none()
-                .gap(px(space::XXS))
+                .gap(px(space::SM))
                 .child(self.small(
                     format!("allowed-op-{name}"),
                     if op {

@@ -202,6 +202,7 @@ struct Launcher {
     settings_pane: gpui::ScrollHandle,
     /// The section the Settings list marked when last drawn (`settings_page`).
     settings_marked: usize,
+    settings_jump: Option<settings_page::Jump>,
     /// The Mods page's project card, kept in view beside its list.
     mods_sticky: sticky::Sticky,
     /// The rows of the page's long list (Versions, Patch notes) last drawn.
@@ -489,6 +490,7 @@ impl Launcher {
             content_scroll: Scrollbar::default(),
             settings_pane: gpui::ScrollHandle::new(),
             settings_marked: 0,
+            settings_jump: None,
             mods_sticky: sticky::Sticky::default(),
             long_list: cull::Cull::default(),
             updates: Updates::default(),

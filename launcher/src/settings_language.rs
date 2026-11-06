@@ -6,6 +6,8 @@ use crate::menus::Menu;
 use crate::ui;
 use eclipse_launcher::i18n::Language;
 
+const LIST_MAX: f32 = 360.;
+
 /// What the dropdown shows for a choice: the system's, in the launcher's language with the
 /// language it follows, or a language's name in itself (never through the table: a table entry
 /// for "English" would rename the very entry a player looks for).
@@ -34,7 +36,7 @@ impl Launcher {
             .id("language-list")
             .flex()
             .flex_col()
-            .max_h(px(360.))
+            .max_h(px(LIST_MAX))
             .overflow_y_scroll();
         for choice in std::iter::once(None).chain(Language::ALL.map(Some)) {
             let id = choice.map_or("system", Language::code);

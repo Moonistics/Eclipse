@@ -60,7 +60,7 @@ impl Launcher {
             let open = ui::button(
                 "worlds-folder",
                 Some("folder-01"),
-                tr("Open folder"),
+                tr("Open saves folder"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
@@ -190,8 +190,8 @@ impl Launcher {
         )
     }
 
-    /// A world's ⋯ menu: Back up, Copy, its data packs, Open folder, then Delete… (then asked to
-    /// confirm).
+    /// A world's ⋯ menu: Back up, Copy, its data packs, Open world folder, then Delete… (then
+    /// asked to confirm).
     fn world_menu(&mut self, w: &World, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = SharedString::from(format!("world-{}", w.folder));
         let confirming = self.is_asking(&Asking::WorldDelete(key.clone()));
@@ -260,13 +260,17 @@ impl Launcher {
                 ),
             )
             .child(
-                ui::menu_row("world-menu-folder", "folder-01", tr("Open folder"), false).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.close_menu();
-                        crate::toast::open(cx, &folder);
-                        cx.notify();
-                    }),
-                ),
+                ui::menu_row(
+                    "world-menu-folder",
+                    "folder-01",
+                    tr("Open world folder"),
+                    false,
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.close_menu();
+                    crate::toast::open(cx, &folder);
+                    cx.notify();
+                })),
             )
             .child(delete)
     }
@@ -332,14 +336,14 @@ impl Launcher {
                     .pb(px(space::SM))
                     .child(self.field(
                         fields::Field::MultiplayerName,
-                        tr("Minecraft Server"),
+                        tr("Server name"),
                         220.,
                         ui::ButtonSize::Md,
                         cx,
                     ))
                     .child(self.field(
                         fields::Field::MultiplayerAddress,
-                        "play.example.com",
+                        tr("Server address (play.example.com)"),
                         300.,
                         ui::ButtonSize::Md,
                         cx,
@@ -350,7 +354,7 @@ impl Launcher {
                             None,
                             tr("Add"),
                             ButtonKind::Secondary,
-                            ui::ButtonSize::Lg,
+                            ui::ButtonSize::Md,
                         )
                         .on_press(cx.listener(
                             |this, _: &ClickEvent, _, cx| {
@@ -362,23 +366,22 @@ impl Launcher {
             );
         }
         let pictures = list.iter().any(|(_, icon)| icon.is_some());
-        for (i, (server, icon)) in list.into_iter().enumerate() {
-            body = body.child(self.server_row(i, server, icon, pictures, cx));
+        for (server, icon) in list {
+            body = body.child(self.server_row(server, icon, pictures, cx));
         }
         Some(body)
     }
 
     fn server_row(
         &mut self,
-        i: usize,
         server: eclipse_launcher::server_list::Server,
         icon: Option<std::sync::Arc<gpui::Image>>,
         pictures: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let key = SharedString::from(format!("server-{i}"));
+        let key = SharedString::from(format!("server-{}", server.ip));
         let hovered = self.list_hover.as_ref() == Some(&key);
-        let confirming = self.is_asking(&Asking::SavedServer(i));
+        let confirming = self.is_asking(&Asking::SavedServer(server.ip.clone()));
         let hover = self.list_hover_listener(key.clone(), cx);
         let ip = server.ip.clone();
         // The dot and "address · 3 of 10", or "Offline" with Join off.
@@ -422,6 +425,7 @@ impl Launcher {
             ui::disabled(join)
         };
         let remove = SharedString::from(format!("{key}-remove"));
+        let gone = server.ip.clone();
         let end = if confirming {
             ui::confirm(
                 remove,
@@ -432,7 +436,13 @@ impl Launcher {
                     cx.notify();
                 }),
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.edit_servers(|list| list.remove(i).map(|_| ()));
+                    let gone = gone.clone();
+                    this.edit_servers(|list| {
+                        match list.servers().iter().position(|s| s.ip == gone) {
+                            Some(at) => list.remove(at).map(|_| ()),
+                            None => Ok(()),
+                        }
+                    });
                     cx.notify();
                 }),
             )
@@ -453,7 +463,7 @@ impl Launcher {
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
-                            this.asking = Some(Asking::SavedServer(i));
+                            this.asking = Some(Asking::SavedServer(gone.clone()));
                             cx.notify();
                         },
                     )),

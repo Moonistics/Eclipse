@@ -3,6 +3,7 @@
 //! switch at the row's end.
 use super::*;
 use crate::ui::{self, white};
+use eclipse_launcher::browser::Kind as PackKind;
 use eclipse_theme::glass::{ink, radius, space};
 use fields::Field;
 use instance_mods::ModRow;
@@ -31,10 +32,10 @@ impl Launcher {
                 "instance-mods-find",
                 Some("search-01"),
                 tr("Find mods"),
-                ButtonKind::Secondary,
+                ButtonKind::Primary,
                 ui::ButtonSize::Md,
             )
-            .on_press(find_mods(cx));
+            .on_press(find_on_mods_page(PackKind::Mod, cx));
             return body.child(ui::empty_state(
                 "instance-mods-empty",
                 "puzzle",
@@ -91,7 +92,7 @@ impl Launcher {
                             ButtonKind::Secondary,
                             ui::ButtonSize::Md,
                         )
-                        .on_press(find_mods(cx)),
+                        .on_press(find_on_mods_page(PackKind::Mod, cx)),
                     ),
             ),
         );
@@ -232,10 +233,14 @@ impl Launcher {
     }
 }
 
-/// Find mods: the Mods page, to add some to this instance.
-fn find_mods(cx: &mut Context<Launcher>) -> ui::Listener<ClickEvent> {
-    Box::new(cx.listener(|this, _: &ClickEvent, _, cx| {
+pub(super) fn find_on_mods_page(
+    kind: PackKind,
+    cx: &Context<Launcher>,
+) -> ui::Listener<ClickEvent> {
+    Box::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
         this.go(Page::Mods);
+        this.mods_load();
+        this.mods_set_kind(kind);
         cx.notify();
     }))
 }

@@ -178,10 +178,8 @@ impl Launcher {
             .overflow_y_scroll()
             .rounded_l(px(radius::MODAL))
             .bg(ui::inset())
-            .child(ui::label(tr("New server")))
             .child(
                 div()
-                    .mt(px(space::XL))
                     .w(px(304.))
                     .h(px(190.))
                     .flex_none()

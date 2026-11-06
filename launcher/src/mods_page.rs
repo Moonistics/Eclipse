@@ -26,7 +26,7 @@ const KINDS: [(PackKind, &str, &str); 5] = [
     (PackKind::Mod, "Mods", "box"),
     (PackKind::Modpack, "Modpacks", "archive"),
     (PackKind::ResourcePack, "Resource packs", "image"),
-    (PackKind::Shader, "Shaders", "zap"),
+    (PackKind::Shader, "Shader packs", "zap"),
     (PackKind::DataPack, "Data packs", "notes"),
 ];
 /// Java mods checked at once.
@@ -109,6 +109,8 @@ pub(super) struct Mods {
     pub(super) picked: Option<String>,
     /// The project the detail card showed last.
     pub(super) shown: Option<Project>,
+    float_top: std::rc::Rc<std::cell::Cell<f32>>,
+    float_scroll: gpui::ScrollHandle,
     /// A native mod's Install waiting for the one-time trust notice (`native_status::NOTICE`).
     native_notice: Option<(SourceId, String, Option<Project>)>,
     /// The selected instance's native build state, and the `native_status::fingerprint` it was
@@ -200,6 +202,8 @@ impl Mods {
             play_after_build: false,
             picked: None,
             shown: None,
+            float_top: Default::default(),
+            float_scroll: Default::default(),
             checks: HashMap::new(),
             about: HashMap::new(),
             browse: Default::default(),
@@ -229,6 +233,15 @@ impl Mods {
                 None | Some(Checking::Running)
             )
             && p.support().installable()
+    }
+
+    fn runnable_first(&mut self) {
+        if self.results.iter().any(|p| self.checking(p)) {
+            return;
+        }
+        let mut results = std::mem::take(&mut self.results);
+        results.sort_by_key(|p| !self.support(p).installable());
+        self.results = results;
     }
 
     /// How well a result runs: a Java mod's from its check once it has one. In a Java
@@ -417,6 +430,9 @@ impl Launcher {
             }
         }
         self.mods_check(to_check);
+        if changed {
+            self.mods.runnable_first();
+        }
         if done {
             // A data pack put into a world shows in its list on Home.
             self.world_packs.reread();
@@ -930,6 +946,16 @@ impl Launcher {
         }
     }
 
+    pub(super) fn mods_set_source(&mut self, source: SourceId) {
+        if self.mods.source != source {
+            self.mods.source = source;
+            self.mods.browse.filters = Default::default();
+            self.mods.browse.open = None;
+            self.mods.picked = None;
+            self.mods_search(0);
+        }
+    }
+
     /// The project `id` leaves the selected instance now; what happened, for the page's notice.
     pub(super) fn mods_remove(&mut self, id: &str) -> Result<String, String> {
         let home = self.mods.home();
@@ -1054,13 +1080,15 @@ impl Launcher {
             .items_center()
             .gap(px(space::SM))
             .child(note(tr("World").to_string()).mr(px(space::SM)));
-        for (i, (path, name)) in self.mods.worlds.iter().enumerate() {
+        for (path, name) in &self.mods.worlds {
             let on = self.mods.world.as_ref() == Some(path);
+            let folder = path.file_name().unwrap_or_default().to_string_lossy();
+            let id = SharedString::from(format!("mods-world-{folder}"));
             let path = path.clone();
             chips = chips.child(
                 ui::selected(
                     ui::button(
-                        SharedString::from(format!("mods-world-{i}")),
+                        id,
                         None,
                         name.clone(),
                         ButtonKind::Ghost,
@@ -1239,9 +1267,9 @@ impl Launcher {
                 let mut update = ui::button(
                     SharedString::from(format!("mods-update-{}", e.project)),
                     None,
-                    tr(&trf("Update to {version}", &[("version", number)])),
+                    trf("Update to {version}", &[("version", number)]),
                     ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
+                    ui::ButtonSize::Sm,
                 );
                 if busy {
                     update = ui::disabled(update);
@@ -1261,8 +1289,8 @@ impl Launcher {
                 remove_id.clone(),
                 None,
                 tr("Remove…"),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.asking = Some(Asking::Mod(id.clone()));
@@ -1367,10 +1395,10 @@ impl Launcher {
             let b = ui::button(
                 "mods-update-all",
                 None,
-                tr(&trf(
+                trf(
                     "Update all ({count})",
                     &[("count", &self.mods.updates.len().to_string())],
-                )),
+                ),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
@@ -1552,10 +1580,10 @@ impl Launcher {
                 ui::button(
                     "native-update",
                     None,
-                    tr(&trf(
+                    trf(
                         "Rebuild on Eclipse {version}",
                         &[("version", &native_status::eclipse_label(&newer))],
-                    )),
+                    ),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
@@ -1584,33 +1612,7 @@ impl Launcher {
                 })),
             );
         }
-        let profile = native_mods::Profile::chosen(&self.settings);
-        let picker = ui::segments(
-            "native-profile",
-            &ui::translated(&[
-                (native_mods::Profile::Performance, "Performance build"),
-                (native_mods::Profile::Dev, "Dev build"),
-                (native_mods::Profile::Release, "Release build"),
-            ]),
-            profile,
-            {
-                let this = cx.entity().downgrade();
-                move |choice, _, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        this.settings.native_profile = Some(choice);
-                        this.settings.native_release = false;
-                        this.native_done = None;
-                        this.save_settings();
-                        cx.notify();
-                    });
-                }
-            },
-        );
-        let said = match profile {
-            native_mods::Profile::Performance => tr("The everyday build for playing with mods"),
-            native_mods::Profile::Dev => tr("For mod authors: faster rebuilds, slower game"),
-            native_mods::Profile::Release => tr("Slower to build, slightly faster game"),
-        };
+        let (picker, said) = self.native_profile_picker("native-profile", cx);
         detail = detail.child(
             div()
                 .flex()

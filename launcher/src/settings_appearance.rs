@@ -15,6 +15,7 @@ const SWATCH: f32 = 36.;
 const CHIP: f32 = 24.;
 /// The hue strip under the swatches, in points: 0 to 360 degrees across it.
 const STRIP: f32 = 212.;
+const HUE_MARK: f32 = 3.;
 
 impl Launcher {
     /// The theme Settings ask for, under the window's own light or dark: the player's look,
@@ -237,8 +238,8 @@ impl Launcher {
                             let at = px(width * hue / 360.);
                             window.paint_quad(fill(
                                 Bounds::new(
-                                    point(bounds.left() + at - px(1.5), bounds.top()),
-                                    size(px(3.), bounds.size.height),
+                                    point(bounds.left() + at - px(HUE_MARK / 2.), bounds.top()),
+                                    size(px(HUE_MARK), bounds.size.height),
                                 ),
                                 ink,
                             ));

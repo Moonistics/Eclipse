@@ -21,6 +21,9 @@ const PREVIEW_ICON: f32 = ui::TILE_LG;
 const PREVIEW_ICON_SHORT: f32 = 32.;
 pub(super) const MARK_TILE: f32 = ui::TILE_LG;
 pub(super) const MARK: f32 = 32.;
+const CHOICE_ICON: f32 = 40.;
+const NAME_FIELD_WIDTH: f32 = 340.;
+const ECLIPSE_LIST: f32 = 248.;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
@@ -83,11 +86,15 @@ impl Launcher {
             .and_then(|id| self.instances.list.iter().find(|i| &i.id == id))
             .cloned();
         let kind = d.java.kind;
+        let running = editing.as_ref().is_some_and(|i| {
+            self.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id)
+        });
         let (title, note) = match editing {
-            Some(_) => (
+            Some(_) if running => (
                 tr("Edit instance"),
                 tr("Changes apply the next time it starts."),
             ),
+            Some(_) => (tr("Edit instance"), ""),
             None => (tr("New instance"), ""),
         };
         let mut cards: Vec<AnyElement> = Vec::new();
@@ -324,11 +331,7 @@ impl Launcher {
         let mut cards = Vec::new();
         for k in [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded] {
             let (id, title, note) = match k {
-                NewKind::Eclipse => (
-                    "eclipse",
-                    tr("Eclipse"),
-                    tr("Faster Minecraft, rebuilt in Rust").to_string(),
-                ),
+                NewKind::Eclipse => ("eclipse", tr("Eclipse"), tr("Faster Minecraft").to_string()),
                 NewKind::Vanilla => (
                     "vanilla",
                     tr("Vanilla"),
@@ -408,7 +411,7 @@ impl Launcher {
             .field(
                 Field::InstanceName,
                 tr("My instance"),
-                340.,
+                NAME_FIELD_WIDTH,
                 ui::ButtonSize::Lg,
                 cx,
             )
@@ -417,7 +420,7 @@ impl Launcher {
             .field(
                 Field::InstanceGroup,
                 tr("For example Modpacks"),
-                340.,
+                NAME_FIELD_WIDTH,
                 ui::ButtonSize::Lg,
                 cx,
             )
@@ -446,9 +449,17 @@ impl Launcher {
                     .child(labelled("Group (optional)", group)),
             )
             .children(editing.map(|i| {
-                ui::card_note(short(&i.home))
-                    .font_family(theme::MONO)
-                    .truncate()
+                let home = i.home.clone();
+                div().flex().child(
+                    ui::button(
+                        "instance-open-folder",
+                        Some("folder-01"),
+                        tr("Open instance folder"),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| crate::toast::open(cx, &home)),
+                )
             }))
     }
 }
@@ -565,15 +576,17 @@ impl Launcher {
                             .truncate(),
                     )
                     // Why Create failed takes the summary's place, by the buttons.
-                    .child(match error {
-                        Some(e) => ui::error_note(e),
-                        None => ui::text(
-                            eclipse_theme::glass::step::NOTE,
-                            FontWeight::NORMAL,
-                            ink::MUTED,
-                        )
-                        .truncate()
-                        .child(summary),
+                    .children(match error {
+                        Some(e) => Some(ui::error_note(e)),
+                        None => (!summary.is_empty()).then(|| {
+                            ui::text(
+                                eclipse_theme::glass::step::NOTE,
+                                FontWeight::NORMAL,
+                                ink::MUTED,
+                            )
+                            .truncate()
+                            .child(summary)
+                        }),
                     }),
             )
             .child(buttons.relative().flex_none())
@@ -617,14 +630,14 @@ impl Launcher {
                     }))
             })
             .collect();
-        let list = ui::list_box("eclipse-versions", 248.);
+        let list = ui::list_box("eclipse-versions", ECLIPSE_LIST);
         let list = match (&self.releases, rows.is_empty()) {
             (_, false) => list.children(rows),
             (Load::Loading, true) => list.child(ui::loading_state(
                 "eclipse-versions-loading",
                 tr("Loading versions…"),
             )),
-            (Load::Failed(e), true) => list.child(ui::error_state(
+            (Load::Failed(e), true) => list.child(ui::error_state_with(
                 "eclipse-versions-failed",
                 tr("Couldn't load versions"),
                 e,
@@ -632,6 +645,7 @@ impl Launcher {
                     this.fetch_releases();
                     cx.notify();
                 }),
+                Some(Self::proxy_settings_button("eclipse-versions-failed", cx)),
             )),
             (_, true) => list.child(ui::empty_state(
                 "eclipse-versions-empty",
@@ -733,17 +747,20 @@ impl Launcher {
                     use std::hash::{Hash, Hasher};
                     let mut h = std::collections::hash_map::DefaultHasher::new();
                     chosen.png.hash(&mut h);
-                    self.icon_image(format!("chosen:{:x}", h.finish()), 40., false, || {
-                        Some(chosen.png.clone())
-                    })
+                    self.icon_image(
+                        format!("chosen:{:x}", h.finish()),
+                        CHOICE_ICON,
+                        false,
+                        || Some(chosen.png.clone()),
+                    )
                 }
-                _ => editing.and_then(|i| self.instance_picture(i, 40.)),
+                _ => editing.and_then(|i| self.instance_picture(i, CHOICE_ICON)),
             };
             let picture_active = (file_picture || own_picture) && icon.is_none();
             if let Some(image) = picture_img {
                 first.push(
                     icon_choice("icon-picture", picture_active)
-                        .child(instance_icons::centred(image, 40., self.scale))
+                        .child(instance_icons::centred(image, CHOICE_ICON, self.scale))
                         .on_press(cx.listener(
                             move |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
                                 if picture_active {
@@ -764,7 +781,7 @@ impl Launcher {
             }
         }
         let loader = self.draft_loader();
-        let auto = self.auto_mark(kind, loader, 40.);
+        let auto = self.auto_mark(kind, loader, CHOICE_ICON);
         first.push(
             icon_choice("icon-auto", !pictured && icon.is_none())
                 .child(auto)
@@ -781,9 +798,12 @@ impl Launcher {
         }
         for (id, png) in logos {
             let shown = match id {
-                "grass" => self
-                    .icon_image("mark:grass".into(), 40., false, || Some(png.clone()))
-                    .map(|i| instance_icons::centred(i, 40., self.scale).into_any_element()),
+                "grass" => {
+                    self.icon_image("mark:grass".into(), CHOICE_ICON, false, || {
+                        Some(png.clone())
+                    })
+                    .map(|i| instance_icons::centred(i, CHOICE_ICON, self.scale).into_any_element())
+                }
                 _ => self
                     .loader_logo(id, ui::TILE_MD)
                     .map(|i| ui::image_tile(i, ui::TILE_MD)),
@@ -808,7 +828,7 @@ impl Launcher {
             );
         }
         for texture in instance_state::TEXTURES {
-            let Some(image) = self.texture_image(texture, 40.) else {
+            let Some(image) = self.texture_image(texture, CHOICE_ICON) else {
                 continue;
             };
             let on = !pictured && icon == Some(Icon::Texture(texture.into()));
@@ -823,7 +843,7 @@ impl Launcher {
             let hex = format!("#{rgb:06x}");
             let on = !pictured && icon == Some(Icon::Colour(hex.clone()));
             icon_choice(format!("icon-{hex}"), on)
-                .child(ui::letter_tile(ui::color(rgb), &name, 40.))
+                .child(ui::letter_tile(ui::color(rgb), &name, CHOICE_ICON))
                 .on_press(pick(Some(Icon::Colour(hex))))
         });
         let choose = ui::button(
