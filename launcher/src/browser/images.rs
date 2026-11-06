@@ -102,7 +102,9 @@ pub fn fetch(home: &Path, url: &str, size: u32) -> Result<PathBuf, String> {
             request = request.set("If-Modified-Since", modified);
         }
     }
-    let response = request.call().map_err(|e| format!("{url}: {e}"))?;
+    let response = request
+        .call()
+        .map_err(|e| crate::backend::network_error(url, e))?;
     if cached && response.status() == 304 {
         // Unchanged: fresh for another while.
         let _ = fs::File::options()

@@ -1417,6 +1417,61 @@ fn processes_sharing_the_secrets_file_lose_nothing() {
     remove_secrets_dir(&path);
 }
 
+const LOCK_TAKER: &str = "ECLIPSE_TEST_ACCOUNT_LOCK";
+
+#[test]
+#[ignore = "a child process of the secrets_file_store_holds_off_other_processes test"]
+fn account_lock_taker() {
+    if std::env::var_os(LOCK_TAKER).is_none() {
+        return;
+    }
+    let path = secrets_file("lock-taker");
+    let store = Layered::new(Box::<MemoryStore>::default(), FileStore::new(path.clone()));
+    let taken = session::lock_within(&store, Some(Duration::from_millis(300))).is_ok();
+    remove_secrets_dir(&path);
+    std::process::exit(if taken { 0 } else { 3 });
+}
+
+#[test]
+fn secrets_file_store_holds_off_other_processes() {
+    let path = secrets_file("lock-holder");
+    let store = Layered::new(Box::<MemoryStore>::default(), FileStore::new(path.clone()));
+    let held = session::lock(&store).unwrap();
+    let other = std::process::Command::new(std::env::current_exe().unwrap())
+        .args([
+            "--ignored",
+            "--exact",
+            "account::tests::account_lock_taker",
+            "--test-threads=1",
+        ])
+        .env(LOCK_TAKER, "1")
+        .stdout(std::process::Stdio::null())
+        .status()
+        .unwrap();
+    drop(held);
+    remove_secrets_dir(&path);
+    assert_eq!(other.code(), Some(3), "the other process got the lock");
+}
+
+#[test]
+fn accounts_that_cant_be_read_are_never_saved_over() {
+    let path = secrets_file("accounts").with_file_name("accounts.json");
+    std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+    let damaged = "{\"accounts\": [{\"uuid\": \"abc\", \"name\": \"Ludo\"";
+    std::fs::write(&path, damaged).unwrap();
+    let mut accounts = Accounts::load_from(&path);
+    assert!(accounts.accounts.is_empty());
+    accounts.add_offline("Builder_1").unwrap();
+    assert!(accounts.save_to(&path).is_err());
+    assert_eq!(std::fs::read_to_string(&path).unwrap(), damaged);
+    std::fs::remove_file(&path).unwrap();
+    let mut fresh = Accounts::load_from(&path);
+    fresh.add_offline("Builder_1").unwrap();
+    fresh.save_to(&path).unwrap();
+    assert_eq!(Accounts::load_from(&path).offline, ["Builder_1"]);
+    remove_secrets_dir(&path);
+}
+
 /// A keychain that can be away (a Secret Service that didn't start, a dismissed unlock prompt),
 /// refuse some keys, or hold every call while `prompt` is held (an unlock prompt left open).
 #[derive(Default)]

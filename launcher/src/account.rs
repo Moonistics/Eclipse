@@ -20,7 +20,6 @@ use std::path::{Path, PathBuf};
 use std::sync::{Mutex, OnceLock};
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
-/// The keychain service name every secret is stored under.
 pub const SERVICE: &str = "dev.eclipse.launcher";
 const SCOPE: &str = "XboxLive.signin offline_access";
 pub const NOT_CONFIGURED: &str =
@@ -79,14 +78,7 @@ impl Endpoints {
 /// A request to `url`: the launcher's user agent, a 20 s timeout, and the player's proxy when one
 /// is set (`proxy`), since a sign-in has to get out the way downloads do.
 fn request_to(method: &str, url: &str) -> ureq::Request {
-    crate::proxy::agent(
-        ureq::AgentBuilder::new()
-            .timeout(Duration::from_secs(20))
-            .user_agent(&format!("eclipse-launcher/{}", crate::backend::VERSION)),
-        url,
-    )
-    .build()
-    .request(method, url)
+    crate::backend::agent_within(url, Duration::from_secs(20)).request(method, url)
 }
 
 /// One request's result: the status and the JSON body (empty when there is none). Transport
@@ -622,9 +614,11 @@ pub trait SecretStore: Send + Sync {
     fn delete(&self, key: &str) -> Result<(), String>;
     /// False for memory: secrets are gone when the launcher closes.
     fn persistent(&self) -> bool;
-    /// A shared lock for read/renew/write operations; memory stores need only the process lock.
+    /// The lock every launcher and CLI process takes around a read, renew and write of these
+    /// secrets; memory stores need only the process lock.
     fn lock_file(&self) -> Option<PathBuf> {
-        None
+        self.persistent()
+            .then(|| crate::backend::data_dir().join("account-session.lock"))
     }
     /// The in-process half of that lock. The system keychain is one per computer, so every
     /// handle to it shares the process-wide lock; a memory store's secrets are its own, and so
@@ -665,7 +659,6 @@ pub struct FileStore {
     path: PathBuf,
 }
 
-/// The secrets file's name in the launcher's data folder.
 pub const SECRETS_FILE: &str = "account-secrets.json";
 
 impl FileStore {
@@ -764,7 +757,6 @@ impl FileStore {
         Ok(())
     }
 
-    /// The file's entry for `key`, if the file is there.
     fn entry(&self, key: &str) -> Result<Option<String>, String> {
         if !self.path.exists() {
             return Ok(None);
@@ -952,9 +944,6 @@ impl SecretStore for SystemStore {
     }
     fn persistent(&self) -> bool {
         true
-    }
-    fn lock_file(&self) -> Option<PathBuf> {
-        Some(crate::backend::data_dir().join("account-session.lock"))
     }
 }
 
@@ -1232,9 +1221,6 @@ impl SecretStore for SystemStore {
     }
     fn persistent(&self) -> bool {
         true
-    }
-    fn lock_file(&self) -> Option<PathBuf> {
-        Some(crate::backend::data_dir().join("account-session.lock"))
     }
 }
 
@@ -1547,17 +1533,14 @@ impl Accounts {
         self.save_to(&Self::path())
     }
     pub(crate) fn load_from(path: &Path) -> Self {
-        std::fs::read_to_string(path)
+        crate::files::read_json(path)
             .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
+            .flatten()
             .unwrap_or_default()
     }
     pub(crate) fn save_to(&self, path: &Path) -> Result<(), String> {
-        if let Some(dir) = path.parent() {
-            std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-        }
-        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        std::fs::write(path, text + "\n").map_err(|e| e.to_string())
+        crate::files::read_json::<Self>(path)?;
+        crate::files::write_json(path, self)
     }
     pub fn selected(&self) -> Option<&Account> {
         let uuid = self.selected.as_ref()?;
@@ -1609,7 +1592,6 @@ impl Accounts {
             .any(|a| secrets_in(store, &a.uuid).is_some_and(|s| s.owns))
     }
 
-    /// Who plays now.
     pub fn player(&self) -> Player {
         match (self.selected(), &self.offline_selected) {
             (Some(a), _) => Player::Microsoft(a.uuid.clone()),

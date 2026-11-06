@@ -5,14 +5,15 @@
 //! there like any launcher's. Nothing of Mojang's is part of Eclipse.
 //!
 //! Each file is checked against the size and sha1 Mojang lists, and written whole. A download
-//! stopped half way (cancelled, no network) keeps the files it finished: the next one fetches
-//! only the rest.
+//! stopped half way (no network) keeps the files it finished: the next one fetches only the
+//! rest.
 
-use crate::sources::{fetch_checked, fetch_manifest, sha1_file, sha1_hex, write_file, Fetch, Pins};
+use crate::files;
+use crate::sources::{fetch_checked, fetch_manifest, sha1_file, sha1_hex, Fetch, Pins};
 use serde_json::Value;
 use std::fs;
 use std::path::{Component, Path, PathBuf};
-use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering::Relaxed};
+use std::sync::atomic::{AtomicUsize, Ordering::Relaxed};
 use std::sync::Mutex;
 use std::time::Duration;
 
@@ -20,8 +21,6 @@ const OBJECTS: &str = "https://resources.download.minecraft.net";
 /// The index of Mojang's Java runtimes, the one the official launcher reads.
 const JAVA_RUNTIMES: &str = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
-/// Set to stop the download under way (the window's Cancel); cleared when a preparation starts.
-pub static CANCEL: AtomicBool = AtomicBool::new(false);
 /// The download under way: files done, of how many (0 when none runs).
 static DONE: AtomicUsize = AtomicUsize::new(0);
 static TOTAL: AtomicUsize = AtomicUsize::new(0);
@@ -31,8 +30,6 @@ pub fn progress() -> Option<(usize, usize)> {
     let total = TOTAL.load(Relaxed);
     (total > 0).then(|| (DONE.load(Relaxed).min(total), total))
 }
-
-const CANCELLED: &str = "Download cancelled. Download again to go on where it stopped.";
 
 /// One file to download, with the size Mojang lists for it when it lists one.
 struct File {
@@ -44,14 +41,13 @@ struct File {
 
 /// Downloads the pinned version into `dir`, `jobs` files at a time; files already there and
 /// whole are kept. An asset that fails is a line in the log (the game is then partly silent),
-/// anything else an error. `cancel` stops it between files.
+/// anything else an error.
 pub fn download(
     pins: &Pins,
     dir: &Path,
     os: &str,
     jobs: usize,
     fetch: Fetch,
-    cancel: &AtomicBool,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
     let v = &pins.version;
@@ -75,7 +71,10 @@ pub fn download(
     let libraries = manifest["libraries"]
         .as_array()
         .ok_or("The version file has no libraries")?;
-    for library in libraries.iter().filter(|l| allowed(l, os)) {
+    for library in libraries
+        .iter()
+        .filter(|l| crate::java_launch::allowed(&l["rules"], os, &[]))
+    {
         // Before 1.19 a library's natives for this system are a classifier of its own.
         let native = native_classifier(library, os)
             .map(|key| &library["downloads"]["classifiers"][key.as_str()]);
@@ -111,7 +110,7 @@ pub fn download(
     log(format!(
         "Downloading Minecraft {v} from Mojang: the game and {libraries} libraries"
     ));
-    fetch_all(&game, jobs, fetch, cancel, log)?;
+    fetch_all(&game, jobs, fetch, log)?;
     let index = &manifest["assetIndex"];
     let index = File {
         url: text(index, "url")?,
@@ -121,7 +120,7 @@ pub fn download(
             .join("assets/indexes")
             .join(relative(&format!("{}.json", text(index, "id")?))?),
     };
-    let assets = fetch_all(std::slice::from_ref(&index), 1, fetch, cancel, log)
+    let assets = fetch_all(std::slice::from_ref(&index), 1, fetch, log)
         .and_then(|_| objects(&read_json(&index.path)?, dir))
         .and_then(|objects| {
             log(format!("Downloading the sounds ({} files)", objects.len()));
@@ -137,12 +136,10 @@ pub fn download(
                 }
                 got
             };
-            fetch_each(&objects, jobs, &retrying, cancel, log, false)
+            fetch_each(&objects, jobs, &retrying, log, false)
         });
-    match assets {
-        Err(e) if e == CANCELLED => return Err(e),
-        Err(e) => log(format!("The sounds could not all be downloaded: {e}")),
-        Ok(()) => {}
+    if let Err(e) = assets {
+        log(format!("The sounds could not all be downloaded: {e}"));
     }
     Ok(())
 }
@@ -171,7 +168,6 @@ pub fn java_runtime(
     runtime: &Path,
     jobs: usize,
     fetch: Fetch,
-    cancel: &AtomicBool,
     log: &dyn Fn(String),
 ) -> Result<PathBuf, String> {
     let platform = java_platform().ok_or("Mojang has no Java for this system")?;
@@ -219,7 +215,7 @@ pub fn java_runtime(
         "Downloading Minecraft's Java {name} from Mojang ({} files)",
         downloads.len()
     ));
-    fetch_all(&downloads, jobs, fetch, cancel, log)?;
+    fetch_all(&downloads, jobs, fetch, log)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -289,18 +285,6 @@ pub(crate) fn relative(path: &str) -> Result<PathBuf, String> {
         .ok_or_else(|| format!("Unsafe path {path:?} in the version file"))
 }
 
-/// Whether a library's rules let this system (`osx`, `windows`, `linux`) use it: the last
-/// rule that matches decides.
-fn allowed(library: &Value, os: &str) -> bool {
-    let Some(rules) = library["rules"].as_array() else {
-        return true;
-    };
-    rules
-        .iter()
-        .rfind(|rule| rule["os"]["name"].as_str().is_none_or(|name| name == os))
-        .is_some_and(|rule| rule["action"] == "allow")
-}
-
 /// The classifier holding a library's natives for `os` (`natives-osx`), from its `natives` map;
 /// `${arch}` is this system's word size, as old versions name Windows' natives.
 pub(crate) fn native_classifier(library: &Value, os: &str) -> Option<String> {
@@ -362,15 +346,14 @@ fn fetch_file(fetch: Fetch, file: &File) -> Result<Vec<u8>, String> {
 }
 
 /// Downloads the files not already there, `jobs` at a time, with a line every second; stops at
-/// the first error, or between files once `cancel` is set.
+/// the first error.
 fn fetch_all(
     files: &[File],
     jobs: usize,
     fetch: Fetch,
-    cancel: &AtomicBool,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
-    fetch_each(files, jobs, fetch, cancel, log, true)
+    fetch_each(files, jobs, fetch, log, true)
 }
 
 /// `fetch_all`, which with `stop_on_error` false goes on past a file that fails and reports how
@@ -379,7 +362,6 @@ fn fetch_each(
     files: &[File],
     jobs: usize,
     fetch: Fetch,
-    cancel: &AtomicBool,
     log: &dyn Fn(String),
     stop_on_error: bool,
 ) -> Result<(), String> {
@@ -397,14 +379,10 @@ fn fetch_each(
                         if stop_on_error && failed.lock().unwrap().is_some() {
                             break;
                         }
-                        if cancel.load(Relaxed) {
-                            failed.lock().unwrap().get_or_insert(CANCELLED.to_string());
-                            break;
-                        }
                         if sha1_file(&file.path).as_ref() != Some(&file.sha1) {
                             let got = fetch_file(fetch, file)
                                 .map_err(|e| format!("{} {e}", file.url))
-                                .and_then(|body| write_file(&file.path, &body));
+                                .and_then(|body| files::write(&file.path, &body));
                             if let Err(e) = got {
                                 errors.fetch_add(1, Relaxed);
                                 failed.lock().unwrap().get_or_insert(e);
@@ -426,7 +404,7 @@ fn fetch_each(
     });
     TOTAL.store(0, Relaxed);
     match failed.into_inner().unwrap() {
-        Some(e) if !stop_on_error && e != CANCELLED => Err(format!(
+        Some(e) if !stop_on_error => Err(format!(
             "{} of {} files failed, the first: {e}",
             errors.load(Relaxed),
             files.len()

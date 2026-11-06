@@ -131,7 +131,7 @@ pub fn self_test(exe: &Path) -> Result<usize, String> {
         .spawn()
         .map_err(|e| format!("Could not start {}: {e}", exe.display()))?;
     let lines = [
-        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "eclipse-launcher-test", "version": "1" } } }),
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": eclipse_mcp::LEGACY, "capabilities": {}, "clientInfo": { "name": "eclipse-launcher-test", "version": "1" } } }),
         json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
     ];

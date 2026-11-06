@@ -696,7 +696,6 @@
   "Game architecture": "게임 아키텍처",
   "Install selected build": "선택한 빌드 설치",
   "Manual game architectures are available on Windows ARM only.": "게임 아키텍처를 직접 선택하는 기능은 Windows ARM에서만 사용할 수 있습니다.",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "Windows ARM64 런처는 아직 네이티브 모드를 지원하지 않습니다. 관리되는 컴파일러를 사용할 수 없습니다.",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "선택한 ARM64 게임용 네이티브 모드는 아직 빌드할 수 없습니다. 사용 가능한 컴파일러는 x64만 빌드합니다.",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "선택한 x64 게임용 네이티브 모드는 빌드할 수 없습니다. 이 ARM64 런처에는 맞는 컴파일러가 없습니다.",
   "Say auto, x64 or arm64 for the game architecture.": "게임 아키텍처에는 auto, x64 또는 arm64를 입력하세요.",

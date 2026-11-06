@@ -16,7 +16,7 @@ const RECORD: &str = "pack.json";
 
 /// Where registry modpacks live.
 pub fn packs_dir() -> PathBuf {
-    crate::backend::game_home().join("eclipse-packs")
+    crate::backend::game_home().join(crate::game_folder::PACKS)
 }
 
 /// What `pack.json` keeps of an installed pack.
@@ -63,7 +63,7 @@ pub fn is_pack(work: &Path) -> bool {
 
 /// The profile's game folder.
 pub fn home(work: &Path) -> PathBuf {
-    work.join("home")
+    work.join(crate::game_folder::PROFILE)
 }
 
 /// Installs the registry modpack `id`: its newest version for this game, then each of its mods.
@@ -152,8 +152,7 @@ fn install_version_in(
         mods,
         work: work.to_path_buf(),
     };
-    let text = serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?;
-    fs::write(work.join(RECORD), text).map_err(|e| e.to_string())?;
+    crate::files::write_json(&work.join(RECORD), &record)?;
     Ok(record)
 }
 
@@ -165,8 +164,8 @@ pub fn apply(cmd: &mut Command, work: &Path) -> Result<(), String> {
     }
     let home = home(work);
     fs::create_dir_all(&home).map_err(|e| format!("{}: {e}", home.display()))?;
-    let options = home.join("options.txt");
-    let own = crate::backend::game_home().join("options.txt");
+    let options = home.join(crate::game_folder::OPTIONS);
+    let own = crate::backend::game_home().join(crate::game_folder::OPTIONS);
     if !options.exists() && own.is_file() {
         let _ = fs::copy(own, &options);
     }

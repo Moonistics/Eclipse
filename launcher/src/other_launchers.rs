@@ -38,6 +38,7 @@
 //!
 //! Neither the CurseForge app nor the Modrinth App describes where it records an instance's
 //! Minecraft version, so the player names it when copying one.
+use crate::game_folder::{self, CONFIG, JAVA_MODS, OPTIONS, RESOURCE_PACKS, SAVES};
 use crate::instances::{self, Instance};
 use crate::loaders;
 use crate::sources::{self, Folders, Os};
@@ -73,31 +74,28 @@ pub struct Found {
 
 /// What a game folder shared with a launcher gives a new instance.
 const SHARED: [&str; 9] = [
-    "saves",
-    "mods",
-    "config",
-    "resourcepacks",
-    "shaderpacks",
-    "screenshots",
-    "options.txt",
-    "servers.dat",
+    SAVES,
+    JAVA_MODS,
+    CONFIG,
+    RESOURCE_PACKS,
+    game_folder::SHADER_PACKS,
+    game_folder::SCREENSHOTS,
+    OPTIONS,
+    game_folder::SERVERS,
     "optionsshaders.txt",
 ];
-/// What is never copied from an instance's own game folder: logs, the CurseForge app's own
-/// files, and the BlueMap web maps the game asks for tiles around the player
-/// (`eclipse_client_render::bluemap::SERVERS_FILE`): only the player names those, never a pack
-/// the other launcher installed.
-const SKIPPED: [&str; 7] = [
-    "logs",
-    "crash-reports",
-    "minecraftinstance.json",
-    ".curseclient",
-    "eclipse-bluemap.txt",
-    // Far terrain's copies of what servers sent, and of their web maps.
-    "server-terrain",
-    // The browser's list of what it installed (and may delete): only this launcher writes it.
-    "mod-browser.json",
-];
+const CURSEFORGE_FILES: [&str; 2] = ["minecraftinstance.json", ".curseclient"];
+
+fn skipped(name: &str) -> bool {
+    [
+        &CURSEFORGE_FILES[..],
+        &game_folder::REBUILT,
+        &game_folder::PRIVATE,
+        &game_folder::ONLY_OURS,
+    ]
+    .concat()
+    .contains(&name)
+}
 const CURSEFORGE: &str = "the CurseForge app";
 const MODRINTH_APP: &str = "the Modrinth App";
 const ATLAUNCHER: &str = "ATLauncher";
@@ -283,7 +281,7 @@ fn game_folders(dir: &Path, launcher: &'static str) -> Vec<Found> {
         .flatten()
         .map(|e| e.path())
         .filter(|p| {
-            ["saves", "mods", "options.txt", "resourcepacks", "config"]
+            [SAVES, JAVA_MODS, OPTIONS, RESOURCE_PACKS, CONFIG]
                 .iter()
                 .any(|f| p.join(f).exists())
         })
@@ -496,7 +494,7 @@ pub fn copy_game(found: &Found, to: &Path) -> std::io::Result<()> {
         let wanted = if found.shared {
             SHARED.contains(&name.as_ref())
         } else {
-            !SKIPPED.contains(&name.as_ref())
+            !skipped(&name)
         };
         if !wanted {
             continue;

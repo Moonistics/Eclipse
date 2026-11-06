@@ -7,6 +7,7 @@ use super::{
     details::{Details, GitHub, Link},
     download, installed, java, FileRef, Kind, Project, Query, Source, SourceId, Version, GAME,
 };
+use crate::game_folder;
 use eclipse_mods::index::{self, Index, Trust};
 use std::collections::HashMap;
 use std::fs;
@@ -82,11 +83,7 @@ pub fn index() -> Result<Arc<Index>, String> {
         }
         Err(e) => {
             let kept = fs::read_to_string(&cache).map_err(|_| e.clone())?;
-            match local() {
-                true => Index::parse_local(&kept),
-                false => Index::parse(&kept),
-            }
-            .map_err(|_| e)?
+            parse(&kept).map_err(|_| e)?
         }
     };
     let index = Arc::new(index);
@@ -98,10 +95,10 @@ fn fetch_index() -> Result<(Index, String), String> {
     use std::io::Read;
     let at = location();
     let text = if at.starts_with("https://") {
-        let response = download::agent(&at).get(&at).call().map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("The mod registry answered {code}."),
-            ureq::Error::Transport(t) => format!("The mod registry can't be reached: {t}"),
-        })?;
+        let response = download::agent(&at)
+            .get(&at)
+            .call()
+            .map_err(|e| crate::backend::network_error(&at, e))?;
         let mut text = String::new();
         response
             .into_reader()
@@ -112,11 +109,14 @@ fn fetch_index() -> Result<(Index, String), String> {
     } else {
         fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?
     };
-    let index = match local() {
-        true => Index::parse_local(&text)?,
-        false => Index::parse(&text)?,
-    };
-    Ok((index, text))
+    Ok((parse(&text)?, text))
+}
+
+fn parse(text: &str) -> Result<Index, String> {
+    match local() {
+        true => Index::parse_local(text),
+        false => Index::parse(text),
+    }
 }
 
 /// A project's ratings: 1 to 5 stars, their mean and how many.
@@ -685,8 +685,10 @@ fn trust_label(trust: Trust) -> &'static str {
 fn relative(kind: Kind, id: &str, file_name: &str) -> Result<String, String> {
     match kind {
         Kind::Mod => Ok(format!("{}/{id}.emod", java::MODS_DIR)),
-        Kind::ResourcePack => Ok(format!("resourcepacks/{file_name}")),
-        Kind::Shader => Ok(format!("shaderpacks/{file_name}")),
+        Kind::ResourcePack | Kind::Shader => Ok(format!(
+            "{}/{file_name}",
+            kind.folder().expect("packs have a folder")
+        )),
         Kind::Modpack => Err("A modpack installs as its own profile (pack::install).".into()),
         Kind::DataPack => Err("A data pack goes into a world (fetch_datapack).".into()),
     }
@@ -821,7 +823,7 @@ fn install_version_guarded(
     guard: &dyn Fn(&Path) -> Result<(), String>,
     progress: &dyn Fn(&str, f32),
 ) -> Result<installed::Entry, String> {
-    let _lock = crate::browser::lock_home(home);
+    let mut list = installed::Installed::open(home)?;
     let project = project_of(p).ok_or_else(|| format!("{} can't be installed here.", p.name))?;
     if let Some(r) = index.revoked(&p.id, &v.file.sha256) {
         return Err(format!("{} was taken down: {}", p.name, r.reason));
@@ -831,11 +833,13 @@ fn install_version_guarded(
         true => format!("{}/{}.hnmod", crate::native_mods::INSTALLED, p.id),
         false => relative(project.kind, &p.id, &v.file.name)?,
     };
-    let mut list = installed::Installed::load(home);
     let ours = |e: &installed::Entry| e.source == SourceId::Eclipse && e.project == p.id;
     let old = list.entries.iter().find(|e| ours(e)).cloned();
-    if old.as_ref().is_some_and(|o| o.version == v.version) {
-        return Ok(old.expect("checked"));
+    if let Some(old) = old
+        .clone()
+        .filter(|o| o.version == v.version && o.path(home).is_some_and(|f| f.exists()))
+    {
+        return Ok(old);
     }
     let target = home.join(&relative);
     let taken_by = list.entries.iter().find(|e| !ours(e) && e.file == relative);
@@ -858,8 +862,9 @@ fn install_version_guarded(
         return Err(format!("{relative} is already there: move it away first."));
     }
     let line = format!("{} {}", p.name, v.version);
-    let file = &version_of(index, p, v, None).files[0];
-    let staging = home.join("mod-browser/downloads");
+    let version = version_of(index, p, v, None);
+    let file = &version.files[0];
+    let staging = home.join(game_folder::BROWSER_FILES).join("downloads");
     let path = fetch(file, &staging, local, &|f| progress(&line, f))?;
     let checked = index::check_file(index, p, v, &path).and_then(|trust| {
         // Only Rust and TOML sources, for the mod the index names: nothing in it runs here.
@@ -891,27 +896,14 @@ fn install_version_guarded(
         java::set_enabled(home, &p.id, true)?;
     }
     let entry = installed::Entry {
-        source: SourceId::Eclipse,
-        project: p.id.clone(),
-        slug: p.id.clone(),
-        title: p.name.clone(),
-        kind: project.kind,
-        version: v.version.clone(),
-        number: v.version.clone(),
-        file: relative,
-        checksum: format!("SHA-256:{}", v.file.sha256),
-        page: project.page.clone(),
-        dependency: false,
         verdict: Some(trust_label(trust).into()),
         skipped: match needs_port(v) {
             true => vec![format!("its code ({NEEDS_PORT})")],
             false => Vec::new(),
         },
-        namespaces: Vec::new(),
+        ..installed::Entry::of(&project, &version, relative)
     };
-    list.entries.retain(|e| !ours(e));
-    list.entries.push(entry.clone());
-    list.save(home)?;
+    list.record(entry.clone())?;
     Ok(entry)
 }
 
@@ -938,7 +930,7 @@ pub fn turn_off_revoked(index: &Index, home: &Path) -> Vec<String> {
     let _lock = crate::browser::lock_home(home);
     let mut out = Vec::new();
     for e in installed::Installed::load(home).entries {
-        let hash = e.checksum.strip_prefix("SHA-256:").unwrap_or_default();
+        let hash = e.hash("SHA-256").unwrap_or_default();
         let Some(r) = (e.source == SourceId::Eclipse)
             .then(|| index.revoked(&e.project, hash))
             .flatten()
@@ -974,11 +966,7 @@ pub fn before_play(home: &Path) {
         return;
     }
     let kept = fs::read_to_string(crate::backend::game_home().join(CACHE)).ok();
-    let parse = |t: String| match local() {
-        true => Index::parse_local(&t).ok(),
-        false => Index::parse(&t).ok(),
-    };
-    if let Some(index) = kept.and_then(parse) {
+    if let Some(index) = kept.and_then(|t| parse(&t).ok()) {
         for line in turn_off_revoked(&index, home) {
             eprintln!("{line}");
         }

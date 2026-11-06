@@ -1,4 +1,4 @@
-use super::*;
+use super::{platform::*, releases::*, updates::*};
 use std::cell::RefCell;
 use std::hint::black_box;
 use std::sync::atomic::{AtomicUsize, Ordering};

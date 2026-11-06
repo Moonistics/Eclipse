@@ -4,6 +4,7 @@
 //! touched, and a Java instance's own settings (memory, Java, arguments, window) are put aside
 //! while it plays Eclipse, to come back with Java.
 use super::*;
+use crate::game_folder;
 use crate::loaders::Loader;
 
 /// What an instance plays.
@@ -46,10 +47,11 @@ impl Plays {
 
     /// Whether it loads mods made for `id` (a Quilt instance takes Fabric's too).
     fn loads(&self, id: &str) -> bool {
-        match (self, self.mods_for()) {
-            (Plays::Eclipse, _) => id == "eclipse",
-            (_, Some((own, _))) => own == id || (own == "quilt" && id == "fabric"),
-            (_, None) => false,
+        match self {
+            Plays::Eclipse => id == "eclipse",
+            Plays::Java { loader, .. } => loader
+                .as_ref()
+                .is_some_and(|l| l.kind.loads().iter().any(|m| m.id() == id)),
         }
     }
 }
@@ -95,7 +97,7 @@ pub fn unkept(instance: &Instance, to: &Plays, eclipse: &str) -> Vec<Unkept> {
             });
         }
     }
-    let worlds = worlds_in(&instance.home);
+    let worlds = game_folder::worlds(&instance.home).len();
     if worlds > 0 && was != now {
         out.push(Unkept::Worlds {
             count: worlds,
@@ -106,34 +108,30 @@ pub fn unkept(instance: &Instance, to: &Plays, eclipse: &str) -> Vec<Unkept> {
     out
 }
 
-/// The mods in `home`: a Eclipse instance's content mods (`mods/*.emod`) and native mods, a Java
-/// one's jars, on or off.
+/// The mods in `home`: a Eclipse instance's content mods (`eclipse-mods/<id>.emod`, and the
+/// folder mods ported from Java) and native mods, a Java one's jars, on or off.
 fn mod_files(home: &Path, eclipse: bool) -> usize {
-    let count = |dir: &str, ext: &dyn Fn(&str) -> bool| {
+    let count = |dir: &str, counted: &dyn Fn(&str, bool) -> bool| {
         fs::read_dir(home.join(dir)).map_or(0, |d| {
             d.flatten()
-                .filter(|e| e.path().is_file())
-                .filter(|e| ext(&e.file_name().to_string_lossy()))
+                .filter(|e| {
+                    let name = e.file_name().to_string_lossy().into_owned();
+                    !name.starts_with('.') && counted(&name, e.path().is_dir())
+                })
                 .count()
         })
     };
     if eclipse {
-        count("mods", &|n| n.ends_with(".emod"))
-            + count(crate::native_mods::INSTALLED, &|n| n.ends_with(".hnmod"))
+        count(game_folder::ECLIPSE_MODS, &|n, dir| {
+            dir || n.ends_with(".emod")
+        }) + count(crate::native_mods::INSTALLED, &|n, dir| {
+            !dir && n.ends_with(".hnmod")
+        })
     } else {
-        count("mods", &|n| {
-            n.ends_with(".jar") || n.ends_with(".jar.disabled")
+        count(game_folder::JAVA_MODS, &|n, dir| {
+            !dir && (n.ends_with(".jar") || n.ends_with(".jar.disabled"))
         })
     }
-}
-
-/// The worlds in `home`'s `saves`.
-fn worlds_in(home: &Path) -> usize {
-    fs::read_dir(home.join("saves")).map_or(0, |d| {
-        d.flatten()
-            .filter(|e| e.path().join("level.dat").is_file())
-            .count()
-    })
 }
 
 /// Switches what the instance `query` plays. Only an instance made in the launcher can: the

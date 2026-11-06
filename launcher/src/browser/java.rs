@@ -8,6 +8,7 @@
 //! Installing copies the carried-over folder mod into `eclipse-mods/<mod id>/` beside
 //! `options.txt` and turns it on in `eclipse-mods.txt`, where the game's Options > Mods reads it.
 use super::{installed::Entry, pick, FileRef, Kind, Project, Source, Support, Version};
+use crate::game_folder;
 use eclipse_port_pack::check::{self, Check, Verdict};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -15,9 +16,7 @@ use std::path::{Path, PathBuf};
 /// Where the checks are kept, under the game folder. Its name changes when the check finds
 /// more, so older answers are checked again.
 const CHECKS: &str = "mod-browser/checks-2";
-/// The game's mod folder and on-list, beside `options.txt` (`eclipse_client::mod_list`).
-pub const MODS_DIR: &str = "eclipse-mods";
-const MODS_LIST: &str = "eclipse-mods.txt";
+pub const MODS_DIR: &str = game_folder::ECLIPSE_MODS;
 /// How deep required mods are followed.
 const MAX_DEPTH: usize = 3;
 
@@ -112,47 +111,15 @@ pub fn check_project(
 
 /// Whether mod `id` is on in `eclipse-mods.txt`.
 pub fn is_enabled(home: &Path, id: &str) -> bool {
-    let key = format!("mod.{id}");
-    fs::read_to_string(home.join(MODS_LIST))
-        .unwrap_or_default()
-        .lines()
-        .filter_map(|l| l.split_once(':'))
-        .any(|(k, v)| k.trim() == key && v.trim() == "true")
+    let text = fs::read_to_string(home.join(game_folder::MODS_LIST)).unwrap_or_default();
+    game_folder::setting(&text, &format!("mod.{id}")) == Some("true")
 }
 
 /// Turns mod `id` on (or off) in `eclipse-mods.txt`, keeping the other lines.
 pub fn set_enabled(home: &Path, id: &str, on: bool) -> Result<(), String> {
     let _lock = super::lock_home(home);
-    let path = home.join(MODS_LIST);
-    let text = fs::read_to_string(&path).unwrap_or_default();
-    let key = format!("mod.{id}");
-    let mut lines: Vec<String> = text
-        .lines()
-        .filter(|l| l.split_once(':').is_none_or(|(k, _)| k.trim() != key))
-        .map(str::to_owned)
-        .collect();
-    if on {
-        lines.push(format!("{key}:true"));
-    }
-    let mut out = lines.join("\n");
-    if !out.is_empty() {
-        out.push('\n');
-    }
-    fs::write(&path, out).map_err(|e| format!("{}: {e}", path.display()))
-}
-
-fn copy_dir(from: &Path, to: &Path) -> Result<(), String> {
-    fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
-    for entry in fs::read_dir(from).map_err(|e| format!("{}: {e}", from.display()))? {
-        let entry = entry.map_err(|e| e.to_string())?;
-        let (src, dst) = (entry.path(), to.join(entry.file_name()));
-        if entry.file_type().map_err(|e| e.to_string())?.is_dir() {
-            copy_dir(&src, &dst)?;
-        } else {
-            fs::copy(&src, &dst).map_err(|e| format!("{}: {e}", dst.display()))?;
-        }
-    }
-    Ok(())
+    let path = home.join(game_folder::MODS_LIST);
+    game_folder::set_setting(&path, &format!("mod.{id}"), on.then_some("true"))
 }
 
 /// Installs the Java mod `project`: checked, carried over into `eclipse-mods/<id>/` and turned
@@ -230,7 +197,7 @@ impl Job<'_> {
             .expect("checked above")
             .join("carry");
         let relative = format!("{MODS_DIR}/{}", check.mod_id);
-        let mut installed = super::installed::Installed::load(home);
+        let mut installed = super::installed::Installed::open(home)?;
         let ours = |e: &Entry| e.source == project.source && e.project == project.id;
         if let Some(other) = installed.entries.iter().find(|e| {
             e.kind == Kind::Mod
@@ -252,39 +219,32 @@ impl Job<'_> {
         progress(&format!("Installing {}", project.title), 1.);
         let part = home.join(MODS_DIR).join(format!(".{}.part", check.mod_id));
         let _ = fs::remove_dir_all(&part);
-        copy_dir(&carry, &part).inspect_err(|_| {
+        crate::files::copy_dir(&carry, &part, &[]).map_err(|e| {
             let _ = fs::remove_dir_all(&part);
+            format!("{}: {e}", part.display())
         })?;
         if let Some(old) = &old {
             if let Some(dir) = old.path(home) {
                 let _ = fs::remove_dir_all(dir);
             }
-            if old.file != relative {
-                let _ = set_enabled(home, old.file.trim_start_matches("eclipse-mods/"), false);
+            if let Some(id) = old
+                .file
+                .strip_prefix(MODS_DIR)
+                .filter(|_| old.file != relative)
+            {
+                let _ = set_enabled(home, id.trim_start_matches('/'), false);
             }
         }
         fs::rename(&part, &target).map_err(|e| format!("{}: {e}", target.display()))?;
         set_enabled(home, &check.mod_id, true)?;
-        let (algo, hash) = file.checksum().expect("checked files have one");
         let entry = Entry {
-            source: project.source,
-            project: project.id.clone(),
-            slug: project.slug.clone(),
-            title: project.title.clone(),
-            kind: Kind::Mod,
-            version: version.id.clone(),
-            number: version.number.clone(),
-            file: relative,
-            checksum: format!("{algo}:{hash}"),
-            page: project.page.clone(),
             dependency: dependency && old.as_ref().is_none_or(|o| o.dependency),
             verdict: Some(check.verdict.label().to_owned()),
             skipped,
             namespaces: check.namespaces.clone(),
+            ..Entry::of(project, &version, relative)
         };
-        installed.entries.retain(|e| !ours(e));
-        installed.entries.push(entry.clone());
-        installed.save(home)?;
+        installed.record(entry.clone())?;
         done.push(entry);
         Ok(())
     }
@@ -293,7 +253,11 @@ impl Job<'_> {
 /// Removes an installed mod's folder and turns it off.
 pub fn remove(home: &Path, entry: &Entry) -> Result<(), String> {
     let _lock = super::lock_home(home);
-    let Some(id) = entry.file.strip_prefix("eclipse-mods/") else {
+    let Some(id) = entry
+        .file
+        .strip_prefix(MODS_DIR)
+        .and_then(|r| r.strip_prefix('/'))
+    else {
         return Err(format!("{} isn't in {MODS_DIR}/.", entry.file));
     };
     match entry.path(home).map_or(Ok(()), fs::remove_dir_all) {
@@ -314,20 +278,20 @@ mod tests {
         let _ = fs::remove_dir_all(&home);
         fs::create_dir_all(&home).unwrap();
         fs::write(
-            home.join(MODS_LIST),
+            home.join(game_folder::MODS_LIST),
             "mod.coords_hud:true\nmod.ruby:false\n",
         )
         .unwrap();
         set_enabled(&home, "ruby", true).unwrap();
         set_enabled(&home, "gem", true).unwrap();
         assert_eq!(
-            fs::read_to_string(home.join(MODS_LIST)).unwrap(),
+            fs::read_to_string(home.join(game_folder::MODS_LIST)).unwrap(),
             "mod.coords_hud:true\nmod.ruby:true\nmod.gem:true\n"
         );
         set_enabled(&home, "ruby", false).unwrap();
         set_enabled(&home, "gem", false).unwrap();
         assert_eq!(
-            fs::read_to_string(home.join(MODS_LIST)).unwrap(),
+            fs::read_to_string(home.join(game_folder::MODS_LIST)).unwrap(),
             "mod.coords_hud:true\n"
         );
         fs::remove_dir_all(&home).unwrap();

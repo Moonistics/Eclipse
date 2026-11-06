@@ -3,21 +3,15 @@ use super::{Bundle, MANIFEST};
 use std::fs;
 use std::path::Path;
 
-/// Match horizon-mixins crate IDs before using them as folder names.
-pub(super) fn valid_id(id: &str) -> bool {
-    !id.is_empty()
-        && id.len() <= 100
-        && id
-            .bytes()
-            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
-}
+/// The manifest tables only the launcher reads, which horizon-mixins doesn't know.
+pub(super) const LAUNCHER_ONLY: [&str; 2] = ["api", "dependencies"];
 
 pub(super) fn read(path: &Path) -> Result<toml::Table, String> {
     let text = fs::read_to_string(path).map_err(|e| format!("{}: {e}", path.display()))?;
     text.parse().map_err(|e| format!("{}: {e}", path.display()))
 }
 
-fn write(path: &Path, value: &toml::Table) -> Result<(), String> {
+pub(super) fn write(path: &Path, value: &toml::Table) -> Result<(), String> {
     let text = toml::to_string(value).map_err(|e| format!("{}: {e}", path.display()))?;
     fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
@@ -26,9 +20,11 @@ fn write(path: &Path, value: &toml::Table) -> Result<(), String> {
 pub(super) fn strip(bundle: &Bundle) -> Result<(), String> {
     let path = bundle.dir.join(MANIFEST);
     let mut manifest = read(&path)?;
-    let api = manifest.remove("api");
-    let dependencies = manifest.remove("dependencies");
-    if api.is_some() || dependencies.is_some() {
+    let removed = LAUNCHER_ONLY
+        .iter()
+        .filter(|table| manifest.remove(**table).is_some())
+        .count();
+    if removed > 0 {
         write(&path, &manifest)?;
     }
     Ok(())
@@ -117,6 +113,15 @@ fn main() {{
     )
 }
 
+fn package_name(manifest: &toml::Table, path: &Path) -> Result<String, String> {
+    manifest
+        .get("package")
+        .and_then(|p| p.get("name"))
+        .and_then(toml::Value::as_str)
+        .map(str::to_owned)
+        .ok_or_else(|| format!("{}: missing package name", path.display()))
+}
+
 /// API objects in the same order as the generated executable's mod list.
 pub(super) fn with_api(mods: &[Bundle]) -> impl Iterator<Item = &Bundle> {
     mods.iter().filter(|m| m.api.is_some())
@@ -126,28 +131,21 @@ pub(super) fn with_api(mods: &[Bundle]) -> impl Iterator<Item = &Bundle> {
 pub(super) fn stage(
     stage: &Path,
     bundles: &[Bundle],
-    declared: &[Vec<super::dependencies::Dependency>],
     resolution: &super::dependencies::Resolution,
 ) -> Result<bool, String> {
-    let mods: Vec<_> = resolution
+    let mods: Vec<&Bundle> = resolution
         .order
         .iter()
-        .map(|&i| (i, &bundles[i]))
-        .filter(|(_, b)| b.api.is_some())
+        .map(|&i| &bundles[i])
+        .filter(|b| b.api.is_some())
         .collect();
     let mut packages = std::collections::HashMap::new();
-    for (_, bundle) in &mods {
+    for bundle in &mods {
         let path = bundle
             .dir
             .join(bundle.api.as_ref().expect("filtered"))
             .join("Cargo.toml");
-        let manifest = read(&path)?;
-        let name = manifest
-            .get("package")
-            .and_then(|p| p.get("name"))
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| format!("{}: missing package name", path.display()))?;
-        packages.insert(bundle.id.as_str(), name.to_owned());
+        packages.insert(bundle.id.as_str(), package_name(&read(&path)?, &path)?);
     }
     if mods.is_empty() {
         return Ok(false);
@@ -165,19 +163,14 @@ pub(super) fn stage(
         client.insert("default-features".into(), false.into());
     }
     let mut members = Vec::new();
-    for (i, (index, bundle)) in mods.iter().enumerate() {
+    for (i, bundle) in mods.iter().enumerate() {
         let relative = format!("native-api/{}", bundle.id);
         let dest = stage.join(&relative);
         let source = bundle.dir.join(bundle.api.as_ref().expect("filtered"));
         super::sync(&source, &dest)?;
         let path = dest.join("Cargo.toml");
         let mut manifest = read(&path)?;
-        let package = manifest
-            .get("package")
-            .and_then(|p| p.get("name"))
-            .and_then(toml::Value::as_str)
-            .ok_or_else(|| format!("{}: missing package name", path.display()))?
-            .to_owned();
+        let package = package_name(&manifest, &path)?;
         let dependencies = manifest
             .get_mut("dependencies")
             .and_then(toml::Value::as_table_mut)
@@ -205,7 +198,8 @@ pub(super) fn stage(
             new.insert("default-features".into(), false.into());
         }
         *dependency = rewritten;
-        let targets: Vec<_> = declared[*index]
+        let targets: Vec<_> = bundle
+            .dependencies
             .iter()
             .map(|dependency| super::dependencies::Package {
                 dependency,
@@ -278,7 +272,7 @@ pub(super) fn stage(
         )])),
     );
     write(&game.join("Cargo.toml"), &manifest)?;
-    let ids: Vec<_> = mods.iter().map(|(_, bundle)| bundle.id.as_str()).collect();
+    let ids: Vec<_> = mods.iter().map(|bundle| bundle.id.as_str()).collect();
     fs::write(game.join("src/main.rs"), main_rs(&ids, names_mods(stage)))
         .map_err(|e| e.to_string())?;
     let root = stage.join("Cargo.toml");
@@ -397,7 +391,7 @@ mod tests {
         )
         .unwrap();
         let resolution = super::super::dependencies::Resolution { order: vec![0] };
-        assert!(stage(&stage_dir, &[bundle], &[vec![]], &resolution).unwrap());
+        assert!(stage(&stage_dir, &[bundle], &resolution).unwrap());
         let root = read(&stage_dir.join("Cargo.toml")).unwrap();
         let members = root["workspace"]["members"].as_array().unwrap();
         assert!(members
@@ -455,7 +449,7 @@ mod tests {
         .unwrap();
         fs::write(stage_dir.join("crates/eclipse-client/Cargo.toml"), "[package]\nname = 'eclipse-client'\nversion = '0.1.0'\n[build-dependencies]\neclipse-mod-api-gen = { path = '../eclipse-mod-api-gen' }\n").unwrap();
         let bundle = super::super::bundle(&dir, None).unwrap();
-        stage(&stage_dir, &[bundle], &[vec![]], &resolution).unwrap();
+        stage(&stage_dir, &[bundle], &resolution).unwrap();
         assert!(main().contains(r#"name_mods(&["example"]);"#));
         let game = read(&stage_dir.join(GAME).join("Cargo.toml")).unwrap();
         assert_eq!(

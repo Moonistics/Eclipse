@@ -67,39 +67,21 @@ fn is_date(text: &str) -> bool {
 }
 
 /// After `version`, a Nightly, installed as an update: the old Nightly instance follows it, and the
-/// older Nightlies go unless the selection or an instance still plays them. Worlds stay.
-pub fn after_update(version: &str) {
-    let list = instances::list();
-    if list
+/// older Nightlies nothing needs go (`backend::remove_unused`). Worlds stay. Returns the versions
+/// removed.
+pub fn after_update(version: &str) -> Vec<String> {
+    if instances::list()
         .iter()
         .any(|i| i.id == INSTANCE && i.version.as_deref().is_some_and(|v| date_of(v).is_some()))
     {
         let _ = instances::edit(INSTANCE, |meta| meta.version = Some(version.to_owned()));
     }
-    let selected = backend::Settings::load().selected;
-    let pinned: Vec<String> = instances::list()
-        .into_iter()
-        .filter_map(|i| i.version)
-        .collect();
-    for old in stale(&backend::installed(), version, selected.as_deref(), &pinned) {
-        let _ = backend::remove(&old);
-    }
-}
-
-/// The installed Nightlies to remove once `current` is installed: every other one that is neither
-/// selected nor pinned by an instance.
-fn stale(
-    installed: &[String],
-    current: &str,
-    selected: Option<&str>,
-    pinned: &[String],
-) -> Vec<String> {
-    installed
-        .iter()
-        .filter(|v| date_of(v).is_some() && *v != current && Some(v.as_str()) != selected)
-        .filter(|v| !pinned.contains(v))
-        .cloned()
-        .collect()
+    backend::remove_unused(
+        backend::installed()
+            .into_iter()
+            .filter(|v| date_of(v).is_some() && v != version)
+            .collect(),
+    )
 }
 
 #[cfg(test)]
@@ -142,25 +124,34 @@ mod tests {
         assert_eq!(label("v0.2.97"), None);
     }
 
+    #[cfg(unix)]
     #[test]
-    fn only_unused_older_nightlies_are_removed() {
-        let installed = [
-            "nightly-2026-10-29-aaaaaaa",
-            "nightly-2026-10-28-bbbbbbb",
-            "nightly-2026-10-28-ccccccc",
-            "nightly-2026-10-27-ddddddd",
-            "v0.2.95",
-        ]
-        .map(String::from);
-        let pinned = ["nightly-2026-10-27-ddddddd".to_string()];
-        assert_eq!(
-            stale(
-                &installed,
-                "nightly-2026-10-29-aaaaaaa",
-                Some("nightly-2026-10-28-ccccccc"),
-                &pinned
-            ),
-            ["nightly-2026-10-28-bbbbbbb"]
-        );
+    fn an_update_never_removes_a_nightly_that_is_running() {
+        let [current, running, old] = [
+            "nightly-2026-01-03-ccccccc",
+            "nightly-2026-01-02-bbbbbbb",
+            "nightly-2026-01-01-aaaaaaa",
+        ];
+        for version in [current, running, old] {
+            let dir = backend::version_dir(version);
+            std::fs::create_dir_all(&dir).unwrap();
+            backend::mark_installed(&dir).unwrap();
+        }
+        let program = backend::version_dir(running).join("eclipse-client");
+        let mut game = std::process::Command::new("sh")
+            .args(["-c", "sleep 30"])
+            .arg(&program)
+            .spawn()
+            .unwrap();
+        let gone = after_update(current);
+        let _ = game.kill();
+        let _ = game.wait();
+        let left = backend::installed();
+        for version in [current, running] {
+            let _ = std::fs::remove_dir_all(backend::version_dir(version));
+        }
+        assert_eq!(gone, [old]);
+        assert!(left.iter().any(|v| v == running), "{left:?}");
+        assert!(left.iter().any(|v| v == current), "{left:?}");
     }
 }

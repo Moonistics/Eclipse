@@ -67,7 +67,7 @@ impl fmt::Display for Error {
     }
 }
 
-#[derive(Debug)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) struct Dependency {
     pub id: String,
     pub requirement: VersionReq,
@@ -89,7 +89,7 @@ pub(super) fn parse(owner: &str, value: Option<&toml::Value>) -> Result<Vec<Depe
     table
         .iter()
         .map(|(id, value)| {
-            if !super::api::valid_id(id) {
+            if !super::valid_id(id) {
                 return Err(invalid(id, "invalid mod id"));
             }
             let (version, optional) = if let Some(version) = value.as_str() {

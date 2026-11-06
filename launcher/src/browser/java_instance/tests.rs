@@ -1,4 +1,5 @@
 use super::*;
+use crate::browser::installed::Game;
 use crate::browser::{download, modrinth, FileRef, SourceId};
 use sha2::Digest;
 use std::collections::HashMap;
@@ -231,7 +232,14 @@ fn installs_jars_with_dependencies_then_updates_and_removes() {
 
     fake.release("map", Kind::Mod, "2", &["1.21.1"], &["fabric"], &["lib"]);
     let entry = Installed::load(&home).lookup("map").cloned().unwrap();
-    assert_eq!(update_for(&fake, &t, &entry).unwrap().unwrap().number, "2");
+    assert_eq!(
+        Game::Java(t.clone())
+            .update_for(&fake, &entry)
+            .unwrap()
+            .unwrap()
+            .number,
+        "2"
+    );
     // Turned off, the mod is kept as `.jar.disabled`, which the loaders skip.
     set_on(&home, &entry, false).unwrap();
     assert!(!is_on(&home, &entry));
@@ -249,7 +257,10 @@ fn installs_jars_with_dependencies_then_updates_and_removes() {
     );
     let entry = Installed::load(&home).lookup("map").cloned().unwrap();
     assert!(!is_on(&home, &entry));
-    assert!(update_for(&fake, &t, &entry).unwrap().is_none());
+    assert!(Game::Java(t.clone())
+        .update_for(&fake, &entry)
+        .unwrap()
+        .is_none());
     install(&fake, &t, &map, &home, NONE).unwrap();
     assert!(!is_on(&home, &entry));
     set_on(&home, &entry, true).unwrap();

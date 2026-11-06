@@ -696,7 +696,6 @@
   "Game architecture": "游戏架构",
   "Install selected build": "安装所选版本",
   "Manual game architectures are available on Windows ARM only.": "仅 Windows ARM 支持手动选择游戏架构。",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "Windows ARM64 启动器暂不支持原生模组；目前没有可用的托管编译器。",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "目前无法为所选 ARM64 游戏构建原生模组。现有编译器仅构建 x64 版本。",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "无法为所选 x64 游戏构建原生模组。此 ARM64 启动器没有匹配的编译器。",
   "Say auto, x64 or arm64 for the game architecture.": "游戏架构请输入 auto、x64 或 arm64。",

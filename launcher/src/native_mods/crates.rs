@@ -8,10 +8,15 @@ use std::fs;
 use std::path::{Component, Path, PathBuf};
 use std::process::Command;
 
+use crate::native_cache::linked;
+
 /// Where horizon-mixins stages the mods' crates, in the workspace it writes.
 pub(super) const DIR: &str = "native-crates";
 /// The post-build steps it found, in mod order.
 const POST_BUILD: &str = "native-post-build.json";
+/// Where the mods' data goes, per mod: in the staged workspace (their bundles' `data/`) and in the
+/// built version's folder (what their post-build steps write, which the game reads).
+pub(super) const DATA: &str = "native-data";
 
 /// A package of a `Cargo.lock` from a registry (or git): the ones a build would download.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
@@ -134,7 +139,7 @@ fn manifests(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
     let mut out = Vec::new();
     let read = |d: &Path| -> Result<Vec<PathBuf>, String> {
         let metadata = fs::symlink_metadata(d).map_err(|e| format!("{}: {e}", d.display()))?;
-        if is_link_or_junction(&metadata) {
+        if linked(&metadata) {
             return Err(format!("{}: linked native crate directory", d.display()));
         }
         if !metadata.is_dir() {
@@ -146,7 +151,7 @@ fn manifests(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
             let path = entry.map_err(|e| format!("{}: {e}", d.display()))?.path();
             let metadata =
                 fs::symlink_metadata(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            if is_link_or_junction(&metadata) {
+            if linked(&metadata) {
                 return Err(format!("{}: linked native crate entry", path.display()));
             }
             if metadata.is_dir() {
@@ -166,7 +171,7 @@ fn manifests(dir: &Path) -> Result<Vec<(String, PathBuf)>, String> {
         for krate in read(&mod_dir)? {
             let manifest = krate.join("Cargo.toml");
             match fs::symlink_metadata(&manifest) {
-                Ok(metadata) if is_link_or_junction(&metadata) => {
+                Ok(metadata) if linked(&metadata) => {
                     return Err(format!("{}: linked crate manifest", manifest.display()));
                 }
                 Ok(metadata) if metadata.is_file() => out.push((id.clone(), manifest)),
@@ -212,13 +217,13 @@ fn validate_sibling_path(
     let mod_dir = crate_dir.parent().ok_or_else(invalid)?;
     let sibling = mod_dir.join(crate_id);
     let sibling_metadata = fs::symlink_metadata(&sibling).map_err(|_| invalid())?;
-    if is_link_or_junction(&sibling_metadata) || !sibling_metadata.is_dir() {
+    if linked(&sibling_metadata) || !sibling_metadata.is_dir() {
         return Err(invalid());
     }
 
     let sibling_manifest = sibling.join("Cargo.toml");
     let manifest_metadata = fs::symlink_metadata(&sibling_manifest).map_err(|_| invalid())?;
-    if is_link_or_junction(&manifest_metadata) || !manifest_metadata.is_file() {
+    if linked(&manifest_metadata) || !manifest_metadata.is_file() {
         return Err(invalid());
     }
     if !staged_manifests
@@ -240,22 +245,6 @@ fn validate_sibling_path(
         return Err(invalid());
     }
     Ok(())
-}
-
-/// `symlink_metadata` reports links without following them. Windows junctions are reparse points
-/// as well, so reject the reparse attribute even if the standard file type is not a symlink.
-fn is_link_or_junction(metadata: &fs::Metadata) -> bool {
-    if metadata.file_type().is_symlink() {
-        return true;
-    }
-    #[cfg(windows)]
-    {
-        use std::os::windows::fs::MetadataExt;
-        const FILE_ATTRIBUTE_REPARSE_POINT: u32 = 0x400;
-        metadata.file_attributes() & FILE_ATTRIBUTE_REPARSE_POINT != 0
-    }
-    #[cfg(not(windows))]
-    false
 }
 
 /// Why a mod's crates can't build with Eclipse's lock file `eclipse`: a crate they name that it
@@ -323,10 +312,7 @@ pub(super) fn post_builds(stage: &Path) -> Result<Vec<PostBuild>, String> {
         Ok(text) => {
             let steps: Vec<PostBuild> =
                 serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-            match steps
-                .iter()
-                .find(|s| !eclipse_mods::index::valid_id(&s.mod_id))
-            {
+            match steps.iter().find(|s| !super::valid_id(&s.mod_id)) {
                 Some(bad) => Err(format!(
                     "{}: invalid mod id {:?}",
                     path.display(),
@@ -348,7 +334,7 @@ pub(super) fn any(stage: &Path) -> bool {
     match fs::symlink_metadata(&dir) {
         Err(error) if error.kind() == std::io::ErrorKind::NotFound => false,
         Err(_) => true,
-        Ok(metadata) if is_link_or_junction(&metadata) || !metadata.is_dir() => true,
+        Ok(metadata) if linked(&metadata) || !metadata.is_dir() => true,
         Ok(_) => manifests(&dir).map_or(true, |m| !m.is_empty()),
     }
 }
@@ -365,7 +351,7 @@ pub(super) fn post_build(
     cache: &Path,
     stage: &Path,
 ) -> Result<Command, String> {
-    let data = version.join("native-data").join(&step.mod_id);
+    let data = version.join(DATA).join(&step.mod_id);
     let cache = cache.join(&step.mod_id);
     for dir in [&data, &cache] {
         fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
@@ -380,7 +366,7 @@ pub(super) fn post_build(
         .env("ECLIPSE_NATIVE_CACHE_DIR", &cache)
         .env(
             "ECLIPSE_NATIVE_BUNDLE_DATA_DIR",
-            stage.join("native-data").join(&step.mod_id),
+            stage.join(DATA).join(&step.mod_id),
         );
     Ok(cmd)
 }
@@ -800,5 +786,23 @@ checksum = "def"
         fs::remove_file(root.join(POST_BUILD)).unwrap();
         fs::create_dir(root.join(POST_BUILD)).unwrap();
         assert!(post_builds(&root).is_err());
+    }
+
+    /// A mod's post-build step goes by the mod's own id, whatever id the build took it with: a
+    /// mod `My-Mod` used to compile the whole game, then have its step refused.
+    #[test]
+    fn a_mod_the_build_takes_runs_its_post_build_step() {
+        let root = super::super::tests::dir("post-build-id");
+        let bundle = root.join("bundle");
+        fs::create_dir_all(&bundle).unwrap();
+        fs::write(
+            bundle.join(super::super::MANIFEST),
+            "[mod]\nid = \"My-Mod\"\nversion = \"1.0.0\"\n",
+        )
+        .unwrap();
+        let id = super::super::bundles(&bundle).unwrap().remove(0).id;
+        let steps = format!(r#"[{{"mod":"{id}","package":"tables","bin":"bake"}}]"#);
+        fs::write(root.join(POST_BUILD), steps).unwrap();
+        assert_eq!(post_builds(&root).unwrap()[0].mod_id, "My-Mod");
     }
 }

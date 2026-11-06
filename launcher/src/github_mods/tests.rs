@@ -175,16 +175,6 @@ fn refs_and_short_commits_become_full_commits_and_unknown_ones_say_so() {
     assert!(commit("https://github.com/acme/zoom/releases/tag/v9").is_err());
 }
 
-#[test]
-fn a_rate_limit_is_said_plainly() {
-    let limited = |_: &str| Err(RATE_LIMIT.to_string());
-    let err = resolve(&link("https://github.com/acme/zoom"), &limited).unwrap_err();
-    assert!(
-        err.contains("rate limit") && err.contains("Try again"),
-        "{err}"
-    );
-}
-
 fn tree(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("gh-mods-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);

@@ -696,7 +696,6 @@
   "Game architecture": "Arhitektura igre",
   "Install selected build": "Instaliraj odabranu verziju",
   "Manual game architectures are available on Windows ARM only.": "Ručni odabir arhitekture igre dostupan je samo na Windows ARM-u.",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "Windows ARM64 pokretač još ne podržava nativne modove; njegov upravljani prevoditelj nije dostupan.",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "Još nije moguće izgraditi nativne modove za odabranu ARM64 igru. Dostupni prevoditelj izrađuje samo x64.",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "Ne mogu se izgraditi nativni modovi za odabranu x64 igru. Ovaj ARM64 pokretač nema odgovarajući prevoditelj.",
   "Say auto, x64 or arm64 for the game architecture.": "Unesite auto, x64 ili arm64 za arhitekturu igre.",

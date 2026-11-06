@@ -696,7 +696,6 @@
   "Game architecture": "بنية اللعبة",
   "Install selected build": "ثبّت النسخة المحددة",
   "Manual game architectures are available on Windows ARM only.": "يتوفر اختيار بنية اللعبة يدويًا على Windows ARM فقط.",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "لا يدعم مشغّل Windows ARM64 التعديلات الأصلية بعد؛ فالمترجم المُدار غير متوفر.",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "لا يمكن حتى الآن إنشاء تعديلات أصلية للعبة ARM64 المحددة. المترجم المتاح ينشئ نسخ x64 فقط.",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "لا يمكن إنشاء تعديلات أصلية للعبة x64 المحددة. لا يتوفر لهذا المشغّل ARM64 مترجم متوافق.",
   "Say auto, x64 or arm64 for the game architecture.": "أدخل auto أو x64 أو arm64 لبنية اللعبة.",

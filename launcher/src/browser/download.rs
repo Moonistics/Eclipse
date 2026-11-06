@@ -40,26 +40,12 @@ pub fn github_release_asset(url: &str) -> bool {
 /// Bigger than any pack these sources serve (Modrinth caps uploads at 500 MiB).
 const MAX: u64 = 1 << 30;
 
-/// The HTTP agent the sources share, reaching `url` through the player's proxy when one is set
-/// (`proxy`). Modrinth asks for a user agent that names the project.
-///
-/// It is kept between downloads: a fresh agent starts a new connection pool, so one per file would
-/// be a handshake per file, and a modpack brings hundreds.
+/// The launcher's agent for `url` (`backend::agent`: its user agent, proxy and timeouts), kept
+/// between downloads: a fresh agent starts a new connection pool, so one per file would be a
+/// handshake per file, and a modpack brings hundreds.
 pub(super) fn agent(url: &str) -> ureq::Agent {
     let spec = crate::proxy::spec_for(url);
-    eclipse_port_pack::net::keep("browser", spec.as_deref(), |proxy| {
-        let builder = ureq::AgentBuilder::new()
-            .user_agent(&format!(
-                "Moonistics/Eclipse eclipse-launcher/{} (github.com/Moonistics/Eclipse)",
-                crate::backend::VERSION
-            ))
-            .timeout_connect(std::time::Duration::from_secs(15))
-            .timeout_read(std::time::Duration::from_secs(60));
-        match proxy {
-            Some(proxy) => builder.proxy(proxy).build(),
-            None => builder.build(),
-        }
-    })
+    eclipse_port_pack::net::keep("browser", spec.as_deref(), |_| crate::backend::agent(url))
 }
 
 /// Why a file can't be downloaded at all, before any byte is read.
@@ -195,9 +181,6 @@ pub fn fetch(file: &FileRef, folder: &Path, progress: &dyn Fn(f32)) -> Result<Pa
     let response = agent(&file.url)
         .get(&file.url)
         .call()
-        .map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("{} answered {code}.", file.url),
-            ureq::Error::Transport(t) => format!("No connection: {t}"),
-        })?;
+        .map_err(|e| crate::backend::network_error(&file.url, e))?;
     save(file, response.into_reader(), folder, progress)
 }

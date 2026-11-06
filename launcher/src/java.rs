@@ -234,6 +234,10 @@ pub fn pick(
         .cloned())
 }
 
+pub fn download(component: &str, log: &dyn Fn(String)) -> Result<PathBuf, String> {
+    mojang::java_runtime(component, &runtimes_dir(), 8, &backend::get_bytes, log)
+}
+
 /// Downloads Mojang's runtime for `need` into [`runtimes_dir`] (what is already there and whole
 /// is kept).
 pub fn install(need: &Need, log: &dyn Fn(String)) -> Result<Runtime, String> {
@@ -247,20 +251,7 @@ pub fn install(need: &Need, log: &dyn Fn(String)) -> Result<Runtime, String> {
             need.major
         ));
     }
-    let fetch = |url: &str| -> Result<Vec<u8>, String> {
-        let mut body = Vec::new();
-        std::io::Read::read_to_end(&mut backend::get(url)?.into_reader(), &mut body)
-            .map_err(|e| e.to_string())?;
-        Ok(body)
-    };
-    let home = mojang::java_runtime(
-        &need.component,
-        &runtimes_dir(),
-        8,
-        &fetch,
-        &mojang::CANCEL,
-        log,
-    )?;
+    let home = download(&need.component, log)?;
     let home = ["jre.bundle/Contents/Home", ""]
         .iter()
         .map(|sub| home.join(sub))

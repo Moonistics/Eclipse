@@ -34,12 +34,24 @@ pub fn label(version: &str) -> Option<String> {
 }
 
 /// What an imported build was made from: its `imported.json`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct About {
     /// The release or Nightly whose game files it plays with.
     pub base: String,
     /// The file the player picked.
     pub file: String,
+    #[serde(default)]
+    pub sha256: String,
+}
+
+impl About {
+    fn read(dir: &Path) -> Option<Self> {
+        serde_json::from_slice(&fs::read(dir.join(RECORD)).ok()?).ok()
+    }
+
+    fn write(&self, dir: &Path) -> std::io::Result<()> {
+        fs::write(dir.join(RECORD), serde_json::to_vec(self)?)
+    }
 }
 
 /// What installed imported build `version` was made from; None for any other version.
@@ -47,19 +59,7 @@ pub fn about(version: &str) -> Option<About> {
     if !is_imported(version) {
         return None;
     }
-    let json: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(backend::version_dir(version).join(RECORD)).ok()?)
-            .ok()?;
-    let field = |name: &str| json[name].as_str().map(str::to_owned);
-    Some(About {
-        base: field("base")?,
-        file: field("file")?,
-    })
-}
-
-/// A version Eclipse published and signed: a release or a Nightly.
-fn official(version: &str) -> bool {
-    backend::is_game_tag(version) || crate::nightly::date_of(version).is_some()
+    About::read(&backend::version_dir(version))
 }
 
 /// The installed version an import takes its game files from: `requested` (`--version`), else
@@ -69,7 +69,8 @@ fn base_for(
     requested: Option<&str>,
     selected: Option<&str>,
 ) -> Result<String, String> {
-    let usable = |v: &str| official(v) && installed.iter().any(|t| t == v);
+    let usable =
+        |v: &str| native_mods::is_release_or_nightly(v) && installed.iter().any(|t| t == v);
     match requested {
         Some(b) if usable(b) => Ok(b.to_owned()),
         Some(b) => Err(format!("{b} is not an installed release or Nightly.")),
@@ -91,10 +92,7 @@ fn base_for(
 /// the game files of `requested` (default: [`base_for`]), prepared from another version where it
 /// can be, and selects it. Importing the same program again selects the version it made before.
 pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
-    let file = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
+    let file = file_name(path);
     let program = read_program(path, &file)?;
     if !is_game(&program) {
         return Err(not_a_game(&file));
@@ -126,11 +124,14 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
 /// [`import`] checks again and says precisely why a file is not one, so this
 /// answers only yes or no. It reads the whole program, so it is asked last.
 pub fn holds_game(path: &Path) -> bool {
-    let file = path.file_name().map_or_else(
+    read_program(path, &file_name(path)).is_ok_and(|program| is_game(&program))
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
-    );
-    read_program(path, &file).is_ok_and(|program| is_game(&program))
+    )
 }
 
 fn not_a_game(file: &str) -> String {
@@ -265,7 +266,7 @@ fn install_in(
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let short = &sha256[..7];
+    let short = native_mods::short(&sha256);
     // The same program imported on another day is the version made then.
     let made = fs::read_dir(versions)
         .into_iter()
@@ -275,7 +276,7 @@ fn install_in(
             let name = e.file_name().into_string().ok()?;
             (is_imported(&name)
                 && name.ends_with(&format!("-{short}"))
-                && e.path().join(".installed").exists())
+                && backend::is_installed(&e.path()))
             .then_some(name)
         });
     if let Some(tag) = made {
@@ -290,7 +291,11 @@ fn install_in(
     let partial = versions
         .join(".importing")
         .join(format!("{tag}-{}-{n}", std::process::id()));
-    let record = serde_json::json!({ "base": base, "file": file, "sha256": sha256 });
+    let record = About {
+        base: base.into(),
+        file: file.into(),
+        sha256: sha256.clone(),
+    };
     let made = fs::create_dir_all(&partial)
         .map_err(|e| e.to_string())
         .and_then(|()| native_mods::copy_base(&versions.join(base), &partial, Target::Client))
@@ -305,22 +310,17 @@ fn install_in(
 /// Puts `program`, its record and the installed mark into the copied folder `partial`, then
 /// moves it into place as version `dir` in one step: no other call ever sees it half made, and a
 /// version already there (the same program, imported meanwhile) stays.
-fn finish(
-    partial: &Path,
-    dir: &Path,
-    program: &[u8],
-    record: &serde_json::Value,
-) -> std::io::Result<()> {
+fn finish(partial: &Path, dir: &Path, program: &[u8], record: &About) -> std::io::Result<()> {
     fs::write(partial.join(CLIENT), program)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(partial.join(CLIENT), fs::Permissions::from_mode(0o755))?;
     }
-    fs::write(partial.join(RECORD), record.to_string())?;
-    fs::write(partial.join(".installed"), "")?;
+    record.write(partial)?;
+    backend::mark_installed(partial)?;
     retried(|| match fs::rename(partial, dir) {
-        Err(_) if dir.join(".installed").exists() => Ok(()),
+        Err(_) if backend::is_installed(dir) => Ok(()),
         Err(e) => {
             // No mark: not a version, but what a removal left while its game still ran.
             let _ = fs::remove_dir_all(dir);
@@ -411,7 +411,7 @@ mod tests {
             tag.starts_with("imported-2026-11-01-") && tag.len() == 27,
             "{tag}"
         );
-        assert!(is_imported(&tag) && !official(&tag));
+        assert!(is_imported(&tag) && !native_mods::is_release_or_nightly(&tag));
         assert_eq!(label(&tag).as_deref(), Some("Imported · 2026-11-01"));
         let dir = versions.join(&tag);
         assert_eq!(fs::read(dir.join(CLIENT)).unwrap(), built);

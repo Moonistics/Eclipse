@@ -4,6 +4,7 @@
 //! The instance's `mod-browser.json` lists all but the data packs, as for Eclipse's folder.
 use super::installed::{self, Entry, Installed, Step};
 use super::{details, Kind, Project, Query, Source, Support, Version};
+use crate::game_folder;
 use std::fs;
 use std::path::Path;
 
@@ -23,11 +24,11 @@ pub struct Target {
 }
 
 impl Target {
-    /// Whether a file made for `loader` runs here. Quilt loads Fabric mods
-    /// (<https://quiltmc.org/en/about/faq/>), so a Quilt instance takes them too.
+    /// Whether a file made for `loader` runs here ([`crate::loaders::Kind::loads`]).
     pub fn accepts(&self, loader: &str) -> bool {
         match self.loader.as_deref() {
-            Some(l) => l == loader || (l == "quilt" && loader == "fabric"),
+            Some(l) => crate::loaders::Kind::parse(l)
+                .map_or(l == loader, |k| k.loads().iter().any(|m| m.id() == loader)),
             None => false,
         }
     }
@@ -40,11 +41,11 @@ impl Target {
                  for mods.",
                 self.minecraft
             )),
-            Kind::Mod => Ok("mods"),
-            Kind::ResourcePack => Ok("resourcepacks"),
+            Kind::Mod => Ok(game_folder::JAVA_MODS),
+            Kind::ResourcePack => Ok(game_folder::RESOURCE_PACKS),
             Kind::Modpack => Err("A modpack is imported as its own instance.".into()),
             Kind::DataPack => Err("A data pack goes in a world.".into()),
-            Kind::Shader => Ok("shaderpacks"),
+            Kind::Shader => Ok(game_folder::SHADER_PACKS),
         }
     }
 
@@ -126,7 +127,7 @@ impl Target {
             return usable.find(|v| made_for(&v.loaders, &SHADER_PACK_LOADERS));
         }
         if kind == Kind::DataPack {
-            return usable.find(|v| made_for(&v.loaders, &["datapack"]));
+            return usable.find(|v| made_for(&v.loaders, &[super::DATAPACK_LOADER]));
         }
         if kind != Kind::Mod {
             return usable.find(|v| v.loaders.iter().any(|l| l == "minecraft"));
@@ -144,7 +145,7 @@ fn made_for(loaders: &[String], wanted: &[&str]) -> bool {
 }
 
 pub fn loads_shaders(home: &Path) -> bool {
-    fs::read_dir(home.join("mods"))
+    fs::read_dir(home.join(game_folder::JAVA_MODS))
         .into_iter()
         .flatten()
         .flatten()
@@ -228,7 +229,7 @@ pub fn install(
         else {
             continue;
         };
-        if let Some(file) = off(home, old).filter(|_| old.file != e.file) {
+        if let Some(file) = old.off(home).filter(|_| old.file != e.file) {
             let _ = fs::remove_file(file);
         }
         set_on(home, e, false)?;
@@ -263,19 +264,9 @@ pub fn install_datapack(
     Ok((added?, version.number.clone()))
 }
 
-/// A mod turned off keeps its file under this suffix, which the loaders don't read: they load
-/// the `.jar` files in `mods/`.
-const OFF: &str = ".disabled";
-
-/// `None` for an entry outside the folders the browser installs into ([`installed::in_folders`]).
-fn off(home: &Path, entry: &Entry) -> Option<std::path::PathBuf> {
-    entry.path(home)?;
-    Some(home.join(format!("{}{OFF}", entry.file)))
-}
-
 /// Whether the game loads `entry`: everything but a mod turned off.
 pub fn is_on(home: &Path, entry: &Entry) -> bool {
-    entry.kind != Kind::Mod || !off(home, entry).is_some_and(|o| o.is_file())
+    entry.kind != Kind::Mod || !entry.off(home).is_some_and(|o| o.is_file())
 }
 
 /// Turns the mod `entry` on or off by renaming its file; it stays installed.
@@ -287,7 +278,7 @@ pub fn set_on(home: &Path, entry: &Entry, on: bool) -> Result<(), String> {
             entry.title
         ));
     }
-    let (Some(jar), Some(off)) = (entry.path(home), off(home, entry)) else {
+    let (Some(jar), Some(off)) = (entry.path(home), entry.off(home)) else {
         return Err(format!("{:?} isn't a plain file name.", entry.file));
     };
     let (from, to) = if on { (off, jar) } else { (jar, off) };
@@ -297,39 +288,21 @@ pub fn set_on(home: &Path, entry: &Entry, on: bool) -> Result<(), String> {
     fs::rename(&from, &to).map_err(|e| format!("{}: {e}", from.display()))
 }
 
-/// The newer version `entry` can be updated to, if any.
-pub fn update_for(
-    source: &dyn Source,
-    target: &Target,
-    entry: &Entry,
-) -> Result<Option<Version>, String> {
-    let project = source.project(&entry.project)?;
-    let versions = source.versions(&project)?;
-    Ok(target
-        .pick(project.kind, &versions)
-        .filter(|v| v.id != entry.version)
-        .cloned())
-}
-
 /// Removes what the browser installed in the instance for `name` (a project id or slug).
 pub fn remove(home: &Path, name: &str) -> Result<Entry, String> {
-    let _lock = super::lock_home(home);
-    let mut installed = Installed::load(home);
+    let mut installed = Installed::open(home)?;
     let entry = installed
         .lookup(name)
         .cloned()
         .ok_or_else(|| format!("{name} wasn't installed by the browser."))?;
-    for path in [entry.path(home), off(home, &entry)].into_iter().flatten() {
+    for path in [entry.path(home), entry.off(home)].into_iter().flatten() {
         match fs::remove_file(&path) {
             Ok(()) => {}
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}
             Err(e) => return Err(format!("{}: {e}", path.display())),
         }
     }
-    installed
-        .entries
-        .retain(|e| !(e.source == entry.source && e.project == entry.project));
-    installed.save(home)?;
+    installed.forget(&entry)?;
     Ok(entry)
 }
 

@@ -169,7 +169,7 @@ impl Resolved {
 fn label(name: &str, tag: Option<&str>, commit: &str) -> String {
     match tag {
         Some(tag) => format!("{name} @ {tag}"),
-        None => format!("{name} @ {}", &commit[..commit.len().min(7)]),
+        None => format!("{name} @ {}", native_mods::short(commit)),
     }
 }
 
@@ -185,10 +185,9 @@ pub fn api(path: &str) -> Result<Option<serde_json::Value>, String> {
     let url = format!("https://api.github.com/{path}");
     match backend::get(&url) {
         Ok(response) => response.into_json().map(Some).map_err(|e| e.to_string()),
-        Err(e) if e.ends_with("answered 404") => Ok(None),
-        Err(e) if e.ends_with("answered 429") => Err(RATE_LIMIT.into()),
-        Err(e) if e.contains("rate limit") => Err(RATE_LIMIT.into()),
-        Err(e) => Err(e),
+        Err(e) if e.is_not_found() => Ok(None),
+        Err(e) if e.is_rate_limited() || e.status() == Some(429) => Err(RATE_LIMIT.into()),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -253,7 +252,6 @@ fn assets(release: &serde_json::Value, link: &Link) -> (Option<Asset>, Option<St
     let hnmod = named(".hnmod").find_map(|a| {
         let url = a["browser_download_url"].as_str()?.to_owned();
         let name = a["name"].as_str()?.to_owned();
-        // Only this repository's own release files.
         url.starts_with(&prefix).then(|| Asset {
             name,
             url,
@@ -387,7 +385,7 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    native_mods::root().join("github").join(name)
+    crate::native_cache::Dirs::current().github().join(name)
 }
 
 /// Reads `bytes` as `.hnmod`, with the registry's checks, into a file `Packed` names.
@@ -407,9 +405,9 @@ fn checked(bytes: &[u8], dir: &Path) -> Result<Packed, String> {
     })
 }
 
-/// Every mod folder under `root`: a `eclipse-mixin.toml`, or an unpacked `.hnmod`
-/// (`eclipse-native.json`), the rules of `native-build <folder>`. A mod's folder is not searched
-/// further.
+/// Every mod folder under `root`, as deep as [`DEPTH`] and past build output and hidden folders:
+/// a `eclipse-mixin.toml`, or an unpacked `.hnmod` (`eclipse-native.json`), each read as
+/// `native-build <folder>` reads one. A mod's folder is not searched further.
 pub fn find_mods(root: &Path) -> Result<Vec<Bundle>, String> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<Bundle>) -> Result<(), String> {
         if let Some(found) = native_mods::bundle_in(dir)? {
@@ -544,11 +542,12 @@ pub fn fetch(found: &Resolved) -> Result<Vec<Packed>, String> {
         }
         return Ok(vec![checked(&bytes, &dir)?]);
     }
-    let url = format!(
-        "https://codeload.github.com/{}/{}/tar.gz/{}",
-        found.owner, found.repo, found.commit
-    );
-    let top = native_mods::unpack_archive(&url, &dir.join("source"), MAX_ARCHIVE)?;
+    let top = crate::github::unpack_archive(
+        &found.name(),
+        &found.commit,
+        &dir.join("source"),
+        MAX_ARCHIVE,
+    )?;
     let mods = find_mods(&top)?;
     if mods.is_empty() {
         return Err(match &found.content_only {

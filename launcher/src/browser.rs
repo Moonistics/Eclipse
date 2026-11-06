@@ -6,7 +6,6 @@
 //! checked before install ([`java`]), modpacks (imported and ported), resource packs
 //! (`resourcepacks/`) and data packs (into a world, [`installed::install_datapack`]). Java code
 //! itself doesn't run in Eclipse (docs/mods.md).
-pub mod curseforge;
 pub mod details;
 pub mod download;
 pub mod eclipse;
@@ -63,8 +62,8 @@ impl Kind {
     /// and a data pack put in a world instead.
     pub fn folder(self) -> Option<&'static str> {
         match self {
-            Kind::ResourcePack => Some("resourcepacks"),
-            Kind::Shader => Some("shaderpacks"),
+            Kind::ResourcePack => Some(crate::game_folder::RESOURCE_PACKS),
+            Kind::Shader => Some(crate::game_folder::SHADER_PACKS),
             Kind::Modpack | Kind::Mod | Kind::DataPack => None,
         }
     }
@@ -208,7 +207,7 @@ pub struct Version {
     pub files: Vec<FileRef>,
     /// Required dependencies, as project ids on the same source.
     pub required: Vec<String>,
-    /// Why this version can't be downloaded from here (CurseForge authors can forbid it).
+    /// Why this version can't be downloaded from here.
     pub blocked: Option<String>,
 }
 
@@ -277,6 +276,8 @@ pub trait Source: Send + Sync {
     }
 }
 
+pub const DATAPACK_LOADER: &str = "datapack";
+
 /// What the launcher says wherever CurseForge would be.
 pub const CURSEFORGE_SOON: &str = "CurseForge support is coming soon.";
 /// What another source answers for shader packs: Eclipse's own are on its registry only.
@@ -284,8 +285,7 @@ pub const SHADERS_ON_ECLIPSE: &str =
     "Shader packs come from Eclipse. Switch the source to Eclipse.";
 
 /// The sources this launcher uses: Modrinth and Eclipse's registry. CurseForge support is coming
-/// soon: its API needs a paid key, so no search or install goes to it; `curseforge` is kept for
-/// then.
+/// soon: its API needs a paid key, so no search or install goes to it.
 pub fn sources() -> Vec<Box<dyn Source>> {
     vec![Box::new(modrinth::Modrinth), Box::new(eclipse::Registry)]
 }
@@ -298,7 +298,6 @@ pub fn source(id: SourceId) -> Option<Box<dyn Source>> {
 /// How well a project of `kind` made for `game_versions` and `loaders` runs in Eclipse.
 pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Support {
     if loaders.iter().any(|l| l == eclipse::LOADER) {
-        // Made for Eclipse and reviewed: it runs when it is for the version Eclipse plays.
         return match newest_release(game_versions)
             .filter(|_| !game_versions.iter().any(|v| v == GAME))
         {
@@ -407,7 +406,7 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
     }
     if kind == Kind::DataPack {
         // Most data packs on Modrinth ship a mod build too: only the data pack files.
-        let mut packs = usable.filter(|v| v.loaders.iter().any(|l| l == "datapack"));
+        let mut packs = usable.filter(|v| v.loaders.iter().any(|l| l == DATAPACK_LOADER));
         let made_for = |v: &&Version| v.game_versions.iter().any(|g| g == GAME);
         return packs
             .clone()

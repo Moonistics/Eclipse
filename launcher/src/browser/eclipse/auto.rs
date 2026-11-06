@@ -76,7 +76,7 @@ impl Report {
 
 /// Whether game folder `home` is a registry modpack's profile (`pack::home`).
 pub fn in_pack(home: &Path) -> bool {
-    home.ends_with("home") && home.parent().is_some_and(super::pack::is_pack)
+    home.ends_with(crate::game_folder::PROFILE) && home.parent().is_some_and(super::pack::is_pack)
 }
 
 /// Whether `entry` updates automatically, and to what.
@@ -156,19 +156,7 @@ fn save_kept(home: &Path, list: &[Kept]) -> Result<(), String> {
         let _ = fs::remove_file(&path);
         return Ok(());
     }
-    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-    let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-    let part = home.join(format!(".replaced.{}-{id}.part", std::process::id()));
-    let text = serde_json::to_string_pretty(list).map_err(|e| e.to_string())?;
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    }
-    let res = fs::write(&part, text).and_then(|()| fs::rename(&part, &path));
-    if let Err(e) = res {
-        let _ = fs::remove_file(&part);
-        return Err(format!("{}: {e}", path.display()));
-    }
-    Ok(())
+    crate::files::write_json(&path, list)
 }
 
 /// Whether the browser's list has `kept`'s project at a newer version whose file is in place.
@@ -177,7 +165,7 @@ fn finished(home: &Path, kept: &Kept) -> bool {
     let Some(now) = list.find(SourceId::Eclipse, &kept.entry.project) else {
         return false;
     };
-    let hash = now.checksum.strip_prefix("SHA-256:").unwrap_or_default();
+    let hash = now.hash("SHA-256").unwrap_or_default();
     now.version != kept.entry.version
         && now
             .path(home)
@@ -190,20 +178,16 @@ fn restore(home: &Path, kept: &Kept) -> Result<(), String> {
     let (Some(target), copy) = (kept.entry.path(home), home.join(&kept.copy)) else {
         return Err(format!("{} is outside the game folder", kept.entry.file));
     };
+    let mut list = installed::Installed::open(home)?;
     fs::copy(&copy, &target).map_err(|e| format!("{}: {e}", target.display()))?;
-    let mut list = installed::Installed::load(home);
-    let ours =
-        |e: &installed::Entry| e.source == SourceId::Eclipse && e.project == kept.entry.project;
-    if let Some(now) = list.entries.iter().find(|e| ours(e)) {
-        if now.file != kept.entry.file {
-            if let Some(path) = now.path(home) {
-                let _ = fs::remove_file(path);
-            }
-        }
+    let now = list.find(SourceId::Eclipse, &kept.entry.project);
+    if let Some(path) = now
+        .filter(|now| now.file != kept.entry.file)
+        .and_then(|now| now.path(home))
+    {
+        let _ = fs::remove_file(path);
     }
-    list.entries.retain(|e| !ours(e));
-    list.entries.push(kept.entry.clone());
-    list.save(home)
+    list.record(kept.entry.clone())
 }
 
 /// At start: each file an earlier launcher replaced is dropped when its update finished, put back
@@ -250,9 +234,6 @@ fn keep(home: &Path, entry: &installed::Entry) -> Result<Kept, String> {
 /// Updates every installed registry project of game folder `home` that [`decide`] says, by the
 /// index (fetched at most every ten minutes); None when it can't be read.
 pub fn run(home: &Path, ctx: &Context, progress: &dyn Fn(&str, f32)) -> Option<Report> {
-    // The start's run and Play's never touch a folder at once.
-    static ONE: std::sync::Mutex<()> = std::sync::Mutex::new(());
-    let _one = ONE.lock().unwrap_or_else(|e| e.into_inner());
     // The index comes first: the folder stays free while it downloads.
     let index = super::index().ok()?;
     Some(run_with(&index, super::local(), home, ctx, progress))
@@ -298,7 +279,6 @@ fn update(
     home: &Path,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Option<String>, String> {
-    let _lock = crate::browser::lock_home(home);
     let list = installed::Installed::load(home);
     let Some(current) = list.find(entry.source, &entry.project) else {
         return Ok(None);

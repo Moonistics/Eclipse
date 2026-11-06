@@ -54,10 +54,9 @@ impl Launcher {
     }
 
     pub(super) fn instance_loader(&self, instance: &Instance) -> Option<String> {
-        match instance.kind {
-            InstanceKind::Port => {
-                let slug = &instance.id["port:".len()..];
-                let pack = self.packs.iter().find(|p| p.slug == slug);
+        match &instance.kind {
+            InstanceKind::Port { slug } => {
+                let pack = self.packs.iter().find(|p| p.slug == *slug);
                 pack.map(|p| p.pack.loader.to_ascii_lowercase())
             }
             _ => instance

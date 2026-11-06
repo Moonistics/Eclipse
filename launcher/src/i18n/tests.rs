@@ -224,14 +224,3 @@ fn a_missing_string_shows_in_english() {
         "Configurações"
     );
 }
-
-#[test]
-fn polish_entries_are_valid_and_keep_placeholders() {
-    let (_, all) = strings();
-    let table: HashMap<String, String> = serde_json::from_str(Language::Polish.source()).unwrap();
-    for (en, said) in &table {
-        assert!(all.contains(en), "unused Polish string: {en:?}");
-        assert!(!said.trim().is_empty(), "empty Polish string: {en:?}");
-        assert_eq!(holes(en), holes(said), "Polish: {en:?}");
-    }
-}

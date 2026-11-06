@@ -9,10 +9,10 @@
 //! launcher prepared: nothing of Mojang's is downloaded or shipped.
 
 use crate::backend;
+use crate::game_folder;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -51,44 +51,33 @@ fn list_file() -> PathBuf {
     backend::data_dir().join("servers.json")
 }
 
-/// The servers, in the order they were added; folders that are gone are left out.
-pub fn list() -> Vec<Entry> {
-    let entries: Vec<Entry> = fs::read_to_string(list_file())
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    entries.into_iter().filter(|e| e.dir.is_dir()).collect()
+fn read_list(file: &Path) -> Result<Vec<Entry>, String> {
+    let entries: Vec<Entry> = crate::files::read_json(file)?.unwrap_or_default();
+    Ok(entries.into_iter().filter(|e| e.dir.is_dir()).collect())
 }
 
-fn save_list(entries: &[Entry]) -> Result<(), String> {
-    let path = list_file();
-    fs::create_dir_all(backend::data_dir()).map_err(|e| e.to_string())?;
-    let text = serde_json::to_string_pretty(entries).map_err(|e| e.to_string())?;
-    // A torn write would drop every server from the sidebar: write beside
-    // the list, flush it, and rename it into place. Without the flush a
-    // power cut can leave a file of the right length full of zeros.
-    let partial = path.with_extension("json.tmp");
-    let mut file = fs::File::create(&partial).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|e| e.to_string())?;
-    drop(file);
-    fs::rename(&partial, &path).map_err(|e| e.to_string())
+/// The servers, in the order they were added; folders that are gone are left out.
+pub fn list() -> Vec<Entry> {
+    read_list(&list_file()).unwrap_or_default()
+}
+
+fn change_list(file: &Path, change: impl FnOnce(&mut Vec<Entry>)) -> Result<(), String> {
+    let mut all = read_list(file)?;
+    change(&mut all);
+    crate::files::write_json(file, &all)
 }
 
 /// Adds a server folder to the list (once).
 pub fn add(entry: Entry) -> Result<(), String> {
-    let mut all = list();
-    all.retain(|e| e.dir != entry.dir);
-    all.push(entry);
-    save_list(&all)
+    change_list(&list_file(), |all| {
+        all.retain(|e| e.dir != entry.dir);
+        all.push(entry);
+    })
 }
 
 /// Takes a server off the list; its folder stays.
 pub fn forget(dir: &Path) -> Result<(), String> {
-    let mut all = list();
-    all.retain(|e| e.dir != dir);
-    save_list(&all)
+    change_list(&list_file(), |all| all.retain(|e| e.dir != dir))
 }
 
 /// Removes a registered, stopped server, retaining its files in the system trash.
@@ -191,7 +180,7 @@ pub fn game_files(root: &Path, game_version: &str) -> PathBuf {
     root.join("game-files/eclipse-client").join(game_version)
 }
 
-pub const GAME_VERSION: &str = "26.3";
+pub const GAME_VERSION: &str = eclipse_core::version::VERSION_ID;
 
 /// Whether the servers' game files are there.
 pub fn game_files_ready() -> bool {
@@ -239,7 +228,8 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
         if !release.join(PROGRAM).is_file() {
             let scratch = releases.join(format!(".{tag}.copying"));
             let _ = fs::remove_dir_all(&scratch);
-            copy_release(version, &scratch).map_err(|e| format!("copying {tag}: {e}"))?;
+            crate::files::copy_dir(version, &scratch, &LAUNCHER_FILES)
+                .map_err(|e| format!("copying {tag}: {e}"))?;
             let _ = fs::remove_dir_all(&release);
             fs::rename(&scratch, &release).map_err(|e| e.to_string())?;
         }
@@ -258,7 +248,8 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
     let to = game_files(root, game_version);
     let fresh = to.with_extension("copying");
     let _ = fs::remove_dir_all(&fresh);
-    copy_dir(&from, &fresh).map_err(|e| format!("copying the game files: {e}"))?;
+    crate::files::copy_dir(&from, &fresh, &[])
+        .map_err(|e| format!("copying the game files: {e}"))?;
     let old = to.with_extension("old");
     let _ = fs::remove_dir_all(&old);
     if to.exists() {
@@ -269,40 +260,9 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
     Ok(())
 }
 
-/// A release folder without the launcher's own files (its prepared copy, install marker and the
-/// game's macOS app bundle).
-fn copy_release(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == ".local" || name == ".installed" || name == "Eclipse.app" {
-            continue;
-        }
-        let target = to.join(&name);
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            fs::copy(entry.path(), &target)?;
-        }
-    }
-    Ok(())
-}
-
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else if kind.is_file() {
-            fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
+/// What a release folder holds of the launcher's own and isn't copied for the servers: its
+/// prepared copy, install marker and the game's macOS app bundle.
+const LAUNCHER_FILES: [&str; 3] = [".local", ".installed", "Eclipse.app"];
 
 /// Makes `link` point at the folder `target`, as install.sh (a symbolic link) and install.ps1 (a
 /// junction, which needs no admin rights) do.
@@ -591,22 +551,23 @@ fn ports_taken() -> Vec<u16> {
 
 /// The player's worlds (the game home's `saves/`), newest first: their name and folder.
 pub fn player_worlds() -> Vec<(String, PathBuf)> {
-    let saves = backend::game_home().join("saves");
-    let mut worlds: Vec<(std::time::SystemTime, String, PathBuf)> = fs::read_dir(saves)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().join("level.dat").is_file())
-        .map(|e| {
-            let when = e
-                .path()
-                .join("level.dat")
-                .metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::UNIX_EPOCH);
-            (when, e.file_name().to_string_lossy().into_owned(), e.path())
-        })
-        .collect();
+    let mut worlds: Vec<(std::time::SystemTime, String, PathBuf)> =
+        game_folder::worlds(&backend::game_home())
+            .into_iter()
+            .map(|path| {
+                let when = path
+                    .join(game_folder::world::LEVEL)
+                    .metadata()
+                    .and_then(|m| m.modified())
+                    .unwrap_or(std::time::UNIX_EPOCH);
+                let name = path
+                    .file_name()
+                    .unwrap_or_default()
+                    .to_string_lossy()
+                    .into_owned();
+                (when, name, path)
+            })
+            .collect();
     worlds.sort_by_key(|w| std::cmp::Reverse(w.0));
     worlds.into_iter().map(|(_, n, p)| (n, p)).collect()
 }
@@ -693,10 +654,12 @@ pub fn create(spec: &NewServer, tag: Option<&str>, log: &dyn Fn(String)) -> Resu
                 .map(|n| slug(&n.to_string_lossy()))
                 .unwrap_or_else(|| "world".into());
             log(format!("Copying the world {}", from.display()));
-            copy_world(from, &dir.join(&world)).map_err(|e| {
-                let _ = fs::remove_dir_all(&dir);
-                Problem::plain(format!("Couldn't copy the world: {e}"))
-            })?;
+            crate::files::copy_dir(from, &dir.join(&world), &[game_folder::world::LOCK]).map_err(
+                |e| {
+                    let _ = fs::remove_dir_all(&dir);
+                    Problem::plain(format!("Couldn't copy the world: {e}"))
+                },
+            )?;
             world
         }
     };
@@ -719,25 +682,6 @@ pub fn create(spec: &NewServer, tag: Option<&str>, log: &dyn Fn(String)) -> Resu
     let entry = Entry { name, dir };
     add(entry.clone()).map_err(Problem::plain)?;
     Ok(entry)
-}
-
-/// A copy of a world folder, without the lock a running game holds.
-fn copy_world(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == "session.lock" {
-            continue;
-        }
-        let target = to.join(&name);
-        if entry.file_type()?.is_dir() {
-            copy_world(&entry.path(), &target)?;
-        } else {
-            fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
 }
 
 // ----- A server's files --------------------------------------------------------------------------

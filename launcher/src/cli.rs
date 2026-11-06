@@ -1149,7 +1149,7 @@ fn settings_json(s: &backend::Settings) -> serde_json::Value {
         "accent": s.accent.name(),
         "background": eclipse_launcher::themes::background(&backend::data_dir(), s.background.as_deref()),
         "native_profile": native_mods::Profile::chosen(s).name(),
-        "native_cache_gib": s.native_cache_gib.unwrap_or(native_mods::DEFAULT_CACHE_GIB),
+        "native_cache_gib": eclipse_launcher::native_cache::limit_gib(s),
         "no_ai": backend::no_ai(),
     })
 }
@@ -1305,7 +1305,8 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
         Cmd::NativeCache { clear } => {
             println!(
                 "{}",
-                serde_json::to_string_pretty(&native_mods::cache_info(clear)?).unwrap()
+                serde_json::to_string_pretty(&eclipse_launcher::native_cache::info(clear)?)
+                    .unwrap()
             );
         }
         Cmd::NativeBuild {
@@ -1351,12 +1352,12 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                     profile,
                     steps,
                 )
-                .map_err(|e| match e.starts_with(native_mods::MISMATCH) {
-                    true => trf(
+                .map_err(|e| match e {
+                    native_mods::BuildError::Mismatch(_) => trf(
                         "{error} They often still build: pass --allow-version-mismatch to try.",
-                        &[("error", e.as_str())],
+                        &[("error", &e.to_string())],
                     ),
-                    false => e,
+                    native_mods::BuildError::Failed(e) => e,
                 })?;
                 let built = std::path::absolute(&built).unwrap_or(built);
                 let path = built.display().to_string();
@@ -1385,9 +1386,13 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                         .ok_or_else(backend::no_version_installed)?
                 }
             };
+            let unpacked;
             let folder = match folder {
                 Some(folder) => folder,
-                None => native_mods::installed_mods(&target.home)?,
+                None => {
+                    unpacked = native_mods::installed_mods(&target.home)?;
+                    unpacked.path().to_owned()
+                }
             };
             let built = native_mods::build(
                 &base,
@@ -1398,11 +1403,11 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                 profile,
                 steps,
             )
-            .map_err(|e| match e.starts_with(native_mods::MISMATCH) {
-                true => {
+            .map_err(|e| match e {
+                native_mods::BuildError::Mismatch(_) => {
                     format!("{e} They often still build: pass --allow-version-mismatch to try.")
                 }
-                false => e,
+                native_mods::BuildError::Failed(e) => e,
             })?;
             println!(
                 "{built} built and selected for its instance ({:.0} s).",
@@ -2382,6 +2387,7 @@ fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
         .as_ref()
         .and_then(|i| i.java.as_ref())
         .map(|j| j.target());
+    let game = installed::Game::of(java.clone());
     let home = match (&action, &instance) {
         (ModsCmd::Search { .. }, _) | (_, None) => backend::game_home(),
         (_, Some(i)) => i.home.clone(),
@@ -2632,10 +2638,7 @@ fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                 println!("Play it: eclipse-launcher modpack play {}", pack.slug);
                 return Ok(());
             }
-            let done = match &java {
-                Some(target) => java_instance::install(&*source, target, &p, &home, &line)?,
-                None => installed::install(&*source, &p, everything, &home, &line)?,
-            };
+            let done = game.install(&*source, &p, everything, &home, &line)?;
             // The first native mod: the window's trust notice, once.
             let mut settings = backend::Settings::load();
             let native = done.iter().any(|e| native_status::is_native_file(&e.file));
@@ -2675,10 +2678,7 @@ fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     println!("{}: {} isn't available here.", e.title, e.source.label());
                     continue;
                 };
-                let newer = match &java {
-                    Some(target) => java_instance::update_for(&*source, target, e)?,
-                    None => installed::update_for(&*source, e)?,
-                };
+                let newer = game.update_for(&*source, e)?;
                 match newer {
                     None => println!("{} {}: up to date.", e.title, e.number),
                     Some(v) if check => {
@@ -2686,12 +2686,7 @@ fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     }
                     Some(_) => {
                         let p = source.project(&e.project)?;
-                        let done = match &java {
-                            Some(target) => {
-                                java_instance::install(&*source, target, &p, &home, &line)?
-                            }
-                            None => installed::install(&*source, &p, true, &home, &line)?,
-                        };
+                        let done = game.install(&*source, &p, true, &home, &line)?;
                         for done in done {
                             println!("{} {}: {}", done.title, done.number, done.file);
                         }
@@ -2758,10 +2753,7 @@ fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
             println!("Removed {project} (installed from GitHub).");
         }
         ModsCmd::Remove { project, .. } => {
-            let e = match java {
-                Some(_) => java_instance::remove(&home, &project)?,
-                None => installed::remove(&home, &project)?,
-            };
+            let e = game.remove(&home, &project)?;
             println!("Removed {} ({}).", e.title, e.file);
         }
         ModsCmd::Enable { project, .. } | ModsCmd::Disable { project, .. } if java.is_some() => {
@@ -2785,7 +2777,7 @@ fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     .ok()
                     .filter(|_| e.source == SourceId::Eclipse)
                     .and_then(|i| {
-                        i.revoked(&e.project, e.checksum.trim_start_matches("SHA-256:"))
+                        i.revoked(&e.project, e.hash("SHA-256").unwrap_or_default())
                             .cloned()
                     })
                 {
@@ -3203,7 +3195,7 @@ fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String> {
             let target = new_name.as_deref().unwrap_or(&f.name);
             let made = other_launchers::import(f, target, minecraft.as_deref()).map_err(|e| {
                 if e == instances::name_taken(target.trim()) {
-                    instances::name_taken_with_flag(target.trim())
+                    format!("{e} (`--as NAME`)")
                 } else {
                     e
                 }

@@ -21,7 +21,7 @@ use std::process::Command;
 
 /// Where imported packs live.
 pub fn ports_dir() -> PathBuf {
-    backend::game_home().join("ports")
+    backend::game_home().join(crate::game_folder::PORTS)
 }
 
 /// A pack's folder name: its name in lowercase words joined by dashes.
@@ -370,7 +370,7 @@ pub fn remove(work: &Path) -> Result<(), String> {
 
 /// The profile's own game home: saves, options.txt, logs.
 pub fn profile_home(work: &Path) -> PathBuf {
-    work.join("home")
+    work.join(crate::game_folder::PROFILE)
 }
 
 /// Turns the game's command into this pack's profile: its own home (the player's options.txt

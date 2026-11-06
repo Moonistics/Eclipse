@@ -10,7 +10,8 @@
 mod forge;
 mod forge_install;
 
-use crate::sources::{fetch_checked, sha1_file, write_file, Fetch};
+use crate::files;
+use crate::sources::{fetch_checked, sha1_file, Fetch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
@@ -53,6 +54,16 @@ impl Kind {
             Kind::Quilt => "quilt",
             Kind::Forge => "forge",
             Kind::NeoForge => "neoforge",
+        }
+    }
+
+    /// Quilt loads Fabric mods (<https://quiltmc.org/en/about/faq/>).
+    pub fn loads(self) -> &'static [Kind] {
+        match self {
+            Kind::Quilt => &[Kind::Quilt, Kind::Fabric],
+            Kind::Fabric => &[Kind::Fabric],
+            Kind::Forge => &[Kind::Forge],
+            Kind::NeoForge => &[Kind::NeoForge],
         }
     }
 
@@ -256,7 +267,7 @@ pub fn install(
         let file = dir.join("libraries").join(crate::mojang::relative(&path)?);
         if sha1_file(&file).as_ref() != Some(&sha1) {
             let body = fetch_checked(fetch, &url, &sha1).map_err(|e| format!("{url} {e}"))?;
-            write_file(&file, &body)?;
+            files::write(&file, &body)?;
         }
         library["downloads"] = json!({"artifact": {"path": path, "url": url, "sha1": sha1}});
     }
@@ -264,7 +275,7 @@ pub fn install(
         .join("versions")
         .join(crate::mojang::relative(&id)?)
         .join(format!("{id}.json"));
-    write_file(
+    files::write(
         &out,
         &serde_json::to_vec_pretty(&profile).map_err(|e| e.to_string())?,
     )?;

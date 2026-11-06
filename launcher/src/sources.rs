@@ -431,7 +431,7 @@ pub(crate) fn fetch_manifest(
     let url = format!("https://piston-meta.mojang.com/v1/packages/{sha1}/{v}.json");
     let body =
         fetch_checked(fetch, &url, sha1).map_err(|e| format!("Mojang's {v} version file {e}"))?;
-    write_file(path, &body)
+    crate::files::write(path, &body)
 }
 
 pub(crate) fn sha1_hex(data: &[u8]) -> String {
@@ -448,19 +448,6 @@ pub(crate) fn fetch_checked(fetch: Fetch, url: &str, sha1: &str) -> Result<Vec<u
         actual if actual == sha1 => Ok(body),
         actual => Err(format!("is not the one Eclipse pins (sha1 {actual})")),
     }
-}
-
-/// Writes a file whole: a partial one never takes its place.
-pub(crate) fn write_file(path: &Path, data: &[u8]) -> Result<(), String> {
-    let error = |e: std::io::Error| format!("{}: {e}", path.display());
-    fs::create_dir_all(path.parent().unwrap()).map_err(error)?;
-    let partial = path.with_file_name(format!(
-        "{}.partial",
-        path.file_name().unwrap().to_string_lossy()
-    ));
-    fs::write(&partial, data)
-        .and_then(|_| fs::rename(&partial, path))
-        .map_err(error)
 }
 
 /// Links a launcher's files into the official layout in `linked`: the client jar as

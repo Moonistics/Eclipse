@@ -696,7 +696,6 @@
   "Game architecture": "Arquitectura del juego",
   "Install selected build": "Instalar la compilación seleccionada",
   "Manual game architectures are available on Windows ARM only.": "Las arquitecturas de juego manuales solo están disponibles en Windows ARM.",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "El lanzador de Windows ARM64 aún no admite mods nativos; su compilador administrado no está disponible.",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "Los mods nativos aún no se pueden compilar para el juego ARM64 seleccionado. El compilador disponible solo compila para x64.",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "Los mods nativos no se pueden compilar para el juego x64 seleccionado. Este lanzador ARM64 no tiene un compilador compatible.",
   "Say auto, x64 or arm64 for the game architecture.": "Indica auto, x64 o arm64 para la arquitectura del juego.",

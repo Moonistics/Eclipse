@@ -226,17 +226,19 @@ impl Launcher {
                                 self.updates.eclipse = None;
                             }
                             // An instance's own version leaves the other instances on theirs.
+                            let update = as_update.is_some();
                             let select = as_update.is_none_or(|(_, select)| select)
                                 && (!for_instance || self.launcher_version().is_none());
                             if select {
-                                self.settings.selected = Some(tag);
+                                self.settings.selected = Some(tag.clone());
                             }
                             // Pruning reads settings from disk: protect the selection only once
                             // it has been saved there. A failed save leaves all versions in place.
                             if self.save_settings() {
                                 let tx = self.tx.clone();
                                 std::thread::spawn(move || {
-                                    let _ = tx.send(Msg::Pruned(backend::prune_old_versions()));
+                                    let gone = backend::after_install(&tag, update);
+                                    let _ = tx.send(Msg::Pruned(gone));
                                 });
                             }
                         }
@@ -299,12 +301,11 @@ impl Launcher {
                     self.reload_instances();
                     // A build attempt ended: an open panel reads the log it left.
                     self.native_log.stale = true;
-                    match result.map_err(|e| match e.strip_prefix(native_mods::MISMATCH) {
-                        Some(list) => Ok(list.to_owned()),
-                        None => Err(e),
-                    }) {
-                        Err(Ok(list)) => self.native.mismatch = Some(list),
-                        Err(Err(e)) => self.native.error = Some(e),
+                    match result {
+                        Err(native_mods::BuildError::Mismatch(list)) => {
+                            self.native.mismatch = Some(list)
+                        }
+                        Err(native_mods::BuildError::Failed(e)) => self.native.error = Some(e),
                         // Play waited for this build (`Mods::rebuild`).
                         Ok(_) if std::mem::take(&mut self.mods.play_after_build) => self.play(),
                         Ok(_) => {}

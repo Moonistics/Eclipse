@@ -364,9 +364,11 @@ fn a_mod_that_turned_native_keeps_its_emod_until_removed() {
     let home = scratch("turned-native");
     put(&index, true, &home).unwrap();
     // As install_version leaves it after the native update.
-    let mut list = installed::Installed::load(&home);
-    list.entries[0].file = "eclipse-native-mods/coords_hud.hnmod".into();
-    list.save(&home).unwrap();
+    let mut list = installed::Installed::open(&home).unwrap();
+    let mut native = list.entries[0].clone();
+    native.file = "eclipse-native-mods/coords_hud.hnmod".into();
+    list.record(native).unwrap();
+    drop(list);
     fs::create_dir_all(home.join("eclipse-native-mods")).unwrap();
     fs::write(home.join("eclipse-native-mods/coords_hud.hnmod"), "").unwrap();
     installed::remove(&home, "coords_hud").unwrap();

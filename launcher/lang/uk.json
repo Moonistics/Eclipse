@@ -696,7 +696,6 @@
   "Game architecture": "Архітектура гри",
   "Install selected build": "Установити вибрану збірку",
   "Manual game architectures are available on Windows ARM only.": "Ручний вибір архітектури гри доступний лише у Windows на ARM.",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "Нативні моди поки не підтримуються лаунчером Windows ARM64: керований компілятор недоступний.",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "Наразі неможливо зібрати нативні моди для вибраної гри ARM64. Доступний компілятор збирає лише для x64.",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "Неможливо зібрати нативні моди для вибраної гри x64. Для цього лаунчера ARM64 немає відповідного компілятора.",
   "Say auto, x64 or arm64 for the game architecture.": "Укажіть auto, x64 або arm64 для архітектури гри.",

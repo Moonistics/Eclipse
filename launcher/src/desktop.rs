@@ -134,13 +134,7 @@ pub fn install_in(data: &Path, exe: &Path) -> io::Result<bool> {
         if fs::read(&path).ok().as_deref() == Some(&bytes[..]) {
             continue;
         }
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        // Written beside and renamed, so a menu never reads half an entry.
-        let temp = path.with_extension("eclipse-tmp");
-        fs::write(&temp, &bytes)?;
-        fs::rename(&temp, &path)?;
+        crate::files::write(&path, &bytes).map_err(io::Error::other)?;
         wrote = true;
     }
     Ok(wrote)
@@ -248,7 +242,6 @@ pub fn remove() -> Result<(), String> {
     remove_in(&data).map_err(|e| format!("{}: {e}", data.display()))
 }
 
-/// Whether the launcher's entry is there.
 pub fn installed() -> bool {
     data_home().is_some_and(|d| d.join("applications").join(LAUNCHER_ENTRY).exists())
 }

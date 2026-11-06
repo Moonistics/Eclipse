@@ -10,10 +10,10 @@
 //! - A zip with `pack.mcmeta`: a data pack (`data/`) or a resource pack; with `shaders/`, or a
 //!   `.eshader`: a shader pack.
 //!
-//! Only what an instance holds is taken from a shared zip ([`crate::export::FILES`],
-//! [`crate::export::FOLDERS`], `saves/`), and every path is checked to stay inside its folder.
-use crate::browser::{download, installed, FileRef};
-use crate::export::{FILES, FOLDERS};
+//! Only what an instance holds is taken from a shared zip (`game_folder::SETTINGS`,
+//! `game_folder::CONTENT`, `saves/`), and every path is checked to stay inside its folder.
+use crate::browser::{download, FileRef};
+use crate::game_folder::{self, CONTENT, SAVES, SETTINGS};
 use crate::instances::{self, Instance};
 use crate::packs;
 use std::fs;
@@ -122,9 +122,9 @@ pub fn what(file: &Path) -> Result<Dropped, String> {
     if under("shaders/") {
         return Ok(Dropped::Pack(packs::Kind::Shader));
     }
-    if FILES.iter().any(|f| has(f))
-        || under("saves/")
-        || FOLDERS.iter().any(|f| under(&format!("{f}/")))
+    if SETTINGS.iter().any(|f| has(f))
+        || under(&format!("{SAVES}/"))
+        || CONTENT.iter().any(|f| under(&format!("{f}/")))
     {
         return Ok(Dropped::Instance);
     }
@@ -146,17 +146,18 @@ fn target(home: &Path, relative: &str, java: bool) -> Option<PathBuf> {
     if relative.ends_with('/') || !path.components().all(|c| matches!(c, Component::Normal(_))) {
         return None;
     }
-    // The browser's list of what it installed is the launcher's, never a pack's: it names the
-    // files Update and Remove delete.
-    if relative.eq_ignore_ascii_case(installed::MANIFEST) {
+    if game_folder::ONLY_OURS
+        .iter()
+        .any(|n| relative.eq_ignore_ascii_case(n))
+    {
         return None;
     }
     if java {
         return Some(home.join(path));
     }
     let top = relative.split('/').next()?;
-    let kept = FILES.contains(&relative)
-        || (relative.contains('/') && (FOLDERS.contains(&top) || top == "saves"));
+    let kept = SETTINGS.contains(&relative)
+        || (relative.contains('/') && (CONTENT.contains(&top) || top == SAVES));
     kept.then(|| home.join(path))
 }
 

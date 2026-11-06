@@ -1,7 +1,7 @@
 //! Whether an instance plays its native mods (docs/native-mods.md): the mods turned on in its
 //! folder against the ones its version was built with (`native-mods.json`, written by
 //! `native_mods::build`). The Mods page shows the answer beside its Build button.
-use crate::{backend, browser::java, native_mods};
+use crate::{browser::java, native_mods};
 use std::fs;
 use std::path::Path;
 
@@ -142,7 +142,7 @@ pub fn enabled(home: &Path) -> Vec<Mod> {
 pub fn pinning(home: &Path, revision: &str) -> Vec<String> {
     bundles_on(home)
         .into_iter()
-        .filter(|b| b.manifest.hooks.is_none() && b.manifest.eclipse == revision)
+        .filter(|b| native_mods::pin(b.manifest.hooks, Some(&b.manifest.eclipse)) == Some(revision))
         .map(|b| b.manifest.id)
         .collect()
 }
@@ -191,34 +191,23 @@ pub fn untracked(home: &Path) -> Vec<Installed> {
         .collect()
 }
 
-/// The mods installed version `version` was built with, or None when it isn't a native build
-/// (or its `native-mods.json` can't be read: the Mods page then offers Build).
+/// The mods installed version `version` was built for, or None when it isn't a native build
+/// (or its `native-mods.json` can't be read: the Mods page then offers Build): those it holds and
+/// those it left out (a build already tried them: it is up to date with the same mods turned on).
 pub fn built(version: &str) -> Option<Vec<Mod>> {
-    if !native_mods::is_native(version) {
-        return None;
-    }
-    let path = backend::version_dir(version).join("native-mods.json");
-    let about: serde_json::Value = serde_json::from_str(&fs::read_to_string(path).ok()?).ok()?;
-    Some(parse_built(&about))
+    native_mods::about(version).map(built_mods)
 }
 
-/// The mods a build was made for: those it holds and those it left out (a build already tried
-/// them: it is up to date with the same mods turned on).
-fn parse_built(about: &serde_json::Value) -> Vec<Mod> {
-    let mods = about["mods"].as_array().map(Vec::as_slice).unwrap_or(&[]);
-    let left_out = about["left_out"]
-        .as_array()
-        .map(Vec::as_slice)
-        .unwrap_or(&[]);
-    mods.iter()
+fn built_mods(about: native_mods::About) -> Vec<Mod> {
+    let left_out = about
+        .left_out
+        .into_iter()
+        .map(|left| (left.id, left.version, None));
+    about
+        .mods
+        .into_iter()
+        .map(|m| (m.id, m.version, m.sha256))
         .chain(left_out)
-        .filter_map(|m| {
-            Some((
-                m["id"].as_str()?.into(),
-                m["version"].as_str()?.into(),
-                m["sha256"].as_str().map(String::from),
-            ))
-        })
         .collect()
 }
 
@@ -258,6 +247,7 @@ fn stem(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::backend;
 
     fn m(id: &str, version: &str) -> Mod {
         (id.into(), version.into(), None)
@@ -311,8 +301,9 @@ mod tests {
             serde_json::to_vec(&record).unwrap(),
         )
         .unwrap();
-        installed::Installed {
-            entries: vec![installed::Entry {
+        installed::Installed::open(&home)
+            .unwrap()
+            .record(installed::Entry {
                 source: SourceId::Eclipse,
                 project: "registry".into(),
                 slug: "registry".into(),
@@ -327,10 +318,8 @@ mod tests {
                 verdict: None,
                 skipped: vec![],
                 namespaces: vec![],
-            }],
-        }
-        .save(&home)
-        .unwrap();
+            })
+            .unwrap();
         let files = untracked(&home);
         let seen: Vec<_> = files
             .iter()
@@ -418,19 +407,24 @@ mod tests {
 
     #[test]
     fn native_mods_json_gives_the_built_mods() {
-        let about = serde_json::json!({
+        let record = |json: serde_json::Value| -> native_mods::About {
+            serde_json::from_value(json).unwrap()
+        };
+        let about = record(serde_json::json!({
             "base": "v0.1.0", "eclipse": "abc", "rust": "1.99.1",
             "mods": [{"id": "zoom", "version": "2.1"}, {"id": "x"}, {"id": "y", "version": "1", "sha256": "ab"}],
-        });
-        assert_eq!(parse_built(&about), [m("zoom", "2.1"), d("y", "1", "ab")]);
-        assert!(parse_built(&serde_json::json!({})).is_empty());
+        }));
+        assert_eq!(built_mods(about), [m("zoom", "2.1"), d("y", "1", "ab")]);
+        let bare = record(serde_json::json!({"base": "v0.1.0", "eclipse": "abc"}));
+        assert!(built_mods(bare).is_empty());
         // A mod the build left out was tried: the same mods turned on need no new build, a new
         // version of it does.
-        let about = serde_json::json!({
+        let about = record(serde_json::json!({
+            "base": "v0.1.0", "eclipse": "abc",
             "mods": [{"id": "zoom", "version": "2.1"}],
             "left_out": [{"id": "hitbox_plus", "version": "1.3.0", "why": "other-version"}],
-        });
-        let build = parse_built(&about);
+        }));
+        let build = built_mods(about);
         let on = [m("zoom", "2.1"), m("hitbox_plus", "1.3.0")];
         assert_eq!(state(&on, Some(build.as_slice())), State::UpToDate);
         let on = [m("zoom", "2.1"), m("hitbox_plus", "1.3.1")];
@@ -468,11 +462,8 @@ mod tests {
         let about = |base: &str, eclipse: &str, base_eclipse: Option<&str>| native_mods::About {
             base: base.into(),
             eclipse: eclipse.into(),
-            target: native_mods::Target::Client,
             base_eclipse: base_eclipse.map(str::to_owned),
-            pinned_by: Vec::new(),
-            on_base: false,
-            left_out: Vec::new(),
+            ..Default::default()
         };
         let pin = "9d979caa48a3bb58203319b9ea044db58c38e0d8";
         let own = "d91cab6000000000000000000000000000000000";

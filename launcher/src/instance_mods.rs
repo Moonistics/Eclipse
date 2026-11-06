@@ -415,11 +415,10 @@ mod tests {
             .unwrap();
         }
         let entry: installed::Entry = serde_json::from_value(serde_json::json!({"source":"eclipse","project":"registry","slug":"registry","title":"Registry mod","kind":"mod","version":"1","number":"1","file":"eclipse-native-mods/registry.hnmod","checksum":"","page":""})).unwrap();
-        installed::Installed {
-            entries: vec![entry],
-        }
-        .save(&home)
-        .unwrap();
+        installed::Installed::open(&home)
+            .unwrap()
+            .record(entry)
+            .unwrap();
         java::set_enabled(&home, "local", false).unwrap();
         java::set_enabled(&home, "registry", true).unwrap();
         let rows = read(&home, false);

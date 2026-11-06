@@ -102,7 +102,6 @@ use gpui::{
 use scrollbar::Scrollbar;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
-use std::sync::atomic::Ordering;
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
@@ -800,9 +799,9 @@ impl Launcher {
     /// bundles: what the warning names and the build compiles.
     fn native_mods_to_build(
         &self,
-    ) -> Result<(std::path::PathBuf, Vec<native_mods::Bundle>), String> {
+    ) -> Result<(native_mods::Unpacked, Vec<native_mods::Bundle>), String> {
         let folder = native_mods::installed_mods(&instances::selected().home)?;
-        let found = native_mods::bundles(&folder)?;
+        let found = native_mods::bundles(folder.path())?;
         Ok((folder, found))
     }
 
@@ -863,7 +862,7 @@ impl Launcher {
         std::thread::spawn(move || {
             let result = native_mods::build(
                 &base,
-                &folder,
+                folder.path(),
                 &instance,
                 anyway,
                 on_base,
@@ -1047,7 +1046,6 @@ impl Launcher {
         let Some(tag) = self.selected().cloned() else {
             return;
         };
-        eclipse_launcher::mojang::CANCEL.store(false, Ordering::Relaxed);
         let minecraft = self
             .settings
             .minecraft_dir

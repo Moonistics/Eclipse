@@ -2,7 +2,6 @@
 //! authors) and the search's filters (categories, loader, game version, environment, sort), with
 //! the lists of values each source offers for them. Data only: `mods_page` draws it.
 use super::{Kind, GAME};
-use serde_json::Value;
 
 /// How results are ordered.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
@@ -40,15 +39,6 @@ impl Sort {
             Sort::Follows => "follows",
             Sort::Newest => "newest",
             Sort::Updated => "updated",
-        }
-    }
-    /// CurseForge's `sortField` (`ModsSearchSortField`).
-    pub fn curseforge(self) -> u8 {
-        match self {
-            Sort::Relevance | Sort::Follows => 2,
-            Sort::Downloads => 6,
-            Sort::Newest => 11,
-            Sort::Updated => 3,
         }
     }
 }
@@ -185,138 +175,6 @@ pub struct Details {
     pub server_side: String,
 }
 
-fn strings(v: &Value) -> Vec<String> {
-    v.as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|s| s.as_str().map(str::to_owned))
-        .collect()
-}
-
-fn text(v: &Value) -> String {
-    v.as_str().unwrap_or_default().to_owned()
-}
-
-/// Only `https://` links are kept: a page never opens another scheme.
-fn https(url: &str) -> Option<String> {
-    url.starts_with("https://").then(|| url.to_owned())
-}
-
-/// Modrinth's `GET /project/{id}` and `GET /project/{id}/members`.
-pub fn modrinth_details(project: &Value, members: &Value) -> Details {
-    let mut gallery: Vec<(i64, Image)> = project["gallery"]
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|g| {
-            Some((
-                g["ordering"].as_i64().unwrap_or(0),
-                Image {
-                    url: https(g["url"].as_str()?)?,
-                    title: text(&g["title"]),
-                    description: text(&g["description"]),
-                    featured: g["featured"].as_bool().unwrap_or(false),
-                },
-            ))
-        })
-        .collect();
-    gallery.sort_by_key(|(order, i)| (!i.featured, *order));
-    let mut links = Vec::new();
-    for (key, label) in [
-        ("source_url", "Source code"),
-        ("issues_url", "Report a bug"),
-        ("wiki_url", "Wiki"),
-        ("discord_url", "Discord"),
-    ] {
-        if let Some(url) = project[key].as_str().and_then(https) {
-            links.push(Link {
-                label: label.into(),
-                url,
-            });
-        }
-    }
-    for d in project["donation_urls"].as_array().into_iter().flatten() {
-        if let Some(url) = d["url"].as_str().and_then(https) {
-            links.push(Link {
-                label: format!("Donate ({})", text(&d["platform"])),
-                url,
-            });
-        }
-    }
-    let mut owners: Vec<(bool, String)> = members
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter_map(|m| {
-            let name = m["user"]["username"].as_str()?.to_owned();
-            Some((m["role"].as_str() != Some("Owner"), name))
-        })
-        .collect();
-    owners.sort();
-    let mut categories = strings(&project["categories"]);
-    categories.extend(strings(&project["additional_categories"]));
-    Details {
-        body: text(&project["body"]),
-        gallery: gallery.into_iter().map(|(_, i)| i).collect(),
-        links,
-        authors: owners.into_iter().map(|(_, n)| n).collect(),
-        followers: project["followers"].as_u64().unwrap_or(0),
-        published: text(&project["published"]),
-        updated: text(&project["updated"]),
-        categories,
-        client_side: text(&project["client_side"]),
-        server_side: text(&project["server_side"]),
-        github: None,
-    }
-}
-
-/// Modrinth's `/tag/category`, `/tag/loader` and `/tag/game_version` for one project type.
-pub fn modrinth_tags(
-    project_type: &str,
-    categories: &Value,
-    loaders: &Value,
-    versions: &Value,
-) -> Tags {
-    let loader_names: Vec<String> = loaders
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|l| {
-            l["supported_project_types"]
-                .as_array()
-                .is_some_and(|t| t.iter().any(|x| x == project_type))
-        })
-        .filter_map(|l| l["name"].as_str().map(str::to_owned))
-        .collect();
-    let mut categories: Vec<Tag> = categories
-        .as_array()
-        .into_iter()
-        .flatten()
-        .filter(|c| c["project_type"] == project_type)
-        .filter_map(|c| {
-            let name = c["name"].as_str()?.to_owned();
-            // Loaders are listed as categories too; the loader filter has them.
-            (!loader_names.contains(&name)).then(|| Tag {
-                name,
-                header: text(&c["header"]),
-            })
-        })
-        .collect();
-    categories.sort_by(|a, b| (&a.header, &a.name).cmp(&(&b.header, &b.name)));
-    Tags {
-        categories,
-        tags: Vec::new(),
-        loaders: loader_names,
-        game_versions: versions
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter(|v| v["version_type"] == "release")
-            .filter_map(|v| v["version"].as_str().map(str::to_owned))
-            .collect(),
-    }
-}
-
 /// The loaders a kind lists by default, when no loader is picked: Java mod loaders for mods.
 pub fn default_loaders(kind: Kind) -> Vec<&'static str> {
     match kind {
@@ -328,65 +186,6 @@ pub fn default_loaders(kind: Kind) -> Vec<&'static str> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use serde_json::json;
-
-    #[test]
-    fn a_modrinth_page() {
-        let project = json!({
-            "body": "# Fences\nMore fences.",
-            "gallery": [
-                {"url": "https://cdn.modrinth.com/data/x/images/b.png", "featured": false, "ordering": 0, "title": "B"},
-                {"url": "https://cdn.modrinth.com/data/x/images/a.png", "featured": true, "ordering": 5, "title": "A"},
-                {"url": "http://example.com/c.png", "featured": false, "ordering": 1}
-            ],
-            "source_url": "https://github.com/x/y", "issues_url": "javascript:alert(1)",
-            "wiki_url": null, "discord_url": "https://discord.gg/x",
-            "donation_urls": [{"platform": "Ko-fi", "url": "https://ko-fi.com/x"}],
-            "followers": 12, "categories": ["decoration"], "additional_categories": ["utility"],
-            "client_side": "required", "server_side": "required"
-        });
-        let members = json!([
-            {"user": {"username": "helper"}, "role": "Member"},
-            {"user": {"username": "Macaw"}, "role": "Owner"}
-        ]);
-        let d = modrinth_details(&project, &members);
-        assert_eq!(
-            d.gallery
-                .iter()
-                .map(|i| i.title.as_str())
-                .collect::<Vec<_>>(),
-            ["A", "B"]
-        );
-        assert_eq!(
-            d.links.iter().map(|l| l.label.as_str()).collect::<Vec<_>>(),
-            ["Source code", "Discord", "Donate (Ko-fi)"]
-        );
-        assert_eq!(d.authors, ["Macaw", "helper"]);
-        assert_eq!(d.categories, ["decoration", "utility"]);
-        assert_eq!(d.followers, 12);
-    }
-
-    #[test]
-    fn modrinth_tags_by_project_type() {
-        let categories = json!([
-            {"name": "decoration", "project_type": "mod", "header": "categories"},
-            {"name": "fabric", "project_type": "mod", "header": "loaders"},
-            {"name": "16x", "project_type": "resourcepack", "header": "resolutions"}
-        ]);
-        let loaders = json!([
-            {"name": "fabric", "supported_project_types": ["mod", "modpack"]},
-            {"name": "minecraft", "supported_project_types": ["resourcepack"]}
-        ]);
-        let versions = json!([
-            {"version": "26.3", "version_type": "release"},
-            {"version": "26.4-snapshot-1", "version_type": "snapshot"}
-        ]);
-        let t = modrinth_tags("mod", &categories, &loaders, &versions);
-        assert_eq!(t.categories.len(), 1);
-        assert_eq!(t.categories[0].name, "decoration");
-        assert_eq!(t.loaders, ["fabric"]);
-        assert_eq!(t.game_versions, ["26.3"]);
-    }
 
     #[test]
     fn categories_read_as_the_site_names_them() {

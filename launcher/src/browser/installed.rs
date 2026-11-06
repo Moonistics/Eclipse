@@ -4,20 +4,27 @@
 //! and each Java mod it ported into `eclipse-mods/`: where it came from, its version and its
 //! checksum. Files the player put there themselves are never touched: the browser only replaces
 //! or removes what it lists.
-use super::{pick, safe_name, Kind, Project, Source, SourceId, Support, Version};
+use super::{
+    java_instance, pick, safe_name, FileRef, HomeLockGuard, Kind, Project, Source, SourceId,
+};
+use super::{Support, Version};
+use crate::game_folder;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
 
-pub(crate) const MANIFEST: &str = "mod-browser.json";
+pub(crate) const MANIFEST: &str = game_folder::BROWSER_LIST;
 /// The folders the browser installs into: an entry's `file` is always inside one of them.
 const FOLDERS: [&str; 5] = [
-    "mods",
-    "resourcepacks",
-    "shaderpacks",
-    super::java::MODS_DIR,
+    game_folder::JAVA_MODS,
+    game_folder::RESOURCE_PACKS,
+    game_folder::SHADER_PACKS,
+    game_folder::ECLIPSE_MODS,
     crate::native_mods::INSTALLED,
 ];
+/// A mod turned off keeps its file under this suffix, which the loaders don't read: they load
+/// the `.jar` files in `mods/`.
+const OFF: &str = ".disabled";
 /// How deep required dependencies are followed.
 const MAX_DEPTH: usize = 4;
 
@@ -62,10 +69,54 @@ pub fn in_folders(file: &str) -> bool {
 }
 
 impl Entry {
+    pub(super) fn of(project: &Project, version: &Version, file: String) -> Entry {
+        Entry {
+            source: project.source,
+            project: project.id.clone(),
+            slug: project.slug.clone(),
+            title: project.title.clone(),
+            kind: project.kind,
+            version: version.id.clone(),
+            number: version.number.clone(),
+            file,
+            checksum: version
+                .file()
+                .and_then(FileRef::checksum)
+                .map(|(algo, hash)| format!("{algo}:{hash}"))
+                .unwrap_or_default(),
+            page: project.page.clone(),
+            dependency: false,
+            verdict: None,
+            skipped: Vec::new(),
+            namespaces: Vec::new(),
+        }
+    }
+
     /// Where the entry's file is in the game folder `home`, when it is inside one the browser
     /// installs into ([`in_folders`]).
     pub fn path(&self, home: &Path) -> Option<PathBuf> {
         in_folders(&self.file).then(|| home.join(&self.file))
+    }
+
+    /// `None` for an entry outside the folders the browser installs into ([`in_folders`]).
+    pub(super) fn off(&self, home: &Path) -> Option<PathBuf> {
+        self.path(home)?;
+        Some(home.join(format!("{}{OFF}", self.file)))
+    }
+
+    fn on_disk(&self, home: &Path) -> bool {
+        [self.path(home), self.off(home)]
+            .into_iter()
+            .flatten()
+            .any(|p| p.exists())
+    }
+
+    pub fn hash(&self, algo: &str) -> Option<&str> {
+        self.checksum.strip_prefix(algo)?.strip_prefix(':')
+    }
+
+    fn same_project(&self, other: &Entry) -> bool {
+        self.source == other.source && self.project == other.project
     }
 }
 
@@ -74,7 +125,7 @@ pub struct Installed {
     /// An entry this launcher can't read (a shader pack, which older launchers installed) is
     /// left out, and its file left where it is; so is one whose file is outside the folders the
     /// browser installs into ([`in_folders`]).
-    #[serde(deserialize_with = "readable_entries")]
+    #[serde(default, deserialize_with = "readable_entries")]
     pub entries: Vec<Entry>,
 }
 
@@ -98,26 +149,20 @@ fn readable_entries<'de, D: serde::Deserializer<'de>>(d: D) -> Result<Vec<Entry>
 
 impl Installed {
     pub fn load(home: &Path) -> Self {
-        fs::read_to_string(home.join(MANIFEST))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+        Self::read(home).unwrap_or_default()
     }
 
-    pub fn save(&self, home: &Path) -> Result<(), String> {
-        let _lock = super::lock_home(home);
-        static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-        let id = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
-        let path = home.join(MANIFEST);
-        let part = home.join(format!(".{MANIFEST}.{}-{id}.part", std::process::id()));
-        let text = serde_json::to_string_pretty(self).map_err(|e| e.to_string())?;
-        fs::create_dir_all(home).map_err(|e| format!("{}: {e}", home.display()))?;
-        let res = fs::write(&part, text).and_then(|()| fs::rename(&part, &path));
-        if let Err(e) = res {
-            let _ = fs::remove_file(&part);
-            return Err(format!("{}: {e}", path.display()));
-        }
-        Ok(())
+    fn read(home: &Path) -> Result<Self, String> {
+        crate::files::read_json(&home.join(MANIFEST)).map(Option::unwrap_or_default)
+    }
+
+    pub fn open(home: &Path) -> Result<Open, String> {
+        let lock = super::lock_home(home);
+        Ok(Open {
+            list: Self::read(home)?,
+            home: home.to_path_buf(),
+            _lock: lock,
+        })
     }
 
     pub fn find(&self, source: SourceId, project: &str) -> Option<&Entry> {
@@ -131,6 +176,83 @@ impl Installed {
         self.entries
             .iter()
             .find(|e| e.project == name || e.slug == name)
+    }
+}
+
+pub struct Open {
+    list: Installed,
+    home: PathBuf,
+    _lock: HomeLockGuard,
+}
+
+impl std::ops::Deref for Open {
+    type Target = Installed;
+    fn deref(&self) -> &Installed {
+        &self.list
+    }
+}
+
+impl Open {
+    pub fn record(&mut self, entry: Entry) -> Result<(), String> {
+        self.list.entries.retain(|e| !e.same_project(&entry));
+        self.list.entries.push(entry);
+        self.save()
+    }
+
+    pub fn forget(&mut self, entry: &Entry) -> Result<(), String> {
+        self.list.entries.retain(|e| !e.same_project(entry));
+        self.save()
+    }
+
+    fn save(&self) -> Result<(), String> {
+        crate::files::write_json(&self.home.join(MANIFEST), &self.list)
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum Game {
+    Eclipse,
+    Java(java_instance::Target),
+}
+
+impl Game {
+    pub fn of(java: Option<java_instance::Target>) -> Game {
+        java.map_or(Game::Eclipse, Game::Java)
+    }
+
+    pub fn install(
+        &self,
+        source: &dyn Source,
+        project: &Project,
+        everything: bool,
+        home: &Path,
+        progress: &dyn Fn(&str, f32),
+    ) -> Result<Vec<Entry>, String> {
+        match self {
+            Game::Eclipse => install(source, project, everything, home, progress),
+            Game::Java(target) => java_instance::install(source, target, project, home, progress),
+        }
+    }
+
+    pub fn update_for(
+        &self,
+        source: &dyn Source,
+        entry: &Entry,
+    ) -> Result<Option<Version>, String> {
+        let project = source.project(&entry.project)?;
+        let versions = source.versions(&project)?;
+        let newest = match self {
+            Game::Eclipse => pick(project.kind, &versions, true),
+            Game::Java(target) => target.pick(project.kind, &versions),
+        };
+        Ok(newest.filter(|v| v.id != entry.version).cloned())
+    }
+
+    pub fn remove(&self, home: &Path, name: &str) -> Result<Entry, String> {
+        match self {
+            Game::Eclipse => remove(home, name),
+            Game::Java(_) => java_instance::remove(home, name),
+        }
     }
 }
 
@@ -216,7 +338,6 @@ pub fn install(
     home: &Path,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<Entry>, String> {
-    let _lock = super::lock_home(home);
     if project.source == SourceId::Eclipse {
         return super::eclipse::install(project, home, progress);
     }
@@ -242,14 +363,16 @@ pub(super) fn put(
     folder: &dyn Fn(Kind) -> &'static str,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<Entry>, String> {
-    let _lock = super::lock_home(home);
-    let mut installed = Installed::load(home);
+    let mut installed = Installed::open(home)?;
     let mut done = Vec::new();
     for step in steps {
         let p = &step.project;
         let old = installed.find(p.source, &p.id).cloned();
-        if old.as_ref().is_some_and(|o| o.version == step.version.id) {
-            done.push(old.expect("checked"));
+        if let Some(old) = old
+            .clone()
+            .filter(|o| o.version == step.version.id && o.on_disk(home))
+        {
+            done.push(old);
             continue;
         }
         let file = step
@@ -276,35 +399,18 @@ pub(super) fn put(
         }
         let line = format!("{} {}", p.title, step.version.number);
         let path = source.fetch(file, &home.join(folder_name), &|f| progress(&line, f))?;
-        let (algo, hash) = file.checksum().expect("fetch checks for one");
         if let Some(old) = &old {
             if let Some(file) = old.path(home).filter(|_| old.file != relative) {
                 let _ = fs::remove_file(file);
             }
         }
         let entry = Entry {
-            source: p.source,
-            project: p.id.clone(),
-            slug: p.slug.clone(),
-            title: p.title.clone(),
-            kind: p.kind,
-            version: step.version.id.clone(),
-            number: step.version.number.clone(),
-            file: relative,
-            checksum: format!("{algo}:{hash}"),
-            page: p.page.clone(),
             // Asked for by the player once: it stays theirs.
             dependency: step.dependency && old.as_ref().is_none_or(|o| o.dependency),
-            verdict: None,
-            skipped: Vec::new(),
-            namespaces: Vec::new(),
+            ..Entry::of(p, &step.version, relative)
         };
         debug_assert!(path.ends_with(name));
-        installed
-            .entries
-            .retain(|e| !(e.source == p.source && e.project == p.id));
-        installed.entries.push(entry.clone());
-        installed.save(home)?;
+        installed.record(entry.clone())?;
         done.push(entry);
     }
     Ok(done)
@@ -312,8 +418,7 @@ pub(super) fn put(
 
 /// Removes what the browser installed for `name` (a project id or slug): its file and its entry.
 pub fn remove(home: &Path, name: &str) -> Result<Entry, String> {
-    let _lock = super::lock_home(home);
-    let mut installed = Installed::load(home);
+    let mut installed = Installed::open(home)?;
     let entry = installed
         .lookup(name)
         .cloned()
@@ -334,20 +439,8 @@ pub fn remove(home: &Path, name: &str) -> Result<Entry, String> {
         }
         super::java::set_enabled(home, id, false)?;
     }
-    installed
-        .entries
-        .retain(|e| !(e.source == entry.source && e.project == entry.project));
-    installed.save(home)?;
+    installed.forget(&entry)?;
     Ok(entry)
-}
-
-/// The newer version `entry` can be updated to, if any.
-pub fn update_for(source: &dyn Source, entry: &Entry) -> Result<Option<Version>, String> {
-    let project = source.project(&entry.project)?;
-    let versions = source.versions(&project)?;
-    Ok(pick(project.kind, &versions, true)
-        .filter(|v| v.id != entry.version)
-        .cloned())
 }
 
 /// Downloads a modpack's file, checked, into `folder` (kept there: the import reads it).
@@ -386,7 +479,9 @@ pub fn install_datapack(
     world: &Path,
     progress: &dyn Fn(f32),
 ) -> Result<DataPackInstall, String> {
-    if project.kind != Kind::DataPack && !project.loaders.iter().any(|l| l == "datapack") {
+    if project.kind != Kind::DataPack
+        && !project.loaders.iter().any(|l| l == super::DATAPACK_LOADER)
+    {
         return Err(format!("{} isn't a data pack.", project.title));
     }
     let folder = std::env::temp_dir().join(format!(

@@ -307,22 +307,17 @@ fn plays(path: &Path, id: &str) -> bool {
     }
 }
 
-/// Writes `bytes` beside `path` and renames it in, so nothing reads half a file.
 fn write(path: &Path, bytes: &[u8], program: bool) -> Result<(), String> {
-    let fail = |e: std::io::Error| format!("{}: {e}", path.display());
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(fail)?;
-    }
-    let temp = path.with_extension("eclipse-tmp");
-    fs::write(&temp, bytes).map_err(fail)?;
+    crate::files::write(path, bytes)?;
     #[cfg(unix)]
     if program {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temp, fs::Permissions::from_mode(0o755)).map_err(fail)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
     }
     #[cfg(not(unix))]
     let _ = program;
-    fs::rename(&temp, path).map_err(fail)
+    Ok(())
 }
 
 /// Moves a file or folder out of the way, where the player can get it back.

@@ -14,11 +14,13 @@
 //! `native-<revision>-<key>` (the key hashes the revision, the mods' files, the tool's commit and
 //! the profile, so the same set builds once). The instance the mods are installed in plays it, and
 //! its next build stays on the same revision ([`base_for`]) until the player asks to update
-//! ([`update_for`]), so a rebuild compiles only what the mods changed.
+//! ([`newer_than`]), so a rebuild compiles only what the mods changed.
 use crate::backend;
 use crate::i18n::{tr, trf};
 use crate::instances::{self, Instance};
+use crate::native_cache::{self, Dirs};
 use crate::rust_toolchain::{self, Toolchain};
+use eclipse_mods::index::native as hnmod;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
@@ -61,9 +63,6 @@ pub enum Profile {
 }
 
 impl Profile {
-    /// The player's choices (the Mods page, `settings native-profile`).
-    pub const ALL: [Self; 3] = [Self::Performance, Self::Dev, Self::Release];
-
     pub fn name(self) -> &'static str {
         match self {
             Self::Performance => "performance",
@@ -99,10 +98,21 @@ impl Profile {
     /// own builds share.
     fn cargo(self) -> (&'static str, &'static [&'static str]) {
         match self {
-            Self::Performance => ("fast", &[]),
-            Self::Dev => ("fast", &["profile.fast.package.eclipse-client.opt-level=0"]),
-            Self::Release => ("release", &[]),
+            Self::Performance => (native_cache::FAST, &[]),
+            Self::Dev => (
+                native_cache::FAST,
+                &["profile.fast.package.eclipse-client.opt-level=0"],
+            ),
+            Self::Release => (native_cache::RELEASE, &[]),
         }
+    }
+
+    /// Cargo's `--profile` and `--config` arguments for it: the game's and its post-build
+    /// steps', so the steps reuse the crates the game built.
+    fn args(self, cmd: &mut Command) {
+        let (profile, configs) = self.cargo();
+        cmd.args(["--profile", profile]);
+        cmd.args(configs.iter().flat_map(|config| ["--config", config]));
     }
 }
 
@@ -110,7 +120,8 @@ impl Profile {
 /// server runs (`eclipse-engine`, docs/server.md). Both build the same source with the same
 /// mixins. The server uses `--no-default-features` (no audio or controllers), a separate cache,
 /// and a standalone runtime folder outside the managed versions.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(from = "String", into = "String")]
 pub enum Target {
     /// The game: `eclipse-client` as the release ships it.
     #[default]
@@ -118,6 +129,22 @@ pub enum Target {
     /// The headless engine: the same binary without the default features, installed and
     /// exported as `eclipse-engine`.
     Server,
+}
+
+/// A record's target by its name; any other than the server's is the game's.
+impl From<String> for Target {
+    fn from(name: String) -> Self {
+        match name.as_str() {
+            "server" => Self::Server,
+            _ => Self::Client,
+        }
+    }
+}
+
+impl From<Target> for String {
+    fn from(target: Target) -> Self {
+        target.name().into()
+    }
 }
 
 impl Target {
@@ -141,7 +168,7 @@ impl Target {
     fn directory(self, version: &str) -> PathBuf {
         match self {
             Self::Client => backend::version_dir(version),
-            Self::Server => root().join("server-builds").join(version),
+            Self::Server => Dirs::current().server_builds().join(version),
         }
     }
 
@@ -162,14 +189,9 @@ impl Target {
 struct BuildPlatform {
     target: Option<&'static str>,
     machine: Option<u16>,
-    /// Non-default target builds get their own Cargo cache and record namespace.
+    /// Its folder under `target/` ([`native_cache::platform_folder`]), which also keeps its
+    /// builds' records and keys apart.
     cache_dir: Option<&'static str>,
-}
-
-impl BuildPlatform {
-    fn cache_key(self) -> Option<&'static str> {
-        self.cache_dir
-    }
 }
 
 fn platform_for_game(base: &str) -> Result<BuildPlatform, String> {
@@ -177,43 +199,44 @@ fn platform_for_game(base: &str) -> Result<BuildPlatform, String> {
         return Ok(BuildPlatform::default());
     }
     let executable = backend::version_dir(base).join(backend::CLIENT);
-    let machine = pe_machine(&executable).map_err(|error| {
-        trf(
-            "Could not read {name}: {error}",
-            &[
-                ("name", &executable.display().to_string()),
-                ("error", &error),
-            ],
-        )
-    })?;
-    let selected_target = rust_toolchain::windows_target_for_machine(machine).ok_or_else(|| {
-        architecture_mismatch(&format!("PE machine 0x{machine:04x}"), "x64 or ARM64")
-    })?;
-    let Some(host) = rust_toolchain::host() else {
-        return Err(architecture_mismatch(
-            windows_architecture(selected_target),
-            std::env::consts::ARCH,
-        ));
-    };
-    windows_build_platform(machine, host.target)
+    let machine = pe_machine(&executable).map_err(|error| unreadable(&executable, &error))?;
+    windows_build_platform(machine, rust_toolchain::host().map(|host| host.target))
 }
 
-fn windows_build_platform(machine: u16, host_target: &str) -> Result<BuildPlatform, String> {
+fn windows_build_platform(
+    machine: u16,
+    host_target: Option<&str>,
+) -> Result<BuildPlatform, String> {
     let target = rust_toolchain::windows_target_for_machine(machine).ok_or_else(|| {
         architecture_mismatch(&format!("PE machine 0x{machine:04x}"), "x64 or ARM64")
     })?;
-    if rust_toolchain::windows_target_for_host(host_target, machine).is_none() {
-        return Err(architecture_mismatch(
-            windows_architecture(target),
-            windows_architecture(host_target),
-        ));
+    match host_target {
+        Some(host) if host == target => {}
+        Some(host) => {
+            return Err(architecture_mismatch(
+                windows_architecture(target),
+                windows_architecture(host),
+            ))
+        }
+        None => {
+            return Err(architecture_mismatch(
+                windows_architecture(target),
+                std::env::consts::ARCH,
+            ))
+        }
     }
-    let cache_dir = (target == rust_toolchain::WINDOWS_ARM64_TARGET).then_some(target);
     Ok(BuildPlatform {
         target: Some(target),
         machine: Some(machine),
-        cache_dir,
+        cache_dir: native_cache::platform_folder(target),
     })
+}
+
+fn unreadable(path: &Path, error: &str) -> String {
+    trf(
+        "Could not read {name}: {error}",
+        &[("name", &path.display().to_string()), ("error", error)],
+    )
 }
 
 fn architecture_mismatch(game: &str, toolchain: &str) -> String {
@@ -223,11 +246,11 @@ fn architecture_mismatch(game: &str, toolchain: &str) -> String {
     )
 }
 
-fn windows_architecture(target: &str) -> &'static str {
+fn windows_architecture(target: &str) -> &str {
     match target {
         rust_toolchain::WINDOWS_X64_TARGET => "x64",
         rust_toolchain::WINDOWS_ARM64_TARGET => "ARM64",
-        _ => unreachable!(),
+        other => other,
     }
 }
 
@@ -339,15 +362,31 @@ pub fn classify(exists: bool, before: Option<&Record>, now: &Record) -> Plan {
     Plan::Incremental(changes)
 }
 
-fn records_path() -> PathBuf {
-    root().join("built.json")
+/// `native/built.json`: each profile's last build, by [`record_key`]. A missing or unreadable
+/// file is no record: the next build plans as a first one and writes it again.
+#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[serde(transparent)]
+struct Records(BTreeMap<String, Record>);
+
+impl Records {
+    fn read() -> Self {
+        fs::read(Dirs::current().records())
+            .ok()
+            .and_then(|bytes| serde_json::from_slice(&bytes).ok())
+            .unwrap_or_default()
+    }
+
+    fn write(&self) -> Result<(), String> {
+        write_json(&Dirs::current().records(), self)
+    }
 }
 
-fn read_records(path: &Path) -> std::collections::BTreeMap<String, Record> {
-    fs::read(path)
-        .ok()
-        .and_then(|bytes| serde_json::from_slice(&bytes).ok())
-        .unwrap_or_default()
+fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
+    let text = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
+    let partial = path.with_extension("partial");
+    fs::write(&partial, text)
+        .and_then(|()| fs::rename(&partial, path))
+        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// A build record's key in `built.json`: the profile's folder in `native/target/` for a game
@@ -368,37 +407,45 @@ fn record_key(target: Target, profile: Profile, platform: Option<&str>) -> Strin
 /// The last build of `target` in `profile`'s folder in `native/target/`, if that folder (the
 /// compiled crates both build from) is still there.
 fn last_record(target: Target, profile: Profile, platform: Option<&str>) -> Option<Record> {
-    let mut target_dir = root().join("target");
-    if let Some(platform) = platform {
-        target_dir.push(platform);
-    }
-    if !target_dir.join(profile.cargo().0).is_dir() {
+    if !Dirs::current()
+        .target(platform)
+        .join(profile.cargo().0)
+        .is_dir()
+    {
         return None;
     }
-    read_records(&records_path()).remove(&record_key(target, profile, platform))
+    Records::read()
+        .0
+        .remove(&record_key(target, profile, platform))
 }
 
+/// Keeps `record` as the profile's last build; a failure only costs the next build's plan.
 fn save_record(target: Target, profile: Profile, platform: Option<&str>, record: &Record) {
-    let mut all = read_records(&records_path());
-    all.insert(record_key(target, profile, platform), record.clone());
-    if let Ok(text) = serde_json::to_vec_pretty(&all) {
-        let _ = fs::write(records_path(), text);
+    let mut all = Records::read();
+    all.0
+        .insert(record_key(target, profile, platform), record.clone());
+    if let Err(e) = all.write() {
+        log_warning(&e);
     }
 }
 
-/// The hash of a bundle's files.
+fn hash_file(hash: &mut Sha256, name: &str, bytes: &[u8]) {
+    hash.update(name.as_bytes());
+    hash.update((bytes.len() as u64).to_le_bytes());
+    hash.update(bytes);
+}
+
+fn hex(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{b:02x}")).collect()
+}
+
 fn mod_hash(b: &Bundle) -> Result<String, String> {
     let mut hash = Sha256::new();
     for (name, path) in bundle_files(b)? {
         let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        hash.update(name.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(&bytes);
+        hash_file(&mut hash, &name, &bytes);
     }
-    Ok(hash.finalize()[..8]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect())
+    Ok(hex(&hash.finalize()[..8]))
 }
 
 /// What a cargo output line says about the compile.
@@ -482,20 +529,16 @@ pub fn is_native(version: &str) -> bool {
     version.starts_with(PREFIX)
 }
 
-pub(crate) fn root() -> PathBuf {
-    backend::build_dir().join("native")
-}
-
 /// The build's log, kept until the next build.
 pub fn log_path() -> PathBuf {
-    root().join("build.log")
+    Dirs::current().log()
 }
 
 /// Makes the build log fresh for a new attempt: its folder made, the last build's log
 /// emptied. The error says why it couldn't, so the Build log page can show it instead of
 /// the old file's contents.
 pub fn clear_log() -> Result<(), String> {
-    fs::create_dir_all(root()).map_err(|e| e.to_string())?;
+    fs::create_dir_all(Dirs::current().root()).map_err(|e| e.to_string())?;
     fs::write(log_path(), "").map_err(|e| format!("{}: {e}", log_path().display()))
 }
 
@@ -511,16 +554,18 @@ pub fn append_log(message: &str) -> Result<(), String> {
 }
 
 /// Records the whole attempt, including selection or export after compilation.
-fn logged<T>(build: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
+fn logged<T, E: From<String> + std::fmt::Display>(
+    build: impl FnOnce() -> Result<T, E>,
+) -> Result<T, E> {
     // Another build or a cleanup holds the lease on the same target/: refuse. Any other
     // failure (a filesystem without file locks, a `native` folder linked to another drive)
     // only stops the cleanup: the build goes ahead without the lease, as it did before.
-    let (cache, unavailable) = match crate::native_cache::Cache::acquire(&backend::build_dir()) {
+    let (cache, unavailable) = match native_cache::Cache::acquire(&backend::build_dir()) {
         Ok(cache) => (Some(cache), None),
-        Err(crate::native_cache::Error::Busy) => {
-            return Err(cache_error(crate::native_cache::Error::Busy));
+        Err(native_cache::Error::Busy) => {
+            return Err(String::from(native_cache::Error::Busy).into())
         }
-        Err(error) => (None, Some(cache_error(error))),
+        Err(error) => (None, Some(error.to_string())),
     };
     clear_log()?;
     if let Some(warning) = &unavailable {
@@ -540,81 +585,54 @@ fn logged<T>(build: impl FnOnce() -> Result<T, String>) -> Result<T, String> {
     let Some(cache) = cache else {
         return result;
     };
-    let limit = backend::Settings::load()
-        .native_cache_gib
-        .unwrap_or(DEFAULT_CACHE_GIB);
-    match cache.trim(limit.saturating_mul(1 << 30)) {
+    match cache.trim(native_cache::limit_bytes(&backend::Settings::load())) {
         Ok(bytes) if bytes > 0 => {
             let _ = append_log(&trf(
                 "Cleared {bytes} bytes of native build cache. The next changed build will compile from scratch.",
                 &[("bytes", &bytes.to_string())],
             ));
         }
-        Err(error) => log_warning(&cache_error(error)),
+        Err(error) => log_warning(&error.to_string()),
         _ => {}
     }
     result
 }
 
-pub const DEFAULT_CACHE_GIB: u64 = 30;
-
-fn cache_error(error: crate::native_cache::Error) -> String {
-    match error {
-        crate::native_cache::Error::Busy => {
-            tr("A native build or cache cleanup is running. Try again when it finishes.").into()
-        }
-        crate::native_cache::Error::Unsafe(path) => trf(
-            "Refusing native cache cleanup at an unexpected file or link: {path}",
-            &[("path", &path.display().to_string())],
-        ),
-        crate::native_cache::Error::Io(error) => trf(
-            "Could not access the native build cache: {error}",
-            &[("error", &error.to_string())],
-        ),
-    }
-}
-
-#[derive(serde::Serialize)]
-pub struct CacheInfo {
-    pub path: PathBuf,
-    pub bytes: u64,
-    pub cleared_bytes: u64,
-    pub limit_gib: u64,
-}
-
-/// Inspect or clear only Cargo's native fast/release outputs, while no build is using them.
-/// This does not remove installed versions, instances, mods, saves, toolchains or downloads.
-pub fn cache_info(clear: bool) -> Result<CacheInfo, String> {
-    let cache = crate::native_cache::Cache::acquire(&backend::build_dir()).map_err(cache_error)?;
-    let bytes = cache.bytes().map_err(cache_error)?;
-    let cleared_bytes = if clear {
-        cache.clear().map_err(cache_error)?
-    } else {
-        0
-    };
-    Ok(CacheInfo {
-        path: root().join("target"),
-        bytes,
-        cleared_bytes,
-        limit_gib: backend::Settings::load()
-            .native_cache_gib
-            .unwrap_or(DEFAULT_CACHE_GIB),
-    })
-}
-
 const MANIFEST: &str = "eclipse-mixin.toml";
 /// A registry download's manifest (`.hnmod`, `eclipse_mods::index::native`), beside `mixins/<id>/`.
-const NATIVE_MANIFEST: &str = eclipse_mods::index::native::MANIFEST;
+const NATIVE_MANIFEST: &str = hnmod::MANIFEST;
 /// Where an instance keeps the native mods installed from the registry, `<id>.hnmod`, each on or
 /// off in `eclipse-mods.txt` like any mod.
 pub const INSTALLED: &str = "eclipse-native-mods";
 
+/// Installed `.hnmod`s unpacked for one build, or for the warning before it: a folder of its own,
+/// so another build or warning can't change it, removed when this is dropped.
+pub struct Unpacked(PathBuf);
+
+impl Unpacked {
+    pub fn path(&self) -> &Path {
+        &self.0
+    }
+}
+
+impl Drop for Unpacked {
+    fn drop(&mut self) {
+        let _ = fs::remove_dir_all(&self.0);
+    }
+}
+
 /// The native mods turned on in the game folder `home`, unpacked into a folder [`build`] takes.
 /// Each `.hnmod` is checked again as the registry checks it (Rust and TOML under
 /// `mixins/<id>/`, plus files under its `data/`, nothing run).
-pub fn installed_mods(home: &Path) -> Result<PathBuf, String> {
-    let out = root().join("installed.incoming");
-    let _ = fs::remove_dir_all(&out);
+pub fn installed_mods(home: &Path) -> Result<Unpacked, String> {
+    static CALLS: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let n = CALLS.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let out = Unpacked(
+        Dirs::current()
+            .installed_incoming()
+            .join(format!("{}-{n}", std::process::id())),
+    );
+    let _ = fs::remove_dir_all(out.path());
     let mut paths: Vec<PathBuf> = fs::read_dir(home.join(INSTALLED))
         .map(|dir| dir.flatten().map(|e| e.path()).collect())
         .unwrap_or_default();
@@ -627,7 +645,7 @@ pub fn installed_mods(home: &Path) -> Result<PathBuf, String> {
         if !crate::browser::java::is_enabled(home, &bundle.manifest.id) {
             continue;
         }
-        let dir = out.join(&bundle.manifest.id);
+        let dir = out.path().join(&bundle.manifest.id);
         for (name, bytes) in &bundle.files {
             let to = dir.join(name);
             fs::create_dir_all(to.parent().unwrap_or(&dir)).map_err(|e| e.to_string())?;
@@ -645,7 +663,7 @@ pub fn installed_mods(home: &Path) -> Result<PathBuf, String> {
 }
 
 /// A mixin bundle: a folder with a `eclipse-mixin.toml`, and the revisions it pins.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Bundle {
     pub id: String,
     pub version: String,
@@ -665,6 +683,8 @@ pub struct Bundle {
     /// an entry the launcher cannot make sense of is left out, horizon-mixins
     /// refuses it when it applies.
     pub injections: Vec<Injection>,
+    dependencies: Vec<dependencies::Dependency>,
+    modules: Vec<(String, String)>,
 }
 
 /// One `[[injection]]` of a bundle's manifest, read for the build's
@@ -709,7 +729,17 @@ impl InjectionSite {
     }
 }
 
+/// The Eclipse commit a mod pins: the one it names (`eclipse`), unless it names a hook points'
+/// version (`hooks`) instead: then it follows the others, else the game, and pins nothing.
+pub(crate) fn pin(hooks: Option<u32>, eclipse: Option<&str>) -> Option<&str> {
+    eclipse.filter(|_| hooks.is_none())
+}
+
 impl Bundle {
+    fn pin(&self) -> Option<&str> {
+        pin(self.hooks, self.eclipse.as_deref())
+    }
+
     /// The named hook points it injects at, with their versions: each must be in the
     /// `native-hooks.json` of the revision it builds on.
     fn named_hooks(&self) -> impl Iterator<Item = (&str, u32)> {
@@ -789,34 +819,38 @@ pub(crate) fn bundle_in(dir: &Path) -> Result<Option<Bundle>, String> {
         return Ok(None);
     }
     let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let native_json: serde_json::Value =
+    let native: hnmod::Manifest =
         serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-    let field = |name: &str| native_json[name].as_str().map(str::to_owned);
-    let id = field("id").ok_or_else(|| format!("{} has no id.", path.display()))?;
-    if !api::valid_id(&id) {
+    let id = native.id;
+    if !valid_id(&id) {
         return Err(format!("{}: invalid mod id {id:?}", path.display()));
     }
-    let found = bundle(&dir.join("mixins").join(&id), field("mixins"))?;
-    match (&found.eclipse, field("eclipse")) {
-        (Some(pinned), Some(native)) if *pinned != native => Err(format!(
-            "{id}: {NATIVE_MANIFEST} pins Eclipse {native}, its {MANIFEST} {pinned}."
+    let found = bundle(&dir.join("mixins").join(&id), Some(native.mixins))?;
+    match &found.eclipse {
+        Some(pinned) if *pinned != native.eclipse => Err(format!(
+            "{id}: {NATIVE_MANIFEST} pins Eclipse {}, its {MANIFEST} {pinned}.",
+            native.eclipse
         )),
-        (_, native) => Ok(Some(Bundle {
-            eclipse: found.eclipse.clone().or(native),
-            hooks: native_json["hooks"]
-                .as_u64()
-                .and_then(|v| u32::try_from(v).ok()),
+        _ => Ok(Some(Bundle {
+            eclipse: found.eclipse.clone().or(Some(native.eclipse)),
+            hooks: native.hooks,
             ..found
         })),
     }
 }
 
+/// A native mod's id, a folder name in every staged workspace: what horizon-mixins takes.
+fn valid_id(id: &str) -> bool {
+    !id.is_empty()
+        && id.len() <= 100
+        && id
+            .bytes()
+            .all(|b| b.is_ascii_alphanumeric() || b == b'_' || b == b'-')
+}
+
 fn bundle(dir: &Path, mixins: Option<String>) -> Result<Bundle, String> {
     let path = dir.join(MANIFEST);
-    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let value: toml::Table = text
-        .parse()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let value = api::read(&path)?;
     let field = |table: &str, name: &str| {
         value
             .get(table)
@@ -827,9 +861,6 @@ fn bundle(dir: &Path, mixins: Option<String>) -> Result<Bundle, String> {
     let need = |name: &str| {
         field("mod", name).ok_or_else(|| format!("{} has no [mod] {name}.", path.display()))
     };
-    // The `[mod]` `priority` the injections fall back to. horizon-mixins
-    // defaults it to 0 (`#[serde(default)] priority: i32`), not to a README
-    // example's 100.
     let mod_priority = value
         .get("mod")
         .and_then(|m| m.get("priority"))
@@ -872,15 +903,30 @@ fn bundle(dir: &Path, mixins: Option<String>) -> Result<Bundle, String> {
         .get("api")
         .map(|table| api::folder(dir, table))
         .transpose()?;
-    let mixins_content = value
-        .keys()
-        .any(|key| !["mod", "compatibility", "api", "dependencies"].contains(&key.as_str()));
+    let mixins_content = value.keys().any(|key| {
+        !["mod", "compatibility"].contains(&key.as_str())
+            && !api::LAUNCHER_ONLY.contains(&key.as_str())
+    });
     // Reject links before copying the bundle into the incoming folder.
     files_with_api(dir, api.as_deref())?;
     let id = need("id")?;
-    if !api::valid_id(&id) {
+    if !valid_id(&id) {
         return Err(format!("{}: invalid mod id {id:?}", path.display()));
     }
+    let dependencies =
+        dependencies::parse(&id, value.get("dependencies")).map_err(|e| e.to_string())?;
+    let modules = value
+        .get("module")
+        .and_then(|m| m.as_array())
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            Some((
+                m.get("file")?.as_str()?.into(),
+                m.get("name")?.as_str()?.into(),
+            ))
+        })
+        .collect();
     Ok(Bundle {
         id,
         version: need("version")?,
@@ -891,11 +937,19 @@ fn bundle(dir: &Path, mixins: Option<String>) -> Result<Bundle, String> {
         injections,
         api,
         mixins_content,
+        dependencies,
+        modules,
     })
 }
 
-fn is_revision(text: &str) -> bool {
-    text.len() == 40 && text.bytes().all(|b| matches!(b, b'0'..=b'9' | b'a'..=b'f'))
+fn names_in_order<'a, T>(pairs: &[(&'a str, T)]) -> Vec<&'a str> {
+    let mut names: Vec<&str> = Vec::new();
+    for (name, _) in pairs {
+        if !names.contains(name) {
+            names.push(name);
+        }
+    }
+    names
 }
 
 /// The build's warnings about the mods' injections (#6490): two mods on one
@@ -907,11 +961,6 @@ fn is_revision(text: &str) -> bool {
 /// resolves, so the warnings stay to what the manifest says for sure.
 fn warn_conflicts(mods: &[Bundle]) -> Vec<String> {
     let mut out = Vec::new();
-    // One place (the function, the kind, the selector, the ordinal), the
-    // injections of at least two mods on it, ordered as horizon-mixins runs
-    // same-place injections: priority descending, mod id ascending,
-    // injection id ascending — the tail of its own sort, which the place
-    // prefixes already fixed.
     let mut places: BTreeMap<_, Vec<(&str, &Injection)>> = BTreeMap::new();
     for b in mods {
         for i in &b.injections {
@@ -927,12 +976,7 @@ fn warn_conflicts(mods: &[Bundle]) -> Vec<String> {
                 i.id.clone(),
             )
         });
-        let mut names: Vec<&str> = Vec::new();
-        for (mod_id, _) in &list {
-            if !names.contains(mod_id) {
-                names.push(mod_id);
-            }
-        }
+        let names = names_in_order(&list);
         if names.len() < 2 {
             continue;
         }
@@ -945,9 +989,6 @@ fn warn_conflicts(mods: &[Bundle]) -> Vec<String> {
             names[0]
         ));
     }
-    // A function's head and its return: two mods wrapping the whole
-    // function, which run in that order whatever their priorities. Said
-    // without a "runs first".
     let mut functions: BTreeMap<&InjectionSite, Vec<(&str, &Injection)>> = BTreeMap::new();
     for b in mods {
         for i in &b.injections {
@@ -959,15 +1000,7 @@ fn warn_conflicts(mods: &[Bundle]) -> Vec<String> {
     for (site, list) in functions {
         let kinds: std::collections::BTreeSet<&str> =
             list.iter().filter_map(|(_, i)| i.kind.as_deref()).collect();
-        let mut names: Vec<&str> = Vec::new();
-        for (mod_id, _) in &list {
-            if !names.contains(mod_id) {
-                names.push(mod_id);
-            }
-        }
-        // Both sides, and more than one mod on the function: a single mod
-        // wrapping its own function at both ends is no one's conflict.
-        if kinds.len() < 2 || names.len() < 2 {
+        if kinds.len() < 2 || names_in_order(&list).len() < 2 {
             continue;
         }
         let sides: Vec<String> = list
@@ -1003,15 +1036,10 @@ fn warn_conflicts(mods: &[Bundle]) -> Vec<String> {
     out
 }
 
-/// Appends `text` to the build log, the way a compiler warning reads.
+/// Appends `text` to the build log, the way a compiler warning reads. A log that can't be
+/// written loses only the warning: the build goes on.
 fn log_warning(text: &str) {
-    if let Ok(mut log) = fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path())
-    {
-        let _ = writeln!(log, "warning: {text}");
-    }
+    let _ = append_log(&format!("warning: {text}"));
 }
 
 /// The one value the bundles pin for `which` (each mod's `get`), else `fallback`; mods that pin
@@ -1033,7 +1061,7 @@ fn agreed(
         Some(_) => {
             let list: Vec<String> = pins
                 .iter()
-                .map(|(r, id)| format!("{id} → {}", &r[..r.len().min(7)]))
+                .map(|(r, id)| format!("{id} → {}", short(r)))
                 .collect();
             return Err(format!(
                 "These mods were made for different {which} revisions and can't be built together: {}. Install versions made for the same Nightly.",
@@ -1041,7 +1069,7 @@ fn agreed(
             ));
         }
     };
-    if !is_revision(&revision) {
+    if !hnmod::revision(&revision) {
         return Err(format!(
             "{revision} is not a {which} commit (40 hex digits)."
         ));
@@ -1069,7 +1097,7 @@ fn newest(
     if pins.len() < 2 {
         return agreed(bundles, which, get, fallback);
     }
-    if let Some(bad) = pins.iter().find(|p| !is_revision(p)) {
+    if let Some(bad) = pins.iter().find(|p| !hnmod::revision(p)) {
         return Err(format!("{bad} is not a {which} commit (40 hex digits)."));
     }
     pins.extend(also.filter(|a| !pins.contains(a)));
@@ -1088,16 +1116,15 @@ fn newest(
 }
 
 /// When commit `revision` of GitHub's `repo` was made (ISO 8601, so it sorts), from the dates kept
-/// in [`DATES`] when it was asked before: a commit's date never changes, so a build of mods made
-/// for different revisions can be used again offline or past GitHub's rate limit.
+/// in [`Dirs::dates`] when it was asked before: a commit's date never changes, so a build of mods
+/// made for different revisions can be used again offline or past GitHub's rate limit (GitHub's
+/// own answers, [`crate::github`], are asked again after a few minutes).
 fn committed(repo: &str, revision: &str) -> Result<String, String> {
-    remembered(&root().join(DATES), repo, revision, ask_github)
+    remembered(&Dirs::current().dates(), repo, revision, ask_github)
 }
 
-/// The file in [`root`] keeping the commit dates GitHub gave, as `{"repo@revision": date}`.
-const DATES: &str = "commit-dates.json";
-
-/// The date `file` keeps for `repo`'s `revision`, else `ask`'s, then kept in `file`.
+/// The date `file` (`{"repo@revision": date}`) keeps for `repo`'s `revision`, else `ask`'s, then
+/// kept in `file`.
 fn remembered(
     file: &Path,
     repo: &str,
@@ -1105,50 +1132,61 @@ fn remembered(
     ask: impl FnOnce(&str, &str) -> Result<String, String>,
 ) -> Result<String, String> {
     let key = format!("{repo}@{revision}");
-    let mut dates: serde_json::Map<String, serde_json::Value> = fs::read(file)
+    let mut dates: BTreeMap<String, String> = fs::read(file)
         .ok()
         .and_then(|b| serde_json::from_slice(&b).ok())
         .unwrap_or_default();
-    if let Some(date) = dates.get(&key).and_then(|d| d.as_str()) {
-        return Ok(date.to_owned());
+    if let Some(date) = dates.get(&key) {
+        return Ok(date.clone());
     }
     let date = ask(repo, revision)?;
-    dates.insert(key, date.clone().into());
-    if let Ok(text) = serde_json::to_vec_pretty(&dates) {
-        let _ = fs::write(file, text);
+    dates.insert(key, date.clone());
+    if let Err(e) = write_json(file, &dates) {
+        log_warning(&e);
     }
     Ok(date)
 }
 
 fn ask_github(repo: &str, revision: &str) -> Result<String, String> {
-    let url = format!("https://api.github.com/repos/{repo}/commits/{revision}");
-    let commit = crate::github::json(&url)?;
+    let commit = crate::github::api(&format!("repos/{repo}/commits/{revision}"))?;
     commit["commit"]["committer"]["date"]
         .as_str()
         .map(str::to_owned)
         .ok_or_else(|| format!("GitHub doesn't know {repo} commit {revision}."))
 }
 
-/// How [`build`] starts its error when mods pin other Eclipse revisions than the one it would
-/// use and the player hasn't agreed to try (`anyway`); the rest lists them.
-pub const MISMATCH: &str = "Made for other Eclipse versions: ";
+#[derive(Clone, Debug, PartialEq)]
+pub enum BuildError {
+    /// Mods pin other Eclipse revisions than the one the build would use, and the player hasn't
+    /// agreed to try (`anyway`): which, as `id → pin`, and the build's.
+    Mismatch(String),
+    Failed(String),
+}
+
+impl std::fmt::Display for BuildError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            Self::Mismatch(list) => write!(f, "Made for other Eclipse versions: {list}"),
+            Self::Failed(error) => f.write_str(error),
+        }
+    }
+}
+
+impl From<String> for BuildError {
+    fn from(error: String) -> Self {
+        Self::Failed(error)
+    }
+}
 
 /// Each pinned mod whose Eclipse revision isn't `revision`, as `id → pin`, and the build's.
 fn mismatch(mods: &[Bundle], revision: &str) -> Option<String> {
     let list: Vec<String> = mods
         .iter()
-        .filter(|b| b.hooks.is_none())
-        .filter_map(|b| b.eclipse.as_ref().map(|r| (b, r)))
+        .filter_map(|b| b.pin().map(|r| (b, r)))
         .filter(|(_, r)| *r != revision)
-        .map(|(b, r)| format!("{} → {}", b.id, &r[..r.len().min(7)]))
+        .map(|(b, r)| format!("{} → {}", b.id, short(r)))
         .collect();
-    (!list.is_empty()).then(|| {
-        format!(
-            "{}; the build uses {}",
-            list.join(", "),
-            &revision[..revision.len().min(7)]
-        )
-    })
+    (!list.is_empty()).then(|| format!("{}; the build uses {}", list.join(", "), short(revision)))
 }
 
 /// Where Eclipse declares its native hook points' version, and the line that does.
@@ -1161,14 +1199,11 @@ fn hooks_in(source: &str) -> Option<u32> {
     line.trim_end().strip_suffix(';')?.parse().ok()
 }
 
-/// The native hook points' version of Eclipse at `revision`, from GitHub (None: it has none).
-pub(crate) fn hooks_at(revision: &str) -> Option<u32> {
-    let url = format!(
-        "https://raw.githubusercontent.com/{}/{revision}/{HOOKS_FILE}",
-        backend::REPO
-    );
-    let text = backend::get(&url).ok()?.into_string().ok()?;
-    hooks_in(&text)
+/// The native hook points' version of Eclipse at `revision`, from GitHub (None: it has none), or
+/// why GitHub couldn't say.
+pub(crate) fn hooks_at(revision: &str) -> Result<Option<u32>, String> {
+    let text = crate::github::raw(backend::REPO, revision, HOOKS_FILE)?;
+    Ok(text.as_deref().and_then(hooks_in))
 }
 
 /// The named hook points (name, version) a `native-hooks.json` lists; None when it isn't one.
@@ -1185,14 +1220,10 @@ fn catalog_in(text: &str) -> Option<HookCatalog> {
 }
 
 /// The named hook points of Eclipse at `revision`, from GitHub (None: it has no catalog, as
-/// revisions from before d3e0774 that already had hook points v2).
-fn catalog_at(revision: &str) -> Option<HookCatalog> {
-    let url = format!(
-        "https://raw.githubusercontent.com/{}/{revision}/{CATALOG}",
-        backend::REPO
-    );
-    let text = backend::get(&url).ok()?.into_string().ok()?;
-    catalog_in(&text)
+/// revisions from before d3e0774 that already had hook points v2), or why GitHub couldn't say.
+fn catalog_at(revision: &str) -> Result<Option<HookCatalog>, String> {
+    let text = crate::github::raw(backend::REPO, revision, CATALOG)?;
+    Ok(text.as_deref().and_then(catalog_in))
 }
 
 /// Where Eclipse lists its named hook points, at the workspace root (horizon-mixins reads it there).
@@ -1212,13 +1243,25 @@ fn with_hooks(
     pinned: String,
     free: bool,
     game: impl FnOnce() -> Option<String>,
-    at: impl Fn(&str) -> Option<u32>,
-    catalog: impl Fn(&str) -> Option<HookCatalog>,
+    at: impl Fn(&str) -> Result<Option<u32>, String>,
+    catalog: impl Fn(&str) -> Result<Option<HookCatalog>, String>,
 ) -> Result<String, String> {
     let hooked: Vec<&Bundle> = mods.iter().filter(|b| b.hooks.is_some()).collect();
     let named = hooked.iter().any(|b| b.named_hooks().next().is_some());
-    // The revision's hook points' version, and its catalog when a mod names hook points.
-    let points = |revision: &str| (at(revision), named.then(|| catalog(revision)).flatten());
+    let points = |revision: &str| {
+        let unread = |e: String| {
+            format!(
+                "Can't read the native hook points of Eclipse {}: {e}",
+                short(revision)
+            )
+        };
+        let found = at(revision).map_err(unread)?;
+        let listed = match named {
+            true => catalog(revision).map_err(unread)?,
+            false => None,
+        };
+        Ok::<_, String>((found, listed))
+    };
     let fits_one = |b: &Bundle, (found, listed): &(Option<u32>, Option<HookCatalog>)| {
         found.is_some()
             && b.hooks <= *found
@@ -1229,29 +1272,25 @@ fn with_hooks(
             })
     };
     let fits = |revision: &str| {
-        let found = points(revision);
-        hooked.iter().all(|b| fits_one(b, &found))
+        let found = points(revision)?;
+        Ok::<_, String>(hooked.iter().all(|b| fits_one(b, &found)))
     };
-    if hooked.is_empty() || fits(&pinned) {
+    if hooked.is_empty() || fits(&pinned)? {
         return Ok(pinned);
     }
-    let tested: Vec<Bundle> = hooked.iter().map(|b| (*b).clone()).collect();
-    let fallback = agreed(
-        &tested,
-        "Eclipse",
-        |b| b.eclipse.as_ref(),
-        || Err(String::new()),
-    );
-    if let (true, Ok(revision)) = (free, fallback) {
-        if fits(&revision) {
+    let tested: std::collections::BTreeSet<&String> =
+        hooked.iter().filter_map(|b| b.eclipse.as_ref()).collect();
+    if let (true, [revision]) = (free, Vec::from_iter(tested).as_slice()) {
+        if hnmod::revision(revision) && fits(revision)? {
+            return Ok((*revision).clone());
+        }
+    }
+    if let Some(revision) = game().filter(|r| *r != pinned) {
+        if fits(&revision)? {
             return Ok(revision);
         }
     }
-    if let Some(revision) = game().filter(|r| *r != pinned && fits(r)) {
-        return Ok(revision);
-    }
-    // Only the mods that need more than `pinned` has: the others would build there.
-    let found = points(&pinned);
+    let found = points(&pinned)?;
     let list: Vec<String> = hooked
         .iter()
         .filter(|b| !fits_one(b, &found))
@@ -1259,24 +1298,24 @@ fn with_hooks(
         .collect();
     Err(format!(
         "Eclipse {} doesn't have the native hook points these mods use: {}. Update Eclipse or the mods.",
-        &pinned[..pinned.len().min(7)],
+        short(&pinned),
         list.join(", ")
     ))
+}
+
+pub(crate) fn short(revision: &str) -> &str {
+    &revision[..revision.len().min(7)]
 }
 
 /// A bundle that names a hook points' version builds on another revision than the one it was
 /// tested on: its `eclipse_revision` (which horizon-mixins checks) becomes the build's.
 fn repin(bundle: &Bundle, revision: &str) -> Result<(), String> {
     let path = bundle.dir.join(MANIFEST);
-    let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-    let mut value: toml::Table = text
-        .parse()
-        .map_err(|e| format!("{}: {e}", path.display()))?;
+    let mut value = api::read(&path)?;
     if let Some(toml::Value::Table(compat)) = value.get_mut("compatibility") {
         compat.insert("eclipse_revision".into(), revision.into());
     }
-    let text = toml::to_string(&value).map_err(|e| e.to_string())?;
-    fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    api::write(&path, &value)
 }
 
 /// Whether Eclipse's source at `source` has the `mods` feature (the WebAssembly mods' runtime,
@@ -1302,55 +1341,110 @@ fn profile_of(source: &Path, chosen: Profile) -> Profile {
     }
 }
 
+fn nightly_commit(version: &str) -> Option<&str> {
+    crate::nightly::date_of(version)?;
+    version
+        .get("nightly-2026-10-28-".len()..)
+        .filter(|c| !c.is_empty())
+}
+
 /// The Eclipse commit `version` (an installed release or Nightly) was built from, from GitHub.
 pub fn revision_of(version: &str) -> Result<String, String> {
-    let reference = match version.strip_prefix("nightly-") {
-        // nightly-2026-10-28-0c02067: the commit is its last word.
-        Some(rest) => rest.rsplit('-').next().unwrap_or(rest),
-        None => version,
-    };
-    let url = format!(
-        "https://api.github.com/repos/{}/commits/{reference}",
-        backend::REPO
-    );
-    let commit = crate::github::json(&url)?;
+    let reference = nightly_commit(version).unwrap_or(version);
+    let commit = crate::github::api(&format!("repos/{}/commits/{reference}", backend::REPO))?;
     commit["sha"]
         .as_str()
-        .filter(|s| is_revision(s))
+        .filter(|s| hnmod::revision(s))
         .map(str::to_owned)
         .ok_or_else(|| format!("GitHub doesn't know the commit of {version}."))
 }
 
-/// What a native build was made from: its `native-mods.json`.
-#[derive(Clone, Debug, PartialEq)]
+const RECORD: &str = "native-mods.json";
+
+/// What a native build was made from: its `native-mods.json`, written by the build, read by the
+/// Mods page and by the next build. Every field but `base` and `eclipse` may be missing from a
+/// build made before it was recorded, and a list's entry that doesn't read is left out.
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct About {
     /// The release or Nightly it started from.
     pub base: String,
     /// The Eclipse commit it compiled.
     pub eclipse: String,
-    /// What it compiles: the game the player plays (also the only kind a `native-mods.json`
-    /// from before the target was recorded builds), or the headless engine a server runs.
-    pub target: Target,
-    /// The commit of `base` itself, when the build knew it (not for builds made before it was
-    /// recorded): `eclipse` differs from it when mods pin another.
+    /// The commit of `base` itself, when the build knew it: `eclipse` differs from it when mods
+    /// pin another.
+    #[serde(default)]
     pub base_eclipse: Option<String>,
     /// The mods whose pin made the build use `eclipse` instead of `base_eclipse` (empty when the
     /// build is on `base`'s own commit).
+    #[serde(default, deserialize_with = "readable")]
     pub pinned_by: Vec<String>,
     /// The player chose to build on `base`'s own commit even where mods pin another: a rebuild
     /// from this build keeps doing so.
+    #[serde(default)]
     pub on_base: bool,
+    #[serde(default)]
+    pub horizon_mixins: String,
+    #[serde(default)]
+    pub hooks: Option<u32>,
+    #[serde(default)]
+    pub rust: String,
+    #[serde(default)]
+    pub profile: String,
+    /// What it compiles: the game the player plays (also what a record from before targets were
+    /// recorded built), or the headless engine a server runs.
+    #[serde(default)]
+    pub target: Target,
+    #[serde(default)]
+    pub rust_target: Option<String>,
+    #[serde(default, deserialize_with = "readable")]
+    pub mods: Vec<BuiltMod>,
     /// The mods turned on that it was built without, and why.
+    #[serde(default, deserialize_with = "readable")]
     pub left_out: Vec<LeftOut>,
 }
 
+#[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
+pub struct BuiltMod {
+    pub id: String,
+    pub version: String,
+    #[serde(default)]
+    pub sha256: Option<String>,
+}
+
+fn readable<'de, D, T>(from: D) -> Result<Vec<T>, D::Error>
+where
+    D: serde::Deserializer<'de>,
+    T: serde::de::DeserializeOwned,
+{
+    let values: Option<Vec<serde_json::Value>> = serde::Deserialize::deserialize(from)?;
+    Ok(values
+        .into_iter()
+        .flatten()
+        .filter_map(|v| serde_json::from_value(v).ok())
+        .collect())
+}
+
 impl About {
+    fn read(dir: &Path) -> Option<Self> {
+        let mut about: Self = serde_json::from_slice(&fs::read(dir.join(RECORD)).ok()?).ok()?;
+        if !hnmod::revision(&about.eclipse) {
+            return None;
+        }
+        about.base_eclipse = about.base_eclipse.filter(|r| hnmod::revision(r));
+        Some(about)
+    }
+
+    fn write(&self, dir: &Path) -> Result<(), String> {
+        let text = serde_json::to_string(self).map_err(|e| e.to_string())?;
+        let path = dir.join(RECORD);
+        fs::write(&path, text).map_err(|e| format!("{}: {e}", path.display()))
+    }
+
     /// A build from before `base_eclipse` was recorded that compiled another commit than its
-    /// Nightly's (the last word of its name): mods pinned it.
+    /// Nightly's: mods pinned it.
     pub fn off_its_nightly(&self) -> bool {
-        let nightly = self.base.strip_prefix("nightly-").and_then(|r| r.get(11..));
         self.base_eclipse.is_none()
-            && nightly.is_some_and(|commit| !commit.is_empty() && !self.eclipse.starts_with(commit))
+            && nightly_commit(&self.base).is_some_and(|commit| !self.eclipse.starts_with(commit))
     }
 }
 
@@ -1359,37 +1453,7 @@ pub fn about(version: &str) -> Option<About> {
     if !is_native(version) {
         return None;
     }
-    about_in(&backend::version_dir(version))
-}
-
-/// The build record (`native-mods.json`) in version folder `dir`, if it parses. A build from
-/// before targets were recorded is a client one, so it still reads.
-fn about_in(dir: &Path) -> Option<About> {
-    let json: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(dir.join("native-mods.json")).ok()?).ok()?;
-    let field = |name: &str| json[name].as_str().map(str::to_owned);
-    Some(About {
-        base: field("base")?,
-        eclipse: field("eclipse").filter(|r| is_revision(r))?,
-        target: match field("target").as_deref() {
-            Some("server") => Target::Server,
-            _ => Target::Client,
-        },
-        base_eclipse: field("base_eclipse").filter(|r| is_revision(r)),
-        pinned_by: json["pinned_by"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(|m| m.as_str().map(str::to_owned))
-            .collect(),
-        on_base: json["on_base"].as_bool().unwrap_or(false),
-        left_out: json["left_out"]
-            .as_array()
-            .into_iter()
-            .flatten()
-            .filter_map(LeftOut::from_json)
-            .collect(),
-    })
+    About::read(&backend::version_dir(version))
 }
 
 /// The Eclipse commit the mods that pin one (`pins`: those naming no hook points' version) give a
@@ -1416,9 +1480,12 @@ fn pinned_revision(
 
 /// The newest installed release or Nightly in `installed` (newest first).
 pub(crate) fn newest_installed(installed: &[String]) -> Option<&String> {
-    installed
-        .iter()
-        .find(|t| backend::is_game_tag(t) || t.starts_with("nightly-"))
+    installed.iter().find(|t| is_release_or_nightly(t))
+}
+
+/// A version Eclipse published and signed: a release or a Nightly.
+pub(crate) fn is_release_or_nightly(version: &str) -> bool {
+    backend::is_game_tag(version) || crate::nightly::date_of(version).is_some()
 }
 
 /// The installed version a build for an instance that plays `current` starts from: `current`
@@ -1433,12 +1500,8 @@ pub fn base_for(current: Option<&str>, installed: &[String], update: bool) -> Op
     }
 }
 
-/// The newer Eclipse a build with `update` would move native build `version` to: the newest
-/// installed release or Nightly, when it is newer than the one the build started from.
-pub fn update_for(version: &str, installed: &[String]) -> Option<String> {
-    newer_than(&about(version)?.base, installed)
-}
-
+/// The newer Eclipse a build with `update` would move a native build started from `base` to: the
+/// newest installed release or Nightly, when it is newer than `base`.
 pub fn newer_than(base: &str, installed: &[String]) -> Option<String> {
     newest_installed(installed)
         .filter(|n| *n != base && backend::compare_versions(n, base).is_gt())
@@ -1532,16 +1595,11 @@ pub fn version_for(
         hash.update([0]);
         for (name, path) in bundle_files(b)? {
             let bytes = fs::read(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            hash.update(name.as_bytes());
-            hash.update((bytes.len() as u64).to_le_bytes());
-            hash.update(&bytes);
+            hash_file(&mut hash, &name, &bytes);
         }
     }
-    let key: String = hash.finalize()[..6]
-        .iter()
-        .map(|b| format!("{b:02x}"))
-        .collect();
-    Ok(format!("{PREFIX}{}-{key}", &revision[..7]))
+    let key = hex(&hash.finalize()[..6]);
+    Ok(format!("{PREFIX}{}-{key}", short(revision)))
 }
 
 /// A digest of a mod's files (name, length, bytes, sorted by name), kept in `native-mods.json` so
@@ -1549,11 +1607,9 @@ pub fn version_for(
 pub fn digest<'a>(files: impl Iterator<Item = (&'a str, &'a [u8])>) -> String {
     let mut hash = Sha256::new();
     for (name, bytes) in files {
-        hash.update(name.as_bytes());
-        hash.update((bytes.len() as u64).to_le_bytes());
-        hash.update(bytes);
+        hash_file(&mut hash, name, bytes);
     }
-    hash.finalize().iter().map(|b| format!("{b:02x}")).collect()
+    hex(&hash.finalize())
 }
 
 /// The digest of a bundle's files as the Mods page reads it (`native_status::enabled`): an
@@ -1569,7 +1625,6 @@ fn source_digest(bundle: &Bundle) -> Option<String> {
                 && bundle.dir == root.join("mixins").join(&bundle.id)
         })
         .unwrap_or(&bundle.dir);
-    // An installed .hnmod keeps its archive digest for the Mods page.
     let paths = if root == bundle.dir {
         bundle_files(bundle)
     } else {
@@ -1631,7 +1686,7 @@ impl Step {
             Self::Tool => tr("Preparing the mod tools (once)").into(),
             Self::Source(revision) => trf(
                 "Downloading Eclipse's source at {revision}",
-                &[("revision", &revision[..7])],
+                &[("revision", short(revision))],
             ),
             Self::Mixins => tr("Applying the mixins").into(),
             Self::CachedMixins => tr("Reusing patched game source").into(),
@@ -1808,7 +1863,7 @@ fn failure(what: &str, status: &str, errors: &[String], tail: &[String]) -> Stri
 /// Extracts the mod id from a mixin manifest or mod file path (e.g. `.../mixins.incoming/<mod_id>/...`
 /// or `.../mods.incoming/<mod_id>/...`).
 fn mod_id_from_file(file: &str) -> Option<&str> {
-    for prefix in ["mixins.incoming", "mods.incoming"] {
+    for prefix in native_cache::STAGING {
         if let Some(pos) = file.find(prefix) {
             let rest = &file[pos + prefix.len()..];
             let sub = rest.trim_start_matches(['/', '\\']);
@@ -1852,15 +1907,13 @@ fn diagnostic(text: &str) -> Option<String> {
 /// horizon-mixins at commit `rev`, built once with the launcher's cargo (`cargo install --locked`);
 /// `progress` hears [`Step::Tool`] only when it is built.
 fn tool(rust: &Toolchain, rev: &str, progress: &impl Fn(Step)) -> Result<PathBuf, String> {
-    let dir = root().join("tools").join(&rev[..12]);
+    let dir = Dirs::current().tools().join(&rev[..12]);
     let bin = dir
         .join("bin")
         .join(format!("horizon-mixins{}", std::env::consts::EXE_SUFFIX));
     if !bin.is_file() {
         progress(Step::Tool);
-        let mut cmd = rust.command(&rust.cargo());
-        rust_toolchain::low_priority(&mut cmd);
-        rust.configure_cargo(&mut cmd);
+        let mut cmd = rust.cargo_command();
         cmd.args([
             "install", "--locked", "--git", MIXINS_GIT, "--rev", rev, "--root",
         ])
@@ -1902,30 +1955,25 @@ fn compile(
     cmd.env("CARGO_TARGET_DIR", target_dir)
         .env("CARGO_TERM_PROGRESS_WHEN", "always")
         .env("CARGO_TERM_PROGRESS_WIDTH", "100");
-    let (cargo_profile, configs) = profile.cargo();
-    cmd.args([
-        "--locked",
-        "--message-format=json",
-        "--profile",
-        cargo_profile,
-    ]);
-    cmd.args(configs.iter().flat_map(|config| ["--config", config]));
+    cmd.args(["--locked", "--message-format=json"]);
+    profile.args(&mut cmd);
     if target == Target::Server {
         cmd.arg("--no-default-features");
     }
     if has_mods_feature(stage) {
         cmd.args(["--features", FEATURES]);
     }
-    cmd.args(["-p", package, "--bin", "eclipse-client"]);
+    cmd.args(["-p", package, "--bin", GAME_BIN]);
     cmd
 }
+
+/// The game's binary in Eclipse's workspace, which the trait mods' generated package also builds.
+const GAME_BIN: &str = "eclipse-client";
 
 /// The launcher's cargo running `subcommand` on the workspace `dir`, at low priority, with only
 /// the workspace's own Cargo configuration ([`compile`]).
 fn cargo(rust: &Toolchain, dir: &Path, subcommand: &str) -> Command {
-    let mut cmd = rust.command(&rust.cargo());
-    rust_toolchain::low_priority(&mut cmd);
-    rust.configure_cargo(&mut cmd);
+    let mut cmd = rust.cargo_command();
     cmd.arg(subcommand);
     let config = dir.join(".cargo").join("config.toml");
     if config.is_file() {
@@ -1973,7 +2021,6 @@ fn lock_crates(
     if let Some(why) = crates::refused(&eclipse, Some(&staged), &wanted, &api_ids) {
         return Err(why);
     }
-    // Only this computer's crates: the build needs no others.
     let mut fetch = cargo(rust, stage, "fetch");
     fetch.arg("--locked");
     if let Some(host) = rust_toolchain::host() {
@@ -1996,24 +2043,15 @@ fn post_build_programs(
     progress: &impl Fn(Step),
 ) -> Result<Vec<(crates::PostBuild, PathBuf)>, String> {
     let steps = crates::post_builds(stage)?;
-    // The game's settings, so the crates it built are reused.
-    let (profile, configs) = profile.cargo();
     let _ = fs::remove_dir_all(programs);
     let mut out = Vec::new();
     for (i, step) in steps.into_iter().enumerate() {
         progress(Step::PostBuildCompile(step.mod_id.clone()));
         let mut cmd = cargo(rust, stage, "build");
         cmd.env("CARGO_TARGET_DIR", target);
-        cmd.args([
-            "--locked",
-            "--profile",
-            profile,
-            "-p",
-            &step.package,
-            "--bin",
-            &step.bin,
-        ]);
-        cmd.args(configs.iter().flat_map(|config| ["--config", config]));
+        cmd.arg("--locked");
+        profile.args(&mut cmd);
+        cmd.args(["-p", &step.package, "--bin", &step.bin]);
         run(
             cmd,
             &format!("Building {}'s post-build step", step.mod_id),
@@ -2021,7 +2059,7 @@ fn post_build_programs(
         )?;
         let file = format!("{}{}", step.bin, std::env::consts::EXE_SUFFIX);
         let program = programs.join(i.to_string()).join(&file);
-        copy_out(&target.join(profile).join(&file), &program)?;
+        copy_out(&target.join(profile.cargo().0).join(&file), &program)?;
         out.push((step, program));
     }
     Ok(out)
@@ -2032,48 +2070,18 @@ fn post_build_programs(
 /// is gone: its `nightly-source/…` tag keeps it (docs/release-flow.md). Links are left out:
 /// horizon-mixins refuses them, and none is needed to build.
 fn source(revision: &str) -> Result<PathBuf, String> {
-    let dir = root().join("source").join(revision);
+    let sources = Dirs::current().source();
+    let dir = sources.join(revision);
     if dir.join(".eclipse-revision").is_file() {
         return Ok(dir);
     }
-    let archive = format!(
-        "https://codeload.github.com/{}/tar.gz/{revision}",
-        backend::REPO
-    );
-    let partial = root().join("source").join(format!(".{revision}.partial"));
-    let top = unpack_archive(&archive, &partial, u64::MAX)?;
+    let partial = sources.join(format!(".{revision}.partial"));
+    let top = crate::github::unpack_archive(backend::REPO, revision, &partial, u64::MAX)?;
     fs::write(top.join(".eclipse-revision"), revision).map_err(|e| e.to_string())?;
     let _ = fs::remove_dir_all(&dir);
     fs::rename(&top, &dir).map_err(|e| e.to_string())?;
     let _ = fs::remove_dir_all(&partial);
     Ok(dir)
-}
-
-/// GitHub's archive (`.tar.gz`) at `url`, unpacked into the fresh folder `partial`: the archive's
-/// one top folder, which is returned. Links are left out; at most `limit` bytes are unpacked.
-pub(crate) fn unpack_archive(url: &str, partial: &Path, limit: u64) -> Result<PathBuf, String> {
-    use std::io::Read;
-    let _ = fs::remove_dir_all(partial);
-    fs::create_dir_all(partial).map_err(|e| e.to_string())?;
-    let reader = flate2::read::GzDecoder::new(backend::get(url)?.into_reader()).take(limit);
-    let mut tar = tar::Archive::new(reader);
-    for entry in tar.entries().map_err(|e| e.to_string())? {
-        let mut entry = entry.map_err(|e| format!("Download interrupted: {e}"))?;
-        let kind = entry.header().entry_type();
-        if !(kind.is_file() || kind.is_dir()) {
-            continue;
-        }
-        entry
-            .unpack_in(partial)
-            .map_err(|e| format!("Could not unpack the source: {e}"))?;
-    }
-    // The archive's one top folder (<repo>-<commit>/) is the source's root.
-    fs::read_dir(partial)
-        .map_err(|e| e.to_string())?
-        .flatten()
-        .map(|e| e.path())
-        .find(|p| p.is_dir())
-        .ok_or_else(|| "The source archive is empty.".into())
 }
 
 /// Makes `to` hold `from`'s files, writing only those that changed, so Cargo, which goes by file
@@ -2083,7 +2091,8 @@ fn sync(from: &Path, to: &Path) -> Result<(), String> {
     let old = if to.is_dir() { files(to)? } else { Vec::new() };
     for (name, path) in &new {
         let target = to.join(name);
-        if fs::read(&target).ok() != fs::read(path).ok() {
+        let bytes = fs::read(path).map_err(|e| format!("{}: {e}", path.display()))?;
+        if fs::read(&target).ok() != Some(bytes) {
             fs::create_dir_all(target.parent().unwrap_or(to)).map_err(|e| e.to_string())?;
             fs::copy(path, &target).map_err(|e| format!("{}: {e}", target.display()))?;
         }
@@ -2096,7 +2105,7 @@ fn sync(from: &Path, to: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Copy a bundle without its API package's Cargo build output.
+/// Copies a bundle without its API package's Cargo build output.
 fn copy_bundle(bundle: &Bundle, to: &Path) -> Result<(), String> {
     let root = bundle.dir.canonicalize().map_err(|e| e.to_string())?;
     let skip = api_target(&root, bundle.api.as_deref())?;
@@ -2121,7 +2130,7 @@ fn stage_trait_data(mods: &[Bundle], stage: &Path) -> Result<(), String> {
     for bundle in mods.iter().filter(|b| !b.mixins_content) {
         let data = bundle.dir.join("data");
         if data.is_dir() {
-            let to = stage.join("native-data").join(&bundle.id);
+            let to = stage.join(crates::DATA).join(&bundle.id);
             backend::copy_dir(&data, &to).map_err(|e| format!("{}: {e}", to.display()))?;
         }
     }
@@ -2153,22 +2162,36 @@ enum Failed {
     },
     /// Every mod was left out.
     Nothing,
-    Other(String),
+    Stopped(BuildError),
 }
 
 impl From<String> for Failed {
     fn from(error: String) -> Self {
-        Self::Other(error)
+        Self::Stopped(BuildError::Failed(error))
     }
 }
 
-impl From<Failed> for String {
+impl From<Failed> for BuildError {
     fn from(failed: Failed) -> Self {
         match failed {
-            Failed::Mods { error, .. } | Failed::Other(error) => error,
-            Failed::Nothing => String::new(),
+            Failed::Mods { error, .. } => Self::Failed(error),
+            Failed::Nothing => Self::Failed("Every native mod was left out of the build.".into()),
+            Failed::Stopped(error) => error,
         }
     }
+}
+
+/// What a build was asked for: `folder`'s mods built on `base`, as `target` with `profile`;
+/// `anyway` builds mods made for other Eclipse versions together, `on_base` builds every mod on
+/// `base`'s own commit.
+#[derive(Clone, Copy)]
+struct Request<'a> {
+    base: &'a str,
+    folder: &'a Path,
+    anyway: bool,
+    on_base: bool,
+    profile: Profile,
+    target: Target,
 }
 
 /// The pipeline both targets build with ([`build`], [`build_server`]): `folder`'s mods on the
@@ -2178,35 +2201,36 @@ impl From<Failed> for String {
 /// `native-<revision>-<key>` (the key hashes the revision, the mods' files, the tool's commit,
 /// the profile and the target). A build already made is used again. Mods pinning different
 /// revisions build on the newest one, with the newest horizon-mixins they name, only when the
-/// player agreed to try (`anyway`): else the error starts with [`MISMATCH`] and says which.
+/// player agreed to try (`anyway`): else it stops with [`BuildError::Mismatch`].
 /// With `on_base`, every mod builds on `base`'s own commit, pinned or not (the player's choice).
 /// The mods in `skip` and those needing them are left out; with `isolate`, a mod that alone
 /// stops horizon-mixins or the compiler ends it with [`Failed::Mods`], so it can be left out too.
 /// Nothing of the player's outside the launcher's data is touched: no instance is edited and
 /// no version selected here.
-#[allow(clippy::too_many_arguments)]
 fn pipeline(
-    base: &str,
-    folder: &Path,
-    anyway: bool,
-    on_base: bool,
-    profile: Profile,
-    target: Target,
+    request: Request,
     progress: &impl Fn(Step),
     skip: &[LeftOut],
     isolate: bool,
 ) -> Result<Built, Failed> {
+    let Request {
+        base,
+        folder,
+        anyway,
+        on_base,
+        profile,
+        target,
+    } = request;
     let started = std::time::Instant::now();
     backend::need_prepared(base)?;
     let platform = platform_for_game(base)?;
-    fs::create_dir_all(root()).map_err(|e| e.to_string())?;
+    let dirs = Dirs::current();
+    fs::create_dir_all(dirs.root()).map_err(|e| e.to_string())?;
     // The mods are copied first: the build and its key use the copy, whatever happens to the
     // folder meanwhile.
-    let incoming = root().join("mods.incoming");
+    let incoming = dirs.mods_incoming();
     let _ = fs::remove_dir_all(&incoming);
     let found = bundles(folder)?;
-    // #6490: said before anything runs, so a build that fails later still
-    // shows them.
     for warning in warn_conflicts(&found) {
         log_warning(&warning);
     }
@@ -2232,66 +2256,48 @@ fn pipeline(
             ..b
         })
         .collect();
-    let declared: Vec<Vec<dependencies::Dependency>> = mods
-        .iter()
-        .map(|bundle| {
-            let path = bundle.dir.join(MANIFEST);
-            let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-            let table: toml::Table = text
-                .parse()
-                .map_err(|e| format!("{}: {e}", path.display()))?;
-            dependencies::parse(&bundle.id, table.get("dependencies")).map_err(|e| e.to_string())
-        })
-        .collect::<Result<_, String>>()?;
-    let pairs: Vec<(&Bundle, &[dependencies::Dependency])> = mods
-        .iter()
-        .zip(&declared)
-        .map(|(b, d)| (b, d.as_slice()))
-        .collect();
-    let left_out = isolate::with_dependents(skip, &pairs);
-    let (mods, declared): (Vec<Bundle>, Vec<Vec<dependencies::Dependency>>) = mods
+    let left_out = isolate::with_dependents(skip, &mods);
+    let mods: Vec<Bundle> = mods
         .into_iter()
-        .zip(declared)
-        .filter(|(b, _)| !left_out.iter().any(|l| l.id == b.id))
-        .unzip();
+        .filter(|b| !left_out.iter().any(|l| l.id == b.id))
+        .collect();
     if mods.is_empty() {
         return Err(Failed::Nothing);
     }
     let inputs: Vec<_> = mods
         .iter()
-        .zip(&declared)
-        .map(|(bundle, deps)| dependencies::Mod {
+        .map(|bundle| dependencies::Mod {
             id: &bundle.id,
             version: &bundle.version,
             has_api: bundle.api.is_some(),
-            dependencies: deps,
+            dependencies: &bundle.dependencies,
         })
         .collect();
     let resolution = dependencies::resolve(&inputs).map_err(|e| e.to_string())?;
     let ordered: Vec<Bundle> = resolution.order.iter().map(|&i| mods[i].clone()).collect();
-    // A mod naming a hook points' version doesn't pin: it follows the others, else the game.
-    let pins: Vec<Bundle> = mods.iter().filter(|b| b.hooks.is_none()).cloned().collect();
-    let free = pins.iter().all(|b| b.eclipse.is_none());
+    let pins: Vec<Bundle> = mods.iter().filter(|b| b.pin().is_some()).cloned().collect();
+    let free = pins.is_empty();
     let on_base = on_base || built_on.as_ref().is_some_and(|a| a.on_base);
-    // The commit of the release or Nightly the build starts from. A native build's own is that
-    // of the version it started from when it recorded it; else, outside `on_base`, the commit it
-    // compiled, so a rebuild stays on the Eclipse it plays.
+    // The commit of the release or Nightly the build starts from (`origin`'s, asked once). A
+    // native build's own is that of the version it started from when it recorded it; else,
+    // outside `on_base`, the commit it compiled, so a rebuild stays on the Eclipse it plays.
+    let asked = std::cell::OnceCell::new();
+    let of_origin = || asked.get_or_init(|| revision_of(origin)).clone();
     let base_revision = || match &built_on {
         Some(about) => match &about.base_eclipse {
             Some(r) => Ok(r.clone()),
             None if !on_base && !about.off_its_nightly() => Ok(about.eclipse.clone()),
-            None => revision_of(origin),
+            None => of_origin(),
         },
-        None => revision_of(base),
+        None => of_origin(),
     };
     let date = |r: &str| committed(backend::REPO, r);
     let (pinned, mut pinned_by) = pinned_revision(&pins, on_base, base_revision, date)?;
-    // Known without asking GitHub again unless a pin chose the commit.
     let base_eclipse = match pinned_by.is_empty() {
         true => Some(pinned.clone()),
         false => base_revision().ok(),
     };
-    let game = || revision_of(origin).ok();
+    let game = || of_origin().ok();
     let revision = with_hooks(&mods, pinned.clone(), free, game, hooks_at, catalog_at)?;
     // Nothing to say when the pin is the base's own commit, or the hook points moved the build.
     if base_eclipse.as_ref() == Some(&revision) || revision != pinned {
@@ -2299,12 +2305,12 @@ fn pipeline(
     }
     let other = mismatch(&mods, &revision);
     if let (Some(list), false) = (&other, anyway || on_base) {
-        return Err(format!("{MISMATCH}{list}.").into());
+        return Err(Failed::Stopped(BuildError::Mismatch(format!("{list}."))));
     }
     if let Some(list) = &other {
         log_warning(&format!(
             "Some mods were made for other Eclipse versions ({list}). Building anyway on {}.",
-            &revision[..revision.len().min(7)]
+            short(&revision)
         ));
     }
     for b in mods
@@ -2340,7 +2346,7 @@ fn pipeline(
         &mixins,
         profile,
         target,
-        platform.cache_key(),
+        platform.cache_dir,
         &mods,
     )?;
     let now = Record {
@@ -2351,10 +2357,10 @@ fn pipeline(
             .map(|m| Ok((m.id.clone(), mod_hash(m)?)))
             .collect::<Result<_, String>>()?,
     };
-    let exists = target.directory(&version).join(".installed").is_file();
+    let exists = backend::is_installed(&target.directory(&version));
     let plan = classify(
         exists,
-        last_record(target, profile, platform.cache_key()).as_ref(),
+        last_record(target, profile, platform.cache_dir).as_ref(),
         &now,
     );
     progress(Step::Plan(plan.clone(), profile));
@@ -2367,8 +2373,6 @@ fn pipeline(
     };
     if !exists {
         match target {
-            // The headless build links none of the sound or controller libraries: it needs
-            // only a C compiler and the C library's headers ([`rust_toolchain::linker_server`]).
             Target::Client => rust_toolchain::linker()?,
             Target::Server => rust_toolchain::linker_server()?,
         }
@@ -2376,21 +2380,20 @@ fn pipeline(
         let needs_mixins = mods.iter().any(|m| m.mixins_content);
         progress(Step::Source(revision.clone()));
         let source = source(&revision)?;
-        // `root()` is already the form horizon-mixins and MinGW take: resolved (no link, which
+        // `dirs` is already the form horizon-mixins and MinGW take: resolved (no link, which
         // it refuses) and, on Windows, ASCII (which they can't read past), both by build_dir.
-        let real = root();
-        let fresh = real.join("stage.new");
+        let fresh = dirs.stage_new();
         let _ = fs::remove_dir_all(&fresh);
         if needs_mixins {
             let key = inject_cache::key(&revision, &mixins, profile, &ordered)?;
-            let snapshot = inject_cache::snapshot(&real, &key);
+            let snapshot = dirs.patched().join(&key);
             if snapshot.is_dir() {
                 progress(Step::CachedMixins);
                 sync(&snapshot, &fresh)?;
             } else {
                 let injections = inject::prepare(&ordered, &source)?;
                 let tool = tool(&rust, &mixins, &progress)?;
-                let mixin_input = real.join("mixins.incoming");
+                let mixin_input = dirs.mixins_incoming();
                 stage_mixins(&ordered, &mixin_input)?;
                 progress(Step::Mixins);
                 let result = run_checked(
@@ -2408,7 +2411,7 @@ fn pipeline(
                             error,
                             compiling: false,
                         },
-                        _ => Failed::Other(error),
+                        _ => error.into(),
                     });
                 }
                 inject::stage(&fresh, &injections)?;
@@ -2419,7 +2422,7 @@ fn pipeline(
                 sync(&fresh, &partial)?;
                 fs::rename(&partial, &snapshot).map_err(|e| e.to_string())?;
             }
-            inject_cache::touch_and_prune(&real, &key)?;
+            inject_cache::touch_and_prune(&dirs.patched(), &key)?;
         } else {
             sync(&source, &fresh)?;
         }
@@ -2430,7 +2433,7 @@ fn pipeline(
             fetch.arg("--locked");
             run(fetch, "Downloading Eclipse's crates", |_| {})?;
         }
-        let has_api = api::stage(&fresh, &mods, &declared, &resolution)?;
+        let has_api = api::stage(&fresh, &mods, &resolution)?;
         if has_api {
             // Add path packages to Cargo.lock before the locked dependency check.
             let mut metadata = cargo(&rust, &fresh, "metadata");
@@ -2438,19 +2441,16 @@ fn pipeline(
             run(metadata, "Resolving trait mod crates", |_| {})?;
         }
         // Absolute: the compiler runs from elsewhere (`compile`).
-        let stage = real.join("stage");
+        let stage = dirs.stage();
         sync(&fresh, &stage)?;
         let _ = fs::remove_dir_all(&fresh);
         if crates::any(&stage) || has_api {
             progress(Step::Crates);
             lock_crates(&rust, &source, &stage, &mods)?;
         }
-        let mut target_dir = real.join("target");
-        if let Some(cache_dir) = platform.cache_dir {
-            target_dir.push(cache_dir);
-        }
-        // A revision without `[profile.fast]` builds with `release`: the build says so.
+        let target_dir = dirs.target(platform.cache_dir);
         let compiled = profile_of(&stage, profile);
+        let game = target_dir.join(compiled.cargo().0).join(backend::CLIENT);
         built.profile = compiled;
         let (mut crates, mut total, mut name) = (0, None, String::new());
         let identities: Vec<_> = mods
@@ -2464,11 +2464,7 @@ fn pipeline(
                 target,
                 &target_dir,
                 compiled,
-                if has_api {
-                    api::PACKAGE
-                } else {
-                    "eclipse-client"
-                },
+                if has_api { api::PACKAGE } else { GAME_BIN },
             ),
             "Compiling the game",
             |line| {
@@ -2507,20 +2503,11 @@ fn pipeline(
                     error,
                     compiling: true,
                 },
-                _ => Failed::Other(error),
+                _ => error.into(),
             }
         })?;
         if let Some(expected) = platform.machine {
-            let executable = target_dir.join(compiled.cargo().0).join(backend::CLIENT);
-            let actual = pe_machine(&executable).map_err(|error| {
-                trf(
-                    "Could not read {name}: {error}",
-                    &[
-                        ("name", &executable.display().to_string()),
-                        ("error", &error),
-                    ],
-                )
-            })?;
+            let actual = pe_machine(&game).map_err(|error| unreadable(&game, &error))?;
             if actual != expected {
                 return Err(architecture_mismatch(
                     &format!("PE machine 0x{expected:04x}"),
@@ -2529,53 +2516,55 @@ fn pipeline(
                 .into());
             }
         }
-        save_record(target, profile, platform.cache_key(), &now);
+        save_record(target, profile, platform.cache_dir, &now);
         // Out of `target_dir` before any post-build bin is built there (`post_build_programs`).
-        let binary = real.join("programs").join(target.binary());
-        copy_out(
-            &target_dir.join(compiled.cargo().0).join(backend::CLIENT),
-            &binary,
-        )?;
+        let programs = dirs.programs();
+        let binary = programs.join(target.binary());
+        copy_out(&game, &binary)?;
         let post = post_build_programs(
             &rust,
             &stage,
             &target_dir,
-            &real.join("programs").join("post-build"),
+            &programs.join("post-build"),
             compiled,
             progress,
         )?;
         progress(Step::Install);
-        let about = serde_json::json!({
-            "base": origin,
-            "eclipse": revision,
-            "base_eclipse": base_eclipse,
-            "pinned_by": pinned_by,
-            "on_base": on_base,
-            "horizon_mixins": mixins,
-            "hooks": mods.iter().find_map(|m| m.hooks),
-            "rust": rust_toolchain::VERSION,
-            "profile": compiled.name(),
-            "target": target.name(),
-            "rust_target": platform.target,
-            "mods": mods.iter().map(|m| serde_json::json!({
-                "id": m.id,
-                "version": m.version,
-                "sha256": digests.get(&m.id).cloned().flatten(),
-            })).collect::<Vec<_>>(),
-            "left_out": left_out.iter().map(LeftOut::to_json).collect::<Vec<_>>(),
-        });
+        let about = About {
+            base: origin.to_owned(),
+            eclipse: revision.clone(),
+            base_eclipse,
+            pinned_by,
+            on_base,
+            horizon_mixins: mixins.clone(),
+            hooks: mods.iter().find_map(|m| m.hooks),
+            rust: rust_toolchain::VERSION.into(),
+            profile: compiled.name().into(),
+            target,
+            rust_target: platform.target.map(str::to_owned),
+            mods: mods
+                .iter()
+                .map(|m| BuiltMod {
+                    id: m.id.clone(),
+                    version: m.version.clone(),
+                    sha256: digests.get(&m.id).cloned().flatten(),
+                })
+                .collect(),
+            left_out: left_out.clone(),
+        };
+        let cache = dirs.post_build_cache();
         install(base, &version, target, &binary, &about, |dir| {
             for (step, program) in &post {
                 progress(Step::PostBuild(step.mod_id.clone()));
-                let cmd = crates::post_build(program, step, dir, &real.join("cache"), &stage)?;
+                let cmd = crates::post_build(program, step, dir, &cache, &stage)?;
                 run(cmd, &format!("{}'s post-build step", step.mod_id), |_| {})?;
             }
             Ok(())
         })?;
-        let _ = fs::remove_dir_all(real.join("programs"));
+        let _ = fs::remove_dir_all(&programs);
     } else {
         // Used again: it counts as the newest of the builds kept (`prune`).
-        let _ = fs::write(target.directory(&version).join(".installed"), "");
+        let _ = backend::mark_installed(&target.directory(&version));
     }
     let _ = fs::remove_dir_all(&incoming);
     built.secs = started.elapsed().as_secs();
@@ -2592,16 +2581,16 @@ const COMPILE_RETRIES: usize = 3;
 fn isolated(
     mut pipeline: impl FnMut(&[LeftOut]) -> Result<Built, Failed>,
     progress: &impl Fn(Step),
-) -> Result<Built, String> {
+) -> Result<Built, BuildError> {
     let mut skip: Vec<LeftOut> = Vec::new();
     let mut compiles = 0;
     let mut last = String::new();
     let said = |skip: &[LeftOut], error: String| {
         let labels: Vec<String> = skip.iter().map(LeftOut::label).collect();
-        match labels.is_empty() {
+        BuildError::Failed(match labels.is_empty() {
             true => error,
             false => format!("{}\n\n{error}", labels.join("\n")),
-        }
+        })
     };
     loop {
         match pipeline(&skip) {
@@ -2633,7 +2622,8 @@ fn isolated(
                 last = error;
             }
             Err(Failed::Nothing) => return Err(said(&skip, last)),
-            Err(Failed::Other(error)) => return Err(said(&skip, error)),
+            Err(Failed::Stopped(BuildError::Failed(error))) => return Err(said(&skip, error)),
+            Err(Failed::Stopped(mismatch)) => return Err(mismatch),
         }
     }
 }
@@ -2643,8 +2633,8 @@ fn isolated(
 /// and points `instance` at the build, the default one included. Returns the build's version; a
 /// build already made is used again. Mods pinning different revisions build on the newest one,
 /// with the newest horizon-mixins they name, only when the player agreed to try (`anyway`): else
-/// the error starts with [`MISMATCH`] and says which. With `on_base`, every mod builds on `base`'s
-/// own commit, pinned or not: the player's Rebuild on Eclipse.
+/// it stops with [`BuildError::Mismatch`]. With `on_base`, every mod builds on `base`'s own
+/// commit, pinned or not: the player's Rebuild on Eclipse.
 pub fn build(
     base: &str,
     folder: &Path,
@@ -2653,27 +2643,20 @@ pub fn build(
     on_base: bool,
     profile: Profile,
     progress: impl Fn(Step),
-) -> Result<String, String> {
+) -> Result<String, BuildError> {
     if let Some(error) = backend::native_mod_architecture_error() {
-        return Err(error);
+        return Err(error.into());
     }
+    let request = Request {
+        base,
+        folder,
+        anyway,
+        on_base,
+        profile,
+        target: Target::Client,
+    };
     logged(|| {
-        let built = isolated(
-            |skip| {
-                pipeline(
-                    base,
-                    folder,
-                    anyway,
-                    on_base,
-                    profile,
-                    Target::Client,
-                    &progress,
-                    skip,
-                    true,
-                )
-            },
-            &progress,
-        )?;
+        let built = isolated(|skip| pipeline(request, &progress, skip, true), &progress)?;
         instances::edit(&instance.id, |meta| {
             meta.version = Some(built.version.clone())
         })?;
@@ -2707,13 +2690,18 @@ pub fn build_server(
     on_base: bool,
     profile: Profile,
     progress: impl Fn(Step),
-) -> Result<PathBuf, String> {
+) -> Result<PathBuf, BuildError> {
+    let request = Request {
+        base,
+        folder,
+        anyway,
+        on_base,
+        profile,
+        target: Target::Server,
+    };
     logged(|| {
         if output.symlink_metadata().is_ok() {
-            return Err(trf(
-                "{path} already exists. Move it away, or build into another folder.",
-                &[("path", &output.display().to_string())],
-            ));
+            return Err(already_exists(output).into());
         }
         let parent = output
             .parent()
@@ -2723,46 +2711,35 @@ pub fn build_server(
         let output = parent.canonicalize().map_err(|e| e.to_string())?.join(
             output
                 .file_name()
-                .ok_or_else(|| tr("Choose a new folder for the server export."))?,
+                .ok_or_else(|| tr("Choose a new folder for the server export.").to_string())?,
         );
-        for managed in [backend::version_dir(""), root()] {
+        let dirs = Dirs::current();
+        for managed in [backend::version_dir(""), dirs.root().to_owned()] {
             if managed
                 .canonicalize()
                 .is_ok_and(|dir| output.starts_with(dir))
             {
-                return Err(tr("Export the server outside the launcher's managed folders.").into());
+                return Err(String::from(tr(
+                    "Export the server outside the launcher's managed folders.",
+                ))
+                .into());
             }
         }
         // A server plays exactly the mods it was given: none is left out.
-        let built = pipeline(
-            base,
-            folder,
-            anyway,
-            on_base,
-            profile,
-            Target::Server,
-            &progress,
-            &[],
-            false,
-        )
-        .map_err(String::from)?;
+        let built = pipeline(request, &progress, &[], false)?;
         export(&Target::Server.directory(&built.version), &output)?;
-        // Exports are independent; keep only the newest cached server builds.
-        let cached = root().join("server-builds");
-        let builds = fs::read_dir(&cached)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .filter(|e| e.path().join(".installed").is_file())
-            .map(|e| {
-                let at = fs::metadata(e.path().join(".installed"))
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::UNIX_EPOCH);
-                (e.file_name().to_string_lossy().into_owned(), at)
-            })
-            .collect();
+        let cached = dirs.server_builds();
+        let builds = made(
+            fs::read_dir(&cached)
+                .into_iter()
+                .flatten()
+                .flatten()
+                .map(|e| (e.file_name().to_string_lossy().into_owned(), e.path())),
+        );
         for old in stale(builds, &built.version, &[]) {
-            let _ = fs::remove_dir_all(cached.join(old));
+            if let Err(e) = fs::remove_dir_all(cached.join(&old)) {
+                log_warning(&format!("{old}: {e}"));
+            }
         }
         if built.plan != Plan::UpToDate {
             progress(Step::Done {
@@ -2804,10 +2781,7 @@ fn export(from: &Path, output: &Path) -> Result<(), String> {
     }
     if output.symlink_metadata().is_ok() {
         let _ = fs::remove_dir_all(&staging);
-        return Err(trf(
-            "{path} already exists. Move it away, or build into another folder.",
-            &[("path", &output.display().to_string())],
-        ));
+        return Err(already_exists(output));
     }
     fs::rename(&staging, output).map_err(|e| {
         let _ = fs::remove_dir_all(&staging);
@@ -2819,6 +2793,13 @@ fn export(from: &Path, output: &Path) -> Result<(), String> {
             ],
         )
     })
+}
+
+fn already_exists(path: &Path) -> String {
+    trf(
+        "{path} already exists. Move it away, or build into another folder.",
+        &[("path", &path.display().to_string())],
+    )
 }
 
 /// Reflinks are independent files but may not preserve executable permissions.
@@ -2856,7 +2837,7 @@ fn install(
     version: &str,
     target: Target,
     binary: &Path,
-    about: &serde_json::Value,
+    about: &About,
     finish: impl FnOnce(&Path) -> Result<(), String>,
 ) -> Result<(), String> {
     let from = backend::version_dir(base);
@@ -2866,7 +2847,7 @@ fn install(
     copy_base(&from, &partial, target)?;
     let installed = partial.join(target.binary());
     fs::copy(binary, &installed).map_err(|e| format!("The built game: {e}"))?;
-    fs::write(partial.join("native-mods.json"), about.to_string()).map_err(|e| e.to_string())?;
+    about.write(&partial)?;
     let dir = target.directory(version);
     let _ = fs::remove_dir_all(&dir);
     fs::rename(&partial, &dir).map_err(|e| e.to_string())?;
@@ -2874,7 +2855,7 @@ fn install(
         let _ = fs::remove_dir_all(&dir);
         return Err(e);
     }
-    fs::write(dir.join(".installed"), "").map_err(|e| e.to_string())
+    backend::mark_installed(&dir).map_err(|e| e.to_string())
 }
 
 /// Copies version folder `from` into `to` but for what a new build of `target` makes its own
@@ -2904,7 +2885,7 @@ pub(crate) fn copy_base(from: &Path, to: &Path, target: Target) -> Result<(), St
 /// data behind. A server build is the headless engine: it keeps neither the game's own binary
 /// nor any `eclipse-engine` the base shipped, which would run unmodded beside its own.
 fn carried_over(name: &std::ffi::OsStr, target: Target) -> bool {
-    let mut own: Vec<String> = ["Eclipse.app", "native-mods.json", "native-data"]
+    let mut own: Vec<String> = ["Eclipse.app", RECORD, crates::DATA]
         .iter()
         .map(|s| s.to_string())
         .collect();
@@ -2922,29 +2903,35 @@ fn carried_over(name: &std::ffi::OsStr, target: Target) -> bool {
 /// off and on again plays the kept build again, without compiling.
 const SPARE_BUILDS: usize = 3;
 
-/// Removes the native builds no instance plays, but `keep` and the [`SPARE_BUILDS`] newest. The
-/// compiled crates (`native/target`) stay, so the next build only compiles what changed.
+/// Removes the native builds no instance plays, but `keep` and the [`SPARE_BUILDS`] newest, and
+/// any the selection or a running game still needs ([`backend::remove_unused`]). The compiled
+/// crates (`native/target`) stay, so the next build only compiles what changed.
 pub fn prune(keep: &str) {
     let played: Vec<String> = instances::list()
         .into_iter()
         .filter_map(|i| i.version)
         .collect();
-    let builds = backend::installed()
-        .into_iter()
-        .filter(|v| is_native(v))
-        .map(|v| {
-            let made = fs::metadata(backend::version_dir(&v).join(".installed"))
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::UNIX_EPOCH);
-            (v, made)
+    let builds = made(
+        backend::installed()
+            .into_iter()
+            .filter(|v| is_native(v))
+            .map(|v| {
+                let dir = backend::version_dir(&v);
+                (v, dir)
+            }),
+    );
+    backend::remove_unused(stale(builds, keep, &played));
+}
+
+/// The installed builds among `builds` (name, folder), with when each was made or last used:
+/// its `.installed` mark's time, which a build used again writes anew.
+fn made(builds: impl Iterator<Item = (String, PathBuf)>) -> Vec<(String, std::time::SystemTime)> {
+    builds
+        .filter_map(|(name, dir)| {
+            let mark = fs::metadata(dir.join(".installed")).ok()?;
+            Some((name, mark.modified().unwrap_or(std::time::UNIX_EPOCH)))
         })
-        .collect();
-    for old in stale(builds, keep, &played) {
-        if backend::in_use(&old) {
-            continue;
-        }
-        let _ = backend::remove(&old);
-    }
+        .collect()
 }
 
 /// The native `builds` (with when each was made or last used) to remove: those no instance plays
@@ -2993,36 +2980,36 @@ mod tests {
     fn windows_build_platform_follows_the_selected_games_pe_machine() {
         let x64 = windows_build_platform(
             rust_toolchain::WINDOWS_X64_MACHINE,
-            rust_toolchain::WINDOWS_X64_TARGET,
+            Some(rust_toolchain::WINDOWS_X64_TARGET),
         )
         .unwrap();
         assert_eq!(x64.target, Some(rust_toolchain::WINDOWS_X64_TARGET));
         assert_eq!(x64.machine, Some(rust_toolchain::WINDOWS_X64_MACHINE));
-        assert_eq!(x64.cache_key(), None, "preserve the x64 cache layout");
+        assert_eq!(x64.cache_dir, None, "preserve the x64 cache layout");
 
         let arm64 = windows_build_platform(
             rust_toolchain::WINDOWS_ARM64_MACHINE,
-            rust_toolchain::WINDOWS_ARM64_TARGET,
+            Some(rust_toolchain::WINDOWS_ARM64_TARGET),
         )
         .unwrap();
         assert_eq!(arm64.target, Some(rust_toolchain::WINDOWS_ARM64_TARGET));
         assert_eq!(arm64.machine, Some(rust_toolchain::WINDOWS_ARM64_MACHINE));
-        assert_eq!(
-            arm64.cache_key(),
-            Some(rust_toolchain::WINDOWS_ARM64_TARGET)
-        );
+        assert_eq!(arm64.cache_dir, Some(rust_toolchain::WINDOWS_ARM64_TARGET));
 
         assert!(windows_build_platform(
             rust_toolchain::WINDOWS_X64_MACHINE,
-            rust_toolchain::WINDOWS_ARM64_TARGET,
+            Some(rust_toolchain::WINDOWS_ARM64_TARGET),
         )
         .is_err());
         assert!(windows_build_platform(
             rust_toolchain::WINDOWS_ARM64_MACHINE,
-            rust_toolchain::WINDOWS_X64_TARGET,
+            Some(rust_toolchain::WINDOWS_X64_TARGET),
         )
         .is_err());
-        assert!(windows_build_platform(0xa641, rust_toolchain::WINDOWS_ARM64_TARGET).is_err());
+        assert!(
+            windows_build_platform(0xa641, Some(rust_toolchain::WINDOWS_ARM64_TARGET)).is_err()
+        );
+        assert!(windows_build_platform(rust_toolchain::WINDOWS_ARM64_MACHINE, None).is_err());
     }
 
     #[test]
@@ -3048,6 +3035,10 @@ mod tests {
         );
         assert!(!carried_over(OsStr::new(backend::CLIENT), Target::Server));
         assert!(carried_over(OsStr::new("resources"), Target::Server));
+    }
+
+    fn known<T>(read: impl Fn(&str) -> Option<T>) -> impl Fn(&str) -> Result<Option<T>, String> {
+        move |revision| Ok(read(revision))
     }
 
     pub(super) fn dir(name: &str) -> PathBuf {
@@ -3510,7 +3501,7 @@ mod tests {
         assert!(installed_mods(&home).is_err(), "off until turned on");
         crate::browser::java::set_enabled(&home, "veinminer", true).unwrap();
         let out = installed_mods(&home).unwrap();
-        let found = bundles(&out).unwrap();
+        let found = bundles(out.path()).unwrap();
         assert_eq!(
             (found[0].id.as_str(), found[0].eclipse.as_deref()),
             ("veinminer", Some(A))
@@ -3535,7 +3526,7 @@ mod tests {
             Some(("mixins/veinminer/data/table.bin", "data")),
         );
         let out = installed_mods(&home).unwrap();
-        let path = out.join("veinminer/mixins/veinminer/data/table.bin");
+        let path = out.path().join("veinminer/mixins/veinminer/data/table.bin");
         assert_eq!(fs::read(&path).unwrap(), b"data");
         let first = version_for(
             A,
@@ -3543,7 +3534,7 @@ mod tests {
             Profile::Performance,
             Target::Client,
             None,
-            &bundles(&out).unwrap(),
+            &bundles(out.path()).unwrap(),
         )
         .unwrap();
         fs::write(path, b"changed").unwrap();
@@ -3555,7 +3546,7 @@ mod tests {
                 Profile::Performance,
                 Target::Client,
                 None,
-                &bundles(&out).unwrap()
+                &bundles(out.path()).unwrap()
             )
             .unwrap()
         );
@@ -3568,13 +3559,8 @@ mod tests {
         let pinned = |id: &str, eclipse: Option<&str>| Bundle {
             id: id.into(),
             version: "1".into(),
-            dir: PathBuf::new(),
             eclipse: eclipse.map(str::to_owned),
-            mixins: None,
-            hooks: None,
-            injections: Vec::new(),
-            api: None,
-            mixins_content: false,
+            ..Default::default()
         };
         let never = || -> Result<String, String> { panic!("a pin wins") };
         fn get(b: &Bundle) -> Option<&String> {
@@ -3607,13 +3593,8 @@ mod tests {
         let pinned = |id: &str, eclipse: Option<&str>| Bundle {
             id: id.into(),
             version: "1".into(),
-            dir: PathBuf::new(),
             eclipse: eclipse.map(str::to_owned),
-            mixins: None,
-            hooks: None,
-            injections: Vec::new(),
-            api: None,
-            mixins_content: false,
+            ..Default::default()
         };
         // A: the pin (an older Nightly); B: the Nightly the player picked.
         let picked = || -> Result<String, String> { Ok(B.into()) };
@@ -3643,13 +3624,9 @@ mod tests {
         let pinned = |id: &str, eclipse: Option<&str>, mixins: Option<&str>| Bundle {
             id: id.into(),
             version: "1".into(),
-            dir: PathBuf::new(),
             eclipse: eclipse.map(str::to_owned),
             mixins: mixins.map(str::to_owned),
-            hooks: None,
-            injections: Vec::new(),
-            api: None,
-            mixins_content: false,
+            ..Default::default()
         };
         let c = "c".repeat(40);
         // a is the oldest commit, then b, then c.
@@ -3713,7 +3690,7 @@ mod tests {
     #[test]
     fn a_commit_date_is_asked_once_and_kept() {
         let d = dir("commit-dates");
-        let file = d.join(DATES);
+        let file = d.join("commit-dates.json");
         let ask = |_: &str, r: &str| -> Result<String, String> { Ok(format!("date of {r}")) };
         assert_eq!(
             remembered(&file, "acme/x", A, ask).unwrap(),
@@ -3749,13 +3726,9 @@ mod tests {
         let mod_ = |id: &str, eclipse: &str, hooks: Option<u32>| Bundle {
             id: id.into(),
             version: "1".into(),
-            dir: PathBuf::new(),
             eclipse: Some(eclipse.into()),
-            mixins: None,
             hooks,
-            injections: Vec::new(),
-            api: None,
-            mixins_content: false,
+            ..Default::default()
         };
         let c = "c".repeat(40);
         // A (the game) has hook points v1, B v2, C none.
@@ -3768,36 +3741,53 @@ mod tests {
         let listed = |_: &str| None;
         let zoom = [mod_("zoom", B, Some(1)), mod_("minimap", &c, Some(1))];
         assert_eq!(
-            with_hooks(&zoom, A.into(), true, none, at, listed).unwrap(),
+            with_hooks(&zoom, A.into(), true, none, known(at), known(listed)).unwrap(),
             A,
             "the game's own"
         );
         let tested = [mod_("zoom", A, Some(1))];
         assert_eq!(
-            with_hooks(&tested, c.clone(), true, none, at, listed).unwrap(),
+            with_hooks(&tested, c.clone(), true, none, known(at), known(listed)).unwrap(),
             A,
             "an older game"
         );
         assert_eq!(
-            with_hooks(&tested, B.into(), false, none, at, listed).unwrap(),
+            with_hooks(&tested, B.into(), false, none, known(at), known(listed)).unwrap(),
             B,
             "v1 mods on v2"
         );
         let newer = [mod_("recipes", B, Some(2))];
-        let err = with_hooks(&newer, A.into(), false, none, at, listed).unwrap_err();
+        let err = with_hooks(&newer, A.into(), false, none, known(at), known(listed)).unwrap_err();
         assert!(
             err.contains("aaaaaaa") && err.contains("recipes (hook points v2)"),
             "{err}"
         );
         assert_eq!(
-            with_hooks(&newer, A.into(), true, none, at, listed).unwrap(),
+            with_hooks(&newer, A.into(), true, none, known(at), known(listed)).unwrap(),
             B,
             "its tested commit"
         );
         let pinned_only = [mod_("veinminer", B, None)];
         assert_eq!(
-            with_hooks(&pinned_only, B.into(), false, none, at, listed).unwrap(),
+            with_hooks(
+                &pinned_only,
+                B.into(),
+                false,
+                none,
+                known(at),
+                known(listed)
+            )
+            .unwrap(),
             B
+        );
+        // Offline is not "no hook points": the build says it couldn't read them.
+        let offline = |_: &str| -> Result<Option<u32>, String> { Err("No connection".into()) };
+        let err = with_hooks(&zoom, A.into(), true, none, offline, known(listed)).unwrap_err();
+        assert!(
+            err.contains("Can't read the native hook points of Eclipse aaaaaaa")
+                && err.contains("No connection")
+                && !err.contains("doesn't have"),
+            "{err}"
         );
     }
 
@@ -3809,13 +3799,9 @@ mod tests {
         let mod_ = |id: &str, eclipse: &str, hooks: Option<u32>| Bundle {
             id: id.into(),
             version: "1".into(),
-            dir: PathBuf::new(),
             eclipse: Some(eclipse.into()),
-            mixins: None,
             hooks,
-            injections: Vec::new(),
-            api: None,
-            mixins_content: false,
+            ..Default::default()
         };
         let (c, d) = ("c".repeat(40), "d".repeat(40));
         // A (the old build's revision) has hook points v1, B (the installed game) v7.
@@ -3832,12 +3818,13 @@ mod tests {
             mod_("xtoxray", B, Some(7)),
         ];
         assert_eq!(
-            with_hooks(&hooked, A.into(), true, game, at, listed).unwrap(),
+            with_hooks(&hooked, A.into(), true, game, known(at), known(listed)).unwrap(),
             B,
             "a rebuild that stayed on an older Eclipse moves to the game"
         );
         let with_pin = [mod_("carryblock", A, None), mod_("recipes", &d, Some(2))];
-        let revision = with_hooks(&with_pin, A.into(), false, game, at, listed).unwrap();
+        let revision =
+            with_hooks(&with_pin, A.into(), false, game, known(at), known(listed)).unwrap();
         assert_eq!(revision, B, "a pinned mod no longer blocks the build");
         let asked = mismatch(&with_pin, &revision).expect("the pinned mod waits for Build anyway");
         assert!(
@@ -3845,7 +3832,15 @@ mod tests {
             "{asked}"
         );
         // A game without them still refuses, naming only the mods that don't fit.
-        let err = with_hooks(&hooked, A.into(), true, || Some(c.clone()), at, listed).unwrap_err();
+        let err = with_hooks(
+            &hooked,
+            A.into(),
+            true,
+            || Some(c.clone()),
+            known(at),
+            known(listed),
+        )
+        .unwrap_err();
         assert!(err.contains("recipes (hook points v2)"), "{err}");
         assert!(err.contains("xtoxray (hook points v7)"), "{err}");
         assert!(!err.contains("zoom"), "zoom builds on A: {err}");
@@ -3875,13 +3870,9 @@ mod tests {
         let shulker_peek = Bundle {
             id: "shulker_peek".into(),
             version: "0.1.0".into(),
-            dir: PathBuf::new(),
             eclipse: Some(A.into()),
-            mixins: None,
-            hooks: None,
-            injections: Vec::new(),
-            api: None,
             mixins_content: true,
+            ..Default::default()
         };
         // A (the pin) has hook points v2 and no catalog; B (the game) v359 and one.
         let at = |r: &str| match r.as_bytes()[0] {
@@ -3896,7 +3887,15 @@ mod tests {
             _ => None,
         };
         let mods = [shulker_peek.clone(), blockscope.clone()];
-        let revision = with_hooks(&mods, A.into(), false, || Some(B.into()), at, listed).unwrap();
+        let revision = with_hooks(
+            &mods,
+            A.into(),
+            false,
+            || Some(B.into()),
+            known(at),
+            known(listed),
+        )
+        .unwrap();
         assert_eq!(
             revision, B,
             "the pin has no catalog: the game's revision has one"
@@ -3904,12 +3903,28 @@ mod tests {
         let asked = mismatch(&mods, &revision).expect("the pinned mod waits for Build anyway");
         assert!(asked.contains("shulker_peek"), "{asked}");
         // A game without the catalog either refuses, naming the mod that needs it.
-        let err = with_hooks(&mods, A.into(), false, || Some(c.clone()), at, listed).unwrap_err();
+        let err = with_hooks(
+            &mods,
+            A.into(),
+            false,
+            || Some(c.clone()),
+            known(at),
+            known(listed),
+        )
+        .unwrap_err();
         assert!(err.contains("blockscope (hook points v2)"), "{err}");
         // A catalog with only another version of the hook point doesn't do either.
         let other =
             |_: &str| catalog(r#"{"hooks": [{"name": "hud", "version": 2, "target": "x"}]}"#);
-        assert!(with_hooks(&mods, A.into(), false, || Some(B.into()), at, other).is_err());
+        assert!(with_hooks(
+            &mods,
+            A.into(),
+            false,
+            || Some(B.into()),
+            known(at),
+            known(other)
+        )
+        .is_err());
         // A mod with only raw targets still builds on the pin, without asking for a catalog.
         let raw = Bundle {
             injections: blockscope.injections[1..].to_vec(),
@@ -3917,7 +3932,15 @@ mod tests {
         };
         let asks = |_: &str| -> Option<HookCatalog> { panic!("no named hook point to look up") };
         assert_eq!(
-            with_hooks(&[shulker_peek, raw], A.into(), false, || None, at, asks).unwrap(),
+            with_hooks(
+                &[shulker_peek, raw],
+                A.into(),
+                false,
+                || None,
+                known(at),
+                known(asks)
+            )
+            .unwrap(),
             A
         );
         assert_eq!(catalog_in("not json"), None);
@@ -4082,9 +4105,11 @@ mod tests {
         let d = dir("profile-key");
         write_bundle(&d, "hello", "fn hook() {}");
         let found = bundles(&d).unwrap();
-        let keys: std::collections::BTreeSet<_> = (Profile::ALL.into_iter())
-            .map(|p| version_for(A, B, p, Target::Client, None, &found).unwrap())
-            .collect();
+        let keys: std::collections::BTreeSet<_> =
+            [Profile::Performance, Profile::Dev, Profile::Release]
+                .into_iter()
+                .map(|p| version_for(A, B, p, Target::Client, None, &found).unwrap())
+                .collect();
         assert_eq!(keys.len(), 3);
         // The last build in `native/target/fast/` is either's, as `fast`'s was before `dev`.
         assert_eq!(
@@ -4226,8 +4251,8 @@ mod tests {
                 }
                 None => format!(r#"{{"base":"v2026.10.13","eclipse":"{A}"}}"#),
             };
-            fs::write(d.join("native-mods.json"), json).unwrap();
-            about_in(&d).unwrap()
+            fs::write(d.join(RECORD), json).unwrap();
+            About::read(&d).unwrap()
         };
         assert_eq!(
             record(None).target,
@@ -4251,9 +4276,30 @@ mod tests {
             ),
         )
         .unwrap();
-        let pinned = about_in(&d).unwrap();
+        let pinned = About::read(&d).unwrap();
         assert_eq!(pinned.base_eclipse.as_deref(), Some(B));
         assert_eq!(pinned.pinned_by, ["right_click_crops"]);
+        // What a build writes reads back whole.
+        let written = About {
+            base: "nightly-2026-11-04-bbbbbbb".into(),
+            eclipse: A.into(),
+            base_eclipse: Some(B.into()),
+            pinned_by: vec!["right_click_crops".into()],
+            target: Target::Server,
+            mods: vec![BuiltMod {
+                id: "zoom".into(),
+                version: "1.0.0".into(),
+                sha256: Some("ab".repeat(32)),
+            }],
+            left_out: vec![LeftOut {
+                id: "minimap".into(),
+                version: "2.0.0".into(),
+                why: isolate::Why::Needs("zoom".into()),
+            }],
+            ..Default::default()
+        };
+        written.write(&d).unwrap();
+        assert_eq!(About::read(&d).unwrap(), written);
     }
 
     /// The export ([`build_server`]): a standalone runtime folder with the engine, the mods'
@@ -4333,7 +4379,10 @@ mod tests {
             version,
             Target::Server,
             &binary,
-            &serde_json::json!({"target":"server"}),
+            &About {
+                target: Target::Server,
+                ..Default::default()
+            },
             |d| {
                 fs::create_dir_all(d.join("native-data")).unwrap();
                 fs::write(d.join("native-data/test"), b"baked").unwrap();
@@ -4379,10 +4428,11 @@ mod tests {
             Profile::Performance,
             |_| {},
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("already exists"), "{err}");
         assert!(fs::read_to_string(log_path()).unwrap().contains(&err));
-        let managed = root().join("forbidden-export");
+        let managed = Dirs::current().root().join("forbidden-export");
         let err = build_server(
             "v0.0.0-not-installed",
             &folder,
@@ -4392,7 +4442,8 @@ mod tests {
             Profile::Performance,
             |_| {},
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert!(
             err.contains("outside the launcher's managed folders"),
             "{err}"
@@ -4448,7 +4499,8 @@ mod tests {
             Profile::Performance,
             |_| {},
         )
-        .unwrap_err();
+        .unwrap_err()
+        .to_string();
         assert!(err.contains("is not prepared yet"), "{err}");
         let log = fs::read_to_string(log_path()).unwrap();
         assert!(log.contains("is not prepared yet"), "{log}");
@@ -4491,7 +4543,7 @@ mod tests {
         assert_eq!(classify(true, None, &now), Plan::UpToDate);
         assert_eq!(classify(false, None, &now), Plan::First);
         assert_eq!(
-            First_label(),
+            Plan::First.label(),
             "First build: the whole game (several minutes)"
         );
         let before = record("aaaaaaa1111", &[("zoom", "1"), ("keys", "0")]);
@@ -4513,11 +4565,6 @@ mod tests {
             classify(false, Some(&now), &now),
             Plan::Incremental(vec!["the build settings".into()])
         );
-    }
-
-    #[allow(non_snake_case)]
-    fn First_label() -> String {
-        Plan::First.label()
     }
 
     #[test]
@@ -4602,11 +4649,13 @@ mod tests {
         fs::write(to.join("src/a.rs"), "a").unwrap();
         fs::write(to.join("src/b.rs"), "b").unwrap();
         fs::write(to.join("gone.rs"), "x").unwrap();
-        let before = fs::metadata(to.join("src/a.rs"))
+        let before = std::time::UNIX_EPOCH + std::time::Duration::from_secs(1_000_000);
+        fs::File::options()
+            .write(true)
+            .open(to.join("src/a.rs"))
             .unwrap()
-            .modified()
+            .set_modified(before)
             .unwrap();
-        std::thread::sleep(std::time::Duration::from_millis(20));
         sync(&from, &to).unwrap();
         assert_eq!(
             fs::metadata(to.join("src/a.rs"))

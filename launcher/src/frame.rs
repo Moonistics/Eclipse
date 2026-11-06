@@ -140,7 +140,7 @@ impl Launcher {
                 None => (Tone::Busy, label.into()),
             };
         }
-        match i.kind {
+        match &i.kind {
             InstanceKind::Default | InstanceKind::Own => {
                 let tag = self.version_of(i).cloned();
                 let prepared = tag.as_deref().is_some_and(backend::is_prepared);
@@ -167,15 +167,14 @@ impl Launcher {
                     (None, Some(_), None) => (Tone::Live, tr("Ready").into()),
                 }
             }
-            InstanceKind::Port => {
-                let slug = &i.id["port:".len()..];
-                let summary = self.packs.iter().find(|p| p.slug == slug);
+            InstanceKind::Port { slug } => {
+                let summary = self.packs.iter().find(|p| p.slug == *slug);
                 (
                     Tone::Live,
                     summary.map_or_else(|| tr("Modpack").into(), |p| p.summary()),
                 )
             }
-            InstanceKind::Pack => (Tone::Off, tr("Eclipse modpack").into()),
+            InstanceKind::Pack { .. } => (Tone::Off, tr("Eclipse modpack").into()),
         }
     }
 
@@ -210,12 +209,12 @@ impl Launcher {
                     out.push(group_label(g.clone(), &self.row_menu.labels).into_any_element());
                 }
             }
-            let current = match i.kind {
+            let current = match &i.kind {
                 InstanceKind::Default | InstanceKind::Own => selected.as_ref() == Some(&i.id),
-                InstanceKind::Port => {
-                    on_packs && self.modpacks.open.as_deref() == Some(&i.id["port:".len()..])
+                InstanceKind::Port { slug } => {
+                    on_packs && self.modpacks.open.as_deref() == Some(slug.as_str())
                 }
-                InstanceKind::Pack => false,
+                InstanceKind::Pack { .. } => false,
             };
             let state = self.row_state(&i);
             let icon = self.instance_icon(&i, ROW_TILE);
@@ -274,15 +273,15 @@ impl Launcher {
                             ui::state_line(state.0, state.1),
                         ))
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            match clicked.kind {
+                            match &clicked.kind {
                                 InstanceKind::Default | InstanceKind::Own => {
                                     this.select_instance(&clicked);
                                     this.go(Page::Home);
                                 }
-                                InstanceKind::Port => {
-                                    this.show_modpack(Some(clicked.id["port:".len()..].into()))
+                                InstanceKind::Port { slug } => {
+                                    this.show_modpack(Some(slug.clone()))
                                 }
-                                InstanceKind::Pack => this.show_modpack(None),
+                                InstanceKind::Pack { .. } => this.show_modpack(None),
                             }
                             cx.notify();
                         }))

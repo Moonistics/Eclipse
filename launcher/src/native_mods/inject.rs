@@ -19,10 +19,7 @@ pub(super) fn prepare(mods: &[Bundle], source: &Path) -> Result<Vec<Injection>, 
     for bundle in mods {
         api::strip(bundle)?;
         let path = bundle.dir.join(MANIFEST);
-        let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
-        let mut manifest: toml::Table = text
-            .parse()
-            .map_err(|e| format!("{}: {e}", path.display()))?;
+        let mut manifest = api::read(&path)?;
         let entries = manifest
             .get_mut("injection")
             .and_then(toml::Value::as_array_mut);
@@ -149,11 +146,7 @@ pub(super) fn prepare(mods: &[Bundle], source: &Path) -> Result<Vec<Injection>, 
                 result.push(injection);
             }
         }
-        fs::write(
-            &path,
-            toml::to_string(&manifest).map_err(|e| e.to_string())?,
-        )
-        .map_err(|e| e.to_string())?;
+        api::write(&path, &manifest)?;
     }
     Ok(result)
 }

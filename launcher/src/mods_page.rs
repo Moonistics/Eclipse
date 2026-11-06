@@ -681,17 +681,14 @@ impl Launcher {
             return;
         }
         let tx = self.mods.tx.clone();
-        let java = self.mods.java.clone();
+        let game = installed::Game::of(self.mods.java.clone());
         std::thread::spawn(move || {
             let mut found = HashMap::new();
             for e in entries {
                 let Some(source) = browser::source(e.source) else {
                     continue;
                 };
-                let newer = match &java {
-                    Some(target) => java_instance::update_for(&*source, target, &e),
-                    None => installed::update_for(&*source, &e),
-                };
+                let newer = game.update_for(&*source, &e);
                 if let Ok(Some(v)) = newer {
                     found.insert((e.source, e.project.clone()), v.number);
                 }
@@ -723,7 +720,7 @@ impl Launcher {
         self.mods.updates.clear();
         let tx = self.mods.tx.clone();
         let home = self.mods.home();
-        let java = self.mods.java.clone();
+        let game = installed::Game::of(self.mods.java.clone());
         std::thread::spawn(move || {
             let count = todo.len();
             let (mut done, mut failed) = (Vec::new(), Vec::new());
@@ -739,12 +736,7 @@ impl Launcher {
                     .ok_or_else(|| format!("{} isn't set up", source_id.label()))
                     .and_then(|source| {
                         let p = source.project(&id)?;
-                        match &java {
-                            Some(target) => {
-                                java_instance::install(&*source, target, &p, &home, &step)
-                            }
-                            None => installed::install(&*source, &p, true, &home, &step),
-                        }
+                        game.install(&*source, &p, true, &home, &step)
                     });
                 match updated {
                     Ok(entries) => done.extend(
@@ -1022,10 +1014,7 @@ impl Launcher {
                     .map_err(|e| format!("{}: {e}", path.display()))
             });
         let removed = trashed
-            .and_then(|()| match self.mods.java {
-                Some(_) => java_instance::remove(&home, id),
-                None => installed::remove(&home, id),
-            })
+            .and_then(|()| installed::Game::of(self.mods.java.clone()).remove(&home, id))
             .map(|e| match goes_to_trash(e.kind) {
                 true => trf("{name} moved to the trash.", &[("name", &e.title)]),
                 false => trf("Removed {name}.", &[("name", &e.title)]),
@@ -1714,7 +1703,8 @@ pub(super) fn auto_update(targets: &[AutoTarget]) -> (Vec<String>, Vec<String>) 
     let (mut lines, mut rebuild) = (Vec::new(), Vec::new());
     for t in targets {
         let i = &t.instance;
-        let pack = i.id.starts_with("pack:") || i.id.starts_with("port:");
+        use eclipse_launcher::instances::Kind;
+        let pack = matches!(i.kind, Kind::Port { .. } | Kind::Pack { .. });
         let (false, None, Some(level)) = (pack, &i.java, t.level) else {
             continue;
         };

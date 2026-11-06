@@ -14,7 +14,8 @@
 
 use super::forge::artifact;
 use super::{maven_path, Kind};
-use crate::sources::{fetch_checked, sha1_file, write_file, Fetch};
+use crate::files;
+use crate::sources::{fetch_checked, sha1_file, Fetch};
 use serde_json::{json, Value};
 use std::collections::HashMap;
 use std::fs;
@@ -98,7 +99,7 @@ fn fetch_libraries(
                     "The installer's {path} is not the one listed ({sha1})"
                 ));
             }
-            write_file(&file, &body)?;
+            files::write(&file, &body)?;
         } else if let Some(url) = url {
             downloads.push((file, url, sha1));
         } else {
@@ -120,7 +121,7 @@ fn fetch_libraries(
                     None => fetch(url),
                 }
                 .map_err(|e| format!("{url} {e}"))
-                .and_then(|body| write_file(file, &body));
+                .and_then(|body| files::write(file, &body));
                 if let Err(e) = got {
                     failed.lock().unwrap().get_or_insert(e);
                 }
@@ -193,7 +194,7 @@ fn data(
                 .read(raw)
                 .ok_or_else(|| format!("The installer has no {raw}"))?;
             let out = scratch.join(crate::mojang::relative(raw.trim_start_matches('/'))?);
-            write_file(&out, &body)?;
+            files::write(&out, &body)?;
             at(&out)
         } else {
             value(raw, &HashMap::new(), &libraries)?
@@ -357,7 +358,7 @@ pub(super) fn install(
     if sha1_file(&file).as_ref() != Some(&sha1) {
         log(format!("Downloading the {name} {version} installer"));
         let body = fetch_checked(fetch, &url, &sha1).map_err(|e| format!("{url} {e}"))?;
-        write_file(&file, &body)?;
+        files::write(&file, &body)?;
     }
     let zip = fs::File::open(&file)
         .map_err(|e| e.to_string())
@@ -421,7 +422,7 @@ pub(super) fn install(
     fs::create_dir_all(&versions)
         .and_then(|_| fs::copy(&vanilla, &jar))
         .map_err(|e| format!("{}: {e}", vanilla.display()))?;
-    write_file(
+    files::write(
         &versions.join(format!("{id}.json")),
         &serde_json::to_vec_pretty(&game).map_err(|e| e.to_string())?,
     )?;

@@ -2,7 +2,8 @@
 //! player picks, as a `.mrpack` (Modrinth's modpack format, from its published spec) or a plain
 //! `.zip` of the game folder's layout.
 //!
-//! Only what makes the instance goes in, from a fixed list ([`FILES`], [`FOLDERS`]): never logs,
+//! Only what makes the instance goes in, from a fixed list (`game_folder::SETTINGS`,
+//! `game_folder::CONTENT`): never logs,
 //! screenshots, backups, caches, or anything tied to the player's account. A world goes without
 //! its per-player files (`playerdata/`, `stats/`, `advancements/`) and its level.dat without the
 //! player's UUID.
@@ -12,25 +13,13 @@
 //! rest goes under `overrides/`, which a launcher copies into the game folder.
 use crate::browser::installed::{Entry, Installed};
 use crate::browser::{FileRef, Kind, SourceId, GAME};
+use crate::game_folder::{self, world};
 use eclipse_world::nbt::{self, Limits, Tag};
 use sha2::Digest;
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-/// The game folder's own files that are the instance's settings.
-pub const FILES: [&str; 6] = [
-    "options.txt",
-    "eclipse-graphics.txt",
-    "eclipse-extras.txt",
-    "eclipse-controller.txt",
-    "eclipse-mods.txt",
-    "servers.dat",
-];
-/// Its folders of packs, mods and their settings.
-pub const FOLDERS: [&str; 4] = ["resourcepacks", "shaderpacks", "eclipse-mods", "config"];
-/// What a world keeps per player: left out.
-const PER_PLAYER: [&str; 4] = ["playerdata", "stats", "advancements", "session.lock"];
 const INDEX: &str = "modrinth.index.json";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -79,20 +68,21 @@ pub fn export(
     out: &Path,
 ) -> Result<Exported, String> {
     let mut files: Vec<(String, PathBuf)> = Vec::new();
-    for f in FILES {
+    for f in game_folder::SETTINGS {
         if home.join(f).is_file() {
             files.push((f.to_string(), home.join(f)));
         }
     }
-    for folder in FOLDERS {
+    for folder in game_folder::CONTENT {
         walk(home, &home.join(folder), &[], &mut files);
     }
-    for world in worlds {
-        let dir = home.join("saves").join(world);
-        if world.contains(['/', '\\']) || !dir.join("level.dat").is_file() {
-            return Err(format!("{name} has no world {world}."));
+    let left_out = [&world::PER_PLAYER[..], &[world::LOCK]].concat();
+    for saved in worlds {
+        let dir = home.join(game_folder::SAVES).join(saved);
+        if saved.contains(['/', '\\']) || !dir.join(world::LEVEL).is_file() {
+            return Err(format!("{name} has no world {saved}."));
         }
-        walk(home, &dir, &PER_PLAYER, &mut files);
+        walk(home, &dir, &left_out, &mut files);
     }
     let linked: Vec<&Linked> = match format {
         Format::Mrpack => linked.iter().collect(),
@@ -233,18 +223,18 @@ pub fn linkable(home: &Path, lookup: &dyn Fn(&Entry) -> Option<FileRef>) -> Vec<
         .iter()
         .filter(|e| e.source == SourceId::Modrinth && e.kind == Kind::ResourcePack)
         .filter(|e| {
-            let Ok(bytes) = fs::read(home.join(&e.file)) else {
+            let Some(bytes) = e.path(home).and_then(|p| fs::read(p).ok()) else {
                 return false;
             };
             let sum: String = sha2::Sha512::digest(&bytes)
                 .iter()
                 .map(|b| format!("{b:02x}"))
                 .collect();
-            e.checksum.strip_prefix("SHA-512:") == Some(sum.as_str())
+            e.hash("SHA-512") == Some(sum.as_str())
         })
         .filter_map(|e| {
             let file = lookup(e)?;
-            let same = file.sha512.as_deref() == e.checksum.strip_prefix("SHA-512:");
+            let same = file.sha512.as_deref() == e.hash("SHA-512");
             (same && file.sha1.is_some()).then(|| Linked {
                 path: e.file.clone(),
                 file,
@@ -255,7 +245,7 @@ pub fn linkable(home: &Path, lookup: &dyn Fn(&Entry) -> Option<FileRef>) -> Vec<
 
 /// An entry's file as Modrinth serves it (asks Modrinth: for [`linkable`]).
 pub fn from_modrinth(e: &Entry) -> Option<FileRef> {
-    let sum = e.checksum.strip_prefix("SHA-512:")?;
+    let sum = e.hash("SHA-512")?;
     crate::browser::modrinth::version_files(&e.version)
         .ok()?
         .into_iter()

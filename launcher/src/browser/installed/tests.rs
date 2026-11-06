@@ -143,15 +143,31 @@ fn installs_with_dependencies_then_updates_and_removes() {
     );
     assert_eq!(Installed::load(&home).entries.len(), 2);
 
-    // Installing again with nothing new downloads nothing.
-    fs::remove_file(home.join("resourcepacks/base-1.zip")).unwrap();
+    // Installing again with nothing new downloads nothing, but a file that went missing (moved to
+    // the trash from Home's packs) comes back.
+    fs::write(home.join("resourcepacks/base-1.zip"), "kept").unwrap();
+    fs::remove_file(home.join("resourcepacks/addon-1.zip")).unwrap();
     install(&fake, &addon, false, &home, NONE).unwrap();
-    assert!(!home.join("resourcepacks/base-1.zip").exists());
+    assert_eq!(
+        fs::read(home.join("resourcepacks/base-1.zip")).unwrap(),
+        b"kept"
+    );
+    assert_eq!(
+        fs::read(home.join("resourcepacks/addon-1.zip")).unwrap(),
+        b"addon pack"
+    );
 
     // An update replaces the old file.
     fake.release("addon", "2", &["base"], b"addon pack v2", false);
     let entry = Installed::load(&home).lookup("addon").cloned().unwrap();
-    assert_eq!(update_for(&fake, &entry).unwrap().unwrap().number, "2");
+    assert_eq!(
+        Game::Eclipse
+            .update_for(&fake, &entry)
+            .unwrap()
+            .unwrap()
+            .number,
+        "2"
+    );
     install(&fake, &addon, false, &home, NONE).unwrap();
     assert!(!home.join("resourcepacks/addon-1.zip").exists());
     assert_eq!(
@@ -163,13 +179,32 @@ fn installs_with_dependencies_then_updates_and_removes() {
         .cloned()
         .unwrap();
     assert_eq!(entry.number, "2");
-    assert!(update_for(&fake, &entry).unwrap().is_none());
+    assert!(Game::Eclipse.update_for(&fake, &entry).unwrap().is_none());
 
     let removed = remove(&home, "addon").unwrap();
     assert_eq!(removed.project, "addon");
     assert!(!home.join("resourcepacks/addon-2.zip").exists());
     assert!(remove(&home, "addon").is_err());
     assert_eq!(Installed::load(&home).entries.len(), 1);
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_list_that_cant_be_read_is_never_saved_over() {
+    let home = home("torn");
+    let mut fake = Fake::default();
+    fake.add(project("base", Kind::ResourcePack));
+    fake.release("base", "1", &[], b"base pack", false);
+    install(&fake, &fake.project("base").unwrap(), false, &home, NONE).unwrap();
+    let torn = &fs::read(home.join(MANIFEST)).unwrap()[..30];
+    fs::write(home.join(MANIFEST), torn).unwrap();
+    fake.add(project("other", Kind::ResourcePack));
+    fake.release("other", "1", &[], b"other pack", false);
+    assert!(install(&fake, &fake.project("other").unwrap(), false, &home, NONE).is_err());
+    assert!(remove(&home, "base").is_err());
+    assert_eq!(fs::read(home.join(MANIFEST)).unwrap(), torn);
+    assert!(!home.join("resourcepacks/other-1.zip").exists());
+    assert!(home.join("resourcepacks/base-1.zip").is_file());
     fs::remove_dir_all(&home).unwrap();
 }
 
@@ -333,10 +368,11 @@ fn shader_packs_older_launchers_installed_are_left_alone() {
         entry("resource-pack", "resourcepacks/faithful-1.zip"),
     ]});
     fs::write(home.join("mod-browser.json"), manifest.to_string()).unwrap();
-    let installed = Installed::load(&home);
+    let mut installed = Installed::open(&home).unwrap();
     assert_eq!(installed.entries.len(), 1);
     assert_eq!(installed.entries[0].kind, Kind::ResourcePack);
-    installed.save(&home).unwrap();
+    let kept = installed.entries[0].clone();
+    installed.record(kept).unwrap();
     assert!(home.join("shaderpacks/old-pack.zip").is_file());
     fs::remove_dir_all(&home).unwrap();
 }

@@ -27,7 +27,7 @@ fn json_with(
     now: u64,
     github: impl Fn(&str, Option<&str>) -> Answer,
     mirror: impl Fn(&str) -> Answer,
-) -> Result<serde_json::Value, String> {
+) -> Result<serde_json::Value, Error> {
     super::json_with(
         url,
         cache,
@@ -70,6 +70,7 @@ fn mirror_serves_only_eclipses_repository() {
 
 #[test]
 fn rate_limit_is_429_or_403_with_githubs_headers() {
+    use crate::backend::rate_limited;
     let none = |_: &str| None;
     assert!(rate_limited(429, none));
     assert!(!rate_limited(403, none), "a plain 403 is a refusal");
@@ -189,7 +190,8 @@ fn rate_limited_reads_go_through_the_mirror() {
 fn a_404_is_not_retried_on_the_mirror() {
     let cache = scratch("404");
     let err = json_with(RELEASES, &cache, T0, |_, _| Answer::NotFound, no_mirror).unwrap_err();
-    assert!(err.ends_with("answered 404"), "{err}");
+    assert_eq!(err, Error::NotFound(RELEASES.into()));
+    assert!(err.to_string().ends_with("answered 404"), "{err}");
     let err = json_with(
         RELEASES,
         &cache,
@@ -198,7 +200,7 @@ fn a_404_is_not_retried_on_the_mirror() {
         |_| Answer::NotFound,
     )
     .unwrap_err();
-    assert!(err.ends_with("answered 404"), "{err}");
+    assert_eq!(err, Error::NotFound(RELEASES.into()));
     let _ = fs::remove_dir_all(cache);
 }
 
@@ -213,6 +215,8 @@ fn both_failing_uses_the_saved_copy_else_says_so() {
         |_| Answer::Failed("No connection: timed out".into()),
     )
     .unwrap_err();
+    assert!(matches!(err, Error::RateLimited(_)), "{err:?}");
+    let err = err.to_string();
     assert!(err.contains("rate limit"), "{err}");
     assert!(err.contains("mirror"), "{err}");
     assert!(err.contains("timed out"), "{err}");
@@ -248,7 +252,8 @@ fn other_repositories_have_no_mirror() {
         |_, _| Answer::RateLimited,
         no_mirror,
     )
-    .unwrap_err();
+    .unwrap_err()
+    .to_string();
     assert!(err.contains("rate limit"), "{err}");
     assert!(!err.contains("mirror"), "{err}");
     let _ = fs::remove_dir_all(cache);
@@ -291,5 +296,35 @@ fn a_corrupt_or_foreign_copy_is_ignored() {
         no_mirror,
     );
     assert_eq!(got.unwrap(), list("v2"));
+    let _ = fs::remove_dir_all(cache);
+}
+
+#[test]
+fn a_commits_file_is_read_once_then_offline_too() {
+    let cache = scratch("raw");
+    let revision = "a".repeat(40);
+    let offline = |_: &str| Err(Error::Failed("No connection".into()));
+    let read = |file: &str, fetch: &dyn Fn(&str) -> Result<Option<String>, Error>| {
+        raw_with("acme/zoom", &revision, file, &cache, fetch)
+    };
+    assert_eq!(
+        read("hooks.rs", &|_| Ok(Some("v3".into()))),
+        Ok(Some("v3".into()))
+    );
+    assert_eq!(read("hooks.rs", &offline), Ok(Some("v3".into())));
+    assert_eq!(read("missing.json", &|_| Ok(None)), Ok(None));
+    assert_eq!(
+        read("missing.json", &offline),
+        Err(Error::Failed("No connection".into())),
+        "offline is not \"no such file\""
+    );
+    // A branch moves, so what it had is asked again.
+    let branch = |text: &'static str| {
+        raw_with("acme/zoom", "main", "hooks.rs", &cache, move |_| {
+            Ok(Some(text.into()))
+        })
+    };
+    branch("old").unwrap();
+    assert_eq!(branch("new"), Ok(Some("new".into())));
     let _ = fs::remove_dir_all(cache);
 }

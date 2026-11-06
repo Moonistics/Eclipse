@@ -292,3 +292,21 @@ fn the_game_mode_comes_from_server_toml() {
     assert_eq!(game_mode(&dir), None);
     let _ = fs::remove_dir_all(&dir);
 }
+
+#[test]
+fn a_server_list_that_cant_be_read_is_never_saved_over() {
+    let root = scratch("torn-list");
+    let file = root.join("servers.json");
+    let dir = root.join("Mine");
+    fs::create_dir_all(&dir).unwrap();
+    let entry = Entry {
+        name: "Mine".into(),
+        dir,
+    };
+    change_list(&file, |all| all.push(entry.clone())).unwrap();
+    assert_eq!(read_list(&file).unwrap(), std::slice::from_ref(&entry));
+    fs::write(&file, "[{\"name\": \"Mine\"").unwrap();
+    assert!(change_list(&file, |all| all.push(entry.clone())).is_err());
+    assert_eq!(fs::read_to_string(&file).unwrap(), "[{\"name\": \"Mine\"");
+    fs::remove_dir_all(&root).unwrap();
+}

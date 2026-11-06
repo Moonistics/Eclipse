@@ -41,6 +41,19 @@ enum CToolchainKind {
     LlvmMingw,
 }
 
+impl CToolchainKind {
+    /// Unpacks its zip into `prefix`: MinGW-w64's `mingw64/` without its documentation, or
+    /// LLVM-MinGW under `llvm-mingw/`.
+    fn unpack(self, archive: &Path, prefix: &Path) -> Result<(), String> {
+        match self {
+            Self::WinLibs => unpack_zip(archive, prefix, mingw_path),
+            Self::LlvmMingw => unpack_zip(archive, prefix, |path| {
+                llvm_mingw_path(path).map(|p| Path::new(LLVM_MINGW_DIR).join(p))
+            }),
+        }
+    }
+}
+
 /// WinLibs' build of GCC and binutils on MinGW-w64 (MSVCRT, the C runtime `rust-mingw` links
 /// against; POSIX threads; SEH), the release's `mingw64/` folder without its documentation.
 pub const MINGW: CToolchain = CToolchain {
@@ -184,12 +197,6 @@ pub fn windows_target_for_machine(machine: u16) -> Option<&'static str> {
     }
 }
 
-/// Native-mod builds are supported when the selected game's architecture matches the launcher.
-pub fn windows_target_for_host(host_target: &str, machine: u16) -> Option<&'static str> {
-    let target = windows_target_for_machine(machine)?;
-    (target == host_target).then_some(target)
-}
-
 fn exe(name: &str) -> String {
     format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
@@ -257,7 +264,7 @@ impl Toolchain {
         // gcc, as, ld — and `cargo install`'s build — put scratch files in the temp dir,
         // which has to be a path they can open too: the build's own, never the player's
         // (#5189: a Cyrillic user name makes the player's unreadable by MinGW-w64).
-        let tmp = backend::build_dir().join("tmp");
+        let tmp = temp_dir();
         if fs::create_dir_all(&tmp).is_ok() {
             cmd.env("TMPDIR", &tmp).env("TMP", &tmp).env("TEMP", &tmp);
         }
@@ -288,6 +295,16 @@ impl Toolchain {
                 .env("WINDRES", windres)
                 .env("CARGO_TARGET_AARCH64_PC_WINDOWS_GNULLVM_LINKER", cc);
         }
+        cmd
+    }
+
+    /// This toolchain's cargo as every build runs it: [`Toolchain::command`] at [`low_priority`],
+    /// with the host's own Cargo configuration ([`Toolchain::configure_cargo`]), which must come
+    /// before the subcommand.
+    pub fn cargo_command(&self) -> Command {
+        let mut cmd = self.command(&self.cargo());
+        low_priority(&mut cmd);
+        self.configure_cargo(&mut cmd);
         cmd
     }
 
@@ -426,6 +443,10 @@ pub fn cargo_home() -> PathBuf {
     backend::build_dir().join("cargo")
 }
 
+fn temp_dir() -> PathBuf {
+    backend::build_dir().join("tmp")
+}
+
 fn dir_for(host: &Host) -> PathBuf {
     root().join(format!("{VERSION}-{}", host.target))
 }
@@ -448,16 +469,11 @@ pub fn install(progress: impl Fn(f32)) -> Result<Toolchain, String> {
         return Ok(done);
     }
     let host = host().ok_or_else(|| {
-        if cfg!(all(target_os = "windows", target_arch = "aarch64")) {
-            crate::i18n::tr("Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.")
-                .to_string()
-        } else {
-            format!(
-                "Native mods need Rust, and the launcher has none for {} {}.",
-                std::env::consts::OS,
-                std::env::consts::ARCH
-            )
-        }
+        format!(
+            "Native mods need Rust, and the launcher has none for {} {}.",
+            std::env::consts::OS,
+            std::env::consts::ARCH
+        )
     })?;
     let dir = dir_for(host);
     let partial = root().join(format!(".{VERSION}-{}.partial", host.target));
@@ -480,10 +496,7 @@ pub fn install(progress: impl Fn(f32)) -> Result<Toolchain, String> {
         let step = |f: f32| progress((done + f) / count);
         backend::download(compiler.url, 0, compiler.sha256, &archive, &step)
             .map_err(|e| format!("{}: {e}", compiler.version))?;
-        let unpacked = match compiler.kind {
-            CToolchainKind::WinLibs => unpack_mingw(&archive, &partial),
-            CToolchainKind::LlvmMingw => unpack_llvm_mingw(&archive, &partial),
-        };
+        let unpacked = compiler.kind.unpack(&archive, &partial);
         let _ = fs::remove_file(&archive);
         unpacked.map_err(|e| format!("{}: {e}", compiler.version))?;
         let toolchain = Toolchain {
@@ -530,14 +543,7 @@ fn unpack(archive: &Path, prefix: &Path) -> Result<(), String> {
 /// Where a file of a component archive goes, relative to the prefix: `rustc-1.99.1-x/rustc/bin/rustc`
 /// → `bin/rustc`. None for the archive's own files and anything that would leave the prefix.
 fn component_path(path: &Path) -> Option<PathBuf> {
-    use std::path::Component;
-    let parts: Vec<&std::ffi::OsStr> = path
-        .components()
-        .map(|c| match c {
-            Component::Normal(name) => Some(name),
-            _ => None,
-        })
-        .collect::<Option<_>>()?;
+    let parts = names(path)?;
     match parts.as_slice() {
         [_, _, rest @ ..] if !rest.is_empty() && rest != ["manifest.in"] => {
             Some(rest.iter().collect())
@@ -546,13 +552,25 @@ fn component_path(path: &Path) -> Option<PathBuf> {
     }
 }
 
-/// Unpacks MinGW-w64's zip into `prefix`: its `mingw64/` folder, documentation left out.
-fn unpack_mingw(archive: &Path, prefix: &Path) -> Result<(), String> {
+fn names(path: &Path) -> Option<Vec<&std::ffi::OsStr>> {
+    path.components()
+        .map(|c| match c {
+            std::path::Component::Normal(name) => Some(name),
+            _ => None,
+        })
+        .collect()
+}
+
+fn unpack_zip(
+    archive: &Path,
+    prefix: &Path,
+    place: impl Fn(&Path) -> Option<PathBuf>,
+) -> Result<(), String> {
     let file = fs::File::open(archive).map_err(|e| e.to_string())?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
     for i in 0..zip.len() {
         let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
-        let Some(relative) = entry.enclosed_name().and_then(|p| mingw_path(&p)) else {
+        let Some(relative) = entry.enclosed_name().and_then(|p| place(&p)) else {
             continue;
         };
         let to = prefix.join(&relative);
@@ -569,39 +587,11 @@ fn unpack_mingw(archive: &Path, prefix: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// Unpacks LLVM-MinGW under `llvm-mingw/`. Release archives have either a versioned top folder or
-/// the toolchain folders at their root; both layouts are accepted, but paths may never escape it.
-fn unpack_llvm_mingw(archive: &Path, prefix: &Path) -> Result<(), String> {
-    let file = fs::File::open(archive).map_err(|e| e.to_string())?;
-    let mut zip = zip::ZipArchive::new(file).map_err(|e| e.to_string())?;
-    for i in 0..zip.len() {
-        let mut entry = zip.by_index(i).map_err(|e| e.to_string())?;
-        let Some(relative) = entry.enclosed_name().and_then(|p| llvm_mingw_path(&p)) else {
-            continue;
-        };
-        let to = prefix.join(LLVM_MINGW_DIR).join(&relative);
-        if entry.is_dir() {
-            fs::create_dir_all(&to).map_err(|e| e.to_string())?;
-            continue;
-        }
-        if let Some(parent) = to.parent() {
-            fs::create_dir_all(parent).map_err(|e| e.to_string())?;
-        }
-        let mut out = fs::File::create(&to).map_err(|e| format!("{}: {e}", relative.display()))?;
-        std::io::copy(&mut entry, &mut out).map_err(|e| format!("{}: {e}", relative.display()))?;
-    }
-    Ok(())
-}
-
+/// Where a file of LLVM-MinGW's zip goes under `llvm-mingw/`. Release archives have either a
+/// versioned top folder or the toolchain folders at their root; both layouts are accepted, but
+/// paths may never escape it.
 fn llvm_mingw_path(path: &Path) -> Option<PathBuf> {
-    use std::path::Component;
-    let parts: Vec<&std::ffi::OsStr> = path
-        .components()
-        .map(|c| match c {
-            Component::Normal(name) => Some(name),
-            _ => None,
-        })
-        .collect::<Option<_>>()?;
+    let parts = names(path)?;
     if parts.is_empty() {
         return None;
     }
@@ -620,14 +610,7 @@ fn llvm_mingw_path(path: &Path) -> Option<PathBuf> {
 /// None for its documentation (`mingw64/share/`, 50 MB of the 925), the folder itself and anything
 /// outside `mingw64/`.
 fn mingw_path(path: &Path) -> Option<PathBuf> {
-    use std::path::Component;
-    let parts: Vec<&std::ffi::OsStr> = path
-        .components()
-        .map(|c| match c {
-            Component::Normal(name) => Some(name),
-            _ => None,
-        })
-        .collect::<Option<_>>()?;
+    let parts = names(path)?;
     match parts.as_slice() {
         [top, first, ..] if *top == MINGW_DIR && *first != "share" => Some(parts.iter().collect()),
         _ => None,
@@ -802,7 +785,7 @@ fn linux_needs(ok: impl Fn(&str, &[&str]) -> bool, os: &str, full: bool) -> Resu
 
 /// Removes every toolchain, the native builds' Cargo home and their scratch folder.
 pub fn remove() -> Result<(), String> {
-    for dir in [root(), cargo_home(), backend::build_dir().join("tmp")] {
+    for dir in [root(), cargo_home(), temp_dir()] {
         if dir.exists() {
             fs::remove_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
         }
@@ -892,22 +875,6 @@ mod tests {
             None,
             "ARM64EC is unsupported"
         );
-        assert_eq!(
-            windows_target_for_host(WINDOWS_X64_TARGET, WINDOWS_X64_MACHINE),
-            Some(WINDOWS_X64_TARGET)
-        );
-        assert_eq!(
-            windows_target_for_host(WINDOWS_ARM64_TARGET, WINDOWS_ARM64_MACHINE),
-            Some(WINDOWS_ARM64_TARGET)
-        );
-        assert_eq!(
-            windows_target_for_host(WINDOWS_X64_TARGET, WINDOWS_ARM64_MACHINE),
-            None
-        );
-        assert_eq!(
-            windows_target_for_host(WINDOWS_ARM64_TARGET, WINDOWS_X64_MACHINE),
-            None
-        );
     }
 
     #[test]
@@ -953,8 +920,6 @@ mod tests {
         cmd.arg("5");
         let mut child = low_priority(&mut cmd).spawn().unwrap();
         let pid = child.id();
-        // The priority is set between fork and exec; wait for the exec.
-        std::thread::sleep(std::time::Duration::from_millis(200));
         // SAFETY: plain system calls on a child process of this test.
         let (nice, io) = unsafe {
             let nice = libc::getpriority(libc::PRIO_PROCESS, pid as libc::id_t);
@@ -1141,7 +1106,7 @@ mod tests {
         }
         zip.finish().unwrap();
         let prefix = dir.join("prefix");
-        unpack_mingw(&archive, &prefix).unwrap();
+        CToolchainKind::WinLibs.unpack(&archive, &prefix).unwrap();
         assert_eq!(
             fs::read_to_string(prefix.join("mingw64/bin/gcc.exe")).unwrap(),
             "gcc"
@@ -1182,7 +1147,7 @@ mod tests {
         }
         zip.finish().unwrap();
         let prefix = dir.join("prefix");
-        unpack_llvm_mingw(&archive, &prefix).unwrap();
+        CToolchainKind::LlvmMingw.unpack(&archive, &prefix).unwrap();
         assert_eq!(
             fs::read_to_string(prefix.join("llvm-mingw/bin/clang.exe")).unwrap(),
             "clang"
@@ -1428,9 +1393,7 @@ mod tests {
         assert!(rust.compiler_available(), "managed LLVM-MinGW is complete");
 
         let workspace = Path::new(env!("CARGO_MANIFEST_DIR")).parent().unwrap();
-        let mut cargo = rust.command(&rust.cargo());
-        low_priority(&mut cargo);
-        rust.configure_cargo(&mut cargo);
+        let mut cargo = rust.cargo_command();
         cargo
             .current_dir(workspace)
             .args([

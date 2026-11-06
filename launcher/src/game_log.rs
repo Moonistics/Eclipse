@@ -35,11 +35,11 @@ pub fn names(homes: &[&Path]) -> Vec<String> {
     let accounts = crate::account::Accounts::load();
     let mut names: Vec<String> = accounts.accounts.into_iter().map(|a| a.name).collect();
     names.extend(accounts.offline);
-    for home in homes {
-        if let Ok(name) = std::fs::read_to_string(home.join("eclipse-player.txt")) {
-            names.push(name.trim().to_string());
-        }
-    }
+    names.extend(
+        homes
+            .iter()
+            .filter_map(|h| crate::game_folder::player_name(h)),
+    );
     for var in ["USER", "USERNAME"] {
         if let Ok(user) = std::env::var(var) {
             names.push(user);
@@ -125,7 +125,9 @@ pub struct Shared {
 /// Uploads `text` (already [`private`]) and returns its link.
 pub fn share(text: &str) -> Result<Shared, String> {
     let body = serde_json::json!({ "content": fit(text), "source": "Eclipse launcher" });
-    let answer: serde_json::Value = ureq::post(&format!("{}/log", api()))
+    let url = format!("{}/log", api());
+    let answer: serde_json::Value = crate::backend::agent(&url)
+        .post(&url)
         .send_json(body)
         .map_err(|e| format!("mclo.gs didn't take the log: {e}"))?
         .into_json()
@@ -147,7 +149,9 @@ pub fn share(text: &str) -> Result<Shared, String> {
 
 /// Deletes a log shared from here.
 pub fn unshare(shared: &Shared) -> Result<(), String> {
-    ureq::delete(&format!("{}/log/{}", api(), shared.id))
+    let url = format!("{}/log/{}", api(), shared.id);
+    crate::backend::agent(&url)
+        .delete(&url)
         .set("Authorization", &format!("Bearer {}", shared.token))
         .call()
         .map_err(|e| format!("mclo.gs didn't delete it: {e}"))?;

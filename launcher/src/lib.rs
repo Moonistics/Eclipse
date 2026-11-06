@@ -9,8 +9,10 @@ pub mod datapacks;
 pub mod desktop;
 pub mod desktop_seams;
 pub mod export;
+pub mod files;
 #[cfg(unix)]
 pub mod game_app;
+pub mod game_folder;
 pub mod game_log;
 pub mod github;
 pub mod github_mods;
@@ -30,7 +32,7 @@ mod mac_update;
 pub mod minecraft_versions;
 pub mod modpacks;
 pub mod mojang;
-mod native_cache;
+pub mod native_cache;
 pub mod native_fit;
 pub mod native_mods;
 pub mod native_status;
@@ -55,7 +57,6 @@ pub mod telemetry;
 pub mod themes;
 pub mod uninstall_aside;
 pub mod update_handoff;
-pub mod update_recovery;
 #[cfg(windows)]
 mod windows_runtime;
 pub mod worlds;

@@ -2,6 +2,7 @@
 //! the game discovers them (`datapack::discover`). The game turns on every pack it finds there
 //! that `<world>/datapacks.json` doesn't list as disabled, when the world opens or on `/reload`,
 //! so adding one is copying it in.
+use crate::game_folder::world::DATAPACKS;
 use crate::packs::{entry, plain};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -38,7 +39,7 @@ fn disabled(settings: &serde_json::Value) -> Vec<String> {
 /// The data packs of the world folder `world`, by name.
 pub fn list(world: &Path) -> Vec<DataPack> {
     let off = disabled(&settings(world));
-    let mut packs: Vec<DataPack> = fs::read_dir(world.join("datapacks"))
+    let mut packs: Vec<DataPack> = fs::read_dir(world.join(DATAPACKS))
         .into_iter()
         .flatten()
         .flatten()
@@ -92,7 +93,7 @@ fn check(file: &Path) -> Result<(), String> {
 /// the next time the world opens (or on `/reload`).
 pub fn add(world: &Path, file: &Path) -> Result<DataPack, String> {
     check(file)?;
-    let dir = world.join("datapacks");
+    let dir = world.join(DATAPACKS);
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let name = file.file_name().ok_or("A pack file has a name")?;
     let stem = Path::new(name)
@@ -143,7 +144,7 @@ pub fn find(world: &Path, query: &str) -> Result<DataPack, String> {
         .ok_or_else(|| {
             format!(
                 "No data pack {query} in {}",
-                world.join("datapacks").display()
+                world.join(DATAPACKS).display()
             )
         })
 }

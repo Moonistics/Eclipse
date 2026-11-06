@@ -31,6 +31,16 @@ fn the_shared_log_has_no_home_folder_or_names() {
 }
 
 #[test]
+fn the_offline_name_kept_in_a_game_folder_is_taken_out() {
+    let home = std::env::temp_dir().join(format!("eclipse-log-name-{}", std::process::id()));
+    std::fs::create_dir_all(&home).unwrap();
+    crate::game_folder::set_player_name(&home, "Player12345").unwrap();
+    let out = private("Player12345 joined the game\n", None, &names(&[&home]));
+    assert_eq!(out, "<player> joined the game\n");
+    std::fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
 fn a_long_log_sends_its_end() {
     let log: String = (0..30_000).map(|i| format!("line {i}\n")).collect();
     let sent = fit(&log);

@@ -696,7 +696,6 @@
   "Game architecture": "गेम आर्किटेक्चर",
   "Install selected build": "चुना हुआ बिल्ड इंस्टॉल करें",
   "Manual game architectures are available on Windows ARM only.": "गेम आर्किटेक्चर का मैन्युअल चयन केवल Windows ARM पर उपलब्ध है।",
-  "Native mods are not supported by the Windows ARM64 launcher yet; its managed compiler is not available.": "Windows ARM64 लॉन्चर अभी नेटिव मॉड का समर्थन नहीं करता; इसका प्रबंधित कंपाइलर उपलब्ध नहीं है।",
   "Native mods cannot build for the selected ARM64 game yet. The available compiler builds x64 only.": "चुने हुए ARM64 गेम के लिए नेटिव मॉड अभी बिल्ड नहीं हो सकते। उपलब्ध कंपाइलर केवल x64 बिल्ड करता है।",
   "Native mods cannot build for the selected x64 game yet. This ARM64 launcher has no matching compiler.": "चुने हुए x64 गेम के लिए नेटिव मॉड बिल्ड नहीं हो सकते। इस ARM64 लॉन्चर के लिए उपयुक्त कंपाइलर नहीं है।",
   "Say auto, x64 or arm64 for the game architecture.": "गेम आर्किटेक्चर के लिए auto, x64 या arm64 लिखें।",

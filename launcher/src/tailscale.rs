@@ -121,7 +121,6 @@ pub fn status() -> State {
     status_of(cli())
 }
 
-/// `status` with a given `tailscale` command.
 pub fn status_of(cli: Option<PathBuf>) -> State {
     let Some(cli) = cli else {
         return State::Missing;
@@ -261,11 +260,7 @@ impl Api {
         if_match: Option<&str>,
     ) -> Result<(Value, Option<String>), String> {
         let url = format!("{}/api/v2{path}", self.base);
-        let agent = crate::proxy::agent(
-            ureq::AgentBuilder::new().timeout(Duration::from_secs(20)),
-            &url,
-        )
-        .build();
+        let agent = crate::backend::agent_within(&url, Duration::from_secs(20));
         let mut request = agent
             .request(method, &url)
             .set("Authorization", &format!("Bearer {}", self.token))

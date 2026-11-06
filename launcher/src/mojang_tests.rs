@@ -9,8 +9,6 @@ const LINUX: &[u8] = b"a linux native";
 const SOUND: &[u8] = b"a fake ogg";
 const LANG: &[u8] = b"{}";
 const LOGGING: &[u8] = b"<Configuration/>";
-/// Never cancelled.
-static GO: AtomicBool = AtomicBool::new(false);
 
 /// The fake version file, asset index and files, by URL.
 fn mojang() -> (Pins, HashMap<String, Vec<u8>>) {
@@ -115,15 +113,9 @@ fn an_owner_gets_the_official_layout_with_this_systems_libraries() {
     };
     let dir = scratch("layout");
     let logged = Mutex::new(Vec::new());
-    download(
-        &pins,
-        &dir,
-        "linux",
-        3,
-        &|url| server.fetch(url),
-        &GO,
-        &|line| logged.lock().unwrap().push(line),
-    )
+    download(&pins, &dir, "linux", 3, &|url| server.fetch(url), &|line| {
+        logged.lock().unwrap().push(line)
+    })
     .unwrap();
     assert_eq!(
         fs::read(dir.join("versions/26.3/26.3.jar")).unwrap(),
@@ -165,16 +157,7 @@ fn an_owner_gets_the_official_layout_with_this_systems_libraries() {
         &|_| {},
     );
     assert_eq!(found, Ok(Resolved::Folder(dir.clone())));
-    download(
-        &pins,
-        &dir,
-        "linux",
-        3,
-        &|url| server.fetch(url),
-        &GO,
-        &|_| {},
-    )
-    .unwrap();
+    download(&pins, &dir, "linux", 3, &|url| server.fetch(url), &|_| {}).unwrap();
     assert_eq!(server.asked(), Vec::<String>::new());
     fs::remove_dir_all(&dir).unwrap();
 }
@@ -187,16 +170,7 @@ fn macos_skips_what_its_rules_disallow() {
         asked: Mutex::new(Vec::new()),
     };
     let dir = scratch("osx");
-    download(
-        &pins,
-        &dir,
-        "osx",
-        2,
-        &|url| server.fetch(url),
-        &GO,
-        &|_| {},
-    )
-    .unwrap();
+    download(&pins, &dir, "osx", 2, &|url| server.fetch(url), &|_| {}).unwrap();
     let libraries = dir.join("libraries/org/fake");
     assert!(libraries.join("common/1/common-1.jar").is_file());
     assert!(!libraries.join("linux").exists());
@@ -216,16 +190,7 @@ fn a_file_that_is_not_the_pinned_one_stops_the_download() {
         asked: Mutex::new(Vec::new()),
     };
     let dir = scratch("bad-jar");
-    let error = download(
-        &pins,
-        &dir,
-        "linux",
-        2,
-        &|url| server.fetch(url),
-        &GO,
-        &|_| {},
-    )
-    .unwrap_err();
+    let error = download(&pins, &dir, "linux", 2, &|url| server.fetch(url), &|_| {}).unwrap_err();
     assert!(
         error.starts_with("https://piston-data.mojang.com/client.jar is not the one Eclipse pins"),
         "{error}"
@@ -245,15 +210,9 @@ fn missing_sounds_are_a_line_in_the_log_not_an_error() {
     };
     let dir = scratch("no-sound");
     let logged = Mutex::new(Vec::new());
-    download(
-        &pins,
-        &dir,
-        "linux",
-        1,
-        &|url| server.fetch(url),
-        &GO,
-        &|line| logged.lock().unwrap().push(line),
-    )
+    download(&pins, &dir, "linux", 1, &|url| server.fetch(url), &|line| {
+        logged.lock().unwrap().push(line)
+    })
     .unwrap();
     assert!(dir.join("versions/26.3/26.3.jar").is_file());
     let last = logged.lock().unwrap().last().cloned().unwrap();
@@ -332,7 +291,6 @@ fn java_runtime_lays_out_mojangs_runtime_with_its_executables_and_links() {
         &dir,
         2,
         &|url| server.fetch(url),
-        &GO,
         &|_| {},
     )
     .unwrap();
@@ -359,7 +317,6 @@ fn java_runtime_lays_out_mojangs_runtime_with_its_executables_and_links() {
         &dir,
         2,
         &|url| server.fetch(url),
-        &GO,
         &|_| {},
     )
     .unwrap();
@@ -369,7 +326,6 @@ fn java_runtime_lays_out_mojangs_runtime_with_its_executables_and_links() {
         &dir,
         2,
         &|url| server.fetch(url),
-        &GO,
         &|_| {}
     )
     .is_err());
@@ -389,16 +345,7 @@ fn a_file_of_another_size_than_mojang_lists_is_refused() {
         asked: Mutex::new(Vec::new()),
     };
     let dir = scratch("size");
-    let error = download(
-        &pins,
-        &dir,
-        "linux",
-        2,
-        &|url| server.fetch(url),
-        &GO,
-        &|_| {},
-    )
-    .unwrap_err();
+    let error = download(&pins, &dir, "linux", 2, &|url| server.fetch(url), &|_| {}).unwrap_err();
     assert!(
         error.ends_with(&format!(
             "is 4 bytes, not the {} Mojang lists",
@@ -411,42 +358,27 @@ fn a_file_of_another_size_than_mojang_lists_is_refused() {
 }
 
 #[test]
-fn a_cancelled_download_goes_on_where_it_stopped() {
+fn a_stopped_download_goes_on_where_it_stopped() {
     let (pins, files) = mojang();
     let server = Server {
         files,
         asked: Mutex::new(Vec::new()),
     };
-    let dir = scratch("cancel");
-    let cancel = AtomicBool::new(false);
-    // Cancelled once the client jar has arrived: one job, so nothing after it starts.
-    let fetch = |url: &str| {
-        let body = server.fetch(url);
-        if url.ends_with("client.jar") {
-            cancel.store(true, Relaxed);
-        }
-        body
+    let dir = scratch("stopped");
+    // The network goes once the client jar has arrived: one job, so nothing after it starts.
+    let fetch = |url: &str| match url.contains("libraries.minecraft.net") {
+        true => Err("no network".to_string()),
+        false => server.fetch(url),
     };
-    let error = download(&pins, &dir, "linux", 1, &fetch, &cancel, &|_| {}).unwrap_err();
-    assert_eq!(error, CANCELLED);
+    download(&pins, &dir, "linux", 1, &fetch, &|_| {}).unwrap_err();
     assert_eq!(
         fs::read(dir.join("versions/26.3/26.3.jar")).unwrap(),
         CLIENT
     );
     assert!(!dir.join("libraries").exists());
     // Again: the version file and the jar are kept, only the rest is fetched.
-    cancel.store(false, Relaxed);
     server.asked();
-    download(
-        &pins,
-        &dir,
-        "linux",
-        1,
-        &|url| server.fetch(url),
-        &cancel,
-        &|_| {},
-    )
-    .unwrap();
+    download(&pins, &dir, "linux", 1, &|url| server.fetch(url), &|_| {}).unwrap();
     let asked = server.asked();
     assert!(
         !asked
@@ -519,7 +451,7 @@ fn any_listed_version_comes_with_its_natives() {
     let pins = Pins::for_version("1.12.2", &sha1);
     let platform = |os: &str| {
         let dir = scratch(&format!("any-{os}"));
-        download(&pins, &dir, os, 2, &|url| server.fetch(url), &GO, &|_| {}).unwrap();
+        download(&pins, &dir, os, 2, &|url| server.fetch(url), &|_| {}).unwrap();
         dir
     };
     let mac = platform("osx");
@@ -563,7 +495,7 @@ fn any_listed_version_comes_with_its_natives() {
         asked: Mutex::new(Vec::new()),
     };
     let dir = scratch("any-wrong");
-    let refused = download(&pins, &dir, "osx", 1, &|url| wrong.fetch(url), &GO, &|_| {});
+    let refused = download(&pins, &dir, "osx", 1, &|url| wrong.fetch(url), &|_| {});
     assert!(refused.unwrap_err().contains("old.jar"));
     let _ = fs::remove_dir_all(&dir);
 }
@@ -580,15 +512,9 @@ fn a_download_goes_on_past_an_asset_that_keeps_failing() {
     };
     let dir = scratch("tolerant");
     let logged = Mutex::new(Vec::new());
-    download(
-        &pins,
-        &dir,
-        "linux",
-        1,
-        &|url| server.fetch(url),
-        &GO,
-        &|line| logged.lock().unwrap().push(line),
-    )
+    download(&pins, &dir, "linux", 1, &|url| server.fetch(url), &|line| {
+        logged.lock().unwrap().push(line)
+    })
     .unwrap();
     let lang = sha1_hex(LANG);
     assert!(dir

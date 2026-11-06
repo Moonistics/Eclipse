@@ -142,10 +142,16 @@ fn existing_worlds_stay_where_they_are_and_every_folder_becomes_an_instance() {
     ] {
         assert_eq!(copied[Path::new(kept)], before[Path::new(kept)]);
     }
-    assert!(copied.keys().all(|p| {
-        let top = p.components().next().unwrap().as_os_str().to_str().unwrap();
-        !NOT_COPIED.contains(&top)
-    }));
+    for left_out in [
+        "sessions",
+        "logs",
+        "telemetry",
+        "instances",
+        "ports",
+        "eclipse-packs",
+    ] {
+        assert!(!copy.home.join(left_out).exists(), "{left_out} was copied");
+    }
 
     let all = list_in(&home, &data);
     assert_eq!(all[0].name, "Main");
@@ -165,10 +171,6 @@ fn names_stay_unique_and_packs_are_not_copied() {
         create_in(&home, &data, "survival", None, None).unwrap_err(),
         "There is already an instance called survival. Choose another name."
     );
-    assert_eq!(
-        name_taken_with_flag("survival"),
-        "There is already an instance called survival. Choose another name. (`--as NAME`)"
-    );
     assert!(create_in(&home, &data, "  ", None, None).is_err());
     // Another name with the same folder name gets the next free folder.
     let second = create_in(&home, &data, "Survival!", None, None).unwrap();
@@ -184,9 +186,11 @@ fn names_stay_unique_and_packs_are_not_copied() {
     let grouped = edit_in(&home, &data, "Survival", |m| m.group = Some(" ".into())).unwrap();
     assert_eq!(grouped.group, None);
     // An import named like an instance: both can still change everything but their names.
-    let mut store = Store::load(&data);
-    store.instances.entry(port.id.clone()).or_default().name = Some("Survival".into());
-    store.save(&data).unwrap();
+    Store::change(&data, |store| {
+        store.instances.entry(port.id.clone()).or_default().name = Some("Survival".into());
+        Ok(())
+    })
+    .unwrap();
     let launched = edit_in(&home, &data, "survival", |m| {
         m.launch.wrapper = "nice".into()
     })
@@ -297,6 +301,23 @@ fn play_time_adds_up_per_instance_and_survives_a_rename() {
 }
 
 #[test]
+fn an_instances_json_that_cant_be_read_is_never_saved_over() {
+    let root = scratch("torn");
+    let (home, data) = (root.join("home"), root.join("data"));
+    player_home(&home);
+    create_in(&home, &data, "Skyblock", None, None).unwrap();
+    let torn = &fs::read(data.join(FILE)).unwrap()[..20];
+    fs::write(data.join(FILE), torn).unwrap();
+    assert!(record_play_in(&data, "skyblock", Duration::from_secs(60), UNIX_EPOCH).is_err());
+    assert!(edit_in(&home, &data, "skyblock", |m| m.group = Some("A".into())).is_err());
+    assert!(create_in(&home, &data, "Other", None, None).is_err());
+    assert!(!home.join(OWN).join("other").exists());
+    assert_eq!(fs::read(data.join(FILE)).unwrap(), torn);
+    assert!(find_in(&list_in(&home, &data), "skyblock").is_ok());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn play_time_reads_as_minutes_then_hours() {
     let t = |s| play_time(Duration::from_secs(s));
     assert_eq!(t(59), "under a minute");
@@ -342,8 +363,8 @@ fn a_java_instance_plays_one_minecraft_version_in_its_own_folder() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// Delete moves an instance's folder to the Trash and forgets it; one deleted outside the
-/// launcher is forgotten when the list is next read (#eclipse-bugs: an instance that stayed).
+/// Delete moves an instance's folder to the Trash and forgets it; after one deleted outside the
+/// launcher, a new one of its name starts clean (#eclipse-bugs: an instance that stayed).
 #[test]
 fn deleted_instances_go_to_the_trash_and_are_forgotten() {
     let root = scratch("delete");
@@ -360,7 +381,10 @@ fn deleted_instances_go_to_the_trash_and_are_forgotten() {
         b"base"
     );
     assert!(find_in(&list_in(&home, &data), "Survival").is_err());
-    assert!(!Store::load(&data).instances.contains_key("survival"));
+    assert!(!Store::read(&data)
+        .unwrap()
+        .instances
+        .contains_key("survival"));
     // The game's home stays; an imported pack goes like an instance.
     assert!(delete_in(&home, &data, DEFAULT, &to_trash)
         .unwrap_err()
@@ -375,7 +399,6 @@ fn deleted_instances_go_to_the_trash_and_are_forgotten() {
     edit_in(&home, &data, "Skyblock", |m| m.group = Some("Old".into())).unwrap();
     fs::remove_dir_all(home.join(OWN).join("skyblock")).unwrap();
     assert!(find_in(&list_in(&home, &data), "Skyblock").is_err());
-    assert!(!Store::load(&data).instances.contains_key("skyblock"));
     let again = create_in(&home, &data, "Skyblock", None, None).unwrap();
     assert_eq!(again.group, None);
     fs::remove_dir_all(&root).unwrap();
@@ -444,7 +467,15 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
     let made = create_in(&home, &data, "Mine", None, None).unwrap();
     put(&made.home.join("saves/Base/level.dat"), "base");
     put(&made.home.join("saves/Base/region/r.0.0.mca"), "region");
-    put(&made.home.join("mods/minimap.emod"), "emod");
+    put(&made.home.join("eclipse-mods/minimap.emod"), "emod");
+    put(
+        &made.home.join("eclipse-mods/ported/eclipse-mod.toml"),
+        "ported",
+    );
+    put(
+        &made.home.join("eclipse-mods/.eclipse-mod-data/minimap/x"),
+        "data",
+    );
     put(&made.home.join("options.txt"), "fov:90");
     edit_in(&home, &data, &made.id, |m| {
         m.version = Some("nightly-2026-11-01-c9d474d".into())
@@ -465,7 +496,7 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
         unkept(&now, &fabric("1.21.1"), "26.3"),
         [
             Unkept::Mods {
-                count: 1,
+                count: 2,
                 made_for: "Eclipse".into()
             },
             Unkept::Worlds {

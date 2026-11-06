@@ -89,48 +89,14 @@ pub fn prepare_paths(stage: &Roots, source: &Roots, target: &Roots) -> Result<()
 
 /// Refuse live games/build tools even if the window that started them has already exited.
 fn ensure_idle(source: &Roots) -> Result<(), String> {
-    #[cfg(windows)]
-    let output = process::command("powershell.exe")
-        .args(["-NoProfile", "-NonInteractive", "-Command", "Get-CimInstance Win32_Process | Select-Object Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress"])
-        .output();
-    #[cfg(not(windows))]
-    let output = process::command("ps")
-        .args(["-A", "-o", "comm=,args="])
-        .output();
-    let output = output.map_err(|e| format!("Could not check running games and builds: {e}"))?;
-    if !output.status.success() {
-        return Err("Could not check running games and builds; no files were moved.".into());
-    }
+    let processes = process::running().map_err(|e| {
+        format!("Could not check running games and builds; no files were moved. {e}")
+    })?;
     let roots: Vec<_> = [&source.launcher, &source.game, &source.build]
         .iter()
         .map(|p| p.to_string_lossy().replace('\\', "/").to_lowercase())
         .collect();
-    #[cfg(windows)]
-    let processes: Vec<(String, String)> = {
-        let value: Value = serde_json::from_slice(&output.stdout)
-            .map_err(|e| format!("Could not read running processes: {e}"))?;
-        let entries = value.as_array().cloned().unwrap_or_else(|| vec![value]);
-        entries
-            .into_iter()
-            .map(|p| {
-                (
-                    p["Name"].as_str().unwrap_or("").to_owned(),
-                    format!(
-                        "{} {}",
-                        p["ExecutablePath"].as_str().unwrap_or(""),
-                        p["CommandLine"].as_str().unwrap_or("")
-                    ),
-                )
-            })
-            .collect()
-    };
-    #[cfg(not(windows))]
-    let processes: Vec<(String, String)> = String::from_utf8_lossy(&output.stdout)
-        .lines()
-        .filter_map(|line| line.trim().split_once(char::is_whitespace))
-        .map(|(name, command)| (name.to_owned(), command.to_owned()))
-        .collect();
-    for (name, command) in processes {
+    for process::Running { name, command } in processes {
         let name = Path::new(&name)
             .file_name()
             .unwrap_or_default()

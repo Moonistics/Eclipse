@@ -1,4 +1,6 @@
-use super::*;
+use super::{minecraft::*, prepare::*};
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn selected_jdk_reaches_external_preparers() {
