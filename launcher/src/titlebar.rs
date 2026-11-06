@@ -31,9 +31,8 @@ pub fn render(_theme: &Theme, _window: &Window) -> Option<Div> {
 /// Draw the launcher's Linux title bar when the platform uses client-side decorations.
 #[cfg(target_os = "linux")]
 pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
-    use super::wordmark;
     use crate::{blocks, mark};
-    use gpui::{div, prelude::*, px, Decorations, FontWeight, MouseButton};
+    use gpui::{div, prelude::*, px, Decorations, MouseButton};
 
     if matches!(window.window_decorations(), Decorations::Server) {
         return None;
