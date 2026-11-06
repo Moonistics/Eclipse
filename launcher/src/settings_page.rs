@@ -3,7 +3,7 @@
 //! the list follows the scroll and takes the pane to a section.
 
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_theme::glass::{fill, ink, radius, step};
 
 const SECTIONS: [(&str, &str, &str); 8] = [
@@ -16,8 +16,6 @@ const SECTIONS: [(&str, &str, &str); 8] = [
     ("about", "About", "information-circle"),
     ("data-collection", "Data collection", "view"),
 ];
-
-const SECTION_TABS_BELOW: f32 = 1100.;
 
 const SECTION_LIST_WIDTH: f32 = 184.;
 
@@ -42,7 +40,7 @@ pub(super) struct Built {
 }
 
 fn card() -> Div {
-    crate::glass::plate(radius::PANEL)
+    ui::card(radius::PANEL)
         .flex()
         .flex_col()
         .p(px(ui::LIST_INSET))
@@ -150,12 +148,12 @@ pub(super) fn wide_row(
 }
 
 impl Launcher {
-    pub(super) fn glass_settings(&mut self, b: Built, cx: &mut Context<Self>) -> Div {
-        let sections = self.glass_settings_sections(b, cx);
+    pub(super) fn settings_view(&mut self, b: Built, cx: &mut Context<Self>) -> Div {
+        let sections = self.settings_sections(b, cx);
         let shown = sections.len();
         let active = self.settings_section(shown);
         self.settings_marked = active;
-        let tabs = self.window_width < SECTION_TABS_BELOW;
+        let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
         let entries: Vec<Stateful<Div>> = SECTIONS[..shown]
             .iter()
             .enumerate()
@@ -241,9 +239,8 @@ impl Launcher {
     }
 
     pub(super) fn wide_controls_beside(&self) -> bool {
-        let content =
-            (self.window_width - layout::SIDEBAR - 2. * layout::PAGE_GUTTER).min(layout::PAGE_MAX);
-        let list = if self.window_width < SECTION_TABS_BELOW {
+        let content = layout::content_width(self.window_width);
+        let list = if self.window_width < layout::SETTINGS_LIST_BESIDE {
             0.
         } else {
             SECTION_LIST_WIDTH + SECTION_LIST_GAP
@@ -409,10 +406,10 @@ impl Launcher {
             "about-open-data",
             None,
             tr("Open"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         )
-        .on_press(|_, _, cx| crate::glass_toast::open(cx, &backend::data_dir()))
+        .on_press(|_, _, cx| crate::toast::open(cx, &backend::data_dir()))
         .into_any_element();
         div()
             .flex()
@@ -446,16 +443,16 @@ impl Launcher {
     }
 
     /// The cards, one per entry of [`SECTIONS`], in its order.
-    fn glass_settings_sections(&mut self, b: Built, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
+    fn settings_sections(&mut self, b: Built, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
         let section = |i: usize| card().id(format!("settings-{}", SECTIONS[i].0));
-        let account = section(0).child(self.glass_account(cx));
+        let account = section(0).child(self.account_card(cx));
         let updates = section(1)
             .child(b.install)
             .child(b.prune)
             .child(self.mods_auto_update_row(cx));
         let appearance = section(2)
             .child(ui::setting_row(tr("Colour mode"), None, Some(b.appearance)))
-            .child(self.glass_accent_row(cx))
+            .child(self.accent_row(cx))
             .child(self.launcher_theme_row(cx))
             .child(self.home_background_row(cx))
             .child(self.reduce_motion_row(cx))
@@ -483,11 +480,11 @@ impl Launcher {
                 tr("Logs"),
                 Some(mono(short(&backend::logs_dir()))),
                 Some(
-                    button("open-logs", "Open", Kind::Secondary)
+                    button("open-logs", "Open", ButtonKind::Secondary)
                         .on_press(|_, _, cx| {
                             let dir = backend::logs_dir();
                             let _ = std::fs::create_dir_all(&dir);
-                            crate::glass_toast::open(cx, &dir);
+                            crate::toast::open(cx, &dir);
                         })
                         .into_any_element(),
                 ),
@@ -499,6 +496,304 @@ impl Launcher {
             cards.push(section(7).child(self.collection_section(cx)));
         }
         cards
+    }
+}
+
+impl Launcher {
+    pub(super) fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
+        let toggle = ui::toggle_row(
+            "auto-install",
+            tr("Install new Eclipse versions automatically"),
+            None,
+            self.settings.auto_install(),
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.install_new_versions = Some(!this.settings.auto_install());
+            this.save_settings();
+            if this.settings.auto_install() {
+                this.install_update();
+            }
+            cx.notify();
+        }));
+        let keeps = trf(
+            "Keeps the {count} newest and any version an instance plays.",
+            &[("count", &self.settings.keep_newest().to_string())],
+        );
+        let prune = ui::toggle_row(
+            "auto-prune",
+            tr("Delete old Eclipse versions automatically"),
+            Some(div().child(keeps).into_any_element()),
+            self.settings.auto_prune(),
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.prune_old_versions = Some(!this.settings.auto_prune());
+            this.save_settings();
+            cx.notify();
+        }));
+        // Linux: the launcher's entry in the applications menu (`eclipse_launcher::desktop`).
+        let menu_entry = ui::toggle_row(
+            "desktop-entry",
+            tr("Show in applications menu"),
+            None,
+            self.settings.desktop_entry(),
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            let on = !this.settings.desktop_entry();
+            this.settings.desktop_entry = Some(on);
+            this.save_settings();
+            let _ = if on {
+                eclipse_launcher::desktop::install(backend::exe_path()).map(|_| ())
+            } else {
+                eclipse_launcher::desktop::remove()
+            };
+            cx.notify();
+        }));
+        let eclipse = match (&self.updates.eclipse, &self.update_error) {
+            (Some(r), _) => trf("{version} available", &[("version", update_name(r))]),
+            (None, Some(e)) => ui::plain_error(e).to_string(),
+            (None, None) if self.checked.is_some() => tr("Up to date").to_string(),
+            _ => tr("Checking…").to_string(),
+        };
+        let eclipse_action = self
+            .updates
+            .eclipse
+            .as_ref()
+            .filter(|_| self.installing.is_none())
+            .map(|_| {
+                button("settings-install", "Install", ButtonKind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.install_update();
+                        cx.notify();
+                    }))
+                    .into_any_element()
+            });
+        let launcher = match &self.self_update {
+            SelfUpdate::Downloading(v, p) => {
+                let done = format!("{:.0}", p * 100.);
+                let said = trf(
+                    "downloading {version}, {percent}%",
+                    &[("version", v), ("percent", &done)],
+                );
+                format!("{}  ·  {said}", backend::VERSION)
+            }
+            SelfUpdate::Ready(v) => format!(
+                "{}  ·  {}",
+                backend::VERSION,
+                trf("{version} available", &[("version", v)])
+            ),
+            SelfUpdate::Stuck(Some(e)) => format!(
+                "{}  ·  {}",
+                backend::VERSION,
+                trf("the update failed: {error}", &[("error", e)])
+            ),
+            SelfUpdate::Stuck(None) => format!(
+                "{}  ·  {}",
+                backend::VERSION,
+                self.launcher_update_help(None)
+            ),
+            SelfUpdate::Failed(e) => format!(
+                "{}  ·  {}",
+                backend::VERSION,
+                trf("the update failed: {error}", &[("error", e)])
+            ),
+            SelfUpdate::Idle => match &self.updates.launcher {
+                Some(r) => format!(
+                    "{}  ·  {}",
+                    backend::VERSION,
+                    trf(
+                        "{version} available",
+                        &[(
+                            "version",
+                            backend::launcher_version(&r.tag).unwrap_or_default()
+                        )]
+                    )
+                ),
+                None if self.checked.is_some() && self.update_error.is_none() => {
+                    format!("{}  ·  {}", backend::VERSION, tr("up to date"))
+                }
+                None => backend::VERSION.to_string(),
+            },
+        };
+        let launcher_action = match &self.self_update {
+            SelfUpdate::Ready(_) => Some(
+                button("update-settings", "Update", ButtonKind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.apply_launcher_update(cx);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            ),
+            SelfUpdate::Stuck(_) if self.launcher_download_available() => {
+                let url = backend::download_page(&self.links.website);
+                Some(
+                    button("download-settings", "Download again", ButtonKind::Secondary)
+                        .on_press(move |_, _, cx| cx.open_url(&url))
+                        .into_any_element(),
+                )
+            }
+            SelfUpdate::Downloading(..) | SelfUpdate::Stuck(_) => None,
+            _ => Some(
+                button("check", "Check now", ButtonKind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.check_updates();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
+            ),
+        };
+        let appearance = crate::ui::segments(
+            "appearance",
+            &[
+                (backend::Appearance::Dark, "Dark"),
+                (backend::Appearance::Light, "Light"),
+                (backend::Appearance::System, "System"),
+            ],
+            self.settings.appearance,
+            {
+                let this = cx.entity().downgrade();
+                move |choice, window, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings.appearance = choice;
+                        this.save_settings();
+                        titlebar::apply_appearance(window, choice);
+                        this.theme = this.settings_theme(window);
+                        cx.notify();
+                    });
+                }
+            },
+        );
+        self.settings_view(
+            settings_page::Built {
+                install: toggle,
+                prune,
+                menu_entry,
+                appearance: appearance.into_any_element(),
+                eclipse,
+                eclipse_action,
+                launcher,
+                launcher_action,
+            },
+            cx,
+        )
+    }
+
+    /// Settings' Windows ARM game architecture choice; release installation, updates and launch
+    /// use the saved choice, while launcher updates continue to follow this process.
+    pub(super) fn game_architecture_row(&self, cx: &mut Context<Self>) -> Div {
+        if !backend::can_choose_game_architecture() {
+            return div();
+        }
+        let picker = crate::ui::segments(
+            "game-architecture",
+            &[
+                (backend::GameArchitecture::Auto, "Automatic"),
+                (backend::GameArchitecture::X64, "x64"),
+                (backend::GameArchitecture::Arm64, "ARM64"),
+            ],
+            self.settings.game_architecture,
+            {
+                let this = cx.entity().downgrade();
+                move |choice, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        if this.settings.game_architecture == choice {
+                            return;
+                        }
+                        this.settings.game_architecture = choice;
+                        this.save_settings();
+                        // The release and update lists contain the selected game's assets.
+                        this.releases = Load::Loading;
+                        this.updates = backend::Updates::default();
+                        this.fetch_startup_releases();
+                        cx.notify();
+                    });
+                }
+            },
+        );
+        crate::ui::setting_row(
+            tr("Game architecture"),
+            Some(
+                div()
+                    .child(tr("Only change this on Windows on ARM."))
+                    .into_any_element(),
+            ),
+            Some(picker.into_any_element()),
+        )
+    }
+
+    pub(super) fn game_args_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let focused = self.fields.has_focus(Field::GameArgs);
+        let field = div()
+            .id("game-args")
+            .flex()
+            .items_center()
+            .overflow_hidden()
+            .cursor_text()
+            .child(line_edit::content(
+                self.fields.text(Field::GameArgs),
+                focused,
+                false,
+                false,
+                tr("For example --server-thread"),
+            ));
+        let field = self.text_input(Field::GameArgs, field, cx);
+        ui::setting_row_stacked(
+            tr("Game arguments"),
+            None,
+            ui::wide_field(field, focused).into_any_element(),
+        )
+    }
+
+    /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in
+    /// `settings.json` and read back by `proxy.rs` on each request.
+    pub(super) fn proxy_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let focused = self.fields.has_focus(Field::Proxy);
+        let field = div()
+            .id("proxy")
+            .flex()
+            .items_center()
+            .overflow_hidden()
+            .cursor_text()
+            .child(line_edit::content(
+                self.fields.text(Field::Proxy),
+                focused,
+                false,
+                false,
+                tr("For example http://127.0.0.1:7890"),
+            ));
+        let field = self.text_input(Field::Proxy, field, cx);
+        // A half-typed address is no reason to complain; one left behind is.
+        let detail = match (
+            focused,
+            eclipse_launcher::proxy::refuse(self.fields.value(Field::Proxy)),
+        ) {
+            (false, Some(why)) => {
+                Some(div().text_color(ui::danger()).child(why).into_any_element())
+            }
+            _ => None,
+        };
+        ui::setting_row_stacked(
+            tr("Proxy"),
+            detail,
+            ui::wide_field(field, focused).into_any_element(),
+        )
+    }
+
+    /// Keeps the Proxy field in `settings.json`, and tells the parts that build their own agents
+    /// (`eclipse-port-pack`) which proxy to use.
+    pub(super) fn save_proxy(&mut self) {
+        let value = self.fields.value(Field::Proxy).trim().to_owned();
+        self.settings.proxy = (!value.is_empty()).then_some(value);
+        self.save_settings();
+        eclipse_launcher::proxy::announce(self.settings.proxy.clone());
+    }
+}
+
+/// How an available update is named: a Nightly by its title ("Nightly 2026-10-28 · 0c02067"), a
+/// release by its tag.
+pub(super) fn update_name(release: &Release) -> &str {
+    match release.nightly {
+        Some(_) => &release.name,
+        None => &release.tag,
     }
 }
 

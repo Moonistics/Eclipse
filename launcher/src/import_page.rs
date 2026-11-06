@@ -4,7 +4,7 @@
 //! artifact holding one) installed as its own version. The Packs section and the world rows take
 //! their own drops first.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::import::{self, Dropped};
 use eclipse_theme::glass::{ink, radius, step};
 use gpui::ExternalPaths;
@@ -89,7 +89,7 @@ impl Launcher {
                 this.importing.note = Some(made.map(|i| {
                     this.reload_instances();
                     this.select_instance(&i);
-                    this.go(Page::Play);
+                    this.go(Page::Home);
                     trf(
                         "Made the instance {name} from the shared file.",
                         &[("name", &i.name)],
@@ -121,7 +121,7 @@ impl Launcher {
             (Some(Ok(said)), _) => {
                 ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(said.clone())
             }
-            (Some(Err(e)), _) => error_note(e.clone()),
+            (Some(Err(e)), _) => ui::error_note(e.clone()),
             (None, _) => return None,
         };
         Some(
@@ -131,7 +131,7 @@ impl Launcher {
                 .right(px(24.))
                 .w(px(IMPORT_NOTE_WIDTH))
                 .child(
-                    crate::glass::float(radius::POPOVER)
+                    ui::float_card(radius::POPOVER)
                         .w_full()
                         .flex()
                         .items_center()

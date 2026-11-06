@@ -64,7 +64,7 @@ impl Launcher {
             options.push((WhilePlaying::Hide, "Hide"));
         }
         let current = self.settings.while_playing.here();
-        let picker = crate::glass_ui::segments("while-playing", &options, current, {
+        let picker = crate::ui::segments("while-playing", &options, current, {
             let this = cx.entity().downgrade();
             move |choice, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -74,7 +74,7 @@ impl Launcher {
                 });
             }
         });
-        glass_settings::wide_row(
+        settings_page::wide_row(
             self.wide_controls_beside(),
             tr("When the game starts"),
             None,

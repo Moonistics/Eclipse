@@ -4,8 +4,8 @@
 //! once, as the game does, at the address links.json gives (`server_list::add_official`).
 use super::*;
 use eclipse_launcher::server_list::{self, Server};
+use fields::Field;
 use gpui::{Image, ImageFormat};
-use servers_page::Field;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -119,12 +119,14 @@ impl Launcher {
 
     /// Enter in the address field, or Add.
     pub(super) fn add_server(&mut self) {
-        let name = self.servers.value(Field::ServerName).to_string();
-        let address = self.servers.value(Field::ServerAddress).to_string();
+        let name = self.fields.value(Field::MultiplayerName).to_string();
+        let address = self.fields.value(Field::MultiplayerAddress).to_string();
         self.edit_servers(|list| list.add(&name, &address));
         if self.multiplayer.error.is_none() {
-            self.servers.text(Field::ServerName).set(String::new());
-            self.servers.text(Field::ServerAddress).set(String::new());
+            self.fields.text(Field::MultiplayerName).set(String::new());
+            self.fields
+                .text(Field::MultiplayerAddress)
+                .set(String::new());
             self.multiplayer.adding = false;
         }
     }

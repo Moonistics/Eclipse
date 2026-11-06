@@ -2,7 +2,7 @@
 //! Stop, its console and command line; beside it the list of servers and how friends reach the
 //! open one. Below, the server's Players, Settings and Backups.
 use super::*;
-use crate::glass_ui::{self as ui, white, Tone};
+use crate::ui::{self, white, Tone};
 use eclipse_theme::glass::{fill, ink, pixel_text, radius, step, TextStep};
 
 /// The right column's width.
@@ -10,11 +10,7 @@ const SIDE: f32 = 320.;
 
 const COLUMN_GAP: f32 = 10.;
 
-const SERVER_CARD_MIN: f32 = 540.;
-
 const LIST_ROW_PAD: f32 = 10.;
-
-const NOTE_LINE_HEIGHT: f32 = 44.;
 
 const STEPPER_VALUE_WIDTH: f32 = 44.;
 
@@ -35,29 +31,9 @@ fn tone(status: &Status) -> Tone {
     }
 }
 
-pub(crate) fn notice_line(dot: Hsla, text: impl Into<SharedString>) -> Div {
-    div()
-        .relative()
-        .flex()
-        .items_center()
-        .gap(px(12.))
-        .min_h(px(NOTE_LINE_HEIGHT))
-        .px(px(16.))
-        .py(px(6.))
-        .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
-        .child(div().flex_none().size(px(7.)).rounded_full().bg(dot))
-        .child(
-            ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                .flex_1()
-                .min_w_0()
-                .child(text.into()),
-        )
-}
-
 impl Launcher {
-    pub(super) fn glass_servers_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let head = glass_ui::page_head(tr("Servers"), "");
+    pub(super) fn servers_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let head = ui::page_head(tr("Servers"), "");
         // A server is always shown: the open one, else the first.
         let listed = |d: &PathBuf| self.servers.list.iter().any(|e| &e.dir == d);
         if !self.servers.open.as_ref().is_some_and(listed) {
@@ -72,22 +48,20 @@ impl Launcher {
             .clone()
             .filter(|d| self.servers.list.iter().any(|e| &e.dir == d));
         let main = match &open {
-            Some(dir) => self.glass_server(dir, cx),
+            Some(dir) => self.server_card(dir, cx),
             None => {
                 return div()
                     .flex()
                     .flex_col()
                     .child(head)
-                    .child(self.glass_no_server(cx))
+                    .child(self.no_server(cx))
             }
         };
         let status = self.servers.status();
-        let content =
-            (self.window_width - crate::layout::SIDEBAR - 2. * crate::layout::PAGE_GUTTER)
-                .min(crate::layout::PAGE_MAX);
-        let beside = content >= SERVER_CARD_MIN + COLUMN_GAP + SIDE;
-        let list = self.glass_server_list(cx);
-        let addresses = self.glass_addresses(&status, cx);
+        let content = layout::content_width(self.window_width);
+        let beside = content >= layout::SERVER_CARD_MIN + COLUMN_GAP + SIDE;
+        let list = self.server_list(cx);
+        let addresses = self.server_addresses(&status, cx);
         let side = if beside {
             div()
                 .flex()
@@ -120,7 +94,7 @@ impl Launcher {
                 .child(main)
                 .child(side)
         };
-        let tabs = open.map(|dir| self.glass_server_tabs(&dir, &status, cx));
+        let tabs = open.map(|dir| self.server_tabs(&dir, &status, cx));
         div()
             .flex()
             .flex_col()
@@ -130,7 +104,7 @@ impl Launcher {
     }
 
     /// The open server's card: its state, name and numbers, its buttons, then its console.
-    fn glass_server(&mut self, dir: &Path, cx: &mut Context<Self>) -> Div {
+    fn server_card(&mut self, dir: &Path, cx: &mut Context<Self>) -> Div {
         let status = self.servers.status();
         let running = status.running();
         let idle = self.servers.busy.is_none();
@@ -213,7 +187,7 @@ impl Launcher {
             ui::Size::Sm,
             false,
         )
-        .on_press(move |_, _, cx| crate::glass_toast::open(cx, &folder));
+        .on_press(move |_, _, cx| crate::toast::open(cx, &folder));
 
         let mut buttons = div().flex().flex_none().items_center().gap(px(8.));
         if running {
@@ -221,7 +195,7 @@ impl Launcher {
                 "server-restart",
                 None,
                 tr("Restart"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Lg,
             );
             buttons = buttons.child(if idle {
@@ -237,7 +211,7 @@ impl Launcher {
                 "server-stop",
                 None,
                 tr("Stop"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Lg,
             );
             buttons = buttons.child(if idle {
@@ -267,7 +241,7 @@ impl Launcher {
             });
         }
 
-        let mut card = glass::plate(radius::PANEL)
+        let mut card = ui::card(radius::PANEL)
             .flex()
             .flex_col()
             .p(px(ui::CARD_PADDING))
@@ -334,17 +308,12 @@ impl Launcher {
                 .mt(px(8.)),
             );
         }
-        card = card.children(self.glass_server_notes(running, idle, cx));
-        card.child(self.glass_server_console(running, cx))
+        card = card.children(self.server_notes(running, idle, cx));
+        card.child(self.server_console(running, cx))
     }
 
     /// The action under way, a problem, a note and settings waiting for a restart.
-    fn glass_server_notes(
-        &mut self,
-        running: bool,
-        idle: bool,
-        cx: &mut Context<Self>,
-    ) -> Vec<Div> {
+    fn server_notes(&mut self, running: bool, idle: bool, cx: &mut Context<Self>) -> Vec<Div> {
         let mut out = Vec::new();
         if let Some(label) = self.servers.busy.clone() {
             let last = self.servers.job_log.back().cloned().unwrap_or_default();
@@ -355,14 +324,14 @@ impl Launcher {
                     .flex()
                     .flex_col()
                     .gap(px(8.))
-                    .child(progress_bar(None))
+                    .child(ui::progress_bar(None))
                     .child(
                         ui::card_note(format!("{} {last}", tr(&format!("{label}…")))).truncate(),
                     ),
             );
         }
         if let Some(p) = self.servers.problem.clone() {
-            let mut d = notice_line(ui::danger(), p.message.clone()).mt(px(16.));
+            let mut d = ui::notice_line(ui::danger(), p.message.clone()).mt(px(16.));
             if let Some(fix) = p.fix {
                 let label = match &fix {
                     Fix::UsePort(port) => trf("Use port {port}", &[("port", &port.to_string())]),
@@ -371,12 +340,19 @@ impl Launcher {
                     Fix::ShowLog => tr("Open the logs").into(),
                 };
                 d = d.child(
-                    ui::button("problem-fix", None, label, Kind::Secondary, ui::Size::Sm).on_press(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    ui::button(
+                        "problem-fix",
+                        None,
+                        label,
+                        ButtonKind::Secondary,
+                        ui::Size::Sm,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
                             this.fix(fix.clone(), cx);
                             cx.notify();
-                        }),
-                    ),
+                        },
+                    )),
                 );
             }
             out.push(
@@ -385,7 +361,7 @@ impl Launcher {
                         "problem-dismiss",
                         None,
                         tr("Dismiss"),
-                        Kind::Ghost,
+                        ButtonKind::Ghost,
                         ui::Size::Sm,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -396,7 +372,7 @@ impl Launcher {
             );
         }
         if let Some(n) = self.servers.note.clone() {
-            out.push(notice_line(ui::live(), n).mt(px(16.)));
+            out.push(ui::notice_line(ui::live(), n).mt(px(16.)));
         }
         if running && !self.servers.restart_needed.is_empty() {
             let names: Vec<String> = self
@@ -409,11 +385,11 @@ impl Launcher {
                 "restart-apply",
                 None,
                 tr("Restart now"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Sm,
             );
             out.push(
-                notice_line(
+                ui::notice_line(
                     ui::color(ui::look().accent_soft),
                     trf(
                         "Saved. Restart to apply: {settings}.",
@@ -436,7 +412,7 @@ impl Launcher {
     }
 
     /// The console and the command line under it, or what a stopped server shows instead.
-    fn glass_server_console(&mut self, running: bool, cx: &mut Context<Self>) -> Div {
+    fn server_console(&mut self, running: bool, cx: &mut Context<Self>) -> Div {
         let console = div().relative().mt(px(24.)).flex().flex_col();
         if !running {
             return console.child(
@@ -458,7 +434,7 @@ impl Launcher {
                     ),
             );
         }
-        let log = crate::console_page::log_well("server-console", &self.servers.console_scroll);
+        let log = ui::log_well("server-console", &self.servers.console_scroll);
         let log = if self.servers.log.is_empty() {
             log.flex()
                 .items_center()
@@ -479,13 +455,13 @@ impl Launcher {
             "server-send",
             None,
             tr("Send"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Sm,
         );
-        let typed = !self.servers.value(Field::Command).trim().is_empty();
+        let typed = !self.fields.value(Field::ServerCommand).trim().is_empty();
         let send = if typed {
             send.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.field_enter(Field::Command);
+                this.field_enter(Field::ServerCommand);
                 cx.notify();
             }))
         } else {
@@ -493,14 +469,14 @@ impl Launcher {
         };
         let input = self
             .field(
-                Field::Command,
+                Field::ServerCommand,
                 "Type a command, like list or time set day",
                 520.,
                 cx,
             )
             .flex_1()
             .min_w_0();
-        let focused = self.servers.focused == Some(Field::Command);
+        let focused = self.fields.has_focus(Field::ServerCommand);
         console.child(log).child(
             ui::field(focused, false)
                 .mt(px(8.))
@@ -515,7 +491,7 @@ impl Launcher {
         )
     }
 
-    fn glass_no_server(&mut self, cx: &mut Context<Self>) -> Div {
+    fn no_server(&mut self, cx: &mut Context<Self>) -> Div {
         let create = ui::primary("server-create-empty", tr("Create a server"), ui::Size::Md)
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.open_create(cx);
@@ -525,7 +501,7 @@ impl Launcher {
             "server-import-empty",
             Some("folder-01"),
             tr("Import a server…"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         );
         let add = if self.servers.creating {
@@ -554,8 +530,8 @@ impl Launcher {
     }
 
     /// The servers, the open one lit, then Create a server and adding a server folder.
-    fn glass_server_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut list = glass::plate(radius::PANEL)
+    fn server_list(&mut self, cx: &mut Context<Self>) -> Div {
+        let mut list = ui::card(radius::PANEL)
             .flex()
             .flex_col()
             .p(px(ui::LIST_INSET));
@@ -622,7 +598,7 @@ impl Launcher {
 
     /// How friends reach the open server: on this network, over the internet (Tailscale), and who
     /// is online now.
-    fn glass_addresses(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
+    fn server_addresses(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
         let port = port_of(self);
         let lan = match servers::lan_address() {
             Some(ip) if port == 25565 => ip.to_string(),
@@ -642,7 +618,7 @@ impl Launcher {
                 false,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
+                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                 this.servers.copied = Some(Instant::now());
                 cx.notify();
             }))
@@ -675,8 +651,8 @@ impl Launcher {
                 ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))
                     .mt(px(4.)),
             );
-        let internet = self.glass_internet(port, cx);
-        let mut card = glass::plate(radius::PANEL)
+        let internet = self.internet_card(port, cx);
+        let mut card = ui::card(radius::PANEL)
             .flex()
             .flex_col()
             .gap(px(24.))
@@ -726,7 +702,7 @@ impl Launcher {
     }
 
     /// The server's Players, Settings and Backups, on a card under it.
-    fn glass_server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
+    fn server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
         if self.servers.tab == Tab::Overview {
             self.servers.tab = Tab::Players;
         }
@@ -737,7 +713,7 @@ impl Launcher {
             .ml(px(-ui::TAB_PAD))
             .children(LOWER_TABS.iter().map(|&(tab, label)| {
                 ui::tab(
-                    SharedString::from(format!("server-tab-{label}")),
+                    SharedString::from(format!("server-tab-{tab:?}")),
                     tr(label),
                     self.servers.tab == tab,
                 )
@@ -753,7 +729,7 @@ impl Launcher {
             Tab::Backups => self.backups_tab(status, cx),
             _ => self.players_tab(dir, status, cx),
         };
-        glass::plate(radius::PANEL)
+        ui::card(radius::PANEL)
             .mt(px(COLUMN_GAP))
             .flex()
             .flex_col()
@@ -794,7 +770,7 @@ impl Launcher {
     }
 
     /// − value + for a number within `range`; `set` takes the new value.
-    pub(super) fn glass_stepper(
+    pub(super) fn number_stepper(
         &self,
         id: &str,
         value: i64,

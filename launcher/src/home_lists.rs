@@ -3,9 +3,9 @@
 //! (back up, copy, data packs, folder, delete). A server's row has Join, and Remove under the
 //! pointer. Deleting or removing asks first, in place.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::worlds::World;
-use eclipse_theme::glass::{fill, ink, step};
+use eclipse_theme::glass::{fill, ink};
 use gpui::{deferred, ExternalPaths};
 use std::path::Path;
 use worlds_page::Action;
@@ -34,7 +34,7 @@ impl Launcher {
     }
 
     /// Home's Worlds tab: the selected instance's worlds, the last played first.
-    pub(super) fn glass_worlds(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn worlds_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.selected_instance()?.home.clone();
         self.load_worlds(home.clone(), cx);
         let list = self.worlds.list.clone();
@@ -48,10 +48,10 @@ impl Launcher {
                         "world-backups",
                         None,
                         tr("Open backups"),
-                        Kind::Secondary,
+                        ButtonKind::Secondary,
                         ui::Size::Md,
                     )
-                    .on_press(move |_, _, cx| crate::glass_toast::open(cx, &dir))
+                    .on_press(move |_, _, cx| crate::toast::open(cx, &dir))
                 });
                 body = body.child(ui::list_head(message).children(open));
             }
@@ -64,12 +64,12 @@ impl Launcher {
                 "worlds-folder",
                 Some("folder-01"),
                 tr("Open folder"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(move |_, _, cx| {
                 let _ = std::fs::create_dir_all(&saves);
-                crate::glass_toast::open(cx, &saves);
+                crate::toast::open(cx, &saves);
             });
             return Some(body.child(ui::empty_state(
                 "worlds-empty",
@@ -82,13 +82,13 @@ impl Launcher {
         // Pictures line up: a world without one gets a plain tile when another has one.
         let pictures = list.iter().any(|w| w.icon.is_some());
         for w in list {
-            let row = self.glass_world_row(&w, pictures, cx);
+            let row = self.world_row(&w, pictures, cx);
             body = body.child(row).children(self.world_packs_panel(&w, cx));
         }
         Some(body)
     }
 
-    fn glass_world_row(&mut self, w: &World, pictures: bool, cx: &mut Context<Self>) -> Div {
+    fn world_row(&mut self, w: &World, pictures: bool, cx: &mut Context<Self>) -> Div {
         let key = SharedString::from(format!("world-{}", w.folder));
         let hovered = self.list_hover.as_ref() == Some(&key);
         let menu_open = self.list_menu.as_ref().is_some_and(|(k, _)| *k == key);
@@ -97,7 +97,7 @@ impl Launcher {
         let can_play = self.can_start_selected() && !busy;
         let mut facts = vec![tr(w.mode).to_string()];
         facts.extend(w.version.clone());
-        facts.push(glass_home::last_played(w.last_played));
+        facts.push(home_head::last_played(w.last_played));
         let hover = self.list_hover_listener(key.clone(), cx);
         let mut row = ui::list_row(key.clone(), hovered || menu_open, hover);
         if can_play {
@@ -217,7 +217,7 @@ impl Launcher {
             tr("Data packs")
         };
         let delete = if confirming {
-            confirm(
+            ui::confirm(
                 "world-menu-delete",
                 trf("Delete {name}?", &[("name", &w.name)]),
                 tr("Delete"),
@@ -277,7 +277,7 @@ impl Launcher {
                 ui::menu_row("world-menu-folder", "folder-01", tr("Open folder"), false).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.list_menu = None;
-                        crate::glass_toast::open(cx, &folder);
+                        crate::toast::open(cx, &folder);
                         cx.notify();
                     }),
                 ),
@@ -287,7 +287,7 @@ impl Launcher {
 
     /// Home's Multiplayer tab: the selected instance's saved servers (the game's own list), and
     /// a line to add one.
-    pub(super) fn glass_multiplayer(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn multiplayer_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let instance = self.selected_instance()?;
         let (home, name) = (instance.home.clone(), instance.name.clone());
         self.load_servers(home);
@@ -300,7 +300,7 @@ impl Launcher {
                 "server-add",
                 Some("plus-sign"),
                 tr("Add server"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(toggle_add(cx));
@@ -327,7 +327,7 @@ impl Launcher {
                     "server-add",
                     Some("plus-sign"),
                     tr("Add server"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 )
                 .on_press(toggle_add(cx)),
@@ -344,14 +344,9 @@ impl Launcher {
                     .gap(px(8.))
                     .px(px(12.))
                     .pb(px(8.))
+                    .child(self.field(fields::Field::MultiplayerName, "Minecraft Server", 220., cx))
                     .child(self.field(
-                        servers_page::Field::ServerName,
-                        "Minecraft Server",
-                        220.,
-                        cx,
-                    ))
-                    .child(self.field(
-                        servers_page::Field::ServerAddress,
+                        fields::Field::MultiplayerAddress,
                         "play.example.com",
                         300.,
                         cx,
@@ -361,7 +356,7 @@ impl Launcher {
                             "server-save",
                             None,
                             tr("Add"),
-                            Kind::Secondary,
+                            ButtonKind::Secondary,
                             ui::Size::Lg,
                         )
                         .on_press(cx.listener(
@@ -375,12 +370,12 @@ impl Launcher {
         }
         let pictures = list.iter().any(|(_, icon)| icon.is_some());
         for (i, (server, icon)) in list.into_iter().enumerate() {
-            body = body.child(self.glass_server_row(i, server, icon, pictures, cx));
+            body = body.child(self.server_row(i, server, icon, pictures, cx));
         }
         Some(body)
     }
 
-    fn glass_server_row(
+    fn server_row(
         &mut self,
         i: usize,
         server: eclipse_launcher::server_list::Server,
@@ -422,7 +417,7 @@ impl Launcher {
             SharedString::from(format!("{key}-join")),
             None,
             tr("Join"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         );
         let join = if self.can_join_selected() && !offline {
@@ -435,7 +430,7 @@ impl Launcher {
         };
         let remove = SharedString::from(format!("{key}-remove"));
         let end = if confirming {
-            confirm(
+            ui::confirm(
                 remove,
                 trf("Remove {name}?", &[("name", &server.name)]),
                 tr("Remove"),
@@ -474,7 +469,7 @@ fn toggle_add(cx: &mut Context<Launcher>) -> Listener<ClickEvent> {
         this.multiplayer.adding = !this.multiplayer.adding;
         this.multiplayer.error = None;
         if this.multiplayer.adding {
-            this.servers.focus_soon = Some(servers_page::Field::ServerAddress);
+            this.fields.focus_soon = Some(fields::Field::MultiplayerAddress);
         }
         cx.notify();
     }))
@@ -502,58 +497,4 @@ pub(super) fn danger_line(message: String) -> Div {
         .text_color(ui::danger())
         .child(message),
     )
-}
-
-pub(super) fn confirm(
-    id: impl Into<SharedString>,
-    question: String,
-    verb: &'static str,
-    cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-) -> Div {
-    let id: SharedString = id.into();
-    div()
-        .flex()
-        .flex_wrap()
-        .items_center()
-        .justify_end()
-        .gap(px(8.))
-        .child(
-            ui::text(step::NOTE, FontWeight::MEDIUM, ink::FULL)
-                .flex_grow_1()
-                .text_color(ui::danger())
-                .child(question),
-        )
-        .child(
-            div()
-                .flex()
-                .gap(px(8.))
-                .child(
-                    ui::button(id.clone(), None, tr("Cancel"), Kind::Ghost, ui::Size::Sm)
-                        .on_press(cancel),
-                )
-                .child(
-                    ui::button(
-                        format!("{id}-confirm"),
-                        None,
-                        verb,
-                        Kind::Secondary,
-                        ui::Size::Sm,
-                    )
-                    .text_color(ui::danger())
-                    .on_press(sure),
-                ),
-        )
-}
-
-impl Launcher {
-    pub(super) fn confirm_escape(&mut self) -> bool {
-        let asking = self.confirm_remove.is_some()
-            || self.multiplayer.confirm_remove.is_some()
-            || self.game_packs.confirm_remove.is_some();
-        self.confirm_remove = None;
-        self.multiplayer.confirm_remove = None;
-        self.game_packs.confirm_remove = None;
-        asking
-    }
 }

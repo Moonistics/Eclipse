@@ -1,5 +1,5 @@
 //! The launcher's shared controls: white text and fills at the `eclipse_theme::glass` opacities
-//! over [`glass`](crate::glass) plates, Geist for text and values, Monocraft for titles and
+//! over the cards ([`card`]), Geist for text and values, Monocraft for titles and
 //! pressables. The look state for each frame (accent, light appearance) lives here.
 mod buttons;
 mod hover;
@@ -19,7 +19,10 @@ use crate::theme::Theme;
 use eclipse_theme::glass::{
     ink, light_ink, pixel_text as pixel, step, Glass, TextStep, MONOCRAFT_PIXEL, ON_LIGHT,
 };
-use gpui::{div, prelude::*, px, rgb, svg, App, Div, FontWeight, Hsla, SharedString, Svg, Window};
+use gpui::{
+    div, prelude::*, px, rgb, svg, AnimationExt, App, Div, FontWeight, Hsla, SharedString, Svg,
+    Window,
+};
 use std::cell::Cell;
 
 thread_local! {
@@ -228,18 +231,10 @@ impl IconSize {
 
 pub fn icon(name: &'static str, size: IconSize, color: Hsla) -> Svg {
     svg()
-        .path(format!("icons/glass/{name}.svg"))
+        .path(format!("icons/{name}.svg"))
         .flex_none()
         .size(px(size.px()))
         .text_color(color)
-}
-
-pub fn icon_grid(size: f32) -> f32 {
-    if size <= 24. {
-        16.
-    } else {
-        (size / 16.).round().max(2.) * 16.
-    }
 }
 
 /// The state dot before a row's second line: live green, the warning colour for busy and for a
@@ -264,20 +259,52 @@ pub fn dot(tone: Tone) -> Div {
 }
 
 /// The progress bar: a thin round track filled in the accent's soft shade.
-pub fn bar(value: f32, accent_soft: u32) -> Div {
-    div()
-        .h(px(4.))
+pub fn bar(value: f32) -> Div {
+    bar_track()
         .w_full()
+        .child(bar_fill().left_0().w(gpui::relative(value.clamp(0., 1.))))
+}
+
+/// A thin bar. A known fraction eases from its previous value; an unknown one shuttles slowly.
+pub fn progress_bar(fraction: Option<(f32, f32)>) -> Div {
+    let track = bar_track().flex_1();
+    match fraction {
+        Some((from, to)) => {
+            let (from, to) = (from.clamp(0.02, 1.), to.clamp(0.02, 1.));
+            track.child(bar_fill().left_0().with_animation(
+                gpui::ElementId::named_usize("bar", (to * 1000.) as usize),
+                gpui::Animation::new(crate::theme::MOVE).with_easing(gpui::ease_out_quint()),
+                move |d, p| d.w(gpui::relative(from + (to - from) * p)),
+            ))
+        }
+        None => track.child(
+            bar_fill().w(gpui::relative(0.3)).with_animation(
+                "shuttle",
+                gpui::Animation::new(std::time::Duration::from_millis(1600))
+                    .repeat()
+                    .with_easing(gpui::ease_in_out),
+                |d, p| d.left(gpui::relative(-0.3 + 1.3 * p)),
+            ),
+        ),
+    }
+}
+
+fn bar_track() -> Div {
+    div()
+        .relative()
+        .h(px(4.))
         .rounded_full()
         .overflow_hidden()
         .bg(white(eclipse_theme::glass::fill::ACTIVE))
-        .child(
-            div()
-                .h_full()
-                .rounded_full()
-                .w(gpui::relative(value.clamp(0., 1.)))
-                .bg(color(accent_soft)),
-        )
+}
+
+fn bar_fill() -> Div {
+    div()
+        .absolute()
+        .top_0()
+        .bottom_0()
+        .rounded_full()
+        .bg(color(look().accent_soft))
 }
 
 pub struct Tip(SharedString);
@@ -293,7 +320,7 @@ fn tip_body(text: SharedString) -> Div {
         .px(px(TIP_PAD))
         .py(px(4.))
         .rounded(px(eclipse_theme::glass::radius::CONTROL))
-        .bg(crate::glass::colour(crate::glass::Kind::Float))
+        .bg(surface_colour(Surface::Float))
         .border_1()
         .border_color(white(eclipse_theme::glass::EDGE))
         .shadow_md()

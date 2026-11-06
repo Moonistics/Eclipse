@@ -1,7 +1,7 @@
 //! Data collection in the window: the question asked once (and again when what is collected
 //! changes), and its section in Settings. Everything goes through `eclipse_launcher::telemetry`.
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::telemetry;
 use eclipse_telemetry::{Choices, Consent, Kind as DataKind};
 use eclipse_theme::glass::{ink, pixel_text, radius, step};
@@ -173,7 +173,7 @@ impl Launcher {
             .px(px(ui::CARD_PADDING))
             .pb(px(ui::CARD_PADDING))
             .child(
-                button("ask-none", "Send nothing", Kind::Secondary).on_press(cx.listener(
+                button("ask-none", "Send nothing", ButtonKind::Secondary).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.answer_consent(Choices::NONE);
                         cx.notify();
@@ -181,7 +181,7 @@ impl Launcher {
                 )),
             )
             .child(
-                button("ask-save", "Save choices", Kind::Primary).on_press(cx.listener(
+                button("ask-save", "Save choices", ButtonKind::Primary).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.answer_consent(this.collection.draft);
                         cx.notify();
@@ -262,49 +262,54 @@ impl Launcher {
         } else {
             tr("Nothing is sent").into()
         };
-        let confirm = self.collection.confirm_delete;
-        let actions = div()
-            .flex()
-            .gap(px(8.))
-            .child(
-                button(
-                    "data-view",
-                    if self.collection.view.is_some() {
-                        "Hide"
-                    } else {
-                        "View what would be sent"
-                    },
-                    Kind::Ghost,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.toggle_view();
+        let actions = if self.collection.confirm_delete {
+            ui::confirm(
+                "data-delete",
+                tr("Delete everything?").to_string(),
+                tr("Delete"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.collection.confirm_delete = false;
                     cx.notify();
-                })),
+                }),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.collection.note = Some(match telemetry::delete_my_data() {
+                        Ok(done) => done,
+                        Err(e) => e,
+                    });
+                    this.collection.consent = telemetry::consent();
+                    this.collection.view = None;
+                    this.collection.confirm_delete = false;
+                    cx.notify();
+                }),
             )
-            .child(
-                button(
-                    "data-delete",
-                    if confirm {
-                        "Delete everything?"
-                    } else {
-                        "Delete my data"
-                    },
-                    Kind::Secondary,
+        } else {
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    button(
+                        "data-view",
+                        if self.collection.view.is_some() {
+                            "Hide"
+                        } else {
+                            "View what would be sent"
+                        },
+                        ButtonKind::Ghost,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.toggle_view();
+                        cx.notify();
+                    })),
                 )
-                .when(confirm, |b| b.text_color(ui::danger()))
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    if this.collection.confirm_delete {
-                        this.collection.note = Some(match telemetry::delete_my_data() {
-                            Ok(done) => done,
-                            Err(e) => e,
-                        });
-                        this.collection.consent = telemetry::consent();
-                        this.collection.view = None;
-                    }
-                    this.collection.confirm_delete = !this.collection.confirm_delete;
-                    cx.notify();
-                })),
-            );
+                .child(
+                    button("data-delete", "Delete my data…", ButtonKind::Secondary).on_press(
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.collection.confirm_delete = true;
+                            cx.notify();
+                        }),
+                    ),
+                )
+        };
         list = list.child(ui::setting_row(
             tr("Your data"),
             Some(

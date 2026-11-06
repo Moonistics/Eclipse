@@ -1,16 +1,16 @@
-//! A Java instance's part of the New instance page (`glass_instance.rs`): Mojang's versions to
+//! A Java instance's part of the New instance page (`instance_page.rs`): Mojang's versions to
 //! pick from, and for Modded the loaders, each with its logo, as many as `loaders::Kind` knows.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Instance, Plays, Unkept};
 use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
 use eclipse_theme::glass::{fill, ink, radius};
-use glass_instance::{
+use fields::Field;
+use instance_page::{
     choice, list_box, list_choice, loaders, mark_tile, section_card, tick, MARK, MARK_TILE,
 };
 use new_instance::{JavaChoice, LoaderVersions, NewKind, VersionList};
-use servers_page::Field;
 
 /// Mojang versions listed at most: the search finds the others.
 const ROWS: usize = 60;
@@ -18,13 +18,7 @@ const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 154.;
 
 fn released(time: &str) -> String {
-    let date = time.get(..10).unwrap_or_default();
-    let day = glass_versions::published(date, "");
-    let this_year = chrono::Utc::now().format("%Y").to_string();
-    match date.get(..4) {
-        Some(year) if year != this_year => trf("{day}, {year}", &[("day", &day), ("year", year)]),
-        _ => day,
-    }
+    versions_page::published(time.get(..10).unwrap_or_default(), "")
 }
 
 impl Launcher {
@@ -32,11 +26,7 @@ impl Launcher {
         let Some(choice) = self.instances.draft.as_ref().map(|d| d.java.clone()) else {
             return div().id("instance-minecraft-version");
         };
-        let typed = self
-            .servers
-            .value(Field::InstanceVersion)
-            .trim()
-            .to_string();
+        let typed = self.fields.value(Field::VersionSearch).trim().to_string();
         let search = typed.to_lowercase();
         let chosen = self.draft_minecraft();
         let filter = |id: &'static str,
@@ -67,7 +57,7 @@ impl Launcher {
             .relative()
             .mb(px(8.))
             .child(
-                self.field(Field::InstanceVersion, tr("Search versions"), 600., cx)
+                self.field(Field::VersionSearch, tr("Search versions"), 600., cx)
                     .w_full()
                     .pl(px(44.)),
             )
@@ -147,6 +137,21 @@ impl Launcher {
                             }))
                     })
                     .collect();
+                let reveal = self.instances.draft.as_mut().map(|d| {
+                    let reveal = d.reveal_version;
+                    d.reveal_version = false;
+                    reveal
+                });
+                if reveal == Some(true) {
+                    let at = versions
+                        .of(choice.snapshots, choice.old)
+                        .filter(|v| search.is_empty() || v.id.to_lowercase().contains(&search))
+                        .take(ROWS)
+                        .position(|v| chosen.as_deref() == Some(v.id.as_str()));
+                    if let Some(at) = at {
+                        ui::scroll_list_to("mc-versions", at);
+                    }
+                }
                 if rows.is_empty() {
                     list_box("mc-versions", height).child(ui::empty_state(
                         "mc-versions-no-match",

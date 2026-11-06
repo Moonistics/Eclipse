@@ -4,12 +4,12 @@
 //! errors, the confirmation before a removal.
 
 use super::*;
-use crate::glass_ui::{self as ui, Tone};
+use crate::ui::{self, Tone};
 use eclipse_theme::glass::{ink, radius, step};
 
 const PROGRESS_WIDTH: f32 = 180.;
 
-/// A release's day ("Nov 1"), with its time in UTC when known.
+/// A release's day ("Nov 1", "Nov 1, 2025" in another year), with its time in UTC when known.
 pub(super) fn published(date: &str, time: &str) -> String {
     let day = date
         .get(8..10)
@@ -31,6 +31,13 @@ pub(super) fn published(date: &str, time: &str) -> String {
         Some("12") => trf("Dec {day}", &args),
         _ => date.to_string(),
     };
+    let this_year = chrono::Utc::now().format("%Y").to_string();
+    let day = match date.get(..4) {
+        Some(year) if year != this_year && day != date => {
+            trf("{day}, {year}", &[("day", &day), ("year", year)])
+        }
+        _ => day,
+    };
     if time.is_empty() {
         day
     } else {
@@ -51,7 +58,7 @@ fn badge(tone: Tone, label: &str) -> Div {
 
 fn problem_line(id: String, error: &str) -> Div {
     let details = error.to_owned();
-    servers_page::notice_line(ui::danger(), ui::plain_error(error).to_string()).when(
+    ui::notice_line(ui::danger(), ui::plain_error(error).to_string()).when(
         error.trim_end().contains('\n'),
         |d| {
             d.child(
@@ -59,11 +66,14 @@ fn problem_line(id: String, error: &str) -> Div {
                     format!("{id}-copy"),
                     Some("copy-01"),
                     tr("Copy details"),
-                    Kind::Ghost,
+                    ButtonKind::Ghost,
                     ui::Size::Sm,
                 )
                 .on_press(move |_, _, cx| {
-                    copy_to_clipboard(cx, gpui::ClipboardItem::new_string(details.clone()))
+                    clipboard::copy_to_clipboard(
+                        cx,
+                        gpui::ClipboardItem::new_string(details.clone()),
+                    )
                 }),
             )
         },
@@ -71,22 +81,22 @@ fn problem_line(id: String, error: &str) -> Div {
 }
 
 impl Launcher {
-    /// The glass Versions page; `on_disk` and `used` as `versions_page` measured them.
-    pub(super) fn glass_versions(
+    /// The Versions page; `on_disk` and `used` as `versions_page` measured them.
+    pub(super) fn versions_view(
         &self,
         on_disk: &dyn Fn(&String) -> Option<u64>,
         used: u64,
         cx: &mut Context<Self>,
     ) -> Div {
         let import: AnyElement = if self.importing_build {
-            self.glass_progress(None, tr("Importing…"))
+            self.install_progress(None, tr("Importing…"))
                 .into_any_element()
         } else {
             ui::button(
                 "import-build",
                 None,
                 tr("Import a game build…"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
@@ -115,14 +125,14 @@ impl Launcher {
                     .clone()
                     .map(|e| problem_line("import-error".into(), &e).mb(px(10.))),
             )
-            .children(self.glass_local_builds(
+            .children(self.local_builds(
                 "Native mod builds",
                 native_mods::is_native,
                 None,
                 on_disk,
                 cx,
             ))
-            .children(self.glass_local_builds(
+            .children(self.local_builds(
                 "Imported builds",
                 build_import::is_imported,
                 Some(tr("Not checked by Eclipse. Only use builds you trust.")),
@@ -186,8 +196,8 @@ impl Launcher {
                     title
                 };
                 let mut line = published(&release.date, &release.time);
-                let right = self.glass_release_action(&release, cx);
-                self.glass_version_card(&release.tag, title, &mut line, i == 0, on_disk, right)
+                let right = self.release_action(&release, cx);
+                self.version_card(&release.tag, title, &mut line, i == 0, on_disk, right)
             },
         );
         page.child(list)
@@ -195,7 +205,7 @@ impl Launcher {
 
     /// One version's card: its name (Newest on the first, In use on the one in use), `line`
     /// with who plays it, and `right`.
-    fn glass_version_card(
+    fn version_card(
         &self,
         tag: &str,
         title: String,
@@ -233,7 +243,7 @@ impl Launcher {
             .as_ref()
             .filter(|(e, _)| e == tag)
             .map(|(_, e)| e.clone());
-        crate::glass::plate(radius::PANEL)
+        ui::card(radius::PANEL)
             .flex()
             .flex_col()
             .gap(px(12.))
@@ -271,16 +281,16 @@ impl Launcher {
 
     /// What a release's card offers on its right: its install's progress, Install, or Use and
     /// the bin once installed.
-    fn glass_release_action(&self, release: &Release, cx: &mut Context<Self>) -> AnyElement {
+    fn release_action(&self, release: &Release, cx: &mut Context<Self>) -> AnyElement {
         let tag = release.tag.clone();
         if let Some((_, p)) = self.installing.as_ref().filter(|(t, _)| *t == tag) {
             return self
-                .glass_progress(Some(*p), tr("Installing"))
+                .install_progress(Some(*p), tr("Installing"))
                 .into_any_element();
         }
         if self.removing.contains(&tag) {
             return self
-                .glass_progress(None, tr("Removing…"))
+                .install_progress(None, tr("Removing…"))
                 .into_any_element();
         }
         if self.installed.contains(&tag) {
@@ -289,7 +299,7 @@ impl Launcher {
                     SharedString::from(format!("install-selected-architecture-{tag}")),
                     None,
                     tr("Install selected build"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 );
                 if self.installing.is_some() {
@@ -303,7 +313,7 @@ impl Launcher {
                     }))
                     .into_any_element();
             }
-            return self.glass_version_actions(&tag, cx).into_any_element();
+            return self.version_actions(&tag, cx).into_any_element();
         }
         if release.asset.is_none() {
             return ui::card_note(tr("No build for this platform")).into_any_element();
@@ -312,7 +322,7 @@ impl Launcher {
             SharedString::from(format!("install-{tag}")),
             None,
             tr("Install"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         );
         if self.installing.is_some() {
@@ -328,7 +338,7 @@ impl Launcher {
     }
 
     /// A bar with its word: an install's progress, or a removal's.
-    fn glass_progress(&self, fraction: Option<f32>, label: &str) -> Div {
+    fn install_progress(&self, fraction: Option<f32>, label: &str) -> Div {
         let word = match fraction {
             Some(p) => format!("{:.0}%", p * 100.),
             None => label.to_string(),
@@ -338,43 +348,32 @@ impl Launcher {
             .items_center()
             .gap(px(10.))
             .w(px(PROGRESS_WIDTH))
-            .child(progress_bar(fraction.map(|_| self.bar)))
+            .child(ui::progress_bar(fraction.map(|_| self.bar)))
             .child(ui::card_note(word).flex_none())
     }
 
     /// An installed version's actions: Use (when it isn't the one in use) and the bin, which asks
     /// again before it removes.
-    fn glass_version_actions(&self, tag: &str, cx: &mut Context<Self>) -> Div {
+    fn version_actions(&self, tag: &str, cx: &mut Context<Self>) -> Div {
         let selected = self.selected().map(String::as_str) == Some(tag);
         let confirming = self.confirm_remove.as_deref() == Some(tag);
+        let bin = SharedString::from(format!("bin-{tag}"));
         let (t1, t2, t3) = (tag.to_string(), tag.to_string(), tag.to_string());
         let mut d = div().flex().items_center().gap(px(8.));
         if confirming {
-            return d
-                .child(
-                    button(format!("remove-cancel-{tag}"), "Cancel", Kind::Ghost).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.confirm_remove = None;
-                            cx.notify();
-                        }),
-                    ),
-                )
-                .child(
-                    ui::button(
-                        SharedString::from(format!("remove-{tag}")),
-                        None,
-                        tr("Remove for good"),
-                        Kind::Secondary,
-                        ui::Size::Md,
-                    )
-                    .text_color(ui::danger())
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.remove(&t2);
-                            cx.notify();
-                        },
-                    )),
-                );
+            return d.child(ui::confirm(
+                bin,
+                trf("Remove {name}?", &[("name", tag)]),
+                tr("Remove"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.confirm_remove = None;
+                    cx.notify();
+                }),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.remove(&t2);
+                    cx.notify();
+                }),
+            ));
         }
         if !selected {
             d = d.child(
@@ -382,7 +381,7 @@ impl Launcher {
                     SharedString::from(format!("use-{tag}")),
                     None,
                     tr("Use"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -393,23 +392,18 @@ impl Launcher {
             );
         }
         d.child(
-            ui::icon_button(
-                SharedString::from(format!("bin-{tag}")),
-                "delete-02",
-                tr("Delete"),
-                ui::Size::Md,
-                false,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.confirm_remove = Some(t3.clone());
-                cx.notify();
-            })),
+            ui::icon_button(bin, "delete-02", tr("Remove…"), ui::Size::Md, false).on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.confirm_remove = Some(t3.clone());
+                    cx.notify();
+                }),
+            ),
         )
     }
 
     /// The installed builds of one kind made here, as cards under a small heading; None when
     /// there are none.
-    fn glass_local_builds(
+    fn local_builds(
         &self,
         title: &str,
         is: fn(&str) -> bool,
@@ -431,7 +425,7 @@ impl Launcher {
                 .gap(px(10.))
                 .mb(px(24.))
                 .child(ui::label(tr(title).to_string()))
-                .children(notice_.map(|n| servers_page::notice_line(ui::warn(), n.to_string())));
+                .children(notice_.map(|n| ui::notice_line(ui::warn(), n.to_string())));
             for tag in tags {
                 let mut line = Vec::new();
                 if let Some(about) = native_mods::about(&tag) {
@@ -444,17 +438,42 @@ impl Launcher {
                 }
                 let mut line = line.join(" · ");
                 let right = if self.removing.contains(&tag) {
-                    self.glass_progress(None, tr("Removing…"))
+                    self.install_progress(None, tr("Removing…"))
                         .into_any_element()
                 } else {
-                    self.glass_version_actions(&tag, cx).into_any_element()
+                    self.version_actions(&tag, cx).into_any_element()
                 };
                 let title = eclipse_launcher::nightly::label(&tag)
                     .or_else(|| build_import::label(&tag))
                     .unwrap_or_else(|| tag.trim_start_matches('v').to_string());
-                d = d.child(self.glass_version_card(&tag, title, &mut line, false, on_disk, right));
+                d = d.child(self.version_card(&tag, title, &mut line, false, on_disk, right));
             }
             d
         })
+    }
+}
+
+impl Launcher {
+    pub(super) fn versions_page(&mut self, cx: &mut Context<Self>) -> Div {
+        // Measured again when the installed versions change.
+        if self.disk_for != self.installed {
+            self.disk_for = self.installed.clone();
+            let (tags, tx) = (self.installed.clone(), self.tx.clone());
+            std::thread::spawn(move || {
+                let disk = tags.into_iter().map(|t| {
+                    let n = backend::disk_use(&t);
+                    (t, n)
+                });
+                let _ = tx.send(Msg::DiskUse(disk.collect()));
+            });
+        }
+        let on_disk = |tag: &String| {
+            let found = self.disk.iter().find(|(t, _)| t == tag);
+            found
+                .filter(|_| self.installed.contains(tag))
+                .map(|(_, n)| *n)
+        };
+        let used: u64 = self.installed.iter().filter_map(on_disk).sum();
+        self.versions_view(&on_disk, used, cx)
     }
 }

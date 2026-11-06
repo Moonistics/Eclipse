@@ -1,7 +1,7 @@
 //! Home's head: the instance's icon and name, how long it was played, then Play with its menu,
 //! the version, the instance's folder, and joining a friend on the right.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_theme::glass::{fill, ink, radius};
 use gpui::deferred;
 use std::time::Instant;
@@ -31,12 +31,7 @@ pub(super) enum HomeMenu {
 impl Launcher {
     /// The head: what Home shows above its tabs. `tag`: the Eclipse version it plays (empty for a
     /// Java instance); `prepared`: whether that version's files are ready.
-    pub(super) fn glass_home_head(
-        &mut self,
-        tag: &str,
-        prepared: bool,
-        cx: &mut Context<Self>,
-    ) -> Div {
+    pub(super) fn home_head(&mut self, tag: &str, prepared: bool, cx: &mut Context<Self>) -> Div {
         let java = self.selected_instance().and_then(|i| i.java.clone());
         // How long this game has run, for "Playing for 5 min now".
         match (&self.client, self.client_since) {
@@ -51,9 +46,9 @@ impl Launcher {
             .items_center()
             .gap(px(10.))
             .child(self.play_group(tag, prepared || java.is_some(), cx))
-            .children(java.is_none().then(|| self.glass_picker(cx)))
+            .children(java.is_none().then(|| self.version_picker(cx)))
             .children(self.folder_button())
-            .child(self.glass_join_friend(tag, cx));
+            .child(self.invite_field(tag, cx));
         div()
             .flex()
             .flex_col()
@@ -73,7 +68,7 @@ impl Launcher {
         let icon = ui::hover_over(
             "home-instance-icon",
             radius::ROW,
-            self.glass_instance_icon(&instance, ICON),
+            self.instance_icon(&instance, ICON),
         )
         .cursor_pointer()
         .tooltip(ui::tip(tr("Edit instance")))
@@ -167,9 +162,9 @@ impl Launcher {
         };
         let open = self.home_menu == HomeMenu::Play;
         let kind = if running && busy.is_none() {
-            Kind::Secondary
+            ButtonKind::Secondary
         } else {
-            Kind::Primary
+            ButtonKind::Primary
         };
         let name = self
             .selected_instance()
@@ -200,7 +195,7 @@ impl Launcher {
                 "play",
                 Some("stop"),
                 tr("Stop"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Hero,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -215,7 +210,13 @@ impl Launcher {
                     None => (tr("Play"), "play"),
                 };
                 let press = play_press(ready, self.owner, false);
-                let main = ui::button("play", Some(icon), label, Kind::Primary, ui::Size::Hero);
+                let main = ui::button(
+                    "play",
+                    Some(icon),
+                    label,
+                    ButtonKind::Primary,
+                    ui::Size::Hero,
+                );
                 match (&update, press) {
                     (Some(_), _) => main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.install_update();
@@ -342,7 +343,7 @@ impl Launcher {
                             }
                             PlayItem::Command => {
                                 if let Some((id, _)) = &id {
-                                    copy_to_clipboard(
+                                    clipboard::copy_to_clipboard(
                                         cx,
                                         gpui::ClipboardItem::new_string(launch_command(id)),
                                     );
@@ -369,7 +370,7 @@ impl Launcher {
 
     /// The version: "Version" over the one played, a chevron that turns while its list is open;
     /// the list ticks the one played and ends with Manage versions.
-    fn glass_picker(&self, cx: &mut Context<Self>) -> Div {
+    fn version_picker(&self, cx: &mut Context<Self>) -> Div {
         let label = self.selected().map_or_else(
             || tr("No version").into(),
             |tag| {
@@ -482,21 +483,26 @@ impl Launcher {
             .bg(white(fill::BUTTON))
             .on_press(move |_, _, cx| {
                 let _ = std::fs::create_dir_all(&home);
-                crate::glass_toast::open(cx, &home);
+                crate::toast::open(cx, &home);
             }),
         )
     }
 
     /// The invite code field: what its row leaves, up to [`INVITE_MAX`]; the icon inside on the
     /// left, Join inside on the right.
-    fn glass_join_friend(&self, tag: &str, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let focused = self.friend_focused;
+    fn invite_field(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
+        let focused = self.fields.has_focus(Field::InviteCode);
         let join_label = tr("Join");
         let pr = friend_code_padding_right(join_label);
+        let content = line_edit::content(
+            self.fields.text(Field::InviteCode),
+            focused,
+            false,
+            false,
+            "Paste a friend's invite code",
+        );
         let field = ui::field(focused, false)
             .id("friend-code")
-            .track_focus(&self.friend_focus)
             .size_full()
             .pl(px(2. * INVITE_ICON_INSET + ui::IconSize::Px16.px()))
             .pr(px(pr))
@@ -510,37 +516,16 @@ impl Launcher {
                     .flex()
                     .items_center()
                     .overflow_hidden()
-                    .child(line_edit::content(
-                        &self.friend_code,
-                        &t,
-                        focused,
-                        false,
-                        false,
-                        "Paste a friend's invite code",
-                    )),
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                window.focus(&this.friend_focus, cx);
-                cx.notify();
-            }))
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                match line_edit::handle(&mut this.friend_code, ev, cx) {
-                    line_edit::Key::Pass => return,
-                    line_edit::Key::Enter => this.join_friend(),
-                    line_edit::Key::Escape => window.blur(cx),
-                    _ => {}
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }));
-        let field = line_edit::mouse(field, cx, |this| &mut this.friend_code);
-        let valid = eclipse_friends::invite::parse(self.friend_code.text()).is_some();
+                    .child(content),
+            );
+        let field = self.text_input(Field::InviteCode, field, cx);
+        let valid = eclipse_friends::invite::parse(self.fields.value(Field::InviteCode)).is_some();
         let can = valid && (tag.is_empty() || self.can_start(tag));
         let join = ui::button(
             "join-friend",
             None,
             join_label,
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         );
         let join = if can {
@@ -629,7 +614,7 @@ fn since(ago: Duration, days: i64, date: &str) -> String {
         60..=119 => tr("1 hour ago").into(),
         m if m < 24 * 60 => trf("{count} hours ago", &[("count", &(m / 60).to_string())]),
         _ if days <= 1 => tr("yesterday").into(),
-        _ => glass_versions::published(date, ""),
+        _ => versions_page::published(date, ""),
     }
 }
 

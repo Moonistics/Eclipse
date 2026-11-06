@@ -14,8 +14,6 @@ pub const MONO: &str = tokens::MONO;
 /// Shapes and controls, shared with the game's menus and the website.
 pub use tokens::DISABLED;
 
-pub use crate::layout::{PAGE_GUTTER, PAGE_MAX};
-
 /// Motion: short and eased out, never bouncy.
 pub const QUICK: Duration = tokens::QUICK.duration();
 pub const MOVE: Duration = tokens::MOVE.duration();
@@ -27,7 +25,7 @@ pub struct Theme {
     /// The page behind everything the sky doesn't cover.
     pub page: Hsla,
     pub side: Hsla,
-    /// The sky the light appearance draws (`sky.rs`) and the screens still in its colours.
+    /// The scene's colours (`scene.rs`).
     pub night: Night,
     pub dark: bool,
 }

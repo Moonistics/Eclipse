@@ -26,7 +26,7 @@ impl Launcher {
         if !self.dev_options && !self.settings.dev_offline {
             return None;
         }
-        let toggle = crate::glass_ui::toggle_row(
+        let toggle = crate::ui::toggle_row(
             "dev-offline",
             tr("Offline names without an account"),
             Some(
@@ -49,8 +49,8 @@ impl Launcher {
                 .flex()
                 .flex_col()
                 .child(
-                    crate::glass_ui::label(tr("Developer options"))
-                        .px(px(crate::glass_ui::SETTING_ROW_PADDING))
+                    crate::ui::label(tr("Developer options"))
+                        .px(px(crate::ui::SETTING_ROW_PADDING))
                         .mt(px(20.))
                         .mb(px(12.)),
                 )

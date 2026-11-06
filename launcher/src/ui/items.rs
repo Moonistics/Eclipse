@@ -2,9 +2,13 @@ use super::{
     color, danger, dot, hoverable, icon, look, row_fill, text, white, Hover, IconSize, Tone,
 };
 use eclipse_theme::glass::{fill, ink, radius, step, EDGE};
-use gpui::{div, prelude::*, px, AnyElement, App, Div, FontWeight, SharedString, Stateful, Window};
+use gpui::{
+    div, prelude::*, px, AnyElement, App, Div, FontWeight, Hsla, SharedString, Stateful, Window,
+};
 
 const SETTING_NOTE_WIDTH: f32 = 560.;
+
+const NOTE_LINE_HEIGHT: f32 = 44.;
 
 pub fn selected(d: Stateful<Div>, on: bool) -> Stateful<Div> {
     d.rounded(px(radius::ROW))
@@ -240,5 +244,45 @@ pub fn list_head(note: impl Into<SharedString>) -> Div {
                 .min_w_0()
                 .truncate()
                 .child(note.into()),
+        )
+}
+
+pub fn notice_line(dot: Hsla, text: impl Into<SharedString>) -> Div {
+    div()
+        .relative()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .min_h(px(NOTE_LINE_HEIGHT))
+        .px(px(16.))
+        .py(px(6.))
+        .rounded(px(radius::ROW))
+        .bg(white(fill::HOVER))
+        .child(div().flex_none().size(px(7.)).rounded_full().bg(dot))
+        .child(
+            self::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                .flex_1()
+                .min_w_0()
+                .child(text.into()),
+        )
+}
+
+pub fn error_note(said: impl Into<SharedString>) -> Div {
+    div()
+        .flex()
+        .items_start()
+        .gap(px(10.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .h(px(step::BODY.line))
+                .child(icon("alert-circle", IconSize::Px16, danger())),
+        )
+        .child(
+            text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                .flex_1()
+                .min_w_0()
+                .child(said.into()),
         )
 }

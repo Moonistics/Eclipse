@@ -2,15 +2,15 @@
 //! "version · source". The filter and Update all sit in the head, a mod's update and its on/off
 //! switch at the row's end.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius};
-use glass_home_lists::Listener;
+use fields::Field;
+use home_lists::Listener;
 use instance_mods::ModRow;
-use servers_page::Field;
 
 impl Launcher {
     /// Home's Mods tab, for the selected instance.
-    pub(super) fn glass_instance_mods(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn mods_tab(&mut self, cx: &mut Context<Self>) -> Div {
         let busy = self.mods.busy.is_some();
         let updates = self.mods.updates.len();
         let name = self
@@ -32,7 +32,7 @@ impl Launcher {
                 "instance-mods-find",
                 Some("search-01"),
                 tr("Find mods"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(find_mods(cx));
@@ -52,7 +52,7 @@ impl Launcher {
             ),
         };
         let filter = self
-            .servers
+            .fields
             .value(Field::InstanceModsFilter)
             .trim()
             .to_lowercase();
@@ -62,7 +62,7 @@ impl Launcher {
                 "instance-mods-update-all",
                 None,
                 trf("Update all ({count})", &[("count", &updates.to_string())]),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -83,7 +83,7 @@ impl Launcher {
                             "instance-mods-add",
                             Some("plus-sign"),
                             tr("Find mods"),
-                            Kind::Secondary,
+                            ButtonKind::Secondary,
                             ui::Size::Md,
                         )
                         .on_press(find_mods(cx)),
@@ -129,15 +129,12 @@ impl Launcher {
             rows.len(),
             0.,
             |_| false,
-            |i| {
-                self.glass_mod_row(rows[i].clone(), busy, cx)
-                    .into_any_element()
-            },
+            |i| self.mod_row(rows[i].clone(), busy, cx).into_any_element(),
         );
         body.child(list)
     }
 
-    fn glass_mod_row(&mut self, row: ModRow, busy: bool, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn mod_row(&mut self, row: ModRow, busy: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = SharedString::from(format!("mod-{}", row.file));
         let hovered = self.list_hover.as_ref() == Some(&key);
         let hover = self.list_hover_listener(key.clone(), cx);
@@ -151,17 +148,13 @@ impl Launcher {
             div()
                 .relative()
                 .flex_none()
-                .size(px(glass_home_lists::PICTURE))
+                .size(px(home_lists::PICTURE))
                 .rounded(px(radius::ROW))
                 .overflow_hidden()
-                .child(self.mod_icon(
-                    row.entry.as_ref(),
-                    row.icon.clone(),
-                    glass_home_lists::PICTURE,
-                ))
+                .child(self.mod_icon(row.entry.as_ref(), row.icon.clone(), home_lists::PICTURE))
                 .into_any_element()
         } else {
-            glass_home_lists::picture(None, "puzzle")
+            home_lists::picture(None, "puzzle")
         };
         let source = if let Some(origin) = row.native.as_ref().and_then(|n| n.origin.as_ref()) {
             trf("from GitHub: {source}", &[("source", &origin.label())])
@@ -190,7 +183,7 @@ impl Launcher {
                 SharedString::from(format!("mod-update-{id}")),
                 None,
                 trf("Update {version}", &[("version", &number)]),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Sm,
             );
             Some(match busy {

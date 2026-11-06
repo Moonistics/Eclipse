@@ -2,8 +2,7 @@ use super::{
     color, hoverable, icon, look, pixel_text, selected, setting_text, tip, tip_on_focus, white,
     Hover, IconSize, Press,
 };
-use crate::Kind;
-use eclipse_theme::glass::{fill, ink, pixel_text::PRESS, radius, EDGE, ON_LIGHT, PAPER};
+use eclipse_theme::glass::{fill, ink, pixel_text::PRESS, radius, step, EDGE, ON_LIGHT, PAPER};
 use gpui::{
     div, prelude::*, px, AnyElement, App, ClickEvent, Div, FontWeight, SharedString, Stateful,
     Window,
@@ -28,6 +27,13 @@ const BEVEL_SHADE: f32 = 0.22;
 const SPLIT_RULE: f32 = 0.2;
 
 const BUSY_TRACK: f32 = 0.35;
+
+#[derive(Clone, Copy, PartialEq)]
+pub enum ButtonKind {
+    Primary,
+    Secondary,
+    Ghost,
+}
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum Size {
@@ -90,20 +96,20 @@ pub fn button(
     id: impl Into<SharedString>,
     icon_name: Option<&'static str>,
     label: impl Into<SharedString>,
-    kind: Kind,
+    kind: ButtonKind,
     size: Size,
 ) -> Stateful<Div> {
     let label: SharedString = label.into();
     let look = look();
     let tone = match kind {
-        Kind::Primary => color(look.on_accent),
-        Kind::Secondary => white(ink::FULL),
-        Kind::Ghost => white(ink::BODY),
+        ButtonKind::Primary => color(look.on_accent),
+        ButtonKind::Secondary => white(ink::FULL),
+        ButtonKind::Ghost => white(ink::BODY),
     };
     let hover = match kind {
-        Kind::Primary => Hover::Primary,
-        Kind::Secondary => Hover::Row,
-        Kind::Ghost => Hover::Bare,
+        ButtonKind::Primary => Hover::Primary,
+        ButtonKind::Secondary => Hover::Row,
+        ButtonKind::Ghost => Hover::Bare,
     };
     let d = hoverable(id, radius::CONTROL, hover)
         .flex()
@@ -122,9 +128,9 @@ pub fn button(
             d.child(press_text().relative().child(label.to_uppercase()))
         });
     match kind {
-        Kind::Primary => bevel(d.bg(color(look.accent)).font_weight(FontWeight::BOLD)),
-        Kind::Secondary => d.bg(white(fill::BUTTON)),
-        Kind::Ghost => d.hover(|s| s.text_color(white(ink::FULL))),
+        ButtonKind::Primary => bevel(d.bg(color(look.accent)).font_weight(FontWeight::BOLD)),
+        ButtonKind::Secondary => d.bg(white(fill::BUTTON)),
+        ButtonKind::Ghost => d.hover(|s| s.text_color(white(ink::FULL))),
     }
 }
 
@@ -133,20 +139,20 @@ pub fn primary(
     label: impl Into<SharedString>,
     size: Size,
 ) -> Stateful<Div> {
-    button(id, None, label, Kind::Primary, size)
+    button(id, None, label, ButtonKind::Primary, size)
 }
 
 pub fn more_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
-    kind: Kind,
+    kind: ButtonKind,
     size: Size,
     open: bool,
 ) -> Stateful<Div> {
     let label: SharedString = label.into();
     let look = look();
     let (tone, hover) = match kind {
-        Kind::Primary => (color(look.on_accent), Hover::Primary),
+        ButtonKind::Primary => (color(look.on_accent), Hover::Primary),
         _ => (white(ink::FULL), Hover::Row),
     };
     let d = hoverable(id, radius::CONTROL, hover)
@@ -169,16 +175,16 @@ pub fn more_button(
         .child(icon("more-horizontal", IconSize::Px16, tone).relative())
         .tooltip(tip(label.clone()));
     let d = match kind {
-        Kind::Primary => bevel(d.bg(color(look.accent))),
-        Kind::Secondary => d.bg(white(fill::BUTTON)),
-        Kind::Ghost => d,
+        ButtonKind::Primary => bevel(d.bg(color(look.accent))),
+        ButtonKind::Secondary => d.bg(white(fill::BUTTON)),
+        ButtonKind::Ghost => d,
     };
     tip_on_focus(d, label)
 }
 
-pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: Kind) -> Div {
+pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div {
     let rule = match kind {
-        Kind::Primary => color(look().on_accent).opacity(SPLIT_RULE),
+        ButtonKind::Primary => color(look().on_accent).opacity(SPLIT_RULE),
         _ => white(EDGE),
     };
     div()
@@ -186,6 +192,54 @@ pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: Kind) -> Div {
         .flex_none()
         .child(main.flex_1().rounded_r(px(0.)))
         .child(more.rounded_l(px(0.)).border_l_1().border_color(rule))
+}
+
+pub fn confirm(
+    id: impl Into<SharedString>,
+    question: String,
+    verb: &'static str,
+    cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let id: SharedString = id.into();
+    div()
+        .flex()
+        .flex_wrap()
+        .items_center()
+        .justify_end()
+        .gap(px(8.))
+        .child(
+            super::text(step::NOTE, FontWeight::MEDIUM, ink::FULL)
+                .flex_grow_1()
+                .text_color(super::danger())
+                .child(question),
+        )
+        .child(
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    button(
+                        id.clone(),
+                        None,
+                        crate::tr("Cancel"),
+                        ButtonKind::Ghost,
+                        Size::Sm,
+                    )
+                    .on_press(cancel),
+                )
+                .child(
+                    button(
+                        format!("{id}-confirm"),
+                        None,
+                        verb,
+                        ButtonKind::Secondary,
+                        Size::Sm,
+                    )
+                    .text_color(super::danger())
+                    .on_press(sure),
+                ),
+        )
 }
 
 pub fn primary_busy(
@@ -354,7 +408,7 @@ pub fn toggle_label(
 
 /// A segmented control (the server dialog's difficulty): options on a faint track, the chosen
 /// one raised.
-pub fn segments<T: Copy + PartialEq + 'static>(
+pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     id: &'static str,
     options: &[(T, &'static str)],
     current: T,
@@ -372,7 +426,7 @@ pub fn segments<T: Copy + PartialEq + 'static>(
             let active = current == value;
             let pick = on_pick.clone();
             let segment = selected(
-                hoverable(format!("{id}-{label}"), radius::ROW, Hover::Row)
+                hoverable(format!("{id}-{value:?}"), radius::ROW, Hover::Row)
                     .flex()
                     .items_center()
                     .h(px(Size::Sm.height()))

@@ -130,6 +130,10 @@ pub fn nested_list(id: impl Into<SharedString>) -> Stateful<Div> {
     })
 }
 
+pub fn scroll_list_to(id: impl Into<SharedString>, index: usize) {
+    LISTS.with_borrow_mut(|l| l.entry(id.into()).or_default().scroll_to_item(index));
+}
+
 fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
     let view = pane.bounds();
     let margin = px(REVEAL_MARGIN);

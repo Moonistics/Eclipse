@@ -10,7 +10,7 @@
 //! progress.
 
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{fill, ink, radius};
 
@@ -21,7 +21,11 @@ impl Launcher {
     pub(super) fn mods_placeholder(&self) -> SharedString {
         let m = &self.mods;
         let registry = m.source == SourceId::Eclipse && m.java.is_none();
-        if registry && m.kind == PackKind::Mod && m.searched && m.text.text().is_empty() {
+        if registry
+            && m.kind == PackKind::Mod
+            && m.searched
+            && self.fields.value(Field::ModsSearch).is_empty()
+        {
             // Results come in pages: only a last page gives the real count.
             if m.more {
                 return tr("Search Eclipse mods").into();
@@ -43,11 +47,11 @@ impl Launcher {
         }
     }
 
-    pub(super) fn glass_mods_page(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn mods_view(&mut self, cx: &mut Context<Self>) -> Div {
         let instance = self
             .selected_instance()
             .map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
-        let target = self.glass_mods_target(cx);
+        let target = self.mods_target(cx);
         let open = self.mods.kind;
         let mut tabs = div()
             .flex()
@@ -59,7 +63,7 @@ impl Launcher {
         for (kind, label, _) in KINDS {
             tabs = tabs.child(
                 ui::tab(
-                    SharedString::from(format!("mods-tab-{label}")),
+                    SharedString::from(format!("mods-tab-{kind:?}")),
                     tr(label),
                     kind == open,
                 )
@@ -82,7 +86,7 @@ impl Launcher {
                 .child(header)
                 .children(notice)
                 .child(
-                    crate::glass::plate(radius::PANEL)
+                    ui::card(radius::PANEL)
                         .p(px(ui::CARD_PADDING))
                         .children(self.mods_busy_plate())
                         .child(project),
@@ -109,7 +113,7 @@ impl Launcher {
                 )
             })
             .when(switches(self.mods.kind) && !java, |d| {
-                d.child(self.glass_source_switch(cx))
+                d.child(self.source_switch(cx))
             })
             .children(self.mods_filters(cx))
             .children(self.mods_target_line(cx));
@@ -120,9 +124,9 @@ impl Launcher {
             .items_center()
             .gap(px(8.))
             .child(div().flex_1().min_w(px(200.)).child(self.mods_field(cx)))
-            .child(self.glass_mods_sort(cx))
+            .child(self.mods_sort(cx))
             .child(self.mods_filters_button(cx));
-        let list = crate::glass::plate(radius::PANEL)
+        let list = ui::card(radius::PANEL)
             .flex()
             .flex_col()
             .flex_1()
@@ -131,11 +135,11 @@ impl Launcher {
             .child(search)
             .child(extras)
             .children(self.mods_vanilla_notice(cx))
-            .child(self.glass_mods_list(cx));
+            .child(self.mods_list(cx));
         // The card stays in view as the list scrolls (`sticky.rs`).
         let wide = self.window_width >= crate::layout::MODS_DETAIL_BESIDE;
         let detail = if wide || self.mods.picked.is_some() {
-            self.glass_mod_detail(&instance, cx)
+            self.mod_detail(&instance, cx)
         } else {
             None
         };
@@ -163,7 +167,7 @@ impl Launcher {
                 this.mods.confirm_remove = None;
                 cx.notify();
             }));
-            crate::glass::float(radius::PANEL)
+            ui::float_card(radius::PANEL)
                 .flex_none()
                 .w(px(DETAIL))
                 .ml(px(-DETAIL))
@@ -183,11 +187,7 @@ impl Launcher {
             .child(list)
             .children(detail);
 
-        let card = |inner: Div| {
-            crate::glass::plate(radius::PANEL)
-                .p(px(ui::CARD_PADDING))
-                .child(inner)
-        };
+        let card = |inner: Div| ui::card(radius::PANEL).p(px(ui::CARD_PADDING)).child(inner);
         let mut more: Vec<Div> = Vec::new();
         more.extend(self.mods_busy_plate().into_iter().map(card));
         if self.mods.kind == PackKind::Modpack {
@@ -213,7 +213,7 @@ impl Launcher {
             )
     }
 
-    fn glass_mods_target(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+    fn mods_target(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let row = div()
             .flex()
             .items_center()
@@ -236,7 +236,7 @@ impl Launcher {
         let open = self.mods.target_menu;
         let button = ui::dropdown(
             "mods-target",
-            Some(self.glass_instance_icon(&current, 24.)),
+            Some(self.instance_icon(&current, 24.)),
             current.name.clone(),
             open,
             ui::Size::Md.height(),
@@ -327,7 +327,7 @@ impl Launcher {
                 "mods-choose-instance",
                 None,
                 tr("Choose another instance"),
-                Kind::Ghost,
+                ButtonKind::Ghost,
                 ui::Size::Sm,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -383,13 +383,13 @@ impl Launcher {
     }
 
     /// The source switch (`switches`): Eclipse's registry or Modrinth as small tabs.
-    fn glass_source_switch(&mut self, cx: &mut Context<Self>) -> Div {
+    fn source_switch(&mut self, cx: &mut Context<Self>) -> Div {
         let current = self.mods.source;
         let mut row = div().flex().items_center().gap(px(4.));
         for (source, label) in SOURCES {
             row = row.child(
                 ui::tab(
-                    SharedString::from(format!("mods-source-{label}")),
+                    SharedString::from(format!("mods-source-{source:?}")),
                     tr(label),
                     source == current,
                 )
@@ -410,7 +410,7 @@ impl Launcher {
 
     /// The "Sort by" dropdown beside the search; the choices on a popover under it, the chosen one
     /// ticked.
-    fn glass_mods_sort(&mut self, cx: &mut Context<Self>) -> Div {
+    fn mods_sort(&mut self, cx: &mut Context<Self>) -> Div {
         let sorts = self.mods_sorts();
         let current = self.mods.browse.filters.sort;
         // A sort the source can't do (Follows, picked on Modrinth) reads as the default.
@@ -453,7 +453,7 @@ impl Launcher {
             for &(value, label) in &sorts {
                 menu = menu.child(
                     ui::pick_row(
-                        SharedString::from(format!("mods-sort-pick-{label}")),
+                        SharedString::from(format!("mods-sort-pick-{value:?}")),
                         tr(label).to_string(),
                         Some(value) == shown,
                     )
@@ -481,7 +481,7 @@ impl Launcher {
     }
 
     /// The search's results as rows: a click picks one for the card beside.
-    fn glass_mods_list(&mut self, cx: &mut Context<Self>) -> Div {
+    fn mods_list(&mut self, cx: &mut Context<Self>) -> Div {
         let m = &self.mods;
         if let Some(e) = &m.error {
             let retry = ui::primary("mods-retry", tr("Try again"), ui::Size::Md).on_press(
@@ -510,11 +510,11 @@ impl Launcher {
                     ),
                     tr("Try other words or another instance."),
                 )
-            } else if !m.text.text().trim().is_empty() {
+            } else if !self.fields.value(Field::ModsSearch).trim().is_empty() {
                 (
                     trf(
                         "Nothing matches “{query}”",
-                        &[("query", m.text.text().trim())],
+                        &[("query", self.fields.value(Field::ModsSearch).trim())],
                     ),
                     tr("Try other words."),
                 )
@@ -531,7 +531,7 @@ impl Launcher {
                         "mods-show-all",
                         None,
                         tr("Show all results"),
-                        Kind::Secondary,
+                        ButtonKind::Secondary,
                         ui::Size::Md,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -589,9 +589,9 @@ impl Launcher {
                     None,
                     label,
                     if current {
-                        Kind::Secondary
+                        ButtonKind::Secondary
                     } else {
-                        Kind::Ghost
+                        ButtonKind::Ghost
                     },
                     ui::Size::Sm,
                 );
@@ -717,7 +717,7 @@ impl Launcher {
                         "mods-more",
                         None,
                         tr("Load more"),
-                        Kind::Secondary,
+                        ButtonKind::Secondary,
                         ui::Size::Md,
                     )
                     .when(searching, crate::disabled)
@@ -757,7 +757,7 @@ impl Launcher {
     }
 
     /// The picked project's card.
-    fn glass_mod_detail(&mut self, instance: &str, cx: &mut Context<Self>) -> Option<Div> {
+    fn mod_detail(&mut self, instance: &str, cx: &mut Context<Self>) -> Option<Div> {
         let p = self.mods_picked()?;
         let vanilla = self.mods_vanilla_target();
         let icon = self.mods_icon(&p, 64.);
@@ -822,30 +822,44 @@ impl Launcher {
             .filter(|_| p.source == SourceId::Eclipse)
             .map(|lines| lines.join(" · "));
 
-        // The action: Remove (then Remove for good), Install or Import, or a Fabric instance
+        // The action: Remove (then asked to confirm), Install or Import, or a Fabric instance
         // for a mod a vanilla one can't take.
         let button: Option<AnyElement> = if let Some(e) = &entry {
             let confirming = m.confirm_remove.as_deref() == Some(e.project.as_str());
+            let remove_id = SharedString::from(format!("mods-detail-remove-{}", p.id));
             let id = e.project.clone();
-            ui::button(
-                SharedString::from(format!("mods-detail-remove-{}", p.id)),
-                None,
-                if confirming {
-                    tr("Remove for good").to_string()
-                } else {
-                    trf("Remove from {instance}", &[("instance", instance)])
-                },
-                Kind::Secondary,
-                ui::Size::Lg,
-            )
-            .w_full()
-            .when(confirming, |d| d.text_color(ui::danger()))
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.mods_remove_click(id.clone());
-                cx.notify();
-            }))
-            .into_any_element()
-            .into()
+            if confirming {
+                ui::confirm(
+                    remove_id,
+                    trf("Remove {name}?", &[("name", &e.title)]),
+                    tr("Remove"),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.mods.confirm_remove = None;
+                        cx.notify();
+                    }),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        let _ = this.mods_remove(&id);
+                        cx.notify();
+                    }),
+                )
+                .into_any_element()
+                .into()
+            } else {
+                ui::button(
+                    remove_id,
+                    None,
+                    trf("Remove from {instance}…", &[("instance", instance)]),
+                    ButtonKind::Secondary,
+                    ui::Size::Lg,
+                )
+                .w_full()
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.mods.confirm_remove = Some(id.clone());
+                    cx.notify();
+                }))
+                .into_any_element()
+                .into()
+            }
         } else if busy.as_deref() == Some(p.id.as_str()) || checking {
             ui::button(
                 "mods-detail-wait",
@@ -855,7 +869,7 @@ impl Launcher {
                 } else {
                     tr("Installing…")
                 },
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Lg,
             )
             .w_full()
@@ -890,7 +904,7 @@ impl Launcher {
                     "mods-detail-new-fabric",
                     None,
                     tr("Create a Fabric instance"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Lg,
                 )
                 .w_full()
@@ -902,13 +916,13 @@ impl Launcher {
             })
         };
         let page_kind = if button.is_some() {
-            Kind::Ghost
+            ButtonKind::Ghost
         } else {
-            Kind::Secondary
+            ButtonKind::Secondary
         };
         let open = p.clone();
         Some(
-            crate::glass::plate(radius::PANEL)
+            ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
                 .p(px(ui::CARD_PADDING))

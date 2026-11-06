@@ -404,7 +404,7 @@ pub fn run_streamed(dir: &Path, args: &[&str], line: &dyn Fn(String)) -> Result<
 pub enum Fix {
     /// The port is taken: use this free one.
     UsePort(u16),
-    /// The game files are missing: prepare them (Play page) and copy them for the servers.
+    /// The game files are missing: prepare them (Home) and copy them for the servers.
     Prepare,
     /// The EULA isn't agreed to.
     AgreeEula,

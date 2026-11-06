@@ -4,7 +4,7 @@
 //! and a test that starts the MCP server and lists its tools. With AI features hidden, only the
 //! switch shows.
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::agents;
 use eclipse_theme::glass::{ink, radius, step};
 
@@ -61,11 +61,11 @@ impl Launcher {
                 id,
                 Some("copy-01"),
                 tr(if copied { "Copied" } else { "Copy" }),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
+                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                 this.agents.copied = Some(id);
                 cx.notify();
             }))
@@ -138,7 +138,7 @@ impl Launcher {
             "agent-test",
             None,
             tr("Test the connection"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

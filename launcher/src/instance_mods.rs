@@ -8,7 +8,7 @@
 //! asked for in one request and kept beside the image cache, the images through the Mods page's
 //! cache at the row's size), else the one its jar names, else a generic glyph.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::browser::{
     eclipse, images, installed, java, modrinth, Kind as PackKind, SourceId,
 };

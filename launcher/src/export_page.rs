@@ -2,7 +2,7 @@
 //! worlds the player switches on, written to the launcher's `exports/` folder
 //! (`eclipse_launcher::export`).
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::export::{self, Format};
 use eclipse_theme::glass::{ink, radius, step};
 use std::path::PathBuf;
@@ -142,7 +142,7 @@ impl Launcher {
                 })),
             );
         }
-        let go = button("export-run", "Export", Kind::Secondary);
+        let go = button("export-run", "Export", ButtonKind::Secondary);
         let go = match panel.busy {
             true => disabled(go),
             false => go.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -163,12 +163,12 @@ impl Launcher {
                             ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(said.clone()),
                         )
                         .child(
-                            button("export-show", "Show in folder", Kind::Ghost)
+                            button("export-show", "Show in folder", ButtonKind::Ghost)
                                 .on_press(move |_, _, cx| cx.reveal_path(&path)),
                         ),
                 )
             }
-            Some(Err(e)) => Some(error_note(e.clone())),
+            Some(Err(e)) => Some(ui::error_note(e.clone())),
             None => None,
         };
         let close = ui::icon_button(
@@ -183,7 +183,7 @@ impl Launcher {
             cx.notify();
         }));
         Some(
-            crate::glass::plate(radius::PANEL)
+            ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
                 .gap(px(16.))

@@ -1,9 +1,8 @@
 //! The Servers page: create a server in one dialog, then start, stop and watch it, give friends its
 //! address, manage who may join, change its settings, back it up and update it, all with buttons. Every
 //! action runs `eclipse-server` or calls the running server's control API (`eclipse_launcher::servers`).
-use super::line_edit::{self, Key, LineEdit};
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::heads;
 use eclipse_launcher::servers::{
     self, Applied, Backup, Entry, Fix, NewServer, Problem, Status, World,
@@ -14,11 +13,10 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-#[path = "glass_server_dialog.rs"]
-mod glass_server_dialog;
-#[path = "glass_servers.rs"]
-mod glass_servers;
-pub(super) use glass_servers::notice_line;
+#[path = "server_dialog.rs"]
+mod server_dialog;
+#[path = "servers_view.rs"]
+mod servers_view;
 
 /// The servers this launcher started in this session, stopped when it closes unless they run as a
 /// service (`stop_on_quit`).
@@ -34,72 +32,6 @@ const CONSOLE_KEEP: usize = 1000;
 const FACE: f32 = 28.;
 
 const DELETE_CONTROLS: f32 = 260.;
-
-#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
-pub(super) enum Field {
-    Name,
-    Seed,
-    Players,
-    Command,
-    AddPlayer,
-    Motd,
-    Port,
-    Token,
-    Email,
-    /// The New instance page's (`instances_page.rs`).
-    InstanceName,
-    InstanceGroup,
-    /// Its search in Mojang's versions (`new_instance.rs`).
-    InstanceVersion,
-    /// Home's Mods tab's filter (`instance_mods.rs`).
-    InstanceModsFilter,
-    /// Home's Multiplayer section's (`multiplayer_page.rs`).
-    ServerName,
-    ServerAddress,
-    /// Home's Console's search (`console_page.rs`).
-    ConsoleSearch,
-    /// The Launch panel's (`launch_page.rs`).
-    PreLaunch,
-    Wrapper,
-    LaunchEnv,
-    PostExit,
-    /// Home's memory row (`launch_page.rs`).
-    MemoryLimit,
-    /// Settings' new offline name (`switch_page.rs`).
-    OfflineName,
-    DeleteServer,
-    /// Settings' accent as hex (`themes_page.rs`).
-    AccentHex,
-}
-
-impl Field {
-    const ALL: [Field; 24] = [
-        Field::Name,
-        Field::Seed,
-        Field::Players,
-        Field::Command,
-        Field::AddPlayer,
-        Field::Motd,
-        Field::Port,
-        Field::Token,
-        Field::Email,
-        Field::InstanceName,
-        Field::InstanceGroup,
-        Field::InstanceVersion,
-        Field::InstanceModsFilter,
-        Field::ServerName,
-        Field::ServerAddress,
-        Field::ConsoleSearch,
-        Field::PreLaunch,
-        Field::Wrapper,
-        Field::LaunchEnv,
-        Field::PostExit,
-        Field::MemoryLimit,
-        Field::OfflineName,
-        Field::DeleteServer,
-        Field::AccentHex,
-    ];
-}
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Tab {
@@ -226,7 +158,7 @@ pub(super) struct Servers {
     problem: Option<Problem>,
     note: Option<String>,
     pub(super) create: Option<Create>,
-    creating: bool,
+    pub(super) creating: bool,
     config: Option<Value>,
     /// Settings waiting for `config set`, and whether one runs.
     queued: Vec<(String, String)>,
@@ -234,22 +166,13 @@ pub(super) struct Servers {
     /// Settings saved while the server ran that wait for its next start.
     restart_needed: BTreeSet<String>,
     backups: Vec<Backup>,
-    confirm_restore: Option<String>,
-    confirm_delete: bool,
+    pub(super) confirm_restore: Option<String>,
+    pub(super) confirm_delete: bool,
     service: Option<bool>,
     update: Option<Value>,
     /// `update --check` is under way.
     checking: bool,
     pvp: Option<bool>,
-    texts: HashMap<Field, LineEdit>,
-    focus: HashMap<Field, FocusHandle>,
-    focused: Option<Field>,
-    /// The field to put the keyboard in on the next frame.
-    pub(super) focus_soon: Option<Field>,
-    /// A suggested value shown selected: the first key typed replaces it.
-    selected: Option<Field>,
-    /// A field whose value was refused, and why: shown under it until it's edited.
-    invalid: Option<(Field, &'static str)>,
     copied: Option<Instant>,
     faces: HashMap<String, Option<Vec<[u8; 4]>>>,
     tx: Sender<Event>,
@@ -290,51 +213,10 @@ impl Servers {
             update: None,
             checking: false,
             pvp: None,
-            texts: HashMap::new(),
-            focus: HashMap::new(),
-            focused: None,
-            focus_soon: None,
-            selected: None,
-            invalid: None,
             copied: None,
             faces: HashMap::new(),
             tx,
             rx,
-        }
-    }
-
-    pub(super) fn text(&mut self, f: Field) -> &mut LineEdit {
-        self.texts.entry(f).or_default()
-    }
-
-    pub(super) fn value(&self, f: Field) -> &str {
-        self.texts.get(&f).map_or("", LineEdit::text)
-    }
-
-    /// Mark a field invalid without an explanatory message, or clear its previous error.
-    pub(super) fn set_field_invalid(&mut self, field: Field, invalid: bool) {
-        if invalid {
-            self.invalid = Some((field, ""));
-        } else if self.invalid.is_some_and(|(current, _)| current == field) {
-            self.invalid = None;
-        }
-    }
-
-    /// Whether this field has the keyboard, as of this frame.
-    pub(super) fn has_focus(&self, f: Field) -> bool {
-        self.focused == Some(f)
-    }
-
-    /// Which field has the keyboard, read every frame.
-    pub(super) fn note_focus(&mut self, window: &mut Window, cx: &mut App) {
-        if let Some(h) = self.focus_soon.take().and_then(|f| self.focus.get(&f)) {
-            window.focus(h, cx);
-        }
-        self.focused = Field::ALL
-            .into_iter()
-            .find(|f| self.focus.get(f).is_some_and(|h| h.is_focused(window)));
-        if self.focused.is_some() && self.focused != self.selected {
-            self.selected = None;
         }
     }
 
@@ -511,12 +393,11 @@ impl Launcher {
         s.note = None;
         s.confirm_restore = None;
         s.confirm_delete = false;
-        s.texts.remove(&Field::DeleteServer);
         s.restart_needed.clear();
-        s.texts.remove(&Field::Motd);
-        s.texts.remove(&Field::Port);
-        s.invalid = None;
         s.polled = None;
+        self.fields.clear(Field::ServerMotd);
+        self.fields.clear(Field::ServerPort);
+        self.fields.invalid = None;
         self.load_details();
     }
 
@@ -641,9 +522,9 @@ impl Launcher {
                         s.modes.clear();
                         s.modes.clear();
                         self.open_server(entry.dir.clone());
-                        self.servers.note = Some(format!(
-                            "{} is ready. Start it and share the address with friends.",
-                            entry.name
+                        self.servers.note = Some(trf(
+                            "{name} is ready. Start it and share the address with friends.",
+                            &[("name", &entry.name)],
                         ));
                     }
                     Err(p) => s.problem = Some(p),
@@ -664,6 +545,8 @@ impl Launcher {
             Event::Deleted { dir, result } => {
                 s.busy = None;
                 s.confirm_delete = false;
+                let name = (s.list.iter().find(|entry| entry.dir == dir))
+                    .map_or_else(|| tr("Server").to_string(), |entry| entry.name.clone());
                 s.list = servers::list();
                 s.modes.clear();
                 s.statuses.remove(&dir);
@@ -676,7 +559,7 @@ impl Launcher {
                     self.side_servers = s.list.clone();
                 }
                 match result {
-                    Ok(()) => s.note = Some("Server moved to the trash.".into()),
+                    Ok(()) => s.note = Some(trf("{name} moved to the trash.", &[("name", &name)])),
                     Err(e) => s.problem = Some(Problem::plain(e)),
                 }
             }
@@ -804,9 +687,10 @@ impl Launcher {
         match fix {
             Fix::UsePort(port) => {
                 self.set_setting("server.port", port.to_string());
-                self.servers.texts.remove(&Field::Port);
-                self.servers.note = Some(format!(
-                    "The server now uses port {port}. Press Start again."
+                self.fields.clear(Field::ServerPort);
+                self.servers.note = Some(trf(
+                    "The server now uses port {port}. Press Start again.",
+                    &[("port", &port.to_string())],
                 ));
             }
             Fix::Prepare => match self.selected().cloned() {
@@ -820,7 +704,7 @@ impl Launcher {
                 }
                 _ => {
                     self.servers.create = None;
-                    self.go(Page::Play);
+                    self.go(Page::Home);
                     if !self.preparing {
                         self.prepare(backend::MinecraftFrom::Install);
                     }
@@ -839,7 +723,7 @@ impl Launcher {
             Fix::ShowLog => {
                 self.servers.tab = Tab::Overview;
                 if let Some(dir) = &self.servers.open {
-                    crate::glass_toast::open(cx, &dir.join("logs"));
+                    crate::toast::open(cx, &dir.join("logs"));
                 }
             }
         }
@@ -848,16 +732,16 @@ impl Launcher {
     // ----- Creating -------------------------------------------------------------------------
 
     fn open_create(&mut self, cx: &mut Context<Self>) {
-        self.focus_handle(Field::Name, cx);
-        self.servers.focus_soon = Some(Field::Name);
+        self.fields.handle(Field::NewServerName, cx);
+        self.fields.focus_soon = Some(Field::NewServerName);
         let worlds = servers::player_worlds();
         // The dialog starts with an empty name (its placeholder says the default) and the player
         // as the first friend.
         let own = own_name(&self.accounts).unwrap_or_default();
-        self.servers.text(Field::Name).set(String::new());
-        self.servers.selected = None;
-        self.servers.text(Field::Seed).set(String::new());
-        self.servers.text(Field::Players).set(String::new());
+        self.fields.text(Field::NewServerName).set(String::new());
+        self.fields.selected = None;
+        self.fields.text(Field::NewServerSeed).set(String::new());
+        self.fields.text(Field::NewServerFriend).set(String::new());
         let friends = if own.is_empty() {
             Vec::new()
         } else {
@@ -905,16 +789,16 @@ impl Launcher {
         let world = match (&c.copy, c.new_world) {
             (Some(dir), false) => World::Copy(dir.clone()),
             _ => World::New {
-                seed: self.servers.value(Field::Seed).to_string(),
+                seed: self.fields.value(Field::NewServerSeed).to_string(),
             },
         };
         let mut players = c.friends.clone();
-        for p in self.servers.value(Field::Players).split([',', ' ']) {
+        for p in self.fields.value(Field::NewServerFriend).split([',', ' ']) {
             if !p.is_empty() && !players.iter().any(|q| q == p) {
                 players.push(p.to_string());
             }
         }
-        let name = self.servers.value(Field::Name).trim().to_string();
+        let name = self.fields.value(Field::NewServerName).trim().to_string();
         let spec = NewServer {
             name: if !name.is_empty() {
                 name
@@ -948,168 +832,8 @@ impl Launcher {
 
     // ----- Building blocks ------------------------------------------------------------------
 
-    fn focus_handle(&mut self, f: Field, cx: &mut Context<Self>) -> FocusHandle {
-        self.servers
-            .focus
-            .entry(f)
-            .or_insert_with(|| cx.focus_handle().tab_index(0).tab_stop(true))
-            .clone()
-    }
-
-    /// A one-line text field: typing, paste, Backspace, Enter to confirm, Escape, Tab to the next.
-    pub(super) fn field(
-        &mut self,
-        f: Field,
-        placeholder: &'static str,
-        width: f32,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let t = self.theme;
-        let handle = self.focus_handle(f, cx);
-        let focused = self.servers.focused == Some(f);
-        let selected = focused && self.servers.selected == Some(f);
-        let invalid = self.servers.invalid.is_some_and(|(g, _)| g == f);
-        self.servers.text(f).show(((width - 24.) / 7.5) as usize);
-        // The mods filter and the log search sit by buttons: small fields, as tall as they are.
-        let base = crate::glass_ui::field(focused, invalid)
-            .when(
-                matches!(
-                    f,
-                    Field::InstanceModsFilter
-                        | Field::ConsoleSearch
-                        | Field::Motd
-                        | Field::Port
-                        | Field::Token
-                        | Field::AddPlayer
-                        | Field::DeleteServer
-                ),
-                |d| {
-                    d.h(px(ui::Size::Md.height()))
-                        .px(px(12.))
-                        .rounded(px(radius::CONTROL))
-                },
-            )
-            // The instance and server dialogs' are large, with larger text.
-            .when(
-                !invalid
-                    && matches!(
-                        f,
-                        Field::InstanceName
-                            | Field::InstanceGroup
-                            | Field::InstanceVersion
-                            | Field::Name
-                            | Field::Seed
-                    ),
-                |d| d.h(px(48.)).text_size(px(step::LEAD.size)),
-            )
-            .when(f == Field::AccentHex, |d| {
-                d.h(px(ui::Size::Md.height()))
-                    .px(px(12.))
-                    .rounded(px(radius::CONTROL))
-                    .text_size(px(step::NOTE.size))
-                    .font_weight(FontWeight::MEDIUM)
-            })
-            // The friend field sits in its chip, on the chip's fill.
-            .when(f == Field::Players, |d| {
-                d.h_full()
-                    .px(px(14.))
-                    .border_0()
-                    .bg(gpui::transparent_black())
-            })
-            // The server's command line: the field is the line's middle, on its fill, in mono.
-            .when(f == Field::Command, |d| {
-                d.h_full()
-                    .px_0()
-                    .rounded_none()
-                    .border_0()
-                    .bg(gpui::transparent_black())
-                    .font_family(theme::MONO)
-                    .text_size(px(step::NOTE.size))
-            })
-            // The focus ring on a field of its own, drawn inside its edge: GPUI has no outline.
-            .when(
-                focused && !invalid && !matches!(f, Field::Players | Field::Command),
-                |d| {
-                    let small = matches!(
-                        f,
-                        Field::InstanceModsFilter
-                            | Field::ConsoleSearch
-                            | Field::AccentHex
-                            | Field::Motd
-                            | Field::Port
-                            | Field::Token
-                            | Field::AddPlayer
-                            | Field::DeleteServer
-                    );
-                    d.child(crate::glass_ui::focus_ring(if small {
-                        radius::CONTROL
-                    } else {
-                        radius::ROW
-                    }))
-                },
-            );
-        let field = base
-            .id(SharedString::from(format!("field-{f:?}")))
-            .track_focus(&handle)
-            .w(px(width))
-            .cursor_text()
-            .child(line_edit::content(
-                self.servers.text(f),
-                &t,
-                focused,
-                selected,
-                f == Field::Token,
-                placeholder,
-            ))
-            .on_click(cx.listener(move |this, ev: &ClickEvent, window, cx| {
-                // A click puts the caret in: the suggestion is no longer selected.
-                if matches!(ev, ClickEvent::Mouse(_)) {
-                    this.servers.selected = None;
-                }
-                if let Some(h) = this.servers.focus.get(&f) {
-                    window.focus(h, cx);
-                }
-                cx.notify();
-            }))
-            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
-                if ev.keystroke.key != "enter" && this.servers.invalid.is_some_and(|(g, _)| g == f)
-                {
-                    this.servers.invalid = None;
-                }
-                // A suggestion is selected: what's typed or pasted replaces it.
-                let selected = this.servers.selected.take() == Some(f);
-                if selected {
-                    this.servers.text(f).select_all();
-                }
-                match line_edit::handle(this.servers.text(f), ev, cx) {
-                    Key::Enter if matches!(f, Field::InstanceName | Field::InstanceGroup) => {
-                        this.save_instance(cx)
-                    }
-                    Key::Enter => this.field_enter(f),
-                    Key::Escape => {
-                        this.servers.confirm_delete = false;
-                        if this.servers.create.is_some() && !this.servers.creating {
-                            this.servers.create = None;
-                        }
-                        this.instance_escape();
-                        window.blur(cx);
-                    }
-                    // Tab and the rest go on to the window: Tab moves the focus.
-                    Key::Pass => return,
-                    _ => {}
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }));
-        line_edit::mouse(field, cx, move |this| this.servers.text(f))
-    }
-
     /// Escape closes the Create dialog. Whether it did.
     pub(super) fn servers_escape(&mut self) -> bool {
-        if self.page == Page::Servers && self.servers.confirm_delete {
-            self.servers.confirm_delete = false;
-            return true;
-        }
         if self.page != Page::Servers || self.servers.create.is_none() || self.servers.creating {
             return false;
         }
@@ -1118,21 +842,21 @@ impl Launcher {
         true
     }
 
-    fn field_enter(&mut self, f: Field) {
+    pub(super) fn server_field_enter(&mut self, f: Field) {
         match f {
             // The dialog's friend field adds the name typed.
-            Field::Players => self.add_create_friend(),
-            Field::Name | Field::Seed => self.create_server(),
-            Field::Command => {
-                let line = self.servers.text(Field::Command).take();
+            Field::NewServerFriend => self.add_create_friend(),
+            Field::NewServerName | Field::NewServerSeed => self.create_server(),
+            Field::ServerCommand => {
+                let line = self.fields.text(Field::ServerCommand).take();
                 let line = line.trim().trim_start_matches('/').to_string();
                 if !line.is_empty() {
                     self.api_command(line);
                 }
             }
-            Field::AddPlayer => self.add_player(),
-            Field::Motd => {
-                let motd = self.servers.value(Field::Motd).trim().to_string();
+            Field::ServerPlayer => self.add_player(),
+            Field::ServerMotd => {
+                let motd = self.fields.value(Field::ServerMotd).trim().to_string();
                 if motd.is_empty() {
                     self.servers.problem =
                         Some(Problem::plain("Type the line players see under the name."));
@@ -1140,31 +864,17 @@ impl Launcher {
                     self.set_setting("server.motd", motd);
                 }
             }
-            Field::Port => self.save_port(),
-            Field::Token => self.save_token(),
-            Field::Email => self.invite_friend(),
-            Field::InstanceName
-            | Field::InstanceGroup
-            | Field::InstanceVersion
-            | Field::InstanceModsFilter
-            | Field::ConsoleSearch
-            | Field::DeleteServer
-            | Field::AccentHex => {}
-            Field::PreLaunch | Field::Wrapper | Field::LaunchEnv | Field::PostExit => {
-                self.save_launch()
-            }
-            Field::MemoryLimit => self.memory_enter(),
-            Field::OfflineName => self.offline_name_enter(),
-            Field::ServerName | Field::ServerAddress => self.add_server(),
+            Field::ServerPort => self.save_port(),
+            _ => {}
         }
     }
 
     fn save_port(&mut self) {
-        match self.servers.value(Field::Port).trim().parse::<u16>() {
+        match self.fields.value(Field::ServerPort).trim().parse::<u16>() {
             Ok(port) if port >= 1024 => self.set_setting("server.port", port.to_string()),
             _ => {
-                self.servers.invalid = Some((
-                    Field::Port,
+                self.fields.invalid = Some((
+                    Field::ServerPort,
                     "Use a number from 1024 to 65535 (25565 is Minecraft's own).",
                 ))
             }
@@ -1172,17 +882,17 @@ impl Launcher {
     }
 
     fn add_player(&mut self) {
-        let name = self.servers.value(Field::AddPlayer).trim().to_string();
+        let name = self.fields.value(Field::ServerPlayer).trim().to_string();
         let valid = (3..=16).contains(&name.len())
             && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
         if !valid {
-            self.servers.invalid = Some((
-                Field::AddPlayer,
+            self.fields.invalid = Some((
+                Field::ServerPlayer,
                 "A Minecraft name has 3 to 16 letters, digits or underscores.",
             ));
             return;
         }
-        self.servers.text(Field::AddPlayer).set(String::new());
+        self.fields.text(Field::ServerPlayer).set(String::new());
         self.server_command(
             &format!("Letting {name} in"),
             vec!["whitelist".into(), "add".into(), name],
@@ -1231,7 +941,7 @@ impl Launcher {
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self) + 'static,
     ) -> Stateful<Div> {
-        let b = ui::button(id, None, tr(label), Kind::Ghost, ui::Size::Sm);
+        let b = ui::button(id, None, tr(label), ButtonKind::Ghost, ui::Size::Sm);
         if enabled {
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 action(this);
@@ -1254,7 +964,7 @@ impl Launcher {
                 self.open_server(dir);
             }
         }
-        self.glass_servers_page(cx)
+        self.servers_view(cx)
     }
 
     fn add_server_folder(&mut self, cx: &mut Context<Self>) {
@@ -1417,14 +1127,14 @@ impl Launcher {
             "player-add",
             None,
             tr("Let in"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         );
         let add = div()
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(self.field(Field::AddPlayer, tr("A player's name"), 240., cx))
+            .child(self.field(Field::ServerPlayer, tr("A player's name"), 240., cx))
             .child(if idle {
                 let_in.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.add_player();
@@ -1491,8 +1201,8 @@ impl Launcher {
                 Some(actions.into_any_element()),
             ));
         }
-        let refused = self.servers.invalid.and_then(|(f, e)| {
-            (f == Field::AddPlayer).then(|| ui::card_note(tr(e)).text_color(ui::danger()))
+        let refused = self.fields.invalid.and_then(|(f, e)| {
+            (f == Field::ServerPlayer).then(|| ui::card_note(tr(e)).text_color(ui::danger()))
         });
         tab = tab.child(
             div()
@@ -1588,7 +1298,7 @@ impl Launcher {
     ) -> AnyElement {
         let (section, field) = key.split_once('.').unwrap_or_default();
         let value: i64 = self.servers.shown(section, field).parse().unwrap_or(0);
-        self.glass_stepper(key, value, range, cx, move |this, to| {
+        self.number_stepper(key, value, range, cx, move |this, to| {
             this.set_setting(key, to.to_string())
         })
     }
@@ -1631,20 +1341,16 @@ impl Launcher {
                     .into_any_element()
             });
         }
-        if self.servers.focused != Some(Field::Motd)
-            && !self.servers.texts.contains_key(&Field::Motd)
-        {
+        if !self.fields.has_focus(Field::ServerMotd) && !self.fields.holds(Field::ServerMotd) {
             let motd = self.servers.shown("server", "motd");
-            self.servers.text(Field::Motd).set(motd);
+            self.fields.text(Field::ServerMotd).set(motd);
         }
-        if self.servers.focused != Some(Field::Port)
-            && !self.servers.texts.contains_key(&Field::Port)
-        {
+        if !self.fields.has_focus(Field::ServerPort) && !self.fields.holds(Field::ServerPort) {
             let port = self.servers.shown("server", "port");
-            self.servers.text(Field::Port).set(port);
+            self.fields.text(Field::ServerPort).set(port);
         }
         let save = |id: &'static str, f: Field, cx: &mut Context<Self>| {
-            button(id, "Save", Kind::Secondary).on_press(cx.listener(
+            button(id, "Save", ButtonKind::Secondary).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.field_enter(f);
                     cx.notify();
@@ -1655,15 +1361,15 @@ impl Launcher {
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(self.field(Field::Motd, tr("A Minecraft Server"), 260., cx))
-            .child(save("motd-save", Field::Motd, cx))
+            .child(self.field(Field::ServerMotd, tr("A Minecraft Server"), 260., cx))
+            .child(save("motd-save", Field::ServerMotd, cx))
             .into_any_element();
         let port = div()
             .flex()
             .items_center()
             .gap(px(8.))
-            .child(self.field(Field::Port, "25565", 100., cx))
-            .child(save("port-save", Field::Port, cx))
+            .child(self.field(Field::ServerPort, "25565", 100., cx))
+            .child(save("port-save", Field::ServerPort, cx))
             .into_any_element();
         let pvp_known = self.servers.pvp.filter(|_| running);
         let pvp = self.switch_row(
@@ -1759,9 +1465,9 @@ impl Launcher {
                         "{} {later}",
                         tr("1024 to 65535. Friends type it after the address unless it's 25565.")
                     ),
-                    self.servers
+                    self.fields
                         .invalid
-                        .and_then(|(f, e)| (f == Field::Port).then_some(e)),
+                        .and_then(|(f, e)| (f == Field::ServerPort).then_some(e)),
                     port,
                 ),
             )
@@ -1799,13 +1505,17 @@ impl Launcher {
             .flex_none()
             .w(px(DELETE_CONTROLS))
             .gap(px(12.));
-        if self.servers.confirm_delete {
-            let matches = self.servers.value(Field::DeleteServer) == name && !name.is_empty();
-            let field = self.field(Field::DeleteServer, tr("Server name"), 225., cx);
-            let confirm = button("server-delete-confirm", "Move to trash", Kind::Secondary)
-                .text_color(ui::danger());
-            let confirm = if ready && matches {
-                confirm.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+        if self.servers.confirm_delete && ready {
+            controls = controls.child(ui::confirm(
+                "server-delete",
+                trf("Delete {name}?", &[("name", &name)]),
+                tr("Delete"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.servers.confirm_delete = false;
+                    cx.notify();
+                }),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.servers.confirm_delete = false;
                     if let Some(dir) = this.servers.open.clone() {
                         this.servers.busy = Some("Moving server to trash".into());
                         let tx = this.servers.tx.clone();
@@ -1815,48 +1525,14 @@ impl Launcher {
                         });
                     }
                     cx.notify();
-                }))
-            } else {
-                crate::disabled(confirm)
-            };
-            let line = tr("Type {name} to confirm.");
-            let (before, after) = line.split_once("{name}").unwrap_or((line, ""));
-            let confirm_text = format!("{before}{name}{after}");
-            let lit = before.len()..before.len() + name.len();
-            controls = controls
-                .child(field)
-                .child(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(
-                    gpui::StyledText::new(confirm_text).with_highlights([(
-                        lit,
-                        gpui::HighlightStyle {
-                            font_weight: Some(FontWeight::BOLD),
-                            ..Default::default()
-                        },
-                    )]),
-                ))
-                .child(
-                    div()
-                        .flex()
-                        .gap(px(8.))
-                        .child(
-                            button("server-delete-cancel", "Cancel", Kind::Ghost).on_press(
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.servers.confirm_delete = false;
-                                    cx.notify();
-                                }),
-                            ),
-                        )
-                        .child(confirm),
-                );
+                }),
+            ));
         } else {
-            let delete =
-                button("server-delete", "Delete server…", Kind::Secondary).text_color(ui::danger());
+            let delete = button("server-delete", "Delete server…", ButtonKind::Secondary)
+                .text_color(ui::danger());
             let delete = if ready {
                 delete.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.servers.confirm_delete = true;
-                    this.servers.text(Field::DeleteServer).set(String::new());
-                    this.focus_handle(Field::DeleteServer, cx);
-                    this.servers.focus_soon = Some(Field::DeleteServer);
                     cx.notify();
                 }))
             } else {
@@ -1959,12 +1635,14 @@ impl Launcher {
                 }
             }
             None if self.servers.checking => {
-                crate::disabled(button("update-check", "Checking…", Kind::Secondary))
+                crate::disabled(button("update-check", "Checking…", ButtonKind::Secondary))
             }
-            None if !idle => {
-                crate::disabled(button("update-check", "Check for updates", Kind::Secondary))
-            }
-            None => button("update-check", "Check for updates", Kind::Secondary).on_press(
+            None if !idle => crate::disabled(button(
+                "update-check",
+                "Check for updates",
+                ButtonKind::Secondary,
+            )),
+            None => button("update-check", "Check for updates", ButtonKind::Secondary).on_press(
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     if let Some(dir) = this.servers.open.clone() {
                         this.servers.checking = true;
@@ -2031,26 +1709,21 @@ impl Launcher {
             let (when, kind) = backup_label(&b);
             let confirming = self.servers.confirm_restore.as_deref() == Some(b.name.as_str());
             let name = b.name.clone();
-            let restored = format!(
-                "The world is back as it was on {when}. The one it replaced is in the backups \
-                 folder."
+            let restored = trf(
+                "The world is back as it was on {when}. The one it replaced is in the backups folder.",
+                &[("when", &when)],
             );
-            let restore = button(
-                SharedString::from(format!("restore-{i}")),
-                if confirming {
-                    "Replace the world"
-                } else {
-                    "Restore"
-                },
-                if confirming {
-                    Kind::Primary
-                } else {
-                    Kind::Ghost
-                },
-            );
-            let restore = if idle {
-                restore.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if this.servers.confirm_restore.as_ref() == Some(&name) {
+            let restore_id = SharedString::from(format!("restore-{i}"));
+            let right = if confirming && idle {
+                ui::confirm(
+                    restore_id,
+                    trf("Restore {name}?", &[("name", &when)]),
+                    tr("Restore"),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.servers.confirm_restore = None;
+                        cx.notify();
+                    }),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.servers.confirm_restore = None;
                         if let Some(dir) = this.servers.open.clone() {
                             let (name, restored) = (name.clone(), restored.clone());
@@ -2059,24 +1732,21 @@ impl Launcher {
                                     .map(|_| restored)
                             });
                         }
-                    } else {
-                        this.servers.confirm_restore = Some(name.clone());
-                    }
-                    cx.notify();
-                }))
-            } else {
-                crate::disabled(restore)
-            };
-            let mut right = div().flex().flex_none().items_center().gap(px(8.));
-            if confirming {
-                right = right.child(button("restore-cancel", "Cancel", Kind::Ghost).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.servers.confirm_restore = None;
                         cx.notify();
                     }),
-                ));
-            }
-            right = right.child(restore);
+                )
+            } else {
+                let restore = button(restore_id, "Restore…", ButtonKind::Ghost);
+                let restore = if idle {
+                    restore.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.servers.confirm_restore = Some(name.clone());
+                        cx.notify();
+                    }))
+                } else {
+                    crate::disabled(restore)
+                };
+                div().flex().flex_none().items_center().child(restore)
+            };
             let detail = if kind.is_empty() {
                 bytes(b.bytes)
             } else {
@@ -2125,7 +1795,7 @@ impl Launcher {
             })),
         );
         if self.servers.confirm_restore.is_some() {
-            tab = tab.child(notice_line(
+            tab = tab.child(ui::notice_line(
                 ui::warn(),
                 tr("The current world moves to the backups folder, and a running server restarts."),
             ));
@@ -2138,12 +1808,6 @@ impl Launcher {
             tab.child(list)
         };
         tab.child(self.updates_section(status, cx))
-    }
-
-    // ----- The Create dialog ----------------------------------------------------------------
-
-    pub(super) fn create_dialog(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        self.glass_create_dialog(cx)
     }
 }
 

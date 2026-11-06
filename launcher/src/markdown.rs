@@ -1,6 +1,5 @@
 //! Release notes: pulldown-cmark events into gpui elements.
-use crate::glass_ui::{self as ui, white};
-use crate::theme::Theme;
+use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, step, EDGE};
 use gpui::{
     div, prelude::*, px, AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString,
@@ -37,7 +36,7 @@ enum Span {
     Link,
 }
 
-pub fn render(source: &str, _: &Theme) -> AnyElement {
+pub fn render(source: &str) -> AnyElement {
     let mut blocks = Vec::new();
     let (mut text, mut spans) = (String::new(), Vec::new());
     let mut open: Vec<(Span, usize)> = Vec::new();

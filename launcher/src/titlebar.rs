@@ -1,7 +1,7 @@
 //! Window chrome: Windows and Linux client-side decorations are custom drawn; macOS and Linux
 //! server-side decorations use the platform's native chrome.
-use crate::glass_ui::{self as ui, white};
 use crate::theme::Theme;
+use crate::ui::{self, white};
 use eclipse_launcher::backend::Appearance;
 use eclipse_theme::glass::{fill, ink};
 use gpui::{Div, ParentElement, Styled, TitlebarOptions, Window};
@@ -35,7 +35,6 @@ pub fn render(_theme: &Theme, _window: &Window) -> Option<Div> {
 /// Draw the launcher's Linux title bar when the platform uses client-side decorations.
 #[cfg(target_os = "linux")]
 pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
-    use crate::mark;
     use gpui::{div, prelude::*, px, Decorations, MouseButton};
 
     if matches!(window.window_decorations(), Decorations::Server) {
@@ -282,7 +281,6 @@ pub fn apply_appearance(_: &Window, _: Appearance) {}
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
-    use crate::mark;
     use gpui::{div, prelude::*, px, Stateful, WindowControlArea};
 
     const HEIGHT: f32 = 32.;
@@ -411,3 +409,22 @@ mod windows {
 
 #[cfg(target_os = "windows")]
 pub use windows::render;
+
+pub(super) fn mark(size: f32, scale: f32) -> Div {
+    thread_local! {
+        static MARKS: std::cell::RefCell<std::collections::HashMap<(u32, u32), std::sync::Arc<gpui::RenderImage>>> =
+            Default::default();
+    }
+    let image = MARKS.with_borrow_mut(|marks| {
+        marks
+            .entry((size.to_bits(), scale.to_bits()))
+            .or_insert_with(|| {
+                crate::art::bake(&eclipse_theme::mark::texels(), 16, 16, size / 16., scale)
+            })
+            .clone()
+    });
+    gpui::div()
+        .flex_none()
+        .size(gpui::px(size))
+        .child(gpui::img(image).size(gpui::px(size)))
+}

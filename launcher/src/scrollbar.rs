@@ -50,7 +50,7 @@ impl Scrollbar {
         let state = self.clone();
         let (track_color, thumb_color) = (
             gpui::transparent_black(),
-            crate::glass_ui::white(eclipse_theme::glass::fill::ACTIVE),
+            crate::ui::white(eclipse_theme::glass::fill::ACTIVE),
         );
         div()
             .relative()

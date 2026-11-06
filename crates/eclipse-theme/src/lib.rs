@@ -47,7 +47,7 @@ pub mod fonts {
 }
 
 /// The glass look's icons: Eclipse's pixel set on a 16 px grid, filled in `currentColor`, by name
-/// (`"folder-01"`, `"more-vertical"`…). `github` is GitHub's mark, drawn for Eclipse (filled,
+/// (`"folder-01"`, `"more-horizontal"`…). `github` is GitHub's mark, drawn for Eclipse (filled,
 /// its cat cut out by a mask), beside the links to GitHub Sponsors.
 pub mod glass_icons {
     macro_rules! icons {
@@ -84,7 +84,6 @@ pub mod glass_icons {
         "link-01",
         "minus-sign",
         "more-horizontal",
-        "more-vertical",
         "package-01",
         "pencil-edit-02",
         "play",
@@ -93,6 +92,7 @@ pub mod glass_icons {
         "refresh",
         "search-01",
         "sliders-horizontal",
+        "star",
         "stop",
         "tick-02",
         "upload-04",

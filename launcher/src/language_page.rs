@@ -2,7 +2,7 @@
 //! ones the launcher has, each named in itself. A list rather than a segment per language: nine
 //! segments took the row's whole width and left the row's own sentence a character wide.
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::i18n::Language;
 
 /// What the dropdown shows for a choice: the system's, in the launcher's language with the
@@ -51,7 +51,7 @@ impl Launcher {
         // A solid backing: the backdrop doesn't paint under a popover whose rows scroll (seen on
         // the desktop run), and the rows must stay legible.
         let menu = ui::popover("language-menu")
-            .bg(crate::glass::colour(crate::glass::Kind::Float))
+            .bg(ui::surface_colour(ui::Surface::Float))
             .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
                 this.language_menu = false;
                 this.menu_closed_at = Some(event.position);

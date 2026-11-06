@@ -1,12 +1,12 @@
 //! The New instance page: what the instance plays, its name and group, its version and its icon
 //! in cards; at the foot the instance as it will be, with Cancel and Create.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
 use eclipse_theme::glass::{fill, ink, radius, EDGE};
+use fields::Field;
 use new_instance::{NewKind, VersionList};
-use servers_page::Field;
 
 /// The loaders Prism Launcher offers. Those `loaders::Kind` can install are shown; the others
 /// join when the launcher learns them.
@@ -81,7 +81,7 @@ pub(super) fn section_card(
     aside: Option<AnyElement>,
     body: impl IntoElement,
 ) -> Stateful<Div> {
-    crate::glass::plate(radius::PANEL)
+    ui::card(radius::PANEL)
         .id(id)
         .flex()
         .flex_col()
@@ -173,8 +173,8 @@ impl Launcher {
         );
         // The memory it may use, kept with the instance.
         if editing.is_some() {
-            cards.extend(self.glass_memory_row(cx).map(|row| {
-                crate::glass::plate(radius::PANEL)
+            cards.extend(self.memory_setting(cx).map(|row| {
+                ui::card(radius::PANEL)
                     .id("instance-memory")
                     .p(px(ui::CARD_PADDING - ui::SETTING_ROW_PADDING))
                     .child(row)
@@ -349,7 +349,7 @@ impl Launcher {
                 ],
             ),
         };
-        let group = self.servers.value(Field::InstanceGroup).trim().to_string();
+        let group = self.fields.value(Field::InstanceGroup).trim().to_string();
         [plays, group]
             .into_iter()
             .filter(|part| !part.is_empty() && part != name)
@@ -435,7 +435,7 @@ impl Launcher {
                 "instance-import",
                 None,
                 tr("Import a modpack…"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -476,7 +476,7 @@ impl Launcher {
                 .child(card_head(tr(label).into(), None))
                 .child(field)
         };
-        crate::glass::plate(radius::PANEL)
+        ui::card(radius::PANEL)
             .id("instance-name")
             .flex()
             .flex_col()
@@ -533,7 +533,7 @@ impl Launcher {
         error: Option<String>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let typed = self.servers.value(Field::InstanceName).trim().to_string();
+        let typed = self.fields.value(Field::InstanceName).trim().to_string();
         let name = if typed.is_empty() {
             tr("New instance").to_string()
         } else {
@@ -550,7 +550,7 @@ impl Launcher {
             "instance-cancel",
             None,
             tr("Cancel"),
-            Kind::Ghost,
+            ButtonKind::Ghost,
             ui::Size::Lg,
         );
         let label = match (editing.is_some(), busy) {
@@ -580,7 +580,7 @@ impl Launcher {
                     cx.notify();
                 })))
         };
-        crate::glass::plate(radius::PANEL)
+        ui::card(radius::PANEL)
             .id("instance-foot")
             .flex()
             .flex_none()
@@ -645,7 +645,7 @@ impl Launcher {
                 let newest = i == 0;
                 let on = chosen.as_ref() == Some(&tag);
                 let date = eclipse_launcher::nightly::date_of(&tag)
-                    .map(|d| glass_versions::published(d, ""));
+                    .map(|d| versions_page::published(d, ""));
                 let pick = tag.clone();
                 list_choice(format!("eclipse-version-{tag}"), on)
                     .py(px(12.))
@@ -711,7 +711,7 @@ impl Launcher {
             .as_ref()
             .map_or_else(|| "Eclipse".into(), |i| i.name.clone());
         let icon = match &selected {
-            Some(i) => self.glass_instance_icon(i, MARK),
+            Some(i) => self.instance_icon(i, MARK),
             None => self.eclipse_mark(MARK),
         };
         let card = |on: bool, id: &'static str| {
@@ -767,7 +767,7 @@ impl Launcher {
         let file_picture = matches!(&d_picture, Some(Some(_))) && logo.is_none();
         let own_picture = d_picture.is_none() && has_saved_picture;
         let pictured = matches!(&d_picture, Some(Some(_))) || own_picture;
-        let typed = self.servers.value(Field::InstanceName).trim().to_string();
+        let typed = self.fields.value(Field::InstanceName).trim().to_string();
         let name = if typed.is_empty() { "N".into() } else { typed };
         let pick = |icon: Option<Icon>| {
             cx.listener(
@@ -860,7 +860,7 @@ impl Launcher {
                     .into_any_element(),
             );
         }
-        for texture in instances_page::TEXTURES {
+        for texture in instance_state::TEXTURES {
             let Some(image) = self.texture_image(texture, 40.) else {
                 continue;
             };
@@ -883,7 +883,7 @@ impl Launcher {
             "instance-picture",
             Some("image-01"),
             tr("Choose image…"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         )
         .ml(px(6.))

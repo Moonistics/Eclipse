@@ -1,11 +1,13 @@
 use super::{
-    button, card_title, color, danger, icon, light, look, menu_keys, text, tile, white, IconSize,
-    Press, Size, PANEL_INSET,
+    button, card_title, color, danger, icon, light, look, menu_keys, scroll_pane, text, tile, well,
+    white, ButtonKind, IconSize, Press, Size, PANEL_INSET,
 };
-use crate::Kind;
-use eclipse_theme::glass::{fill, ink, radius, step, FIELD_EDGE, FIELD_EDGE_LIGHT};
+use eclipse_theme::glass::{
+    fill, ink, radius, step, EDGE, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT, PAPER,
+};
 use gpui::{
-    div, prelude::*, px, ClipboardItem, Div, FontWeight, Hsla, ScrollHandle, SharedString, Stateful,
+    div, prelude::*, px, AnyElement, ClipboardItem, Div, FontWeight, Hsla, ScrollEvent,
+    ScrollHandle, SharedString, Stateful,
 };
 
 pub const POPOVER_WIDTH: f32 = 280.;
@@ -14,7 +16,7 @@ pub const MENU_GAP: f32 = 8.;
 
 const EMPTY_TILE: f32 = 48.;
 
-const EMPTY_NOTE_WIDTH: f32 = 420.;
+const EMPTY_NOTE_WIDTH: f32 = 520.;
 
 const FIELD_HEIGHT: f32 = 44.;
 
@@ -26,9 +28,54 @@ const SCRIM: f32 = 0.5;
 
 const SCRIM_LIGHT: f32 = 0.2;
 
+const LOG_HEIGHT: f32 = 320.;
+
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
+pub enum Surface {
+    Card,
+    Float,
+}
+
+pub fn surface_colour(kind: Surface) -> Hsla {
+    if light() {
+        return color(PAPER);
+    }
+    match kind {
+        Surface::Card => color(look().plate),
+        Surface::Float => color(FLOAT),
+    }
+}
+
+pub fn backdrop(kind: Surface, radius: f32) -> AnyElement {
+    div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .rounded(px(radius))
+        .bg(surface_colour(kind))
+        .border_1()
+        .border_color(white(EDGE))
+        .into_any_element()
+}
+
+pub fn card(radius: f32) -> Div {
+    div()
+        .relative()
+        .rounded(px(radius))
+        .child(backdrop(Surface::Card, radius))
+}
+
+pub fn float_card(radius: f32) -> Div {
+    div()
+        .relative()
+        .rounded(px(radius))
+        .child(backdrop(Surface::Float, radius))
+}
+
 pub fn popover(id: impl Into<SharedString>) -> Stateful<Div> {
     menu_keys(
-        crate::glass::float(radius::POPOVER)
+        float_card(radius::POPOVER)
             .shadow_lg()
             .w(px(POPOVER_WIDTH))
             .p(px(6.))
@@ -42,7 +89,7 @@ pub fn popover(id: impl Into<SharedString>) -> Stateful<Div> {
 /// What a dialog or the palette lays over the launcher: GPUI can't blur what it drew, so a
 /// menu's float covers the page. The scrim goes over it.
 pub fn scrim_backdrop() -> impl IntoElement {
-    crate::glass::backdrop(crate::glass::Kind::Float, 0.)
+    backdrop(Surface::Float, 0.)
 }
 
 /// The scrim over [`scrim_backdrop`]: lighter in the light appearance, so the dimmed launcher
@@ -63,12 +110,18 @@ pub fn dialog_plate(radius: f32) -> Div {
             .rounded(px(radius))
             .bg(c)
     };
-    crate::glass::plate(radius)
+    card(radius)
         // Light plates are already day-lit: no dimming under them.
         .child(layer(
             color(eclipse_theme::glass::SCRIM).opacity(if light() { 0. } else { SCRIM }),
         ))
         .child(layer(white(fill::HOVER)))
+}
+
+pub fn dialog_colour() -> Hsla {
+    let plate = surface_colour(Surface::Card);
+    let plate = if light() { plate } else { plate.blend(scrim()) };
+    plate.blend(white(fill::HOVER))
 }
 
 fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) -> Stateful<Div> {
@@ -135,11 +188,11 @@ pub fn error_state(
         format!("{id}-copy"),
         Some("copy-01"),
         crate::tr("Copy details"),
-        Kind::Ghost,
+        ButtonKind::Ghost,
         Size::Md,
     )
     .on_press(move |_, _, cx| {
-        crate::copy_to_clipboard(cx, ClipboardItem::new_string(details.clone()))
+        crate::clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(details.clone()))
     });
     actions(
         state(id, glyph, title.into(), plain_error(error).into()),
@@ -151,10 +204,14 @@ pub fn plain_error(error: &str) -> &str {
     error.lines().next().unwrap_or_default()
 }
 
-pub fn empty_card(state: Stateful<Div>) -> Div {
-    crate::glass::plate(radius::PANEL)
+pub fn error_card(said: impl Into<SharedString>) -> Div {
+    card(radius::PANEL)
         .p(px(PANEL_INSET))
-        .child(state)
+        .child(super::error_note(said))
+}
+
+pub fn empty_card(state: Stateful<Div>) -> Div {
+    card(radius::PANEL).p(px(PANEL_INSET)).child(state)
 }
 
 /// An empty state inside an area that is already a card; the message goes in as a child.
@@ -262,4 +319,24 @@ pub fn field(focused: bool, invalid: bool) -> Div {
         .border_color(field_edge())
         .font_family(eclipse_theme::glass::FONT)
         .text_size(px(step::BODY.size))
+}
+
+pub fn log_well(id: &'static str, handle: &ScrollHandle) -> Stateful<Div> {
+    let at = handle.clone();
+    scroll_pane(id, handle)
+        .on_scroll(move |ev: &ScrollEvent, window, cx| {
+            let dy = ev.delta.pixel_delta(window.line_height()).y;
+            let (offset, max) = (at.offset().y, at.max_offset().y);
+            let at_end = (dy > px(0.) && offset >= px(0.)) || (dy < px(0.) && -offset >= max);
+            if !at_end {
+                cx.stop_propagation();
+            }
+        })
+        .h(px(LOG_HEIGHT))
+        .p(px(16.))
+        .rounded(px(radius::ROW))
+        .bg(well())
+        .font_family(crate::theme::MONO)
+        .text_size(px(step::CAPTION.size))
+        .line_height(px(step::BODY.line))
 }

@@ -40,5 +40,5 @@ pub fn letter_tile(colour: Hsla, name: &str, size: f32) -> Div {
         .text_size(px(letter))
         .line_height(px(letter))
         .text_color(tone)
-        .child(crate::instances_page::initial(name))
+        .child(crate::instance_state::initial(name))
 }

@@ -1,7 +1,7 @@
 //! Settings' accent colour and Home background rows (`eclipse_launcher::themes`).
 use super::*;
-use crate::glass_ui as ui;
-use crate::servers_page::Field;
+use crate::fields::Field;
+use crate::ui;
 use eclipse_launcher::themes::{self, Accent};
 use gpui::{
     canvas, fill, point, size, Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
@@ -54,7 +54,7 @@ impl Launcher {
 
     /// The accent row: its seven swatches, the any-colour swatch (a click shows the hue strip
     /// under them) and the hex field, which takes the colour as soon as it is one.
-    pub(super) fn glass_accent_row(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn accent_row(&mut self, cx: &mut Context<Self>) -> Div {
         self.sync_accent_hex(cx);
         let beside = self.wide_controls_beside();
         let current = self.settings.accent;
@@ -119,7 +119,7 @@ impl Launcher {
             .gap(px(10.))
             .child(row)
             .when(self.accent_strip, |d| d.child(self.hue_strip(cx)));
-        glass_settings::wide_row(
+        settings_page::wide_row(
             beside,
             tr("Accent colour"),
             None,
@@ -141,7 +141,7 @@ impl Launcher {
                     "look-reset",
                     Some("refresh"),
                     tr("Reset to defaults"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
@@ -159,7 +159,7 @@ impl Launcher {
                     this.accent_strip = false;
                     this.background_error = None;
                     this.theme = this.settings_theme(window);
-                    crate::glass_toast::say(tr("Appearance is back to its defaults"));
+                    crate::toast::say(tr("Appearance is back to its defaults"));
                     cx.notify();
                 }))
                 .into_any_element(),
@@ -171,13 +171,13 @@ impl Launcher {
     /// the accent at once.
     fn sync_accent_hex(&mut self, cx: &mut Context<Self>) {
         let shown = self.settings.accent.hex();
-        if !self.servers.has_focus(Field::AccentHex) {
-            if self.servers.value(Field::AccentHex) != shown {
-                self.servers.text(Field::AccentHex).set(shown);
+        if !self.fields.has_focus(Field::AccentHex) {
+            if self.fields.value(Field::AccentHex) != shown {
+                self.fields.text(Field::AccentHex).set(shown);
             }
             return;
         }
-        let typed = self.servers.value(Field::AccentHex).trim();
+        let typed = self.fields.value(Field::AccentHex).trim();
         let hex = format!("#{}", typed.trim_start_matches('#'));
         if let Some(accent) = Accent::parse(&hex).filter(|a| *a != self.settings.accent) {
             self.settings.accent = accent;
@@ -332,16 +332,16 @@ impl Launcher {
     pub(super) fn home_background_row(&self, cx: &mut Context<Self>) -> Div {
         let custom = self.home_background().is_some();
         let mut actions = div().flex().gap(px(4.)).child(
-            button("background-choose", "Choose image…", Kind::Secondary).on_press(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
+            button("background-choose", "Choose image…", ButtonKind::Secondary).on_press(
+                cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.choose_background(cx);
                     cx.notify();
-                },
-            )),
+                }),
+            ),
         );
         if custom {
             actions = actions.child(
-                button("background-reset", "Default background", Kind::Ghost).on_press(
+                button("background-reset", "Default background", ButtonKind::Ghost).on_press(
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.settings.background = None;
                         this.save_settings();

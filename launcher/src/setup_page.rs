@@ -1,12 +1,10 @@
 //! The Windows setup window: `eclipse-launcher-setup.exe` installs, `eclipse-launcher.exe
 //! uninstall` removes. The launcher's own scene and cards; the work is
 //! `eclipse_launcher::installer`, on a thread, reported over a channel.
-use crate::glass_ui::{self, Press};
 use crate::scene;
-use crate::sky::Sky;
 use crate::theme::{self, Theme};
 use crate::titlebar;
-use crate::Kind;
+use crate::ui::{self, ButtonKind, Press};
 use eclipse_launcher::backend::Settings;
 use eclipse_launcher::i18n::{self, tr};
 use eclipse_launcher::installer::{self, Mode, Options, Step};
@@ -33,11 +31,9 @@ enum Event {
 pub struct Setup {
     mode: Mode,
     theme: Theme,
-    /// The redesign's scene behind the dark window (as the launcher draws it); the light
-    /// appearance keeps the dawn sky until the design has a light scene.
+    /// The redesign's scene behind the window (as the launcher draws it).
     scene: gpui::Entity<scene::Scene>,
-    sky: Sky,
-    sky_wake: Option<(Instant, Task<()>)>,
+    wake: Option<(Instant, Task<()>)>,
     /// The settings file's write time and size as last read: a change (the launcher's Settings
     /// page) rebuilds the theme on the next frame, as the launcher applies it on its own next
     /// frame.
@@ -88,8 +84,7 @@ impl Setup {
             mode,
             theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
             scene: cx.new(|_| scene::Scene::new()),
-            sky: Sky::default(),
-            sky_wake: None,
+            wake: None,
             settings_stamp: Self::settings_stamp(),
             options: Options::new(),
             update: installer::installed().is_some(),
@@ -105,20 +100,19 @@ impl Setup {
         Some((meta.modified().ok()?, meta.len()))
     }
 
-    /// Draws the window again when the sky next changes (as `Launcher::wake_sky`).
-    fn wake_sky(&mut self, after: Duration, cx: &mut Context<Self>) {
+    fn wake_in(&mut self, after: Duration, cx: &mut Context<Self>) {
         let at = Instant::now() + after;
-        if self.sky_wake.as_ref().is_some_and(|(when, _)| *when <= at) {
+        if self.wake.as_ref().is_some_and(|(when, _)| *when <= at) {
             return;
         }
         let timer = cx.spawn(async move |this, cx| {
             cx.background_executor().timer(after).await;
             let _ = this.update(cx, |this, cx| {
-                this.sky_wake = None;
+                this.wake = None;
                 cx.notify();
             });
         });
-        self.sky_wake = Some((at, timer));
+        self.wake = Some((at, timer));
     }
 
     fn start(&mut self, cx: &mut Context<Self>) {
@@ -227,21 +221,21 @@ impl Setup {
             .flex()
             .items_center()
             .gap(px(14.))
-            .child(crate::glass_ui::toggle(id, on).on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
+            .child(
+                ui::toggle(id, on).on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     flip(&mut this.options);
                     cx.notify();
-                },
-            )))
+                })),
+            )
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .min_w_0()
-                    .child(glass_ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(words))
-                    .children(hint.map(|h| {
-                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(h)
-                    })),
+                    .child(ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(words))
+                    .children(
+                        hint.map(|h| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(h)),
+                    ),
             )
     }
 
@@ -257,18 +251,18 @@ impl Setup {
                     .flex_1()
                     .min_w_0()
                     .child(
-                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                             .child(tr("Install to").to_string()),
                     )
                     .child(
-                        glass_ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
+                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                             .font_family(theme::MONO)
                             .truncate()
                             .child(self.options.dir.display().to_string()),
                     ),
             )
             .child(
-                crate::button("change", tr("Change…"), Kind::Secondary)
+                crate::button("change", tr("Change…"), ButtonKind::Secondary)
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_folder(cx))),
             )
     }
@@ -279,7 +273,7 @@ impl Setup {
             Stage::Welcome if self.mode == Mode::Install => {
                 body = body
                     .child(
-                        glass_ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
+                        ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
                             .child(tr("Installs Eclipse Launcher for this account.").to_string()),
                     )
                     .child(self.folder_row(cx))
@@ -300,7 +294,7 @@ impl Setup {
                                 } else {
                                     tr("Install").to_string()
                                 },
-                                Kind::Primary,
+                                ButtonKind::Primary,
                             )
                             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
                         ),
@@ -308,7 +302,7 @@ impl Setup {
             }
             Stage::Welcome => {
                 body = body
-                    .child(glass_ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(
+                    .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(
                         tr("Removes Eclipse Launcher from this computer. Your worlds and the game's folder stay.")
                             .to_string(),
                     ))
@@ -330,11 +324,11 @@ impl Setup {
                             .justify_end()
                             .gap(px(12.))
                             .child(
-                                crate::button("cancel", tr("Cancel"), Kind::Secondary)
+                                crate::button("cancel", tr("Cancel"), ButtonKind::Secondary)
                                     .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                             )
                             .child(
-                                crate::button("go", tr("Uninstall"), Kind::Primary)
+                                crate::button("go", tr("Uninstall"), ButtonKind::Primary)
                                     .on_press(
                                         cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx)),
                                     ),
@@ -344,26 +338,25 @@ impl Setup {
             Stage::Working { step, fraction } => {
                 body = body
                     .child(
-                        glass_ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                            .child(step_text(*step)),
+                        ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(step_text(*step)),
                     )
-                    .child(crate::progress_bar(Some((0., *fraction))));
+                    .child(ui::progress_bar(Some((0., *fraction))));
             }
             Stage::Done { left } => {
                 let said = match self.mode {
                     Mode::Install => tr("Eclipse Launcher is installed.").to_string(),
                     Mode::Uninstall => tr("Eclipse Launcher was removed.").to_string(),
                 };
-                body = body.child(glass_ui::card_title(said));
+                body = body.child(ui::card_title(said));
                 if !left.is_empty() {
                     body = body.child(
-                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
-                            .text_color(glass_ui::warn())
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                            .text_color(ui::warn())
                             .child(tr("These could not be removed:").to_string()),
                     );
                     for item in left {
                         body = body.child(
-                            glass_ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
+                            ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
                                 .font_family(theme::MONO)
                                 .child(item.clone()),
                         );
@@ -372,48 +365,48 @@ impl Setup {
                 // The window's own close control is in the title bar, so the last screen has only
                 // the action worth taking; an uninstall just says so and is closed there.
                 if self.mode == Mode::Install {
-                    body =
-                        body.child(div().flex().items_center().justify_end().child(
-                            crate::button("launch", tr("Launch Eclipse"), Kind::Primary).on_press(
-                                cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx)),
-                            ),
-                        ));
+                    body = body.child(
+                        div().flex().items_center().justify_end().child(
+                            crate::button("launch", tr("Launch Eclipse"), ButtonKind::Primary)
+                                .on_press(
+                                    cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx)),
+                                ),
+                        ),
+                    );
                 }
             }
             Stage::Failed(error) => {
                 body = body
-                    .child(glass_ui::card_title(
-                        tr("Something went wrong.").to_string(),
-                    ))
+                    .child(ui::card_title(tr("Something went wrong.").to_string()))
                     .child(
-                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
-                            .text_color(glass_ui::danger())
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                            .text_color(ui::danger())
                             .child(error.clone()),
                     )
                     .child(
                         div().flex().justify_end().child(
-                            crate::button("close", tr("Close"), Kind::Secondary)
+                            crate::button("close", tr("Close"), ButtonKind::Secondary)
                                 .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                         ),
                     );
             }
         }
-        glass_ui::dialog_plate(eclipse_theme::glass::radius::MODAL)
+        ui::dialog_plate(eclipse_theme::glass::radius::MODAL)
             .w(px(560.))
             .p(px(32.))
             .flex()
             .flex_col()
             .gap(px(18.))
-            .child(glass_ui::entity_title("Eclipse", pixel_text::PAGE_TITLE))
+            .child(ui::entity_title("Eclipse", pixel_text::PAGE_TITLE))
             .child(body)
     }
 }
 
 impl Render for Setup {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        // The launcher's Settings page writes Glass, Blur, Accent and Appearance into
-        // settings.json. Reading its write time each frame applies a change on the next frame:
-        // the same cadence at which the launcher's own window picks them up.
+        // The launcher's Settings page writes Accent and Appearance into settings.json. Reading
+        // its write time each frame applies a change on the next frame: the same cadence at which
+        // the launcher's own window picks them up.
         let stamp = Self::settings_stamp();
         if stamp != self.settings_stamp {
             self.settings_stamp = stamp;
@@ -423,29 +416,14 @@ impl Render for Setup {
             self.theme =
                 Theme::for_appearance(settings.appearance, settings.accent, window.appearance());
         }
-        // Look again twice a second, through the same wake the sky uses, so a settings change
-        // shows even while the scene has stopped animating, without drawing the window at
-        // 60 fps and reading the file's metadata every frame for it.
-        self.wake_sky(Duration::from_millis(500), cx);
+        // Look again twice a second, so a settings change shows even while the scene has
+        // stopped animating, without drawing the window at 60 fps and reading the file's
+        // metadata every frame for it.
+        self.wake_in(Duration::from_millis(500), cx);
         let t = self.theme;
-        let viewport = window.viewport_size();
-        glass_ui::begin_frame(&t, false);
-        self.sky.free_replaced(window);
-        let sky = if t.dark {
-            self.scene.clone().into_any_element()
-        } else {
-            let (sky, next) = self.sky.render(
-                &t.night,
-                (viewport.width.into(), viewport.height.into()),
-                window.scale_factor(),
-                window.is_window_active(),
-                Instant::now(),
-            );
-            if let Some(next) = next {
-                self.wake_sky(next, cx);
-            }
-            sky.into_any_element()
-        };
+        ui::begin_frame(&t, false);
+        self.scene.update(cx, |scene, _| scene.set_look(&t.night));
+        let sky = self.scene.clone().into_any_element();
         let card = self.card(cx);
         div()
             .flex()

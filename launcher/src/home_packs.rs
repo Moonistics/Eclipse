@@ -2,15 +2,15 @@
 //! a switch that turns it on or off. Add pack… and Open folder head the list; packs dropped on it
 //! are added; Delete asks first, in place. Then the Screenshots tab.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::packs::{self, Kind as PackKind, Pack};
 use eclipse_theme::glass::{fill, ink, radius};
-use glass_home_lists::{confirm, danger_line, picture};
 use gpui::ExternalPaths;
+use home_lists::{danger_line, picture};
 
 impl Launcher {
     /// Home's Packs tab: the selected instance's resource packs, then its shader packs.
-    pub(super) fn glass_packs(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+    pub(super) fn packs_tab(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let instance = self.selected_instance()?;
         let (home, name) = (instance.home.clone(), instance.name.clone());
         self.load_packs_list(home.clone());
@@ -43,7 +43,7 @@ impl Launcher {
                 "packs-add",
                 Some("plus-sign"),
                 tr("Add pack…"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(add());
@@ -73,12 +73,12 @@ impl Launcher {
                             "packs-folder",
                             None,
                             tr("Open folder"),
-                            Kind::Secondary,
+                            ButtonKind::Secondary,
                             ui::Size::Md,
                         )
                         .on_press(move |_, _, cx| {
                             let _ = std::fs::create_dir_all(&folder);
-                            crate::glass_toast::open(cx, &folder);
+                            crate::toast::open(cx, &folder);
                         }),
                     )
                     .child(
@@ -86,7 +86,7 @@ impl Launcher {
                             "packs-add",
                             Some("plus-sign"),
                             tr("Add pack…"),
-                            Kind::Secondary,
+                            ButtonKind::Secondary,
                             ui::Size::Md,
                         )
                         .on_press(add()),
@@ -102,17 +102,17 @@ impl Launcher {
             body = body.child(ui::list_head(tr("Close the game to change packs here.")));
         }
         for (pack, icon) in resource {
-            let row = self.glass_pack_row(pack, icon.map(gpui::ImageSource::from), cx);
+            let row = self.pack_row(pack, icon.map(gpui::ImageSource::from), cx);
             body = body.child(row);
         }
         for pack in shader {
-            let row = self.glass_pack_row(pack, None, cx);
+            let row = self.pack_row(pack, None, cx);
             body = body.child(row);
         }
         Some(body)
     }
 
-    fn glass_pack_row(
+    fn pack_row(
         &mut self,
         pack: Pack,
         icon: Option<gpui::ImageSource>,
@@ -157,7 +157,7 @@ impl Launcher {
         let remove = SharedString::from(format!("{key}-remove"));
         let end = if confirming && !running {
             let gone = pack.clone();
-            confirm(
+            ui::confirm(
                 remove,
                 trf("Delete {name}?", &[("name", &pack.title)]),
                 tr("Delete"),
@@ -201,7 +201,7 @@ impl Launcher {
 impl Launcher {
     /// Home's Screenshots tab: how many, then the pictures in a grid, 4 across on wide windows,
     /// else 2, each 16:9, its file name under it. A click opens the viewer.
-    pub(super) fn glass_screenshots(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn screenshots_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.selected_instance()?.home.clone();
         self.load_screenshots(home.clone());
         let list = self.screenshots.list.clone();
@@ -249,7 +249,7 @@ impl Launcher {
                         )
                         .on_press(move |_, _, cx| {
                             let _ = std::fs::create_dir_all(&folder);
-                            crate::glass_toast::open(cx, &folder);
+                            crate::toast::open(cx, &folder);
                         }),
                     ),
             );
@@ -320,7 +320,7 @@ impl Launcher {
                     "screenshots-all",
                     None,
                     label,
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

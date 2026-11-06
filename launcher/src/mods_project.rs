@@ -11,7 +11,7 @@
 //!   a placeholder stands in until one arrives.
 use super::mods_page::{Checking, Event};
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::browser::{
     self,
     details::{self, Details, Environment, Filters, Image, Sort, Tags},
@@ -93,7 +93,7 @@ fn active_filters(f: &Filters) -> usize {
 }
 
 /// A project page's tabs.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Tab {
     Description,
     Gallery,
@@ -310,7 +310,7 @@ impl Launcher {
             .icon
             .clone()
             .and_then(|url| self.mods_image(&url, images::ICON));
-        blocks::slot(path.map(gpui::ImageSource::from), &p.title, side).into_any_element()
+        icons::slot(path.map(gpui::ImageSource::from), &p.title, side).into_any_element()
     }
 
     /// The values the filters can take for the current kind and source, asked for once.
@@ -405,7 +405,10 @@ impl Launcher {
         };
         // A chip: on or off, one value of a filter.
         let chip = |id: String, label: String, on: bool| {
-            ui::selected(ui::button(id, None, label, Kind::Ghost, ui::Size::Sm), on)
+            ui::selected(
+                ui::button(id, None, label, ButtonKind::Ghost, ui::Size::Sm),
+                on,
+            )
         };
         let row = |title: &'static str| {
             div()
@@ -493,7 +496,7 @@ impl Launcher {
                 }),
             ));
         }
-        let clear = button("mods-clear", "Clear filters", Kind::Ghost).on_press(cx.listener(
+        let clear = button("mods-clear", "Clear filters", ButtonKind::Ghost).on_press(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.mods_filter(|f| *f = Filters::default());
                 cx.notify();
@@ -557,7 +560,7 @@ impl Launcher {
                     format!("mods-picked-{id}"),
                     None,
                     label,
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Sm,
                 )
                 .child(cross)
@@ -569,7 +572,7 @@ impl Launcher {
             );
         }
         row.child(
-            button("mods-picked-clear", "Clear filters", Kind::Ghost).on_press(cx.listener(
+            button("mods-picked-clear", "Clear filters", ButtonKind::Ghost).on_press(cx.listener(
                 |this, _: &ClickEvent, _, cx| {
                     // The sort has its own control: only what filters goes.
                     this.mods_filter(|f| {
@@ -590,7 +593,7 @@ impl Launcher {
         let p = o.project.clone();
         let tab = o.tab;
         let shot = o.shot;
-        let back = button("mods-back", "Back to results", Kind::Ghost).on_press(cx.listener(
+        let back = button("mods-back", "Back to results", ButtonKind::Ghost).on_press(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.mods.browse.open = None;
                 cx.notify();
@@ -619,7 +622,7 @@ impl Launcher {
             if let Some(day) = d.updated.get(..10) {
                 meta.push(trf(
                     "updated {date}",
-                    &[("date", &glass_versions::published(day, ""))],
+                    &[("date", &versions_page::published(day, ""))],
                 ));
             }
         }
@@ -694,7 +697,7 @@ impl Launcher {
                     "mods-page-new-fabric",
                     None,
                     tr("Create a Fabric instance"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -769,7 +772,7 @@ impl Launcher {
                     .gap(px(16.))
                     .children(super::mods_page::stars(&p.id))
                     .children(repo.map(|repo| {
-                        button("mods-star", "Star on GitHub", Kind::Ghost)
+                        button("mods-star", "Star on GitHub", ButtonKind::Ghost)
                             .on_press(move |_, _, cx| cx.open_url(&repo))
                     })),
             );
@@ -802,7 +805,7 @@ impl Launcher {
                     button(
                         "mods-link-page",
                         trf("Open on {source}", &[("source", p.source.label())]),
-                        Kind::Secondary,
+                        ButtonKind::Secondary,
                     )
                     .on_press(move |_, _, cx| cx.open_url(&page_url)),
                 );
@@ -810,7 +813,7 @@ impl Launcher {
             for (i, l) in d.links.iter().enumerate() {
                 let url = l.url.clone();
                 links = links.child(
-                    button(format!("mods-link-{i}"), l.label.clone(), Kind::Ghost)
+                    button(format!("mods-link-{i}"), l.label.clone(), ButtonKind::Ghost)
                         .on_press(move |_, _, cx| cx.open_url(&url)),
                 );
             }
@@ -839,7 +842,7 @@ impl Launcher {
                 "mods-project-retry",
                 None,
                 tr("Try again"),
-                Kind::Secondary,
+                ButtonKind::Secondary,
                 ui::Size::Md,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -864,7 +867,7 @@ impl Launcher {
                 Some(Err(e)) => failed(e, cx),
                 Some(Ok(d)) => div()
                     .max_w(px(PAGE_TEXT))
-                    .child(markdown::render(&d.body, &self.theme))
+                    .child(markdown::render(&d.body))
                     .into_any_element(),
             },
             Tab::Gallery => match &details {
@@ -888,7 +891,7 @@ impl Launcher {
                             let v = &list[i].version;
                             let file = v.file();
                             let mut detail = vec![
-                                glass_versions::published(
+                                versions_page::published(
                                     v.published.get(..10).unwrap_or_default(),
                                     "",
                                 ),

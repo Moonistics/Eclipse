@@ -1,6 +1,6 @@
 //! Profile-head I/O stays on workers; every account surface shares the same pixel-sharp cache.
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_theme::glass::{fill, ink};
 use gpui::{img, RenderImage};
 use std::{

@@ -1,34 +1,12 @@
 //! Home's Console tab: the game's output of this run as it comes, with a search, Auto-scroll,
 //! Copy, and Share log (`eclipse_launcher::game_log`): an upload to mclo.gs that happens only
 //! after the player confirms, without their home folder or names.
-use super::servers_page::Field;
+use super::fields::Field;
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::game_log::{self, Shared};
 use eclipse_theme::glass::{fill, ink, radius, step};
-use gpui::{ClipboardItem, ScrollEvent, ScrollHandle};
-
-const LOG_HEIGHT: f32 = 320.;
-
-pub(super) fn log_well(id: &'static str, handle: &ScrollHandle) -> Stateful<Div> {
-    let at = handle.clone();
-    ui::scroll_pane(id, handle)
-        .on_scroll(move |ev: &ScrollEvent, window, cx| {
-            let dy = ev.delta.pixel_delta(window.line_height()).y;
-            let (offset, max) = (at.offset().y, at.max_offset().y);
-            let at_end = (dy > px(0.) && offset >= px(0.)) || (dy < px(0.) && -offset >= max);
-            if !at_end {
-                cx.stop_propagation();
-            }
-        })
-        .h(px(LOG_HEIGHT))
-        .p(px(16.))
-        .rounded(px(radius::ROW))
-        .bg(ui::well())
-        .font_family(theme::MONO)
-        .text_size(px(step::CAPTION.size))
-        .line_height(px(step::BODY.line))
-}
+use gpui::{ClipboardItem, ScrollHandle};
 
 pub(super) struct Console {
     follow: bool,
@@ -135,7 +113,7 @@ impl Launcher {
 
 impl Launcher {
     /// Home's Console tab: the count and the tools over the log.
-    pub(super) fn glass_console(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn console_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         if self.prepare_log.is_empty() && self.client.is_none() {
             return None;
         }
@@ -150,7 +128,7 @@ impl Launcher {
                 &[("count", &count.to_string())],
             ),
         };
-        let search = self.servers.value(Field::ConsoleSearch).trim().to_string();
+        let search = self.fields.value(Field::ConsoleSearch).trim().to_string();
         let lines: Vec<String> = self
             .prepare_log
             .iter()
@@ -179,7 +157,7 @@ impl Launcher {
             "console-share",
             None,
             tr("Share log…"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Md,
         );
         let share = match self.console.sharing {
@@ -204,11 +182,11 @@ impl Launcher {
                     "console-copy",
                     None,
                     tr("Copy"),
-                    Kind::Secondary,
+                    ButtonKind::Secondary,
                     ui::Size::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    copy_to_clipboard(cx, ClipboardItem::new_string(copied.clone()));
+                    clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(copied.clone()));
                     this.console.shared = None;
                     cx.notify();
                 })),
@@ -224,7 +202,7 @@ impl Launcher {
                 )
                 .on_press(move |_, _, cx| {
                     let _ = std::fs::create_dir_all(&logs);
-                    crate::glass_toast::open(cx, &logs);
+                    crate::toast::open(cx, &logs);
                 }),
             );
         let mut body = div()
@@ -254,7 +232,7 @@ impl Launcher {
                             "console-share-no",
                             None,
                             tr("Cancel"),
-                            Kind::Secondary,
+                            ButtonKind::Secondary,
                             ui::Size::Md,
                         )
                         .on_press(cx.listener(
@@ -288,11 +266,14 @@ impl Launcher {
                                     "console-link-copy",
                                     None,
                                     tr("Copy link"),
-                                    Kind::Secondary,
+                                    ButtonKind::Secondary,
                                     ui::Size::Md,
                                 )
                                 .on_press(move |_, _, cx| {
-                                    copy_to_clipboard(cx, ClipboardItem::new_string(url.clone()))
+                                    clipboard::copy_to_clipboard(
+                                        cx,
+                                        ClipboardItem::new_string(url.clone()),
+                                    )
                                 }),
                             )
                             .child(
@@ -300,7 +281,7 @@ impl Launcher {
                                     "console-link-open",
                                     None,
                                     tr("Open"),
-                                    Kind::Secondary,
+                                    ButtonKind::Secondary,
                                     ui::Size::Md,
                                 )
                                 .on_press(move |_, _, cx| cx.open_url(&open_url)),
@@ -310,7 +291,7 @@ impl Launcher {
                                     "console-unshare",
                                     None,
                                     tr("Delete upload"),
-                                    Kind::Secondary,
+                                    ButtonKind::Secondary,
                                     ui::Size::Md,
                                 )
                                 .on_press(cx.listener(
@@ -324,14 +305,14 @@ impl Launcher {
                 )
             }
             Some(Err(e)) => Some(
-                servers_page::notice_line(ui::danger(), ui::plain_error(e).to_string())
+                ui::notice_line(ui::danger(), ui::plain_error(e).to_string())
                     .mx(px(12.))
                     .mb(px(12.)),
             ),
             None => None,
         };
         let shown = lines.len().saturating_sub(LOG_LINES);
-        let log = log_well("console-lines", &self.console.scroll).children(
+        let log = ui::log_well("console-lines", &self.console.scroll).children(
             lines.into_iter().skip(shown).map(|line| {
                 let color = if line.contains("/ERROR]") || line.contains("ERROR:") {
                     ui::danger()

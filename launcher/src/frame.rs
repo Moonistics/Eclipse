@@ -1,6 +1,6 @@
 use super::*;
-use crate::glass_home::game_line;
-use crate::glass_ui::{self as ui, white, Tone};
+use crate::home_head::game_line;
+use crate::ui::{self, white, Tone};
 use eclipse_launcher::account::Player;
 use eclipse_launcher::instances::{Icon, Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{fill, ink, radius, step};
@@ -93,7 +93,7 @@ impl Launcher {
     /// picture or the block chosen for it; else its loader's or Minecraft's mark, each two thirds
     /// of the tile on the 8 px grid; else its initial on its colour (the accent when none was
     /// chosen).
-    pub(super) fn glass_instance_icon(&mut self, i: &Instance, size: f32) -> AnyElement {
+    pub(super) fn instance_icon(&mut self, i: &Instance, size: f32) -> AnyElement {
         let inner = (size * 2. / 3. / 8.).round() * 8.;
         let tile = ui::tile(size);
         if i.kind == InstanceKind::Default && i.icon.is_none() {
@@ -183,7 +183,7 @@ impl Launcher {
     }
 
     /// The instances by group: those without a group first.
-    fn glass_instances(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    fn sidebar_instances(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         self.row_menu.labels.borrow_mut().clear();
         let editing = self
             .instances
@@ -221,7 +221,7 @@ impl Launcher {
                 InstanceKind::Pack => false,
             };
             let state = self.row_state(&i);
-            let icon = self.glass_instance_icon(&i, ROW_TILE);
+            let icon = self.instance_icon(&i, ROW_TILE);
             let clicked = i.clone();
             let open = self
                 .row_menu
@@ -253,7 +253,7 @@ impl Launcher {
                                 return;
                             }
                             this.row_menu.open =
-                                row_menu_after_press(this.row_menu.open.take(), &menu_id);
+                                menus::row_menu_after_press(this.row_menu.open.take(), &menu_id);
                             if this.row_menu.open.is_some() {
                                 this.opened_menu(window, cx);
                             }
@@ -277,7 +277,7 @@ impl Launcher {
                                 match clicked.kind {
                                     InstanceKind::Default | InstanceKind::Own => {
                                         this.select_instance(&clicked);
-                                        this.go(Page::Play);
+                                        this.go(Page::Home);
                                     }
                                     InstanceKind::Port => {
                                         this.show_modpack(Some(clicked.id["port:".len()..].into()))
@@ -296,8 +296,10 @@ impl Launcher {
                                         cx.notify();
                                         return;
                                     }
-                                    this.row_menu.open =
-                                        row_menu_after_press(this.row_menu.open.take(), &right_id);
+                                    this.row_menu.open = menus::row_menu_after_press(
+                                        this.row_menu.open.take(),
+                                        &right_id,
+                                    );
                                     cx.notify();
                                 }),
                             ),
@@ -376,7 +378,7 @@ impl Launcher {
         icon: &'static str,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        ui::nav_row(format!("nav-{label}"), icon, tr(label), self.page == page).on_press(
+        ui::nav_row(format!("nav-{page:?}"), icon, tr(label), self.page == page).on_press(
             cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.go(page);
                 cx.notify();
@@ -441,11 +443,10 @@ impl Launcher {
             .px(px(ui::SIDEBAR_PAD))
             .pt(px(account_top(compact)))
             .child(chip)
-            .children(self.glass_account_menu(compact, cx))
+            .children(self.account_popover(compact, cx))
     }
 
-    pub(super) fn glass_sidebar(&mut self, cx: &mut Context<Self>) -> Div {
-        let soft = ui::look().accent_soft;
+    pub(super) fn sidebar(&mut self, cx: &mut Context<Self>) -> Div {
         self.load_packs();
         let compact = ui::short_window();
         let account = self.account_block(compact, cx);
@@ -496,7 +497,7 @@ impl Launcher {
             .flex_1()
             .min_h_0()
             .px(px(ui::SIDEBAR_PAD))
-            .children(self.glass_instances(cx));
+            .children(self.sidebar_instances(cx));
 
         let servers: Vec<_> = self
             .servers
@@ -614,7 +615,7 @@ impl Launcher {
                         trf("Launcher {version}", &[("version", version)]),
                         Some(format!("{:.0}%", f * 100.)),
                     )
-                    .child(div().mt(px(10.)).child(ui::bar(*f, soft))),
+                    .child(div().mt(px(10.)).child(ui::bar(*f))),
                 );
             }
             SelfUpdate::Ready(version) => {
@@ -630,13 +631,19 @@ impl Launcher {
                             .child(trf("Launcher {version}", &[("version", version)])),
                         )
                         .child(
-                            crate::button("update-launcher", "Update launcher", Kind::Primary)
-                                .mt(px(10.))
-                                .w_full()
-                                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            crate::button(
+                                "update-launcher",
+                                "Update launcher",
+                                ButtonKind::Primary,
+                            )
+                            .mt(px(10.))
+                            .w_full()
+                            .on_press(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
                                     this.apply_launcher_update(cx);
                                     cx.notify();
-                                })),
+                                },
+                            )),
                         ),
                 );
             }
@@ -665,7 +672,7 @@ impl Launcher {
                                         crate::button(
                                             "download-launcher",
                                             "Download again",
-                                            Kind::Secondary,
+                                            ButtonKind::Secondary,
                                         )
                                         .w_full()
                                         .on_press(move |_, _, cx| cx.open_url(&url)),
@@ -675,7 +682,7 @@ impl Launcher {
                                     crate::button(
                                         "dismiss-launcher-update",
                                         "Dismiss",
-                                        Kind::Ghost,
+                                        ButtonKind::Ghost,
                                     )
                                     .w_full()
                                     .on_press(cx.listener(
@@ -742,11 +749,7 @@ impl Launcher {
 
     /// The menu under the player: everyone who can play, Sign in with Microsoft while playing
     /// offline, then Manage accounts.
-    fn glass_account_menu(
-        &self,
-        compact: bool,
-        cx: &mut Context<Self>,
-    ) -> Option<impl IntoElement> {
+    fn account_popover(&self, compact: bool, cx: &mut Context<Self>) -> Option<impl IntoElement> {
         if !self.account_menu {
             return None;
         }
@@ -849,7 +852,7 @@ impl Launcher {
         let pick = |this: &mut Launcher, i: &Instance| {
             this.row_menu.open = None;
             this.select_instance(i);
-            this.go(Page::Play);
+            this.go(Page::Home);
         };
         let (edit, copy, export, launch, shortcut) = (
             instance.clone(),
@@ -893,7 +896,7 @@ impl Launcher {
                     move |this, _: &ClickEvent, _, cx| {
                         this.row_menu.open = None;
                         let _ = std::fs::create_dir_all(&home);
-                        crate::glass_toast::open(cx, &home);
+                        crate::toast::open(cx, &home);
                         cx.notify();
                     },
                 )),
@@ -935,7 +938,7 @@ impl Launcher {
             && self.starting_client.is_none();
         let gone = instance.id.clone();
         let delete = if confirm {
-            glass_home_lists::confirm(
+            ui::confirm(
                 "row-menu-delete",
                 trf("Delete {name}?", &[("name", &instance.name)]),
                 tr("Delete"),

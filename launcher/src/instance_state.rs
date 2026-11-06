@@ -3,8 +3,8 @@
 //! icon.
 use super::*;
 use eclipse_launcher::instances::{self, Icon, Instance, Kind as InstanceKind};
+use fields::Field;
 use gpui::RenderImage;
-use servers_page::Field;
 use std::collections::HashMap;
 use std::sync::Arc;
 
@@ -56,6 +56,7 @@ pub(super) struct InstanceDraft {
     pub(super) pin: Option<String>,
     /// The loader logo `picture` was made from, when it was one.
     pub(super) logo: Option<&'static str>,
+    pub(super) reveal_version: bool,
 }
 
 /// The instances and their icons as images, kept between frames.
@@ -63,9 +64,6 @@ pub(super) struct InstanceDraft {
 pub(super) struct Instances {
     pub(super) list: Vec<Instance>,
     pub(super) draft: Option<InstanceDraft>,
-    /// The instance whose Delete is waiting for its confirmation, and why the last one failed.
-    confirm_delete: Option<String>,
-    delete_error: Option<String>,
     /// Textures, pictures and marks as images, by name and size in device pixels.
     pub(super) icons: HashMap<(String, u32), Option<Arc<RenderImage>>>,
     /// Mojang's versions, for a new Java instance.
@@ -146,7 +144,7 @@ impl Launcher {
         }
         let back = match (self.page, &self.instances.draft) {
             (Page::InstanceEditor, Some(d)) => d.back,
-            (Page::InstanceEditor, None) => Page::Play,
+            (Page::InstanceEditor, None) => Page::Home,
             (page, _) => page,
         };
         let editing_one = editing.is_some();
@@ -154,9 +152,9 @@ impl Launcher {
             .as_ref()
             .map(|i| (i.name.clone(), i.group.clone().unwrap_or_default()))
             .unwrap_or_default();
-        self.servers.text(Field::InstanceName).set(name);
-        self.servers.text(Field::InstanceGroup).set(group);
-        self.servers.focus_soon = Some(Field::InstanceName);
+        self.fields.text(Field::InstanceName).set(name);
+        self.fields.text(Field::InstanceGroup).set(group);
+        self.fields.focus_soon = Some(Field::InstanceName);
         // What it plays now: Edit can switch it (`instances::switch`).
         let java = match editing.as_ref().and_then(|i| i.java.as_ref()) {
             None => Default::default(),
@@ -184,9 +182,10 @@ impl Launcher {
             copy: false,
             error: None,
             busy: false,
+            reveal_version: java.version.is_some(),
             java,
         });
-        self.servers.text(Field::InstanceVersion).set(String::new());
+        self.fields.text(Field::VersionSearch).set(String::new());
         // A new one starts with the name it would get ("My Eclipse"), until the player types one.
         if !editing_one {
             self.change(|_| {});
@@ -203,7 +202,7 @@ impl Launcher {
             return;
         };
         self.open_instance_page(None);
-        self.servers
+        self.fields
             .text(Field::InstanceName)
             .set(format!("{name} copy"));
         if let Some(d) = &mut self.instances.draft {
@@ -232,8 +231,8 @@ impl Launcher {
     /// the work runs in the background.
     pub(super) fn save_instance(&mut self, cx: &mut Context<Self>) {
         let selected = self.selected_instance().map(|i| i.id.clone());
-        let name = self.servers.value(Field::InstanceName).trim().to_string();
-        let group = Some(self.servers.value(Field::InstanceGroup).to_string());
+        let name = self.fields.value(Field::InstanceName).trim().to_string();
+        let group = Some(self.fields.value(Field::InstanceGroup).to_string());
         // A Eclipse version picked but not installed downloads once the instance is saved.
         let download = self
             .draft_eclipse()
@@ -328,12 +327,12 @@ impl Launcher {
                 match result {
                     Ok(instance) => {
                         let name = [("name", instance.name.as_str())];
-                        crate::glass_toast::say(if edited {
+                        crate::toast::say(if edited {
                             trf("Saved {name}", &name)
                         } else {
                             trf("Created {name}", &name)
                         });
-                        let back = this.instances.draft.take().map_or(Page::Play, |d| d.back);
+                        let back = this.instances.draft.take().map_or(Page::Home, |d| d.back);
                         this.select_instance(&instance);
                         this.reload_instances();
                         // Play shows the download's progress; Versions shows it too.
@@ -342,7 +341,7 @@ impl Launcher {
                         }
                         if this.page == Page::InstanceEditor {
                             this.go(match instance.kind {
-                                InstanceKind::Default | InstanceKind::Own => Page::Play,
+                                InstanceKind::Default | InstanceKind::Own => Page::Home,
                                 _ => back,
                             });
                         }
@@ -353,7 +352,7 @@ impl Launcher {
                             d.error = Some(e.clone());
                         }
                         if this.page != Page::InstanceEditor {
-                            crate::glass_toast::say(e);
+                            crate::toast::say(e);
                         }
                     }
                 }
@@ -378,10 +377,8 @@ impl Launcher {
         match instances::delete_with_selection(id) {
             Ok((_, saved)) => {
                 if let Some(name) = name {
-                    crate::glass_toast::say(trf("Deleted {name}", &[("name", &name)]));
+                    crate::toast::say(trf("Deleted {name}", &[("name", &name)]));
                 }
-                self.instances.confirm_delete = None;
-                self.instances.delete_error = None;
                 // Play starts Eclipse again; the window's copy of the settings says so too.
                 if self.settings.instance.as_deref() == Some(id) {
                     self.settings.instance = None;
@@ -391,7 +388,7 @@ impl Launcher {
                 }
                 self.reload_instances();
             }
-            Err(e) => self.instances.delete_error = Some(e),
+            Err(e) => crate::toast::say(e),
         }
     }
 }

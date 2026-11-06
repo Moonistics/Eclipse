@@ -3,8 +3,8 @@
 //! many players, who may join and whether accounts are checked; the EULA, Cancel and Create at
 //! the foot.
 use super::*;
-use crate::glass_instance::{choice, list_box, list_choice, section, tick};
-use crate::glass_ui::{self as ui, white};
+use crate::instance_page::{choice, list_box, list_choice, section, tick};
+use crate::ui::{self, white};
 use eclipse_theme::glass::{fill, ink, pixel_text, radius, step};
 use gpui::{img, ImageFormat};
 use std::sync::{Arc, LazyLock};
@@ -27,8 +27,6 @@ const DIALOG_MAX: (f32, f32) = (1180., 840.);
 
 const ASIDE_WIDTH: f32 = 360.;
 
-const ASIDE_MIN_WINDOW: f32 = 1100.;
-
 /// Each game mode's line under its name.
 const MODE_NOTES: [&str; 3] = [
     "Gather, build and stay alive",
@@ -39,16 +37,6 @@ const MODE_NOTES: [&str; 3] = [
 /// A player name Minecraft accepts: 3 to 16 letters, digits or underscores.
 fn valid_name(name: &str) -> bool {
     (3..=16).contains(&name.len()) && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
-}
-
-fn dialog_colour() -> Hsla {
-    let plate = crate::glass::colour(crate::glass::Kind::Glass);
-    let plate = if ui::light() {
-        plate
-    } else {
-        plate.blend(ui::scrim())
-    };
-    plate.blend(white(fill::HOVER))
 }
 
 /// A click that changes the draft with `f`.
@@ -68,10 +56,10 @@ fn set(
 }
 
 impl Launcher {
-    pub(super) fn glass_create_dialog(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+    pub(crate) fn create_dialog(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let creating = self.servers.creating;
         self.servers.create.as_ref()?;
-        let aside = (self.window_width >= ASIDE_MIN_WINDOW).then(|| self.create_aside());
+        let aside = (self.window_width >= layout::DIALOG_ASIDE_WIDE).then(|| self.create_aside());
         let main = self.create_main(aside.is_some(), cx);
         let close = cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             if !creating {
@@ -122,7 +110,7 @@ impl Launcher {
         let Some(c) = self.servers.create.as_ref() else {
             return div().id("create-aside");
         };
-        let typed = self.servers.value(Field::Name).trim().to_string();
+        let typed = self.fields.value(Field::NewServerName).trim().to_string();
         let title = if typed.is_empty() {
             tr("My server").to_string()
         } else {
@@ -153,7 +141,7 @@ impl Launcher {
             .as_ref()
             .filter(|_| !c.new_world)
             .and_then(|p| c.worlds.iter().find(|(_, path)| path == p));
-        let seed = self.servers.value(Field::Seed).trim().to_string();
+        let seed = self.fields.value(Field::NewServerSeed).trim().to_string();
         let origin = match (copy, seed.is_empty()) {
             (Some((folder, path)), _) => {
                 let name = c.details.get(path).map_or(folder, |d| &d.0);
@@ -300,7 +288,7 @@ impl Launcher {
             )
             .child(copy_card);
         let detail = if new_world {
-            self.field(Field::Seed, "Seed (optional)", 400., cx)
+            self.field(Field::NewServerSeed, "Seed (optional)", 400., cx)
                 .w_full()
                 .into_any_element()
         } else {
@@ -383,7 +371,7 @@ impl Launcher {
                 });
             },
         );
-        let players = self.glass_stepper("create-players", max as i64, 1..=100, cx, |this, to| {
+        let players = self.number_stepper("create-players", max as i64, 1..=100, cx, |this, to| {
             if let Some(c) = &mut this.servers.create {
                 c.max_players = to as u32;
             }
@@ -459,7 +447,8 @@ impl Launcher {
             .child(section(
                 tr("Name").into(),
                 None,
-                self.field(Field::Name, "My server", 400., cx).w_full(),
+                self.field(Field::NewServerName, "My server", 400., cx)
+                    .w_full(),
             ))
             .child(world)
             .child(section(tr("Game mode").into(), None, modes))
@@ -480,7 +469,7 @@ impl Launcher {
                     .min_h_0()
                     .children(ui::more_below_fade(
                         &self.servers.create_scroll.handle,
-                        dialog_colour(),
+                        ui::dialog_colour(),
                     )),
             )
             .child(self.create_foot(aside, cx))
@@ -550,14 +539,14 @@ impl Launcher {
             }
             chips = chips.child(chip);
         }
-        let typed = self.servers.value(Field::Players).trim().to_string();
+        let typed = self.fields.value(Field::NewServerFriend).trim().to_string();
         let ok = valid_name(&typed) && !friends.contains(&typed);
-        let focused = self.servers.focused == Some(Field::Players);
+        let focused = self.fields.has_focus(Field::NewServerFriend);
         let add = ui::button(
             "create-friend-add",
             None,
             tr("Add"),
-            Kind::Secondary,
+            ButtonKind::Secondary,
             ui::Size::Sm,
         );
         let add = if ok {
@@ -573,20 +562,20 @@ impl Launcher {
                 .pl_0()
                 .pr(px(6.))
                 .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
-                .child(self.field(Field::Players, "Add a friend's name", 170., cx))
+                .child(self.field(Field::NewServerFriend, "Add a friend's name", 170., cx))
                 .child(add),
         )
     }
 
     /// The name typed in the friend field joins the list, if Minecraft would take it.
     pub(super) fn add_create_friend(&mut self) {
-        let typed = self.servers.value(Field::Players).trim().to_string();
+        let typed = self.fields.value(Field::NewServerFriend).trim().to_string();
         let Some(c) = &mut self.servers.create else {
             return;
         };
         if valid_name(&typed) && !c.friends.contains(&typed) {
             c.friends.push(typed);
-            self.servers.text(Field::Players).set(String::new());
+            self.fields.text(Field::NewServerFriend).set(String::new());
         }
     }
 
@@ -660,7 +649,7 @@ impl Launcher {
             "create-cancel",
             None,
             tr("Cancel"),
-            Kind::Ghost,
+            ButtonKind::Ghost,
             ui::Size::Lg,
         );
         let buttons = if creating {
@@ -684,7 +673,7 @@ impl Launcher {
                         "create-fix",
                         None,
                         tr("Prepare the game files"),
-                        Kind::Secondary,
+                        ButtonKind::Secondary,
                         ui::Size::Lg,
                     )
                     .on_press(cx.listener(

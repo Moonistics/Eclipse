@@ -50,18 +50,18 @@ impl Launcher {
             Some(SignInState::Done(Err(e))) => Shown::Error(e),
             Some(SignInState::Done(Ok(_))) | None => Shown::Idle,
         };
-        self.glass_owner_screen(state, configured, cx)
+        self.owner_dialog(state, configured, cx)
     }
 
     /// A dialog plate over the dimmed launcher, its Sign in the Account card's white Microsoft
     /// button, its code in the card's inner panel.
-    fn glass_owner_screen(
+    fn owner_dialog(
         &self,
         state: Shown,
         configured: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        use crate::glass_ui::{self as ui, white};
+        use crate::ui::{self, white};
         use eclipse_theme::glass::{fill, ink, radius};
         let panel = || {
             div()
@@ -141,11 +141,14 @@ impl Launcher {
                                 "owner-copy",
                                 None,
                                 tr("Copy code"),
-                                Kind::Secondary,
+                                ButtonKind::Secondary,
                                 ui::Size::Md,
                             )
                             .on_press(move |_, _, cx| {
-                                copy_to_clipboard(cx, gpui::ClipboardItem::new_string(copy.clone()))
+                                clipboard::copy_to_clipboard(
+                                    cx,
+                                    gpui::ClipboardItem::new_string(copy.clone()),
+                                )
                             }),
                         ),
                 )
@@ -181,7 +184,7 @@ impl Launcher {
                         "owner-open",
                         None,
                         tr("Open link"),
-                        Kind::Primary,
+                        ButtonKind::Primary,
                         ui::Size::Lg,
                     )
                     .px(px(24.))
@@ -204,7 +207,7 @@ impl Launcher {
             "owner-later",
             None,
             tr("Not now"),
-            Kind::Ghost,
+            ButtonKind::Ghost,
             ui::Size::Lg,
         )
         .px(px(20.))

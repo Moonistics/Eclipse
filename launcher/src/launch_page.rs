@@ -1,8 +1,8 @@
 //! Launch… on Home's Instance row: what runs around the selected instance's game
 //! (`eclipse_launcher::launch`): a command before it, a wrapper, and environment variables.
-use super::servers_page::Field;
+use super::fields::Field;
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::launch;
 use eclipse_theme::glass::{fill, ink, radius, step};
 use gpui::{
@@ -54,7 +54,7 @@ impl MemorySlider {
 const FIELD_WIDTH: f32 = 520.;
 
 /// A Linux switch: which one, its label, and what it does.
-#[derive(Clone, Copy)]
+#[derive(Clone, Copy, Debug)]
 enum Toggle {
     GameMode,
     MangoHud,
@@ -69,16 +69,16 @@ impl Launcher {
         let Some(i) = self.selected_instance().cloned() else {
             return;
         };
-        self.servers
+        self.fields
             .text(Field::PreLaunch)
             .set(i.launch.pre_launch.clone());
-        self.servers
-            .text(Field::Wrapper)
+        self.fields
+            .text(Field::LaunchWrapper)
             .set(i.launch.wrapper.clone());
-        self.servers
+        self.fields
             .text(Field::LaunchEnv)
             .set(launch::env_line(&i.launch.env));
-        self.servers
+        self.fields
             .text(Field::PostExit)
             .set(i.launch.post_exit.clone());
         self.launch = Some(LaunchPanel {
@@ -92,10 +92,10 @@ impl Launcher {
         let Some(id) = self.launch.as_ref().map(|p| p.instance.clone()) else {
             return;
         };
-        let pre = self.servers.value(Field::PreLaunch).trim().to_string();
-        let wrapper = self.servers.value(Field::Wrapper).trim().to_string();
-        let post_exit = self.servers.value(Field::PostExit).trim().to_string();
-        let saved = launch::parse_env(self.servers.value(Field::LaunchEnv)).and_then(|env| {
+        let pre = self.fields.value(Field::PreLaunch).trim().to_string();
+        let wrapper = self.fields.value(Field::LaunchWrapper).trim().to_string();
+        let post_exit = self.fields.value(Field::PostExit).trim().to_string();
+        let saved = launch::parse_env(self.fields.value(Field::LaunchEnv)).and_then(|env| {
             instances::edit(&id, |m| {
                 m.launch = launch::Launch {
                     pre_launch: pre,
@@ -202,14 +202,14 @@ impl Launcher {
 
     /// Saves what's in the box to `id`, if it's a value and a new one.
     fn save_typed_memory(&mut self, id: &str) {
-        let typed = self.servers.value(Field::MemoryLimit).to_owned();
+        let typed = self.fields.value(Field::MemoryLimit).to_owned();
         let Ok(memory) = launch::parse_memory(&typed) else {
             self.memory_slider.saved = None;
-            self.servers.set_field_invalid(Field::MemoryLimit, true);
+            self.fields.set_field_invalid(Field::MemoryLimit, true);
             return;
         };
         let memory = memory.unwrap_or(instances::DEFAULT_MEMORY_MB);
-        self.servers.set_field_invalid(Field::MemoryLimit, false);
+        self.fields.set_field_invalid(Field::MemoryLimit, false);
         let same = instances::list()
             .iter()
             .find(|i| i.id == id)
@@ -233,7 +233,7 @@ impl Launcher {
             self.memory_slider.saved = None;
             self.memory_slider.shown = Some(instance.to_owned());
         }
-        if self.servers.has_focus(Field::MemoryLimit) {
+        if self.fields.has_focus(Field::MemoryLimit) {
             self.memory_slider.typing = Some(instance.to_owned());
             return;
         }
@@ -242,24 +242,20 @@ impl Launcher {
             return;
         }
         let shown = memory.to_string();
-        if self.servers.value(Field::MemoryLimit) != shown {
-            self.servers.text(Field::MemoryLimit).set(shown);
+        if self.fields.value(Field::MemoryLimit) != shown {
+            self.fields.text(Field::MemoryLimit).set(shown);
         }
     }
 
     /// The maximum Java heap size for the selected Java instance, as a card on Home.
     pub(super) fn memory_row(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let row = self.glass_memory_row(cx)?;
-        Some(
-            crate::glass::plate(radius::PANEL)
-                .p(px(ui::LIST_INSET))
-                .child(row),
-        )
+        let row = self.memory_setting(cx)?;
+        Some(ui::card(radius::PANEL).p(px(ui::LIST_INSET)).child(row))
     }
 
     /// Maximum memory as a setting row: the name and what it does on the left, the slider and
     /// the box in MB on the right. Saved to the instance as it is set.
-    pub(super) fn glass_memory_row(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn memory_setting(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         const TRACK: f32 = 208.;
         let instance = self.memory_instance()?;
         let total = self.memory_slider.total();
@@ -267,8 +263,8 @@ impl Launcher {
         let saved = Self::saved_memory(&instance)?;
         let memory = self.memory_slider.dragging.unwrap_or(saved);
         self.sync_memory_box(&instance.id, memory);
-        let typed = launch::parse_memory(self.servers.value(Field::MemoryLimit));
-        let memory = match (self.servers.has_focus(Field::MemoryLimit), typed) {
+        let typed = launch::parse_memory(self.fields.value(Field::MemoryLimit));
+        let memory = match (self.fields.has_focus(Field::MemoryLimit), typed) {
             (true, Ok(typed)) => typed.unwrap_or(instances::DEFAULT_MEMORY_MB),
             _ => memory,
         };
@@ -309,7 +305,7 @@ impl Launcher {
                     .left(px(f * (TRACK - 16.)))
                     .size(px(16.))
                     .rounded_full()
-                    .bg(crate::glass_ui::paper()),
+                    .bg(crate::ui::paper()),
             )
             .on_mouse_down(
                 MouseButton::Left,
@@ -401,7 +397,7 @@ impl Launcher {
                     .gap(px(10.))
                     .child(
                         ui::toggle_label(
-                            SharedString::from(format!("launch-switch-{label}")),
+                            SharedString::from(format!("launch-switch-{toggle:?}")),
                             tr(label),
                             on,
                         )
@@ -462,7 +458,7 @@ impl Launcher {
             self,
             cx,
             "Run the game through",
-            Field::Wrapper,
+            Field::LaunchWrapper,
             "For example nice -n 5",
             None,
         );
@@ -482,7 +478,7 @@ impl Launcher {
             "For example ./backup.sh",
             None,
         );
-        let save = button("launch-save", "Save", Kind::Secondary).on_press(cx.listener(
+        let save = button("launch-save", "Save", ButtonKind::Secondary).on_press(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.save_launch();
                 cx.notify();
@@ -493,7 +489,7 @@ impl Launcher {
                 .child(trf("Saved: the next Play {what}.", &[("what", &what)])),
             Ok(None) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                 .child(tr("Saved: nothing runs around the game.")),
-            Err(e) => error_note(e),
+            Err(e) => ui::error_note(e),
         });
         let close = ui::icon_button(
             "launch-close",
@@ -507,7 +503,7 @@ impl Launcher {
             cx.notify();
         }));
         Some(
-            crate::glass::plate(radius::PANEL)
+            ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
                 .gap(px(16.))

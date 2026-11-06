@@ -6,7 +6,7 @@
 //! the panel never shows the last attempt as the latest, and an open panel reads again when a
 //! build starts or ends.
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::native_mods;
 use eclipse_theme::glass::{ink, radius, step};
 use gpui::{ClipboardItem, ScrollHandle, SharedString};
@@ -182,14 +182,17 @@ impl Launcher {
         let open = path.clone();
         let reveal = path.clone();
         let copy = {
-            let b = button("native-log-copy", "Copy log", Kind::Ghost);
+            let b = button("native-log-copy", "Copy log", ButtonKind::Ghost);
             match loaded {
                 Some(Ok(_)) => b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     // The whole file as it was read, never a stale or missing one.
                     let Some(Ok(log)) = &this.native_log.loaded else {
                         return;
                     };
-                    copy_to_clipboard(cx, ClipboardItem::new_string(log.full.as_str().to_string()));
+                    clipboard::copy_to_clipboard(
+                        cx,
+                        ClipboardItem::new_string(log.full.as_str().to_string()),
+                    );
                     this.native_log.note = Some(tr("Copied build log.").into());
                     cx.notify();
                 })),
@@ -203,15 +206,15 @@ impl Launcher {
             .gap(px(8.))
             .child(copy)
             .child({
-                let b = button("native-log-file", "Open full log", Kind::Ghost);
+                let b = button("native-log-file", "Open full log", ButtonKind::Ghost);
                 if gone {
                     disabled(b)
                 } else {
-                    b.on_press(move |_, _, cx| crate::glass_toast::open(cx, &open))
+                    b.on_press(move |_, _, cx| crate::toast::open(cx, &open))
                 }
             })
             .child({
-                let b = button("native-log-reveal", "Show in folder", Kind::Ghost);
+                let b = button("native-log-reveal", "Show in folder", ButtonKind::Ghost);
                 if gone {
                     disabled(b)
                 } else {
@@ -219,7 +222,7 @@ impl Launcher {
                 }
             })
             .child(
-                button("native-log-refresh", "Refresh", Kind::Ghost).on_press(cx.listener(
+                button("native-log-refresh", "Refresh", ButtonKind::Ghost).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.native_log.stale = true;
                         cx.notify();
@@ -278,7 +281,7 @@ impl Launcher {
                 "",
                 Vec::new(),
             )),
-            Some(Err(Missing::Failed(e))) => error_note(trf(
+            Some(Err(Missing::Failed(e))) => ui::error_note(trf(
                 "Could not read the build log: {error}",
                 &[("error", e.as_str())],
             )),
@@ -324,7 +327,7 @@ impl Launcher {
                 .gap(px(14.))
                 .px(px(32.))
                 .py(px(24.))
-                .bg(crate::glass::colour(crate::glass::Kind::Float))
+                .bg(ui::surface_colour(ui::Surface::Float))
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .occlude()
                 .child(top)

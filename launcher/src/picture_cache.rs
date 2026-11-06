@@ -28,7 +28,7 @@ const AT_ONCE: usize = 3;
 pub(super) enum Look {
     /// Fitted inside this many pixels square.
     Fit(u32),
-    /// Small and blurred (`glass_shot_blur`).
+    /// Small and blurred (`shot_blur`).
     Blurred,
 }
 
@@ -133,7 +133,7 @@ impl Launcher {
 /// Makes the picture as GPUI draws it (BGRA, as its own loader does). Runs off the UI thread.
 fn make(path: &Path, look: Look) -> Option<Arc<RenderImage>> {
     match look {
-        Look::Blurred => glass_shot_blur::blurred(path),
+        Look::Blurred => shot_blur::blurred(path),
         Look::Fit(max) => {
             // Never above the GPU's limit, whatever the caller asked: GPUI's atlas can't hold it.
             let mut image = pictures::load_fitted(path, max.min(pictures::gpu_limit())).ok()?;

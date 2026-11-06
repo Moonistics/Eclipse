@@ -6,9 +6,9 @@
 //! folder, and from two letters on, Install or Remove the registry's mods that match, in the
 //! selected instance.
 
-use super::line_edit::{self, Key, LineEdit};
+use super::line_edit::{self, Key};
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::browser::Project;
 use eclipse_launcher::instances::Kind as InstanceKind;
 use eclipse_theme::glass::{ink, radius};
@@ -28,8 +28,6 @@ const SEARCH_HEIGHT: f32 = 48.;
 const COMMAND_HEIGHT: f32 = 44.;
 
 pub(super) struct Palette {
-    query: LineEdit,
-    focus: FocusHandle,
     /// The highlighted command.
     index: usize,
     /// The registry's mods for the query [`asked`](Self::asked) last.
@@ -62,11 +60,10 @@ impl Launcher {
             window.focus(&self.root_focus, cx);
             return;
         }
-        let focus = cx.focus_handle();
+        self.fields.text(Field::PaletteSearch).set(String::new());
+        let focus = self.fields.handle(Field::PaletteSearch, cx);
         window.focus(&focus, cx);
         self.palette = Some(Palette {
-            query: LineEdit::new(String::new(), 80, 40),
-            focus,
             index: 0,
             mods: Vec::new(),
             asked: String::new(),
@@ -109,7 +106,7 @@ impl Launcher {
         if let Some(home) = self.selected_instance().map(|i| i.home.clone()) {
             all.push(Command {
                 label: tr("Open the game folder").to_string(),
-                hint: crate::glass_toast::tilde(&home),
+                hint: crate::toast::tilde(&home),
                 run: Run::Folder(home),
             });
         }
@@ -148,7 +145,7 @@ impl Launcher {
                     return;
                 };
                 self.select_instance(&instance);
-                self.go(Page::Play);
+                self.go(Page::Home);
                 // Play only when the Play button would; otherwise the page says what it needs.
                 let running = self.client.is_some() || self.starting_client.is_some();
                 let prepared = self.selected().is_some_and(|t| backend::is_prepared(t));
@@ -160,7 +157,7 @@ impl Launcher {
             Run::NewInstance => self.open_instance_page(None),
             Run::Folder(home) => {
                 let _ = std::fs::create_dir_all(&home);
-                crate::glass_toast::open(cx, &home);
+                crate::toast::open(cx, &home);
             }
             Run::Install(p) => {
                 let p = *p;
@@ -174,10 +171,14 @@ impl Launcher {
 
     /// From two letters on, the registry is asked once for each new query.
     fn palette_ask(&mut self) {
+        let q = self
+            .fields
+            .value(Field::PaletteSearch)
+            .trim()
+            .to_lowercase();
         let Some(p) = self.palette.as_mut() else {
             return;
         };
-        let q = p.query.text().trim().to_lowercase();
         if q.chars().count() < 2 || q == p.asked {
             return;
         }
@@ -192,15 +193,13 @@ impl Launcher {
         window: &mut Window,
         cx: &mut Context<Self>,
     ) -> Option<Stateful<Div>> {
-        let p = self.palette.as_ref()?;
-        let t = self.theme;
-        let raw = p.query.text().to_string();
+        self.palette.as_ref()?;
+        let raw = self.fields.value(Field::PaletteSearch).to_string();
         let q = raw.trim().to_lowercase();
-        let focused = p.focus.is_focused(window);
-        let focus = p.focus.clone();
+        let focused = self.fields.has_focus(Field::PaletteSearch);
+        let focus = self.fields.handle(Field::PaletteSearch, cx);
         let input = line_edit::content(
-            &p.query,
-            &t,
+            self.fields.text(Field::PaletteSearch),
             focused,
             false,
             false,
@@ -246,9 +245,13 @@ impl Launcher {
                 match ev.keystroke.key.as_str() {
                     "down" => p.index = p.index.saturating_add(1),
                     "up" => p.index = p.index.saturating_sub(1),
-                    _ => match line_edit::handle(&mut p.query, ev, cx) {
+                    _ => match line_edit::handle(this.fields.text(Field::PaletteSearch), ev, cx) {
                         Key::Enter => {
-                            let q = p.query.text().trim().to_lowercase();
+                            let q = this
+                                .fields
+                                .value(Field::PaletteSearch)
+                                .trim()
+                                .to_lowercase();
                             let index = p.index;
                             let list = this.palette_commands(&q);
                             if let Some(c) = list.into_iter().nth(index) {
@@ -265,11 +268,12 @@ impl Launcher {
                     },
                 }
                 // Past the last command the highlight stays on it.
-                let q = this
-                    .palette
-                    .as_ref()
-                    .map(|p| p.query.text().trim().to_lowercase());
-                if let Some(q) = q {
+                if this.palette.is_some() {
+                    let q = this
+                        .fields
+                        .value(Field::PaletteSearch)
+                        .trim()
+                        .to_lowercase();
                     let last = this.palette_commands(&q).len().saturating_sub(1);
                     if let Some(p) = this.palette.as_mut() {
                         p.index = p.index.min(last);

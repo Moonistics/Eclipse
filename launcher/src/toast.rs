@@ -4,7 +4,7 @@
 //! launcher's drain (every 80 ms) draws it, then lets it go.
 
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_theme::glass::ink;
 use std::path::Path;
 use std::sync::Mutex;
@@ -66,7 +66,7 @@ impl Launcher {
                 .bottom(px(20.))
                 .max_w(px(420.))
                 .child(
-                    crate::glass::float(eclipse_theme::glass::radius::POPOVER)
+                    ui::float_card(eclipse_theme::glass::radius::POPOVER)
                         .shadow_lg()
                         .px(px(14.))
                         .py(px(10.))

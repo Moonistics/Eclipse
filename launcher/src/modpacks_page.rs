@@ -1,7 +1,7 @@
 //! Imported modpacks, on the Mods page's Modpacks tab: import a pack, read its coverage report,
 //! port what this computer can and play it as its own profile (`eclipse_launcher::modpacks`).
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::browser::eclipse::pack as eclipse_pack;
 use eclipse_launcher::modpacks::{self, Imported};
 use eclipse_port_pack::report::Status;
@@ -157,7 +157,7 @@ impl Launcher {
         self.load_packs();
         let busy = self.pack_busy;
         let pick = |id: &'static str, label: &'static str, folder: bool| {
-            let b = button(id, label, Kind::Secondary);
+            let b = button(id, label, ButtonKind::Secondary);
             if busy {
                 disabled(b)
             } else {
@@ -193,7 +193,7 @@ impl Launcher {
             page = page.child(self.pack_log_plate());
         }
         if let Some(e) = &self.pack_error {
-            page = page.child(error_note(e.clone()));
+            page = page.child(ui::error_note(e.clone()));
         }
         if !self.registry_packs.is_empty() {
             page = page.child(self.registry_pack_rows(cx));
@@ -235,48 +235,45 @@ impl Launcher {
             let id = p.id.clone();
             let key = format!("eclipse:{id}");
             let confirming = self.confirm_remove.as_deref() == Some(key.as_str());
-            let right = div()
-                .flex()
-                .flex_none()
-                .gap(px(8.))
-                .child(
-                    button(format!("play-pack-{id}"), "Play", Kind::Primary).on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.play_pack(play.clone());
+            let remove_id = SharedString::from(format!("remove-pack-{id}"));
+            let right =
+                if confirming {
+                    div().flex_none().child(ui::confirm(
+                        remove_id,
+                        trf("Remove {name}?", &[("name", &p.name)]),
+                        tr("Remove"),
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.confirm_remove = None;
                             cx.notify();
-                        },
-                    )),
-                )
-                .child(
-                    button(
-                        format!("remove-pack-{id}"),
-                        if confirming {
-                            "Remove for good"
-                        } else {
-                            "Remove"
-                        },
-                        if confirming {
-                            Kind::Secondary
-                        } else {
-                            Kind::Ghost
-                        },
-                    )
-                    .when(confirming, |b| b.text_color(ui::danger()))
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            if this.confirm_remove.as_ref() == Some(&key) {
-                                match eclipse_pack::remove(&remove) {
-                                    Ok(()) => this.packs_loaded = None,
-                                    Err(e) => this.pack_error = Some(e),
-                                }
-                                this.confirm_remove = None;
-                            } else {
-                                this.confirm_remove = Some(key.clone());
+                        }),
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            match eclipse_pack::remove(&remove) {
+                                Ok(()) => this.packs_loaded = None,
+                                Err(e) => this.pack_error = Some(e),
                             }
+                            this.confirm_remove = None;
                             cx.notify();
-                        },
-                    )),
-                );
+                        }),
+                    ))
+                } else {
+                    div()
+                        .flex()
+                        .flex_none()
+                        .gap(px(8.))
+                        .child(
+                            button(format!("play-pack-{id}"), "Play", ButtonKind::Primary)
+                                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                    this.play_pack(play.clone());
+                                    cx.notify();
+                                })),
+                        )
+                        .child(button(remove_id, "Remove…", ButtonKind::Ghost).on_press(
+                            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                this.confirm_remove = Some(key.clone());
+                                cx.notify();
+                            }),
+                        ))
+                };
             let detail = trf(
                 "{version} from Eclipse's registry, its own profile: {mods}",
                 &[("version", &p.version), ("mods", &p.mods.join(", "))],
@@ -360,7 +357,7 @@ impl Launcher {
                 &[("count", &p.mods.len().to_string())],
             )
         };
-        let mut play = button("pack-play", play_label, Kind::Primary);
+        let mut play = button("pack-play", play_label, ButtonKind::Primary);
         if !p.can_play() || !can_play || self.pack_busy {
             play = disabled(play);
         } else {
@@ -380,8 +377,8 @@ impl Launcher {
                 p.portable, p.indexed_resources
             )
         };
-        let mut port = button("pack-port", port_label, Kind::Secondary);
-        let mut from = button("pack-from", "Use jars from my instance…", Kind::Ghost);
+        let mut port = button("pack-port", port_label, ButtonKind::Secondary);
+        let mut from = button("pack-from", "Use jars from my instance…", ButtonKind::Ghost);
         if self.pack_busy || !p.can_port() {
             port = disabled(port);
             from = disabled(from);
@@ -401,37 +398,38 @@ impl Launcher {
         }
         let confirming = self.confirm_remove.as_deref() == Some(p.slug.as_str());
         let slug = p.slug.clone();
-        let work = p.work.clone();
-        let remove = button(
-            "pack-remove",
-            if confirming {
-                "Remove for good"
-            } else {
-                "Remove"
-            },
-            if confirming {
-                Kind::Secondary
-            } else {
-                Kind::Ghost
-            },
-        )
-        .when(confirming, |b| b.text_color(ui::danger()))
-        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            if this.confirm_remove.as_ref() == Some(&slug) {
-                match modpacks::remove(&work) {
-                    Ok(()) => {
-                        this.packs.retain(|p| p.slug != slug);
-                        this.pack_open = this.packs.first().map(|p| p.slug.clone());
-                        this.mods.report_list.reset();
+        let remove = if confirming {
+            let work = p.work.clone();
+            ui::confirm(
+                "pack-remove",
+                trf("Remove {name}?", &[("name", &p.pack.name)]),
+                tr("Remove"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.confirm_remove = None;
+                    cx.notify();
+                }),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    match modpacks::remove(&work) {
+                        Ok(()) => {
+                            this.packs.retain(|p| p.slug != slug);
+                            this.pack_open = this.packs.first().map(|p| p.slug.clone());
+                            this.mods.report_list.reset();
+                        }
+                        Err(e) => this.pack_error = Some(e),
                     }
-                    Err(e) => this.pack_error = Some(e),
-                }
-                this.confirm_remove = None;
-            } else {
-                this.confirm_remove = Some(slug.clone());
-            }
-            cx.notify();
-        }));
+                    this.confirm_remove = None;
+                    cx.notify();
+                }),
+            )
+            .into_any_element()
+        } else {
+            button("pack-remove", "Remove…", ButtonKind::Ghost)
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.confirm_remove = Some(slug.clone());
+                    cx.notify();
+                }))
+                .into_any_element()
+        };
         buttons = buttons.child(play).child(port).child(from).child(remove);
         let mut notes = vec![trf(
             "Port gets the jars of the {count} mods this computer can port today (content with data \
@@ -559,7 +557,7 @@ impl Launcher {
                 }))
                 .child(counts)
                 .child(buttons)
-                .children(self.client_error.clone().map(error_note))
+                .children(self.client_error.clone().map(ui::error_note))
                 .children(notes.into_iter().map(|n| {
                     ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                         .max_w(px(NOTE_WIDTH))

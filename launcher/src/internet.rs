@@ -2,9 +2,9 @@
 //! type, inviting a friend to this one computer, and keeping shared friends to the server's port
 //! (`eclipse_launcher::tailscale`). Signing in is always the player's, in Tailscale's own app or page;
 //! the launcher reads `tailscale status` and, with the player's own access token, calls the API.
-use super::servers_page::Field;
+use super::fields::Field;
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_launcher::tailscale::{self, Api, Invite, Reach, State};
 use eclipse_theme::glass::{ink, radius, step};
 use serde_json::Value;
@@ -139,7 +139,7 @@ impl Launcher {
                     Ok(invite) => {
                         i.message = None;
                         i.fresh = Some(invite);
-                        self.servers.text(Field::Email).set(String::new());
+                        self.fields.text(Field::FriendEmail).set(String::new());
                     }
                     Err(e) => i.message = Some(Err(e)),
                 }
@@ -164,12 +164,12 @@ impl Launcher {
     }
 
     pub(super) fn save_token(&mut self) {
-        let token = self.servers.value(Field::Token).trim().to_string();
+        let token = self.fields.value(Field::TailscaleToken).trim().to_string();
         if !token.starts_with("tskey-") {
             self.internet.message = Some(Err("Paste your access token (tskey-…)".into()));
             return;
         }
-        self.servers.text(Field::Token).set(String::new());
+        self.fields.text(Field::TailscaleToken).set(String::new());
         self.internet.asking_token = false;
         self.internet.message = match account::keychain().set(tailscale::TOKEN_KEY, &token) {
             Ok(()) if account::keychain().persistent() => None,
@@ -204,7 +204,7 @@ impl Launcher {
         if i.busy {
             return;
         }
-        let email = self.servers.value(Field::Email).trim().to_string();
+        let email = self.fields.value(Field::FriendEmail).trim().to_string();
         if !email.is_empty() && !email.contains('@') {
             i.message = Some(Err("That isn't an email address.".into()));
             return;
@@ -251,7 +251,7 @@ impl Launcher {
         &self,
         id: &'static str,
         text: String,
-        kind: Kind,
+        kind: ButtonKind,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let copied = self
@@ -261,7 +261,7 @@ impl Launcher {
             .is_some_and(|(what, at)| what == &text && at.elapsed() < Duration::from_secs(2));
         button(id, if copied { "Copied" } else { "Copy" }, kind).on_press(cx.listener(
             move |this, _: &ClickEvent, _, cx| {
-                copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
+                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                 this.internet.copied = Some((text.clone(), Instant::now()));
                 cx.notify();
             },
@@ -270,12 +270,12 @@ impl Launcher {
 
     /// The Servers page's "Over the internet": the Tailscale address once it runs, else what
     /// to do about it.
-    pub(super) fn glass_internet(&mut self, port: u16, cx: &mut Context<Self>) -> Div {
+    pub(super) fn internet_card(&mut self, port: u16, cx: &mut Context<Self>) -> Div {
         let d = div()
             .flex()
             .flex_col()
             .child(ui::label(tr("Over the internet")));
-        let check = button("ts-check", "Check again", Kind::Ghost).on_press(cx.listener(
+        let check = button("ts-check", "Check again", ButtonKind::Ghost).on_press(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.internet_refresh();
                 cx.notify();
@@ -298,14 +298,14 @@ impl Launcher {
                     &[("port", &port.to_string())],
                 )).mt(px(4.)))
                 .child(act(
-                    button("ts-install", "Install Tailscale", Kind::Secondary)
+                    button("ts-install", "Install Tailscale", ButtonKind::Secondary)
                         .on_press(|_, _, cx| cx.open_url(tailscale::install_url())),
                     check,
                 )),
             Some(State::Off(_)) => d
                 .child(ui::card_note(tr("Tailscale is installed but not running. Open it and switch it on.")).mt(px(4.)))
                 .child(act(
-                    button("ts-open", "Open Tailscale", Kind::Secondary).on_press(cx.listener(
+                    button("ts-open", "Open Tailscale", ButtonKind::Secondary).on_press(cx.listener(
                         |this, _: &ClickEvent, _, cx| {
                             if let Err(e) = tailscale::open_app() {
                                 this.internet.message = Some(Err(e));
@@ -319,7 +319,7 @@ impl Launcher {
             Some(State::SignedOut { auth_url }) => d
                 .child(ui::card_note(tr("Tailscale is installed. Sign in to Tailscale to continue.")).mt(px(4.)))
                 .child(act(
-                    button("ts-login", "Sign in to Tailscale", Kind::Secondary).on_press(
+                    button("ts-login", "Sign in to Tailscale", ButtonKind::Secondary).on_press(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             match &auth_url {
                                 Some(url) => cx.open_url(url),
@@ -344,7 +344,7 @@ impl Launcher {
                 let text = address.clone();
                 let copy = ui::icon_button("ts-copy", if copied { "tick-02" } else { "copy-01" }, tr("Copy the address"), ui::Size::Md, false)
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
+                    clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                     this.internet.copied = Some((text.clone(), Instant::now()));
                     cx.notify();
                 }));
@@ -394,7 +394,7 @@ impl Launcher {
             Some(Ok(m)) => {
                 panel.child(ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(m.clone()))
             }
-            Some(Err(e)) => panel.child(error_note(e.clone())),
+            Some(Err(e)) => panel.child(ui::error_note(e.clone())),
             None => panel,
         }
     }
@@ -402,7 +402,7 @@ impl Launcher {
     fn invite_section(&mut self, ip: &str, port: u16, cx: &mut Context<Self>) -> Div {
         let line = |s: String| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(s);
         let link = |id: &'static str, label: &'static str, url: &'static str| {
-            button(id, label, Kind::Ghost).on_press(move |_, _, cx| cx.open_url(url))
+            button(id, label, ButtonKind::Ghost).on_press(move |_, _, cx| cx.open_url(url))
         };
         let token = self.internet.token();
         if token.is_none() {
@@ -416,12 +416,12 @@ impl Launcher {
                 "https://login.tailscale.com/admin/machines",
             );
             if self.internet.asking_token {
-                let save = button("ts-token-save", "Save", Kind::Secondary).on_press(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
+                let save = button("ts-token-save", "Save", ButtonKind::Secondary).on_press(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.save_token();
                         cx.notify();
-                    },
-                ));
+                    }),
+                );
                 d = d
                     .child(
                         div()
@@ -429,7 +429,7 @@ impl Launcher {
                             .flex_wrap()
                             .items_center()
                             .gap(px(8.))
-                            .child(self.field(Field::Token, "tskey-api-…", 300., cx))
+                            .child(self.field(Field::TailscaleToken, "tskey-api-…", 300., cx))
                             .child(save)
                             .child(link("ts-keys", "Make a token", tailscale::KEYS)),
                     )
@@ -438,13 +438,13 @@ impl Launcher {
                     ));
             } else {
                 d = d.child(div().flex().flex_wrap().gap(px(8.)).child(machines).child(
-                    button("ts-token", "Use an access token…", Kind::Ghost).on_press(cx.listener(
-                        |this, _: &ClickEvent, _, cx| {
+                    button("ts-token", "Use an access token…", ButtonKind::Ghost).on_press(
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.internet.asking_token = true;
                             this.internet.message = None;
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 ));
             }
             return d;
@@ -452,7 +452,7 @@ impl Launcher {
 
         // Invite.
         let busy = self.internet.busy;
-        let invite = button("ts-invite", "Make an invitation", Kind::Secondary);
+        let invite = button("ts-invite", "Make an invitation", ButtonKind::Secondary);
         let invite = if busy {
             disabled(invite)
         } else {
@@ -471,7 +471,7 @@ impl Launcher {
                     .flex_wrap()
                     .items_center()
                     .gap(px(8.))
-                    .child(self.field(Field::Email, "Their email (optional)", 260., cx))
+                    .child(self.field(Field::FriendEmail, "Their email (optional)", 260., cx))
                     .child(invite),
             )
             .child(line(
@@ -491,7 +491,7 @@ impl Launcher {
                             .truncate()
                             .child(fresh.url.clone()),
                     )
-                    .child(self.copy_button("ts-fresh-copy", fresh.url, Kind::Secondary, cx)),
+                    .child(self.copy_button("ts-fresh-copy", fresh.url, ButtonKind::Secondary, cx)),
             );
         }
         match self.internet.invites.clone() {
@@ -511,7 +511,7 @@ impl Launcher {
                         } else {
                             "Withdraw"
                         },
-                        Kind::Ghost,
+                        ButtonKind::Ghost,
                     );
                     let withdraw = if busy {
                         disabled(withdraw)
@@ -538,7 +538,7 @@ impl Launcher {
                             who,
                             trf(
                                 "Made {date}",
-                                &[("date", &glass_versions::published(date, ""))],
+                                &[("date", &versions_page::published(date, ""))],
                             ),
                         ))
                         .child(withdraw.flex_none()),
@@ -546,7 +546,7 @@ impl Launcher {
                 }
                 d = d.child(rows);
             }
-            Some(Err(e)) => d = d.child(error_note(e)),
+            Some(Err(e)) => d = d.child(ui::error_note(e)),
             _ => {}
         }
 
@@ -586,7 +586,7 @@ impl Launcher {
                                     .flex_wrap()
                                     .gap(px(8.))
                                     .child(
-                                        button("ts-limit-go", "Change the access controls", Kind::Primary)
+                                        button("ts-limit-go", "Change the access controls", ButtonKind::Primary)
                                             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                                 if let Some(new) = new.clone() {
                                                     this.change_policy(
@@ -598,7 +598,7 @@ impl Launcher {
                                                 cx.notify();
                                             })),
                                     )
-                                    .child(button("ts-limit-cancel", "Cancel", Kind::Ghost).on_press(
+                                    .child(button("ts-limit-cancel", "Cancel", ButtonKind::Ghost).on_press(
                                         cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.internet.confirm_limit = false;
                                             cx.notify();
@@ -606,7 +606,8 @@ impl Launcher {
                                     )),
                             );
                     } else {
-                        let b = button("ts-limit", "Limit them to Minecraft", Kind::Secondary);
+                        let b =
+                            button("ts-limit", "Limit them to Minecraft", ButtonKind::Secondary);
                         safety = safety.child(div().flex().child(if busy {
                             disabled(b)
                         } else {
@@ -619,7 +620,7 @@ impl Launcher {
                 }
                 Reach::ServerOnly => {
                     let undo = tailscale::unlimit_shared(&policy, ip, port);
-                    let b = button("ts-unlimit", "Remove the limit", Kind::Ghost);
+                    let b = button("ts-unlimit", "Remove the limit", ButtonKind::Ghost);
                     safety = safety.child(
                         div()
                             .flex()
@@ -674,7 +675,7 @@ impl Launcher {
                                 .child(self.copy_button(
                                     "ts-snippet-copy",
                                     snippet,
-                                    Kind::Secondary,
+                                    ButtonKind::Secondary,
                                     cx,
                                 ))
                                 .child(link("ts-acls", "Open access controls", tailscale::ACCESS)),
@@ -683,13 +684,18 @@ impl Launcher {
             }
             d = d.child(safety);
         }
-        d.child(div().flex().child(
-            button("ts-forget", tr("Forget the access token"), Kind::Ghost).on_press(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
+        d.child(
+            div().flex().child(
+                button(
+                    "ts-forget",
+                    tr("Forget the access token"),
+                    ButtonKind::Ghost,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.forget_token();
                     cx.notify();
-                },
-            )),
-        ))
+                })),
+            ),
+        )
     }
 }

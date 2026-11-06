@@ -31,7 +31,7 @@ pub(super) fn symbol() -> Div {
         }))
 }
 
-/// The symbol at `size` pixels square (the glass top bar's button draws it at 16).
+/// The symbol at `size` pixels square (the top bar's button draws it at 16).
 pub(super) fn logo(size: f32) -> Div {
     let u = size / 21.;
     div()
@@ -49,7 +49,7 @@ pub(super) fn logo(size: f32) -> Div {
 }
 
 pub(super) fn white_button(id: &'static str) -> Stateful<Div> {
-    use crate::glass_ui as ui;
+    use crate::ui;
     use eclipse_theme::glass::{fill, radius, step, ON_LIGHT};
     ui::hoverable(id, radius::ROW, ui::Hover::Shade)
         .flex()
@@ -81,7 +81,7 @@ pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
     } else {
         (0xffffff, 0x5e5e5e, Some(0x8c8c8c))
     };
-    crate::glass_ui::hoverable(id, 0., crate::glass_ui::Hover::Shade)
+    crate::ui::hoverable(id, 0., crate::ui::Hover::Shade)
         .flex()
         .flex_none()
         .items_center()

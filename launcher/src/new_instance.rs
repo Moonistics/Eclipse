@@ -5,7 +5,7 @@
 use super::*;
 use eclipse_launcher::loaders::{self, Kind as Loader};
 use eclipse_launcher::minecraft_versions::Versions;
-use servers_page::Field;
+use fields::Field;
 use std::sync::Arc;
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -152,10 +152,10 @@ impl Launcher {
         {
             return;
         }
-        let typed = self.servers.value(Field::InstanceName).trim().to_string();
+        let typed = self.fields.value(Field::InstanceName).trim().to_string();
         if typed.is_empty() || Some(&typed) == before.as_ref() {
             let after = self.default_name().unwrap_or_default();
-            self.servers.text(Field::InstanceName).set(after);
+            self.fields.text(Field::InstanceName).set(after);
         }
     }
 
@@ -179,7 +179,7 @@ impl Launcher {
         cx.spawn(async move |this, cx| {
             let list = task.await;
             let _ = this.update(cx, |this, cx| {
-                let before = this.servers.value(Field::InstanceName).trim().is_empty();
+                let before = this.fields.value(Field::InstanceName).trim().is_empty();
                 this.instances.versions = match list {
                     Ok(v) => VersionList::Ready(v),
                     Err(e) => VersionList::Failed(e),

@@ -1,6 +1,6 @@
 //! Who plays: the top bar's quick switch (a menu under the account chip) and Settings' offline
 //! names (`eclipse_launcher::account::Accounts::offline`).
-use super::servers_page::Field;
+use super::fields::Field;
 use super::*;
 use eclipse_launcher::account::Player;
 
@@ -63,13 +63,13 @@ impl Launcher {
     }
 
     fn add_offline_name(&mut self) {
-        let name = self.servers.value(Field::OfflineName).trim().to_string();
+        let name = self.fields.value(Field::OfflineName).trim().to_string();
         if name.is_empty() {
             return;
         }
         self.play_as(Player::Offline(name));
         if !matches!(self.sign_in_state, Some(SignInState::Done(Err(_)))) {
-            self.servers.text(Field::OfflineName).set(String::new());
+            self.fields.text(Field::OfflineName).set(String::new());
         }
     }
 

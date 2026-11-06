@@ -12,3 +12,10 @@ pub const HOME_HEAD_WIDE: f32 = 1280.;
 pub const PACK_GRID_WIDE: f32 = 1280.;
 pub const MODS_DETAIL_BESIDE: f32 = 1280.;
 pub const ACCOUNT_CARDS_BESIDE: f32 = 1500.;
+pub const SETTINGS_LIST_BESIDE: f32 = 1100.;
+pub const DIALOG_ASIDE_WIDE: f32 = 1100.;
+pub const SERVER_CARD_MIN: f32 = 540.;
+
+pub fn content_width(window: f32) -> f32 {
+    (window - SIDEBAR - 2. * PAGE_GUTTER).min(PAGE_MAX)
+}

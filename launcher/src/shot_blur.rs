@@ -4,8 +4,8 @@
 //! in the background (`picture_cache`), and drawn stretched. For the session only, like the
 //! mockup's.
 use super::*;
-use crate::glass_ui::{self as ui, white};
 use crate::picture_cache::Look;
+use crate::ui::{self, white};
 use eclipse_theme::glass::{fill, radius};
 use gpui::RenderImage;
 use std::path::Path;

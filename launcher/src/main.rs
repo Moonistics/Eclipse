@@ -5,9 +5,9 @@
 
 mod agents_page;
 mod art;
-mod blocks;
 mod cli;
 mod cli_tools;
+mod clipboard;
 mod collection;
 mod console;
 mod console_page;
@@ -15,31 +15,23 @@ mod cull;
 mod datapacks_page;
 mod dev_options;
 mod export_page;
+mod fields;
 mod frame;
 mod game_tools;
 mod github_mods_page;
-mod glass;
-mod glass_account;
-mod glass_home;
-mod glass_home_lists;
-mod glass_home_mods;
-mod glass_home_packs;
-mod glass_home_tabs;
-mod glass_instance;
-mod glass_instance_java;
-mod glass_notes;
-mod glass_palette;
-mod glass_settings;
-mod glass_shot_blur;
-mod glass_toast;
-mod glass_ui;
-mod glass_versions;
 mod home;
+mod home_head;
+mod home_lists;
+mod home_mods;
+mod home_packs;
 mod home_tabs;
+mod icons;
 mod import_page;
 mod instance_icons;
 mod instance_mods;
-mod instances_page;
+mod instance_page;
+mod instance_state;
+mod instance_versions;
 mod internet;
 mod language_page;
 mod launch_page;
@@ -48,6 +40,8 @@ mod line_edit;
 mod location_page;
 mod markdown;
 mod mcp;
+mod menus;
+mod messages;
 mod microsoft;
 mod modpacks_page;
 mod mods_page;
@@ -56,8 +50,10 @@ mod motion;
 mod multiplayer_page;
 mod native_log_page;
 mod new_instance;
+mod notes_page;
 mod owner_page;
 mod packs_page;
+mod palette;
 mod perf;
 mod picture_cache;
 mod profile_heads;
@@ -65,17 +61,21 @@ mod scene;
 mod screenshots_page;
 mod scrollbar;
 mod servers_page;
+mod settings_account;
+mod settings_page;
 #[cfg(windows)]
 mod setup_page;
 mod shortcut_page;
+mod shot_blur;
 mod skin_page;
-#[cfg(windows)]
-mod sky;
 mod sticky;
 mod switch_page;
 mod theme;
 mod themes_page;
 mod titlebar;
+mod toast;
+mod ui;
+mod versions_page;
 mod while_playing;
 mod worlds_page;
 
@@ -87,12 +87,12 @@ use eclipse_launcher::instances;
 use eclipse_launcher::native_mods;
 use eclipse_launcher::native_status;
 use eclipse_launcher::telemetry;
-use glass_ui::Press;
+use fields::Field;
 use gpui::{
-    actions, div, ease_out_quint, prelude::*, px, relative, size, Animation, AnimationExt,
-    AnyElement, App, Bounds, ClickEvent, Context, Div, ElementId, FocusHandle, FontWeight, Hsla,
-    KeyBinding, KeyDownEvent, Menu, MenuItem, MouseDownEvent, PathPromptOptions, Pixels, Point,
-    SharedString, Stateful, Subscription, Window, WindowBounds, WindowOptions,
+    actions, div, prelude::*, px, size, AnimationExt, AnyElement, App, Bounds, ClickEvent, Context,
+    Div, ElementId, FocusHandle, FontWeight, Hsla, KeyBinding, KeyDownEvent, Menu, MenuItem,
+    MouseDownEvent, PathPromptOptions, Pixels, Point, SharedString, Stateful, Subscription, Window,
+    WindowBounds, WindowOptions,
 };
 use scrollbar::Scrollbar;
 use std::borrow::Cow;
@@ -102,10 +102,11 @@ use std::sync::mpsc::{channel, Receiver, Sender};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use theme::Theme;
+use ui::{ButtonKind, Press};
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, Debug, PartialEq)]
 enum Page {
-    Play,
+    Home,
     Versions,
     /// Mods, resource packs and modpacks (imported ones and the browser's).
     Mods,
@@ -128,7 +129,7 @@ impl Page {
             Ok("versions") => Page::Versions,
             Ok("notes") => Page::Notes,
             Ok("settings") => Page::Settings,
-            _ => Page::Play,
+            _ => Page::Home,
         };
         // The data folder did not open: start on Settings, where the message and the two
         // recoveries are (an explicit ECLIPSE_LAUNCHER_PAGE still wins, for screenshots).
@@ -140,7 +141,7 @@ impl Page {
 
     /// Every page, with its name and icon.
     const ALL: [(Page, &'static str, &'static str); 6] = [
-        (Page::Play, "Home", "home"),
+        (Page::Home, "Home", "home"),
         (Page::Mods, "Mods", "package"),
         (Page::Servers, "Servers", "server"),
         (Page::Versions, "Versions", "archive"),
@@ -149,7 +150,7 @@ impl Page {
     ];
 
     const NAV: [(Page, &'static str, &'static str); 5] = [
-        (Page::Play, "Home", "dashboard-square-01"),
+        (Page::Home, "Home", "dashboard-square-01"),
         (Page::Mods, "Mods", "puzzle"),
         (Page::Servers, "Servers", "computer"),
         (Page::Versions, "Versions", "package-01"),
@@ -196,9 +197,9 @@ struct Launcher {
     /// How many times the page changed, for the page transition.
     switches: usize,
     content_scroll: Scrollbar,
-    /// The glass Settings page's own scroll: its sections beside their list.
+    /// The Settings page's own scroll: its sections beside their list.
     settings_pane: gpui::ScrollHandle,
-    /// The section the glass Settings list marked when last drawn (`glass_settings`).
+    /// The section the Settings list marked when last drawn (`settings_page`).
     settings_marked: usize,
     /// The Mods page's project card, kept in view beside its list.
     mods_sticky: sticky::Sticky,
@@ -274,7 +275,7 @@ struct Launcher {
     language_menu: bool,
     /// The top bar's quick switch of who plays (`switch_page.rs`).
     account_menu: bool,
-    /// The glass sidebar's ⋮ menu (`frame.rs`).
+    /// The sidebar's ⋯ menu (`frame.rs`).
     row_menu: frame::RowMenu,
     menu_opener: Option<FocusHandle>,
     /// Where the mouse went down to close a menu by pressing outside it, so that the
@@ -304,14 +305,15 @@ struct Launcher {
     /// The folder the running game keeps its settings in: the game home, or a modpack's.
     client_home: Option<std::path::PathBuf>,
     crash: Option<Crash>,
+    fields: fields::Fields,
     /// The Servers page (`servers_page.rs`).
     servers: servers_page::Servers,
     /// Its Friends over the internet panel (`internet.rs`).
     internet: internet::Internet,
     /// The window's own focus, so Tab reaches the controls when nothing else has the keyboard.
-    /// The palette (⌘K), while open (`glass_palette`).
-    palette: Option<glass_palette::Palette>,
-    /// The toast last drawn (`glass_toast`), by its number.
+    /// The palette (⌘K), while open (`palette`).
+    palette: Option<palette::Palette>,
+    /// The toast last drawn (`toast`), by its number.
     toast_seen: Option<u64>,
     root_focus: FocusHandle,
     /// Microsoft accounts (accounts.json), the sign-in under way and what it last showed.
@@ -342,11 +344,6 @@ struct Launcher {
     starting_client: Option<String>,
     /// Play was pressed on a version not prepared yet: it starts once this preparation ends well.
     play_when_prepared: Option<String>,
-    /// Join a friend: the code typed on the Play page, and the one the game
-    /// starting now joins.
-    friend_code: line_edit::LineEdit,
-    friend_focused: bool,
-    friend_focus: FocusHandle,
     /// The window's width at the last frame: Home's head lays out by it, as the mockup's `xl`.
     window_width: f32,
     /// The window's longer side in points, and the screen's pixels per point: the size pictures
@@ -360,14 +357,6 @@ struct Launcher {
     client_run: Option<(String, Instant)>,
     /// The running game's instance variables, for its post-exit command.
     client_vars: eclipse_launcher::launch::Vars,
-    /// Settings' Game arguments field: the line, whether it has focus, and its focus handle.
-    args_input: line_edit::LineEdit,
-    args_focused: bool,
-    args_focus: FocusHandle,
-    /// Settings' Proxy field, the same way (`proxy`).
-    proxy_input: line_edit::LineEdit,
-    proxy_focused: bool,
-    proxy_focus: FocusHandle,
     /// Opt-in data collection: the player's answer and Settings' section (`collection`).
     collection: collection::Collection,
     /// Settings' "Connect an AI agent" (`agents_page`).
@@ -386,8 +375,8 @@ struct Launcher {
     /// The tab open under Home's hero (`home_tabs.rs`).
     home_tab: home_tabs::HomeTab,
     /// Home's Play or folder menu, while open.
-    home_menu: glass_home::HomeMenu,
-    /// The list row under the pointer in Home's glass tabs (a world, a server): it shows its
+    home_menu: home_head::HomeMenu,
+    /// The list row under the pointer in Home's tabs (a world, a server): it shows its
     /// actions then.
     list_hover: Option<SharedString>,
     /// A Home list row's ⋯ menu, while open, and whether its Delete… was clicked once.
@@ -417,13 +406,13 @@ struct Launcher {
     /// The Mods page: the browser's search, installs and updates (`mods_page.rs`).
     mods: mods_page::Mods,
     github: github_mods_page::Github,
-    /// The instances, for the sidebar and Play, and their dialog (`instances_page.rs`).
-    instances: instances_page::Instances,
+    /// The instances, for the sidebar and Play, and their dialog (`instance_state.rs`).
+    instances: instance_state::Instances,
     /// Home's Worlds section, of the selected instance (`worlds_page.rs`).
     worlds: worlds_page::Worlds,
     multiplayer: multiplayer_page::Multiplayer,
     screenshots: screenshots_page::Screenshots,
-    shot_blur: glass_shot_blur::ShotBlur,
+    shot_blur: shot_blur::ShotBlur,
     /// Pictures from disk made at their drawn size (`picture_cache`).
     pictures: picture_cache::Pictures,
     game_packs: packs_page::Packs,
@@ -494,7 +483,7 @@ impl Launcher {
         // Pin the window's chrome (macOS title bar) to the choice before the theme reads
         // `window.appearance()`, so both draw the same look.
         titlebar::apply_appearance(window, settings.appearance);
-        glass_ui::set_menu_focus(cx.focus_handle());
+        ui::set_menu_focus(cx.focus_handle());
         let mut this = Self {
             theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
             page: Page::from_env(),
@@ -551,16 +540,6 @@ impl Launcher {
             background_error: None,
             location_error: location_page::startup_error(),
             location_note: location_page::startup_note(),
-            args_input: line_edit::LineEdit::new(settings.game_args.clone(), 1024, 38),
-            args_focused: false,
-            args_focus: cx.focus_handle(),
-            proxy_input: line_edit::LineEdit::new(
-                settings.proxy.clone().unwrap_or_default(),
-                256,
-                44,
-            ),
-            proxy_focused: false,
-            proxy_focus: cx.focus_handle(),
             settings,
             settings_save_error: None,
             links: backend::Links::default(),
@@ -572,6 +551,7 @@ impl Launcher {
             client_started: None,
             client_home: None,
             crash: None,
+            fields: Default::default(),
             servers: servers_page::Servers::new(),
             internet: internet::Internet::new(),
             root_focus: cx.focus_handle(),
@@ -594,12 +574,9 @@ impl Launcher {
             dev_options: false,
             starting_client: None,
             play_when_prepared: None,
-            friend_code: line_edit::LineEdit::new(String::new(), 256, 32),
-            friend_focused: false,
             window_width: 0.,
             window_long_side: 0.,
             scale_factor: 1.,
-            friend_focus: cx.focus_handle(),
             joining: None,
             quick_play: None,
             client_run: None,
@@ -632,9 +609,9 @@ impl Launcher {
             pack_log: VecDeque::new(),
             pack_error: None,
             starting_pack: None,
-            mods: mods_page::Mods::new(cx),
-            github: github_mods_page::Github::new(cx),
-            instances: instances_page::Instances::default(),
+            mods: mods_page::Mods::new(),
+            github: github_mods_page::Github::new(),
+            instances: instance_state::Instances::default(),
             worlds: worlds_page::Worlds::default(),
             multiplayer: multiplayer_page::Multiplayer::default(),
             screenshots: screenshots_page::Screenshots::default(),
@@ -657,6 +634,12 @@ impl Launcher {
         if this.location_error.is_some() || this.location_note.is_some() {
             this.page = Page::Settings;
         }
+        let (args, proxy) = (
+            this.settings.game_args.clone(),
+            this.settings.proxy.clone().unwrap_or_default(),
+        );
+        this.fields.text(Field::GameArgs).set(args);
+        this.fields.text(Field::Proxy).set(proxy);
         this.reload_instances();
         if this.bench.is_some() {
             this.perf.keep_local_log(false);
@@ -717,14 +700,14 @@ impl Launcher {
         Some(
             div()
                 .flex_none()
-                .px(px(theme::PAGE_GUTTER))
+                .px(px(layout::PAGE_GUTTER))
                 .py(px(12.))
                 .child(
-                    glass::plate(radius::PANEL)
+                    ui::card(radius::PANEL)
                         .flex()
                         .items_center()
                         .gap(px(16.))
-                        .p(px(glass_ui::PANEL_INSET))
+                        .p(px(ui::PANEL_INSET))
                         .child(
                             div()
                                 .relative()
@@ -733,9 +716,9 @@ impl Launcher {
                                 .gap(px(4.))
                                 .flex_1()
                                 .min_w_0()
-                                .child(error_note(tr("Settings were not saved.")))
+                                .child(ui::error_note(tr("Settings were not saved.")))
                                 .child(
-                                    glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                                    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                                         .child(trf(
                                             "Your changes are still in this window. Retry to save them. {error}",
                                             &[("error", error)],
@@ -743,7 +726,7 @@ impl Launcher {
                                 ),
                         )
                         .child(
-                            button("settings-save-retry", "Retry", Kind::Secondary)
+                            button("settings-save-retry", "Retry", ButtonKind::Secondary)
                                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.save_settings();
                                     cx.notify();
@@ -975,488 +958,6 @@ impl Launcher {
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Links(backend::links()));
         });
-    }
-
-    fn drain(&mut self, cx: &mut Context<Self>) {
-        let mut changed = false;
-        self.perf.tick();
-        match self.bench.as_mut().map(|b| b.tick(&self.perf)) {
-            Some(perf::Step::Go(page)) => {
-                let pages: Vec<Page> = Page::ALL.iter().map(|p| p.0).collect();
-                self.go(pages[page % pages.len()]);
-                changed = true;
-            }
-            Some(perf::Step::Scroll) => {
-                self.go(Page::Versions);
-                changed = true;
-            }
-            Some(perf::Step::Quit) => cx.quit(),
-            Some(perf::Step::Wait) | None => {}
-        }
-        // The running build's clock moves on each second.
-        if let Some((started, shown)) = &mut self.native_started {
-            if started.elapsed().as_secs() != *shown {
-                *shown = started.elapsed().as_secs();
-                changed = true;
-            }
-        }
-        while let Ok(msg) = self.rx.try_recv() {
-            changed = true;
-            match msg {
-                Msg::Releases(r) => {
-                    if let (Ok(_), Some(checked)) = (&r, self.checked) {
-                        self.perf.record_since("launcher.release_list_ms", checked);
-                    }
-                    self.releases = r.map_or_else(Load::Failed, Load::Ready)
-                }
-                Msg::Links(links) => {
-                    self.multiplayer.stale();
-                    self.links = links;
-                }
-                // The page reads is_prepared when drawn; `changed` redraws it.
-                Msg::Reused(_) => self.installed = backend::installed(),
-                Msg::Keychain(said) => self.keychain = said,
-                Msg::Owner(owns) => self.owner = Some(owns),
-                Msg::AccountHead(uuid, url, face, failed) => {
-                    self.profile_heads.loaded(&uuid, &url, face, failed)
-                }
-                Msg::AccountProgress(uuid, generation, phase) => {
-                    if self.auth_busy.get(&uuid) == Some(&generation) {
-                        self.auth_progress.insert(uuid, phase);
-                    }
-                }
-                Msg::AccountStatus(uuid, generation, status) => {
-                    if self.auth_busy.get(&uuid) != Some(&generation) {
-                        continue;
-                    }
-                    self.auth_busy.remove(&uuid);
-                    self.auth_progress.remove(&uuid);
-                    if self.accounts.find(&uuid).is_some() {
-                        if status.state == account::session::State::Ready {
-                            self.owner = Some(true);
-                        }
-                        self.auth_status.insert(uuid, status);
-                        // A refresh may have saved a new name or skin: show it now.
-                        let saved = Accounts::load();
-                        if saved != self.accounts {
-                            self.accounts = saved;
-                            self.load_profile_heads();
-                        }
-                    }
-                }
-                Msg::AccountRemoved(uuid, generation, result) => {
-                    if self.auth_busy.get(&uuid) != Some(&generation) {
-                        continue;
-                    }
-                    self.auth_busy.remove(&uuid);
-                    self.auth_progress.remove(&uuid);
-                    match result {
-                        Ok(owns) => {
-                            self.accounts = Accounts::load();
-                            self.auth_status.remove(&uuid);
-                            self.owner = Some(owns);
-                        }
-                        Err(e) => self.sign_in_state = Some(SignInState::Done(Err(e))),
-                    }
-                }
-                Msg::JavaGame(id, home, cmd) => {
-                    self.starting_client = None;
-                    let spawned = cmd.and_then(|(cmd, vars)| {
-                        self.client_vars = vars;
-                        backend::spawn(Job::Client, cmd, self.tx.clone())
-                    });
-                    match spawned {
-                        Ok(r) => {
-                            self.client = Some(r);
-                            self.client_home = Some(home);
-                            self.client_run = Some((id, Instant::now()));
-                            self.client_error = account::take_unsaved();
-                            self.step_aside(cx);
-                        }
-                        Err(e) => {
-                            if e == account::NoOwner.to_string() {
-                                self.owner = Some(false);
-                                self.owner_screen_open = true;
-                                self.client_error = Some(account::NoOwner::in_window());
-                            } else {
-                                self.client_error = Some(e);
-                            }
-                        }
-                    }
-                }
-                Msg::Session(session) => {
-                    self.load_auth_statuses(false);
-                    if let Some(tag) = self.starting_client.take() {
-                        let mut cmd = backend::client_command(&tag);
-                        let account::GameSession { file, offline, env } = match session {
-                            Ok(pass) => pass,
-                            Err(account::NoOwner) => {
-                                self.owner = Some(false);
-                                self.owner_screen_open = true;
-                                self.client_error = Some(account::NoOwner::in_window());
-                                self.starting_pack = None;
-                                self.joining = None;
-                                self.quick_play = None;
-                                continue;
-                            }
-                        };
-                        // Past the gate by the developer option alone is no owner.
-                        if !self.settings.dev_offline {
-                            self.owner = Some(true);
-                        }
-                        if let Some(file) = file {
-                            cmd.arg("--session-file").arg(file);
-                        }
-                        cmd.envs(env);
-                        // Still play, offline, and say why.
-                        if let Some(e) = offline {
-                            self.client_error = Some(format!("Playing offline: {e}"));
-                        } else if let Some(e) = account::take_unsaved() {
-                            self.client_error = Some(e);
-                        }
-                        self.accounts = Accounts::load();
-                        // An offline name the player picked (the quick switch).
-                        if let Some(name) = self.accounts.name_arg() {
-                            cmd.arg("--name").arg(name);
-                        }
-                        cmd.envs(self.accounts.look_env());
-                        // A pack's Play button plays that pack; Play plays the selected instance.
-                        let (profile, run) = match self.starting_pack.take() {
-                            Some(work) => {
-                                let id = instances::list()
-                                    .into_iter()
-                                    .find(|i| i.work == work)
-                                    .map(|i| i.id);
-                                let applied =
-                                    eclipse_launcher::modpacks::apply_profile(&mut cmd, &work);
-                                (applied, id)
-                            }
-                            None => {
-                                let instance = instances::selected();
-                                (instances::apply(&mut cmd, &instance), Some(instance.id))
-                            }
-                        };
-                        if let Err(e) = profile {
-                            self.client_error = Some(e);
-                            account::discard_unread_sessions();
-                            continue;
-                        }
-                        if let Some(code) = self.joining.take() {
-                            if let Err(e) = backend::join_friend(&mut cmd, &code) {
-                                self.client_error = Some(e);
-                            }
-                        }
-                        if let Some((flag, value)) = self.quick_play.take() {
-                            cmd.arg(flag).arg(value);
-                        }
-                        backend::append_game_args(&mut cmd);
-                        // Last, around every argument: the instance's pre-launch command,
-                        // wrapper and variables.
-                        let instance = run
-                            .as_ref()
-                            .and_then(|id| instances::list().into_iter().find(|i| &i.id == id));
-                        self.client_vars = instance
-                            .as_ref()
-                            .map(|i| i.vars(cmd.get_program()))
-                            .unwrap_or_default();
-                        cmd.envs(self.client_vars.iter().map(|(k, v)| (k, v)));
-                        let launch = instance.map(|i| i.launch).unwrap_or_default();
-                        let cmd = eclipse_launcher::launch::wrap(cmd, &launch);
-                        self.client_home = cmd.get_current_dir().map(|d| d.to_path_buf());
-                        match backend::spawn(Job::Client, cmd, self.tx.clone()) {
-                            Ok(r) => {
-                                self.client = Some(r);
-                                self.client_run = run.map(|id| (id, Instant::now()));
-                                self.step_aside(cx);
-                            }
-                            Err(e) => {
-                                self.client_error = Some(e);
-                                account::discard_unread_sessions();
-                            }
-                        }
-                    } else {
-                        // The start was called off: the sessions written for it go.
-                        account::discard_unread_sessions();
-                    }
-                }
-                Msg::Progress(tag, p) => {
-                    self.bar = (self.bar.1, p);
-                    self.installing = Some((tag, p));
-                }
-                Msg::Installed(tag, result) => {
-                    self.installing = None;
-                    self.bar = (0., 0.);
-                    self.installed = backend::installed();
-                    let as_update = self.update_install.take().filter(|(t, _)| *t == tag);
-                    let for_instance = self.instance_install.take_if(|t| *t == tag).is_some();
-                    if let (Ok(()), Some(started)) = (&result, self.install_started.take()) {
-                        let name = if as_update.is_some() {
-                            "launcher.update_ms"
-                        } else {
-                            "launcher.install_ms"
-                        };
-                        self.perf.record_since(name, started);
-                    }
-                    match result {
-                        Ok(()) => {
-                            if self.updates.eclipse.as_ref().is_some_and(|r| r.tag == tag) {
-                                self.updates.eclipse = None;
-                            }
-                            // An instance's own version leaves the other instances on theirs.
-                            let select = as_update.is_none_or(|(_, select)| select)
-                                && (!for_instance || self.launcher_version().is_none());
-                            if select {
-                                self.settings.selected = Some(tag);
-                            }
-                            // Pruning reads settings from disk: protect the selection only once
-                            // it has been saved there. A failed save leaves all versions in place.
-                            if self.save_settings() {
-                                let tx = self.tx.clone();
-                                std::thread::spawn(move || {
-                                    let _ = tx.send(Msg::Pruned(backend::prune_old_versions()));
-                                });
-                            }
-                        }
-                        Err(e) => self.install_error = Some((tag, e)),
-                    }
-                    if let Some(next) = self.install_next.take() {
-                        self.install_for_instance(next);
-                    }
-                }
-                Msg::Removed(tag, result) => {
-                    self.removing.retain(|t| *t != tag);
-                    self.installed = backend::installed();
-                    let selected = if self.settings_save_error.is_some() {
-                        self.settings.selected.take()
-                    } else {
-                        Settings::load().selected
-                    };
-                    self.settings.selected = selection_after_removal(&self.installed, selected);
-                    if let Err(e) = result {
-                        self.install_error = Some((tag, e));
-                    }
-                }
-                Msg::DiskUse(disk) => self.disk = disk,
-                Msg::Imported(result) => {
-                    self.importing_build = false;
-                    self.installed = backend::installed();
-                    match result {
-                        // `build_import::import` saved the selection; this keeps the window's copy.
-                        Ok(tag) => self.settings.selected = Some(tag),
-                        Err(e) => self.import_error = Some(e),
-                    }
-                }
-                Msg::Pruned(gone) => {
-                    if !gone.is_empty() {
-                        self.installed = backend::installed();
-                    }
-                }
-                Msg::Updates(Ok(updates)) => {
-                    self.update_error = None;
-                    self.updates = *updates;
-                    if self.settings.auto_install() {
-                        self.install_update();
-                    }
-                    if let Some(release) = self.updates.launcher.clone() {
-                        self.update_launcher(release);
-                    }
-                }
-                Msg::Updates(Err(e)) => self.update_error = Some(e),
-                Msg::NativeProgress(step) => self.native_step = Some(step),
-                Msg::Native(result) => {
-                    // The last step of a build that worked says how it went.
-                    let last = self.native_step.take();
-                    self.native_started = None;
-                    self.native_done = result.is_ok().then_some(last).flatten();
-                    self.installed = backend::installed();
-                    self.reload_instances();
-                    // A build attempt ended: an open panel reads the log it left.
-                    self.native_log.stale = true;
-                    match result.map_err(|e| match e.strip_prefix(native_mods::MISMATCH) {
-                        Some(list) => Ok(list.to_owned()),
-                        None => Err(e),
-                    }) {
-                        Err(Ok(list)) => self.native_mismatch = Some(list),
-                        Err(Err(e)) => self.native_error = Some(e),
-                        // Play waited for this build (`Mods::rebuild`).
-                        Ok(_) if std::mem::take(&mut self.mods.play_after_build) => self.play(),
-                        Ok(_) => {}
-                    }
-                    self.mods.play_after_build = false;
-                }
-                Msg::LauncherProgress(p) => {
-                    if let SelfUpdate::Downloading(_, f) = &mut self.self_update {
-                        *f = p;
-                    }
-                }
-                Msg::LauncherUpdated(result) => {
-                    let version = match &self.self_update {
-                        SelfUpdate::Downloading(v, _) => v.clone(),
-                        _ => String::new(),
-                    };
-                    self.self_update = match result {
-                        Ok(staged) => {
-                            eclipse_launcher::update_handoff::set_pending(staged);
-                            SelfUpdate::Ready(version)
-                        }
-                        Err(e) => SelfUpdate::Failed(e),
-                    };
-                }
-                Msg::PackLine(line) => {
-                    self.pack_log.push_back(line);
-                    if self.pack_log.len() > LOG_LINES {
-                        self.pack_log.pop_front();
-                    }
-                }
-                Msg::PackDone(result) => self.pack_done(result),
-                // Old versions log their session; it never reaches the window.
-                Msg::Line(_, line) if line.contains("Session ID is") => {}
-                Msg::Line(job, line) => {
-                    if job == Job::Client && line.starts_with(perf::GAME_FIRST_FRAME) {
-                        if let Some(pressed) = self.play_pressed.take() {
-                            self.perf
-                                .record_since("launcher.play_to_game_frame_ms", pressed);
-                        }
-                    }
-                    // The MCP server keeps its own server's log; the launcher's are the preparer's
-                    // and the game's.
-                    if job != Job::Server {
-                        self.prepare_log.push_back(line);
-                        if self.prepare_log.len() > LOG_LINES {
-                            self.prepare_log.pop_front();
-                        }
-                    }
-                }
-                Msg::Exit(job, result) => {
-                    let error = result.err();
-                    match job {
-                        Job::Prepare => {
-                            self.preparing = false;
-                            // Play pressed before the version was prepared plays now.
-                            if let Some(tag) = self.play_when_prepared.take() {
-                                if error.is_none() && backend::is_prepared(&tag) {
-                                    self.starting_pack = None;
-                                    self.start_client(tag);
-                                }
-                            }
-                            if let (None, Some(started)) = (&error, self.prepare_started.take()) {
-                                self.perf.record_since("launcher.prepare_ms", started);
-                            }
-                            // A preparer process's exit status says little, so its last line
-                            // follows; the launcher's own errors are full sentences already.
-                            self.prepare_error = error.map(|e| {
-                                let tail = self
-                                    .prepare_log
-                                    .iter()
-                                    .rev()
-                                    .find(|l| !l.trim().is_empty())
-                                    .filter(|_| e.starts_with("Exited with"));
-                                tail.map_or(e.clone(), |t| format!("{e}: {t}"))
-                            });
-                        }
-                        Job::Client => {
-                            self.client = None;
-                            // Any session file the game didn't read (it crashed first).
-                            account::discard_unread_sessions();
-                            self.come_back(cx);
-                            // The game saved: last played, sizes and pictures changed.
-                            self.worlds.stale();
-                            self.multiplayer.stale();
-                            self.screenshots.stale();
-                            self.game_packs.stale();
-                            let vars = std::mem::take(&mut self.client_vars);
-                            if let Some((id, started)) = self.client_run.take() {
-                                if let Err(e) = instances::record_play(&id, started.elapsed()) {
-                                    eprintln!("Play time not saved: {e}");
-                                }
-                                if let Some(i) = instances::list().into_iter().find(|i| i.id == id)
-                                {
-                                    eclipse_launcher::launch::run_after_exit(
-                                        &i.launch, &i.home, &vars,
-                                    );
-                                }
-                                self.reload_instances();
-                            }
-                            // The run's own game folder: an instance's or a pack's keeps its reports.
-                            let home = self.client_home.clone().unwrap_or_else(backend::game_home);
-                            let report = self
-                                .client_started
-                                .take()
-                                .and_then(|since| backend::crash_report_since(&home, since));
-                            let switched = if error.is_some() && report.is_none() {
-                                self.switched_from_vulkan()
-                            } else {
-                                None
-                            };
-                            if let Some(api) = switched {
-                                self.client_error = Some(trf(
-                                    "Eclipse's Vulkan renderer crashed while starting on this \
-                                     graphics card, so the game now uses {api}. Press Play to \
-                                     start it again. Video Settings > Graphics API switches back.",
-                                    &[("api", api)],
-                                ));
-                            } else if error.is_some() || report.is_some() {
-                                let summary = report
-                                    .as_ref()
-                                    .and_then(|p| std::fs::read_to_string(p).ok())
-                                    .and_then(|text| backend::crash_summary(&text))
-                                    .or_else(|| {
-                                        let tail = self
-                                            .prepare_log
-                                            .iter()
-                                            .rev()
-                                            .find(|l| !l.trim().is_empty());
-                                        error.as_ref().map(|e| {
-                                            tail.map_or(e.clone(), |t| format!("{e}: {t}"))
-                                        })
-                                    })
-                                    .unwrap_or_default();
-                                self.crash = Some(Crash {
-                                    report,
-                                    summary,
-                                    copied: false,
-                                });
-                            }
-                        }
-                        Job::Server => {}
-                    }
-                }
-            }
-        }
-        changed |= self.servers_tick();
-        changed |= self.mods_tick();
-        changed |= self.github_tick();
-        changed |= self.native_log_read(cx);
-        changed |= self.toast_tick();
-        if let Some(sign_in) = &self.sign_in {
-            if let Some(state) = sign_in_change(&mut self.sign_in_state, sign_in.state()) {
-                if let SignInState::Done(Ok(ref account)) = state {
-                    self.auth_busy.remove(&account.uuid);
-                    self.sign_in_target = None;
-                    self.accounts = Accounts::load();
-                    self.load_profile_heads();
-                    self.load_auth_statuses(false);
-                    // Sign-in refuses accounts that don't own the game.
-                    self.owner = Some(true);
-                    self.owner_screen_open = false;
-                    self.client_error = None;
-                    if !self.settings.owner_notice_seen {
-                        self.settings.owner_notice_seen = true;
-                        self.save_settings();
-                    }
-                }
-                changed = true;
-            }
-        }
-        if self
-            .checked
-            .is_some_and(|at| at.elapsed() > backend::CHECK_EVERY)
-        {
-            self.check_updates();
-        }
-        if changed {
-            cx.notify();
-        }
     }
 
     /// After a crash with no report: when the game's output ends while its Vulkan renderer
@@ -1914,108 +1415,44 @@ impl Launcher {
         })
         .detach();
     }
+
+    /// Plays the selected instance straight into a world (`--world`) or a server (`--server`):
+    /// flags every Eclipse release takes.
+    pub(crate) fn quick_play(&mut self, flag: &'static str, value: String) {
+        self.quick_play = Some((flag, value));
+        self.play();
+        if self.starting_client.is_none() {
+            self.quick_play = None;
+        }
+    }
+
+    /// Join a friend: a code field and Join, which starts the game straight
+    /// into the friend's world (errors show in the game).
+    fn join_friend(&mut self) {
+        let code = self.fields.value(Field::InviteCode).to_string();
+        if eclipse_friends::invite::parse(&code).is_none() {
+            return;
+        }
+        self.joining = Some(code);
+        self.play();
+        if self.starting_client.is_none() {
+            self.joining = None;
+        }
+    }
 }
 
 // ----- Building blocks ---------------------------------------------------------------------------
 
-#[derive(Clone, Copy, PartialEq)]
-enum Kind {
-    Primary,
-    Secondary,
-    Ghost,
-}
-
-fn mark(size: f32, scale: f32) -> Div {
-    thread_local! {
-        static MARKS: std::cell::RefCell<HashMap<(u32, u32), std::sync::Arc<gpui::RenderImage>>> =
-            Default::default();
-    }
-    let image = MARKS.with_borrow_mut(|marks| {
-        marks
-            .entry((size.to_bits(), scale.to_bits()))
-            .or_insert_with(|| art::bake(&eclipse_theme::mark::texels(), 16, 16, size / 16., scale))
-            .clone()
-    });
-    div()
-        .flex_none()
-        .size(px(size))
-        .child(gpui::img(image).size(px(size)))
-}
-
-/// A medium button with its label translated (`glass_ui::button`).
+/// A medium button with its label translated (`ui::button`).
 fn button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
-    kind: Kind,
+    kind: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
     let label: SharedString = label.into();
     let label = SharedString::from(tr(&label).to_string());
-    glass_ui::button(id, None, label, kind, glass_ui::Size::Md)
-}
-
-/// Copies to the clipboard, or into `ECLIPSE_LAUNCHER_CLIPBOARD` when a test run sets it
-/// (`eclipse_launcher::desktop_seams`).
-fn copy_to_clipboard(cx: &mut App, item: gpui::ClipboardItem) {
-    match item.text() {
-        Some(text) => glass_toast::say(trf("Copied {text}", &[("text", &text)])),
-        None => glass_toast::say(tr("Copied the picture")),
-    }
-    if let Some(file) = eclipse_launcher::desktop_seams::clipboard_file() {
-        let bytes = match item.entries().first() {
-            Some(gpui::ClipboardEntry::Image(image)) => image.bytes.clone(),
-            _ => item.text().unwrap_or_default().into_bytes(),
-        };
-        if let Err(e) = std::fs::write(&file, bytes) {
-            eprintln!("{}: {e}", file.display());
-        }
-        return;
-    }
-    cx.write_to_clipboard(item.clone());
-    #[cfg(target_os = "linux")]
-    if let Some(text) = item.text() {
-        sync_system_clipboard(text);
-    }
-}
-
-/// GPUI's Wayland clipboard sends the last key press's serial, which a compositor ignores
-/// after a mouse click: hand the text to the desktop's own tool too, the first one present
-/// for this session (`wl-copy` on Wayland, `xclip` or `xsel` on X11).
-#[cfg(target_os = "linux")]
-fn sync_system_clipboard(text: String) {
-    use std::io::Write;
-    use std::process::{Command, Stdio};
-    const TOOLS: [(&str, &str, &[&str]); 3] = [
-        ("WAYLAND_DISPLAY", "wl-copy", &[]),
-        ("DISPLAY", "xclip", &["-selection", "clipboard"]),
-        ("DISPLAY", "xsel", &["--clipboard", "--input"]),
-    ];
-    if text.is_empty() {
-        return;
-    }
-    // Off the UI thread: a tool can take its time.
-    std::thread::spawn(move || {
-        for (session, tool, args) in TOOLS {
-            if std::env::var_os(session).is_none() {
-                continue;
-            }
-            let Ok(mut child) = Command::new(tool)
-                .args(args)
-                .stdin(Stdio::piped())
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .spawn()
-            else {
-                continue;
-            };
-            if let Some(mut stdin) = child.stdin.take() {
-                let _ = stdin.write_all(text.as_bytes());
-            }
-            if child.wait().is_ok_and(|status| status.success()) {
-                return;
-            }
-        }
-    });
+    ui::button(id, None, label, kind, ui::Size::Md)
 }
 
 /// What the Play button does for the selected version.
@@ -2027,37 +1464,6 @@ enum PlayPress {
     PrepareThenPlay,
     /// Not prepared and no owner (signing in comes first), or busy preparing or playing.
     Nothing,
-}
-
-/// Account state uses the same semantic colors as the launcher's other notices. Keep a
-/// distinct icon and the full label so color is never the only way to recognize a state.
-fn account_status_line(status: Option<&account::session::Status>, progress: Option<&str>) -> Div {
-    use account::session::State;
-    use eclipse_theme::glass::ink;
-    let muted = glass_ui::white(ink::MUTED);
-    let (icon, color, label) = if let Some(progress) = progress {
-        ("clock", muted, progress)
-    } else {
-        let (icon, color) = match status.map(|s| s.state) {
-            Some(State::Ready) => ("tick-02", glass_ui::live()),
-            Some(State::NeedsRefresh | State::Retry) => ("refresh", glass_ui::warn()),
-            Some(State::SignInRequired) => ("user", glass_ui::danger()),
-            Some(State::OwnershipRequired) => ("alert-circle", glass_ui::danger()),
-            None => ("information-circle", muted),
-        };
-        (
-            icon,
-            color,
-            status.map_or("Sign-in not checked", |s| s.label()),
-        )
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(6.))
-        .text_color(color)
-        .child(glass_ui::icon(icon, glass_ui::IconSize::Px16, color))
-        .child(tr(label).to_owned())
 }
 
 /// Polling must handle each sign-in transition once. Replaying a completed sign-in
@@ -2108,94 +1514,12 @@ fn selection_after_removal(installed: &[String], saved: Option<String>) -> Optio
         .or_else(|| installed.first().cloned())
 }
 
-/// The row menu a press on a sidebar row leaves open: that row's, or none when it was already
-/// that row's (the ⋮ and a right click on the row toggle the same way).
-fn row_menu_after_press(open: Option<(String, bool)>, id: &str) -> Option<(String, bool)> {
-    if open.as_ref().is_some_and(|(current, _)| current == id) {
-        return None;
-    }
-    Some((id.to_owned(), false))
-}
-
 fn disabled(b: Stateful<Div>) -> Stateful<Div> {
     b.opacity(theme::DISABLED).cursor_default().tab_stop(false)
 }
 
 fn page_header(title: &str, description: &str) -> Div {
-    glass_ui::page_head(tr(title), tr(description))
-}
-
-/// How an available update is named: a Nightly by its title ("Nightly 2026-10-28 · 0c02067"), a
-/// release by its tag.
-fn update_name(release: &Release) -> &str {
-    match release.nightly {
-        Some(_) => &release.name,
-        None => &release.tag,
-    }
-}
-
-/// Microsoft account actions go below the profile in the fixed-width glass card.
-fn account_row(slot: Div, name: impl IntoElement, detail: Option<AnyElement>, actions: Div) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .min_w_0()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(14.))
-                .px(px(16.))
-                .py(px(12.))
-                .child(
-                    slot.rounded(px(eclipse_theme::glass::radius::ROW))
-                        .overflow_hidden(),
-                )
-                .child(glass_ui::setting_row(name, detail, None).p_0().flex_1()),
-        )
-        .child(actions.flex_wrap().px(px(16.)).pb(px(12.)))
-}
-
-fn error_card(said: impl Into<SharedString>) -> Div {
-    glass::plate(eclipse_theme::glass::radius::PANEL)
-        .p(px(glass_ui::PANEL_INSET))
-        .child(error_note(said))
-}
-
-fn native_panel() -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .gap(px(6.))
-        .mt(px(12.))
-        .pt(px(12.))
-        .border_t_1()
-        .border_color(glass_ui::white(eclipse_theme::glass::EDGE))
-}
-
-fn error_note(said: impl Into<SharedString>) -> Div {
-    use eclipse_theme::glass::{ink, step};
-    div()
-        .flex()
-        .items_start()
-        .gap(px(10.))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .h(px(step::BODY.line))
-                .child(glass_ui::icon(
-                    "alert-circle",
-                    glass_ui::IconSize::Px16,
-                    glass_ui::danger(),
-                )),
-        )
-        .child(
-            glass_ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                .flex_1()
-                .min_w_0()
-                .child(said.into()),
-        )
+    ui::page_head(tr(title), tr(description))
 }
 
 /// The name the game made up for a player without an account, once it has run.
@@ -2238,978 +1562,6 @@ fn megabytes(bytes: u64) -> String {
     format!("{:.0} MB", bytes as f64 / 1_000_000.0)
 }
 
-// ----- Pages -------------------------------------------------------------------------------------
-
-impl Launcher {
-    /// Whether `event` is the press that just closed a menu from outside it (on the menu's
-    /// own button): the button then leaves the menu closed instead of opening it again.
-    fn closed_by_this_press(&mut self, event: &ClickEvent) -> bool {
-        closed_by_press(self.menu_closed_at.take(), event)
-    }
-
-    fn menu_open(&self) -> bool {
-        self.account_menu
-            || self.row_menu.open.is_some()
-            || self.home_menu != glass_home::HomeMenu::None
-            || self.picker_open
-            || self.language_menu
-            || self.list_menu.is_some()
-            || self.mods.target_menu
-            || self.mods.browse.sort_menu
-            || self.mod_detail_floats()
-    }
-
-    fn mod_detail_floats(&self) -> bool {
-        self.page == Page::Mods
-            && self.mods.picked.is_some()
-            && self.window_width < layout::MODS_DETAIL_BESIDE
-    }
-
-    fn close_menus(&mut self) -> bool {
-        let open = self.menu_open();
-        self.account_menu = false;
-        self.row_menu.open = None;
-        self.home_menu = glass_home::HomeMenu::None;
-        self.picker_open = false;
-        self.language_menu = false;
-        self.list_menu = None;
-        self.mods.target_menu = false;
-        self.mods.browse.sort_menu = false;
-        if self.mod_detail_floats() {
-            self.mods.picked = None;
-        }
-        open
-    }
-
-    fn opened_menu(&mut self, window: &Window, cx: &App) {
-        self.menu_opener = window.focused(cx);
-        glass_ui::menu_opened();
-    }
-
-    fn return_focus_from_menu(&mut self, window: &mut Window, cx: &mut App) {
-        if self.menu_open() {
-            return;
-        }
-        let Some(opener) = self.menu_opener.take() else {
-            return;
-        };
-        let lost = window.focused(cx).is_none()
-            || glass_ui::menu_focus().is_some_and(|m| m.contains_focused(window, cx));
-        if lost {
-            window.focus(&opener, cx);
-        }
-    }
-
-    fn play_page(&mut self, cx: &mut Context<Self>) -> Div {
-        // A Java instance plays Mojang's game: no Eclipse version, nothing of Eclipse's to prepare.
-        let java = self.selected_instance().and_then(|i| i.java.clone());
-        let Some(tag) = self
-            .selected()
-            .cloned()
-            .or_else(|| java.is_some().then(String::new))
-        else {
-            // No hero without a version: the page starts below the top bar like the others.
-            let memory = self.memory_row(cx);
-            // The first version, downloading since an instance was made to play it.
-            let waiting = match &self.installing {
-                Some((_, p)) => format!("{} {:.0}%", tr("Installing"), p * 100.),
-                None => tr("No version installed").to_string(),
-            };
-            let choose = button("go-versions", "Choose a version", Kind::Primary).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.go(Page::Versions);
-                    cx.notify();
-                }),
-            );
-            return div()
-                .flex()
-                .flex_col()
-                .gap(px(24.))
-                .pt(px(28.))
-                .child(page_header("Play", ""))
-                .child(glass_ui::empty_card(glass_ui::empty_state(
-                    "play-no-version",
-                    "package-01",
-                    waiting,
-                    "",
-                    vec![choose],
-                )))
-                .children(memory);
-        };
-        let prepared = backend::is_prepared(&tag);
-        let version = java
-            .as_ref()
-            .map_or_else(|| backend::game_version(&tag), |j| j.minecraft.clone());
-        let left = self.download_left();
-        let steps = self.preparing.then(|| self.steps(&version, left));
-        let banner = div()
-            .flex()
-            .flex_col()
-            .gap(px(24.))
-            .child(self.glass_home_head(&tag, prepared, cx))
-            .children(steps);
-        let mut page = div().flex().flex_col().gap(px(28.)).child(banner);
-        if let Some(e) = self.prepare_error.clone() {
-            page = page.child(error_card(e));
-        }
-        page = page
-            .children(self.export_panel(cx))
-            .children(self.launch_panel(cx))
-            .child(self.glass_home_tabs(cx));
-        if let Some(e) = self.client_error.clone() {
-            page = page.child(error_card(e));
-        }
-        if let Some(crash) = self.crash.clone() {
-            page = page.child(self.crash_notice(crash, cx));
-        }
-        page
-    }
-
-    /// "Eclipse crashed": the report and the logs, and where to report it.
-    fn crash_notice(&self, crash: Crash, cx: &mut Context<Self>) -> Div {
-        use eclipse_theme::glass::{ink, pixel_text, step};
-        let mut actions = div().flex().flex_wrap().gap(px(8.)).mt(px(12.));
-        if let Some(report) = crash.report.clone() {
-            let open = report.clone();
-            actions = actions
-                .child(
-                    button("crash-open", "Open report", Kind::Secondary)
-                        .on_press(move |_, _, cx| crate::glass_toast::open(cx, &open)),
-                )
-                .child(
-                    button(
-                        "crash-copy",
-                        if crash.copied {
-                            "Copied"
-                        } else {
-                            "Copy report"
-                        },
-                        Kind::Secondary,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            if let Ok(text) = std::fs::read_to_string(&report) {
-                                copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text));
-                                if let Some(c) = &mut this.crash {
-                                    c.copied = true;
-                                }
-                            }
-                            cx.notify();
-                        },
-                    )),
-                );
-        }
-        actions = actions.child(
-            button("crash-logs", "Open logs folder", Kind::Secondary).on_press(|_, _, cx| {
-                let dir = backend::logs_dir();
-                let _ = std::fs::create_dir_all(&dir);
-                crate::glass_toast::open(cx, &dir);
-            }),
-        );
-        actions = actions.child(button("crash-dismiss", "Dismiss", Kind::Ghost).on_press(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.crash = None;
-                cx.notify();
-            }),
-        ));
-        let help = crash
-            .report
-            .is_none()
-            .then(|| tr("The game ended without a crash report."));
-        let mut body = div().id("crash").flex().flex_col().gap(px(4.)).child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .child(glass_ui::icon(
-                    "alert-circle",
-                    glass_ui::IconSize::Px16,
-                    glass_ui::danger(),
-                ))
-                .child(glass_ui::entity_title(
-                    tr("Eclipse crashed"),
-                    pixel_text::CARD_TITLE,
-                )),
-        );
-        if !crash.summary.is_empty() {
-            body = body.child(
-                glass_ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(crash.summary),
-            );
-        }
-        if let Some(report) = &crash.report {
-            body = body.child(
-                glass_ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
-                    .font_family(theme::MONO)
-                    .truncate()
-                    .child(short(report)),
-            );
-        }
-        body = body.child(actions).children(help.map(glass_ui::card_note));
-        glass::plate(eclipse_theme::glass::radius::PANEL)
-            .p(px(glass_ui::CARD_PADDING))
-            .child(body)
-    }
-
-    fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let toggle = glass_ui::toggle_row(
-            "auto-install",
-            tr("Install new Eclipse versions automatically"),
-            None,
-            self.settings.auto_install(),
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.settings.install_new_versions = Some(!this.settings.auto_install());
-            this.save_settings();
-            if this.settings.auto_install() {
-                this.install_update();
-            }
-            cx.notify();
-        }));
-        let keeps = trf(
-            "Keeps the {count} newest and any version an instance plays.",
-            &[("count", &self.settings.keep_newest().to_string())],
-        );
-        let prune = glass_ui::toggle_row(
-            "auto-prune",
-            tr("Delete old Eclipse versions automatically"),
-            Some(div().child(keeps).into_any_element()),
-            self.settings.auto_prune(),
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.settings.prune_old_versions = Some(!this.settings.auto_prune());
-            this.save_settings();
-            cx.notify();
-        }));
-        // Linux: the launcher's entry in the applications menu (`eclipse_launcher::desktop`).
-        let menu_entry = glass_ui::toggle_row(
-            "desktop-entry",
-            tr("Show in applications menu"),
-            None,
-            self.settings.desktop_entry(),
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            let on = !this.settings.desktop_entry();
-            this.settings.desktop_entry = Some(on);
-            this.save_settings();
-            let _ = if on {
-                eclipse_launcher::desktop::install(backend::exe_path()).map(|_| ())
-            } else {
-                eclipse_launcher::desktop::remove()
-            };
-            cx.notify();
-        }));
-        let eclipse = match (&self.updates.eclipse, &self.update_error) {
-            (Some(r), _) => trf("{version} available", &[("version", update_name(r))]),
-            (None, Some(e)) => glass_ui::plain_error(e).to_string(),
-            (None, None) if self.checked.is_some() => tr("Up to date").to_string(),
-            _ => tr("Checking…").to_string(),
-        };
-        let eclipse_action = self
-            .updates
-            .eclipse
-            .as_ref()
-            .filter(|_| self.installing.is_none())
-            .map(|_| {
-                button("settings-install", "Install", Kind::Secondary)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.install_update();
-                        cx.notify();
-                    }))
-                    .into_any_element()
-            });
-        let launcher = match &self.self_update {
-            SelfUpdate::Downloading(v, p) => {
-                let done = format!("{:.0}", p * 100.);
-                let said = trf(
-                    "downloading {version}, {percent}%",
-                    &[("version", v), ("percent", &done)],
-                );
-                format!("{}  ·  {said}", backend::VERSION)
-            }
-            SelfUpdate::Ready(v) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                trf("{version} available", &[("version", v)])
-            ),
-            SelfUpdate::Stuck(Some(e)) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                trf("the update failed: {error}", &[("error", e)])
-            ),
-            SelfUpdate::Stuck(None) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                self.launcher_update_help(None)
-            ),
-            SelfUpdate::Failed(e) => format!(
-                "{}  ·  {}",
-                backend::VERSION,
-                trf("the update failed: {error}", &[("error", e)])
-            ),
-            SelfUpdate::Idle => match &self.updates.launcher {
-                Some(r) => format!(
-                    "{}  ·  {}",
-                    backend::VERSION,
-                    trf(
-                        "{version} available",
-                        &[(
-                            "version",
-                            backend::launcher_version(&r.tag).unwrap_or_default()
-                        )]
-                    )
-                ),
-                None if self.checked.is_some() && self.update_error.is_none() => {
-                    format!("{}  ·  {}", backend::VERSION, tr("up to date"))
-                }
-                None => backend::VERSION.to_string(),
-            },
-        };
-        let launcher_action = match &self.self_update {
-            SelfUpdate::Ready(_) => Some(
-                button("update-settings", "Update", Kind::Secondary)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.apply_launcher_update(cx);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            ),
-            SelfUpdate::Stuck(_) if self.launcher_download_available() => {
-                let url = backend::download_page(&self.links.website);
-                Some(
-                    button("download-settings", "Download again", Kind::Secondary)
-                        .on_press(move |_, _, cx| cx.open_url(&url))
-                        .into_any_element(),
-                )
-            }
-            SelfUpdate::Downloading(..) | SelfUpdate::Stuck(_) => None,
-            _ => Some(
-                button("check", "Check now", Kind::Secondary)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.check_updates();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            ),
-        };
-        let appearance = crate::glass_ui::segments(
-            "appearance",
-            &[
-                (backend::Appearance::Dark, "Dark"),
-                (backend::Appearance::Light, "Light"),
-                (backend::Appearance::System, "System"),
-            ],
-            self.settings.appearance,
-            {
-                let this = cx.entity().downgrade();
-                move |choice, window, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        this.settings.appearance = choice;
-                        this.save_settings();
-                        titlebar::apply_appearance(window, choice);
-                        this.theme = this.settings_theme(window);
-                        cx.notify();
-                    });
-                }
-            },
-        );
-        self.glass_settings(
-            glass_settings::Built {
-                install: toggle,
-                prune,
-                menu_entry,
-                appearance: appearance.into_any_element(),
-                eclipse,
-                eclipse_action,
-                launcher,
-                launcher_action,
-            },
-            cx,
-        )
-    }
-
-    /// The warning before a native build: what the mods can do and which mods. The build starts
-    /// only from its button.
-    fn native_warning(
-        &self,
-        mods: &Result<Vec<native_mods::Bundle>, String>,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let list = match mods {
-            Ok(found) => found
-                .iter()
-                .map(|b| format!("{} {}", b.id, b.version))
-                .collect::<Vec<_>>()
-                .join(", "),
-            Err(e) => e.clone(),
-        };
-        let panel = native_panel()
-            .child(error_note(tr("These mods will run with full access to your computer")))
-            .child(tr("They can read, change or delete your files and use your accounts. Build them only if you trust their authors.").to_string())
-            .child(trf("Mods: {mods}", &[("mods", &list)]))
-            .child(tr("The first build takes 20 to 30 minutes and a few GB of disk. Later ones take a few minutes.").to_string())
-            .children(self.native_update.as_ref().map(|newer| {
-                div().text_color(glass_ui::warn()).child(trf(
-                    "This moves the instance to Eclipse {version}. It compiles the game from scratch, so it takes longer than a normal rebuild: up to 30 minutes.",
-                    &[("version", &native_status::eclipse_label(newer))],
-                ))
-            }));
-        let mut buttons = div().flex().gap(px(8.)).mt(px(4.));
-        if mods.is_ok() {
-            buttons = buttons.child(
-                button("native-trust", "I trust these mods: build", Kind::Primary).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.build_native(false);
-                        cx.notify();
-                    }),
-                ),
-            );
-        }
-        panel.child(
-            buttons.child(button("native-cancel", "Cancel", Kind::Secondary).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.native_confirm = None;
-                    this.native_update = None;
-                    this.native_on_base = false;
-                    cx.notify();
-                }),
-            )),
-        )
-    }
-
-    /// Mods made for other Eclipse versions: which, and the version the build uses. They often
-    /// still work, so the player may build anyway.
-    fn native_mismatch_panel(&self, list: &str, cx: &mut Context<Self>) -> Div {
-        native_panel()
-            .child(error_note(tr("These mods were made for different Eclipse versions")))
-            .child(list.to_owned())
-            .child(tr("They often still work together. If the build fails, install versions made for the same Nightly.").to_string())
-            .child(
-                div()
-                    .flex()
-                    .gap(px(8.))
-                    .mt(px(4.))
-                    .child(
-                        button("native-anyway", "Build anyway", Kind::Primary).on_press(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.build_native(true);
-                                cx.notify();
-                            }),
-                        ),
-                    )
-                    .child(
-                        button("native-mismatch-cancel", "Cancel", Kind::Secondary).on_press(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.native_mismatch = None;
-                                cx.notify();
-                            }),
-                        ),
-                    ),
-            )
-    }
-
-    /// Settings' Windows ARM game architecture choice; release installation, updates and launch
-    /// use the saved choice, while launcher updates continue to follow this process.
-    fn game_architecture_row(&self, cx: &mut Context<Self>) -> Div {
-        if !backend::can_choose_game_architecture() {
-            return div();
-        }
-        let picker = crate::glass_ui::segments(
-            "game-architecture",
-            &[
-                (backend::GameArchitecture::Auto, "Automatic"),
-                (backend::GameArchitecture::X64, "x64"),
-                (backend::GameArchitecture::Arm64, "ARM64"),
-            ],
-            self.settings.game_architecture,
-            {
-                let this = cx.entity().downgrade();
-                move |choice, _, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        if this.settings.game_architecture == choice {
-                            return;
-                        }
-                        this.settings.game_architecture = choice;
-                        this.save_settings();
-                        // The release and update lists contain the selected game's assets.
-                        this.releases = Load::Loading;
-                        this.updates = backend::Updates::default();
-                        this.fetch_startup_releases();
-                        cx.notify();
-                    });
-                }
-            },
-        );
-        crate::glass_ui::setting_row(
-            tr("Game architecture"),
-            Some(
-                div()
-                    .child(tr("Only change this on Windows on ARM."))
-                    .into_any_element(),
-            ),
-            Some(picker.into_any_element()),
-        )
-    }
-
-    fn game_args_row(&self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let focused = self.args_focused;
-        let field = div()
-            .id("game-args")
-            .track_focus(&self.args_focus)
-            .flex()
-            .items_center()
-            .overflow_hidden()
-            .cursor_text()
-            .child(line_edit::content(
-                &self.args_input,
-                &t,
-                focused,
-                false,
-                false,
-                tr("For example --server-thread"),
-            ))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                window.focus(&this.args_focus, cx);
-                cx.notify();
-            }))
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                match line_edit::handle(&mut this.args_input, ev, cx) {
-                    line_edit::Key::Pass => return,
-                    line_edit::Key::Escape => window.blur(cx),
-                    line_edit::Key::Edited => {
-                        this.settings.game_args = this.args_input.text().to_string();
-                        this.save_settings();
-                    }
-                    _ => {}
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }));
-        let field = line_edit::mouse(field, cx, |this| &mut this.args_input);
-        glass_ui::setting_row_stacked(
-            tr("Game arguments"),
-            None,
-            glass_ui::wide_field(field, focused).into_any_element(),
-        )
-    }
-
-    /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in
-    /// `settings.json` and read back by `proxy.rs` on each request.
-    fn proxy_row(&self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let focused = self.proxy_focused;
-        let field = div()
-            .id("proxy")
-            .track_focus(&self.proxy_focus)
-            .flex()
-            .items_center()
-            .overflow_hidden()
-            .cursor_text()
-            .child(line_edit::content(
-                &self.proxy_input,
-                &t,
-                focused,
-                false,
-                false,
-                tr("For example http://127.0.0.1:7890"),
-            ))
-            .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
-                window.focus(&this.proxy_focus, cx);
-                cx.notify();
-            }))
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                match line_edit::handle(&mut this.proxy_input, ev, cx) {
-                    line_edit::Key::Pass => return,
-                    line_edit::Key::Escape => window.blur(cx),
-                    line_edit::Key::Edited => this.save_proxy(),
-                    _ => {}
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }));
-        let field = line_edit::mouse(field, cx, |this| &mut this.proxy_input);
-        // A half-typed address is no reason to complain; one left behind is.
-        let detail = match (
-            focused,
-            eclipse_launcher::proxy::refuse(self.proxy_input.text()),
-        ) {
-            (false, Some(why)) => Some(
-                div()
-                    .text_color(glass_ui::danger())
-                    .child(why)
-                    .into_any_element(),
-            ),
-            _ => None,
-        };
-        glass_ui::setting_row_stacked(
-            tr("Proxy"),
-            detail,
-            glass_ui::wide_field(field, focused).into_any_element(),
-        )
-    }
-
-    /// Keeps the Proxy field in `settings.json`, and tells the parts that build their own agents
-    /// (`eclipse-port-pack`) which proxy to use.
-    fn save_proxy(&mut self) {
-        let value = self.proxy_input.text().trim().to_owned();
-        self.settings.proxy = (!value.is_empty()).then_some(value);
-        self.save_settings();
-        eclipse_launcher::proxy::announce(self.settings.proxy.clone());
-    }
-
-    /// The Microsoft accounts signed in here: each one's head, name and state, Play as,
-    /// Refresh and Sign out.
-    fn microsoft_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
-        let mut rows = div().flex().flex_col();
-        let mut n = 0;
-        let selected = self.accounts.selected.clone();
-        for (i, a) in self.accounts.accounts.clone().into_iter().enumerate() {
-            let plays = selected.as_ref() == Some(&a.uuid);
-            let uuid = a.uuid.clone();
-            let mut actions = div().flex().gap(px(4.));
-            if plays {
-                actions = actions.child(
-                    button(format!("offline-{i}"), "Play offline", Kind::Ghost).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            let mut accounts = Accounts::load();
-                            accounts.selected = None;
-                            if accounts.save().is_ok() {
-                                this.accounts = accounts;
-                            }
-                            cx.notify();
-                        }),
-                    ),
-                );
-            } else {
-                let uuid = uuid.clone();
-                actions = actions.child(
-                    button(format!("select-{i}"), "Play as", Kind::Secondary).on_press(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.play_as(account::Player::Microsoft(uuid.clone()));
-                            cx.notify();
-                        }),
-                    ),
-                );
-            }
-            let sign_in_progress = self
-                .sign_in_target
-                .as_ref()
-                .filter(|a| a.uuid == uuid)
-                .and_then(|_| match self.sign_in_state.as_ref() {
-                    Some(SignInState::Starting) => Some("Asking Microsoft…"),
-                    Some(SignInState::Code(_)) => Some("Waiting for browser sign-in…"),
-                    Some(SignInState::Working(phase)) => Some(phase.label()),
-                    _ => None,
-                });
-            let progress = sign_in_progress
-                .or_else(|| self.auth_progress.get(&uuid).map(|phase| phase.label()));
-            let busy = self.auth_busy.contains_key(&uuid) || sign_in_progress.is_some();
-            let status = self.auth_status.get(&uuid);
-            let needs_sign_in =
-                status.is_some_and(|s| s.state == account::session::State::SignInRequired);
-            let refresh_id = uuid.clone();
-            let refresh = button(
-                format!("refresh-{i}"),
-                if busy {
-                    "Checking…"
-                } else if needs_sign_in {
-                    "Sign in again"
-                } else {
-                    "Refresh"
-                },
-                Kind::Ghost,
-            );
-            actions = actions.child(if busy {
-                disabled(refresh)
-            } else {
-                refresh.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if needs_sign_in {
-                        this.re_sign_in(&refresh_id);
-                    } else {
-                        this.refresh_account(refresh_id.clone());
-                    }
-                    cx.notify();
-                }))
-            });
-            let sign_out = button(format!("sign-out-{i}"), "Sign out", Kind::Ghost);
-            actions = actions.child(if busy {
-                disabled(sign_out)
-            } else {
-                sign_out.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let Some(generation) = this.begin_auth_job(&uuid) else {
-                        return;
-                    };
-                    let (tx, uuid) = (this.tx.clone(), uuid.clone());
-                    std::thread::spawn(move || {
-                        let mut accounts = Accounts::load();
-                        let _ = tx.send(Msg::AccountProgress(
-                            uuid.clone(),
-                            generation,
-                            account::session::Phase::SigningOut,
-                        ));
-                        let result = accounts
-                            .remove(account::store(), &uuid)
-                            .and_then(|()| accounts.save())
-                            .map(|()| accounts.has_owner(account::store()));
-                        let _ = tx.send(Msg::AccountRemoved(uuid, generation, result));
-                    });
-                    cx.notify();
-                }))
-            });
-            n += 1;
-            rows = rows.child(account_row(
-                self.profile_heads.draw(Some(&a.uuid), 32., self.scale),
-                a.name.clone(),
-                Some(
-                    div()
-                        .child(tr(if plays {
-                            "Microsoft account · in use"
-                        } else {
-                            "Microsoft account"
-                        }))
-                        .child(account_status_line(status, progress))
-                        .when(!busy, |row| {
-                            row.when_some(status.filter(|s| s.message != s.label()), |row, s| {
-                                row.child(div().child(tr(&s.message).to_string()))
-                            })
-                        })
-                        .into_any_element(),
-                ),
-                actions,
-            ));
-        }
-        (rows, n)
-    }
-
-    /// Adding a Microsoft account, or signing one in again: what the row is called, what is
-    /// happening (the code to enter, a problem), and its buttons.
-    fn sign_in_parts(&self, cx: &mut Context<Self>) -> (String, Div, Option<AnyElement>) {
-        let t = self.theme;
-        let configured = account::client_id().is_some();
-        let busy = matches!(
-            self.sign_in_state,
-            Some(SignInState::Starting | SignInState::Code(_) | SignInState::Working(_))
-        );
-        let detail = match &self.sign_in_state {
-            _ if !configured => div().child(tr(account::NOT_CONFIGURED)),
-            Some(SignInState::Starting) => div().child(tr("Asking Microsoft…")),
-            Some(SignInState::Working(phase)) => div().child(tr(phase.label())),
-            Some(SignInState::Code(code)) => div()
-                .flex()
-                .flex_col()
-                .gap(px(6.))
-                .child(trf(
-                    "Open {link} in your browser and enter this code:",
-                    &[("link", &code.verification_uri)],
-                ))
-                .child(
-                    glass_ui::text(
-                        eclipse_theme::glass::step::FIGURE,
-                        FontWeight::MEDIUM,
-                        eclipse_theme::glass::ink::FULL,
-                    )
-                    .font_family(theme::MONO)
-                    .child(code.user_code.clone()),
-                ),
-            Some(SignInState::Done(Ok(a))) => {
-                div().child(trf("Signed in as {name}.", &[("name", &a.name)]))
-            }
-            Some(SignInState::Done(Err(e))) => {
-                div().text_color(glass_ui::danger()).child(e.clone())
-            }
-            None if self.accounts.accounts.is_empty() => div().child(tr(
-                "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
-            )),
-            None => div(),
-        };
-        let detail = if let Some(target) = &self.sign_in_target {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(trf(
-                    "Use the Microsoft account for {name}.",
-                    &[("name", &target.name)],
-                ))
-                .child(detail)
-        } else {
-            detail
-        };
-        let detail = match self.keychain.clone() {
-            Some(said) if !self.accounts.accounts.is_empty() => div()
-                .flex()
-                .flex_col()
-                .gap(px(4.))
-                .child(detail)
-                .child(div().child(said)),
-            _ => detail,
-        };
-        let action =
-            if !configured {
-                None
-            } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
-                let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
-                Some(
-                    div()
-                        .flex()
-                        .gap(px(4.))
-                        .child(
-                            button("sign-in-copy", "Copy code", Kind::Secondary).on_press(
-                                move |_, _, cx| {
-                                    copy_to_clipboard(
-                                        cx,
-                                        gpui::ClipboardItem::new_string(user_code.clone()),
-                                    )
-                                },
-                            ),
-                        )
-                        .child(
-                            button("sign-in-open", "Open link", Kind::Secondary)
-                                .on_press(move |_, _, cx| cx.open_url(&uri)),
-                        )
-                        .child(button("sign-in-cancel", "Cancel", Kind::Ghost).on_press(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.cancel_sign_in();
-                                cx.notify();
-                            }),
-                        ))
-                        .into_any_element(),
-                )
-            } else if busy {
-                Some(
-                    button("sign-in-cancel-working", "Cancel", Kind::Ghost)
-                        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.cancel_sign_in();
-                            cx.notify();
-                        }))
-                        .into_any_element(),
-                )
-            } else {
-                let target = self.sign_in_target.as_ref().map(|a| a.uuid.clone());
-                let targeted = target.is_some();
-                // Re-signing one account names it; adding one is Microsoft's own button.
-                let sign_in = if targeted {
-                    button("sign-in", "Sign in again", Kind::Secondary)
-                } else {
-                    microsoft::sign_in_button("sign-in", &t)
-                };
-                let mut actions = div().flex().gap(px(4.)).child(sign_in.on_press(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        if let Some(uuid) = &target {
-                            this.re_sign_in(uuid);
-                        } else {
-                            this.start_sign_in();
-                        }
-                        cx.notify();
-                    },
-                )));
-                if targeted {
-                    actions = actions.child(
-                        button("sign-in-cancel-target", "Cancel", Kind::Ghost).on_press(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.cancel_sign_in();
-                                cx.notify();
-                            }),
-                        ),
-                    );
-                }
-                Some(actions.into_any_element())
-            };
-        let title = match &self.sign_in_target {
-            Some(target) => trf("Sign in again as {name}", &[("name", &target.name)]),
-            None if self.accounts.accounts.is_empty() => tr("Microsoft account").to_owned(),
-            None => tr("Another account").to_owned(),
-        };
-        (title, detail, action)
-    }
-
-    /// Join a friend: a code field and Join, which starts the game straight
-    /// into the friend's world (errors show in the game).
-    /// Plays the selected instance straight into a world (`--world`) or a server (`--server`):
-    /// flags every Eclipse release takes.
-    pub(crate) fn quick_play(&mut self, flag: &'static str, value: String) {
-        self.quick_play = Some((flag, value));
-        self.play();
-        if self.starting_client.is_none() {
-            self.quick_play = None;
-        }
-    }
-
-    fn join_friend(&mut self) {
-        if eclipse_friends::invite::parse(self.friend_code.text()).is_none() {
-            return;
-        }
-        self.joining = Some(self.friend_code.text().to_string());
-        self.play();
-        if self.starting_client.is_none() {
-            self.joining = None;
-        }
-    }
-
-    fn versions_page(&mut self, cx: &mut Context<Self>) -> Div {
-        // Measured again when the installed versions change.
-        if self.disk_for != self.installed {
-            self.disk_for = self.installed.clone();
-            let (tags, tx) = (self.installed.clone(), self.tx.clone());
-            std::thread::spawn(move || {
-                let disk = tags.into_iter().map(|t| {
-                    let n = backend::disk_use(&t);
-                    (t, n)
-                });
-                let _ = tx.send(Msg::DiskUse(disk.collect()));
-            });
-        }
-        let on_disk = |tag: &String| {
-            let found = self.disk.iter().find(|(t, _)| t == tag);
-            found
-                .filter(|_| self.installed.contains(tag))
-                .map(|(_, n)| *n)
-        };
-        let used: u64 = self.installed.iter().filter_map(on_disk).sum();
-        self.glass_versions(&on_disk, used, cx)
-    }
-
-    fn notes_page(&mut self, cx: &mut Context<Self>) -> Div {
-        self.glass_notes(cx)
-    }
-}
-
-/// A thin bar. A known fraction eases from its previous value; an unknown one shuttles slowly.
-fn progress_bar(fraction: Option<(f32, f32)>) -> Div {
-    let bar = div()
-        .absolute()
-        .top_0()
-        .bottom_0()
-        .rounded_full()
-        .bg(glass_ui::color(glass_ui::look().accent_soft));
-    let track = div()
-        .relative()
-        .flex_1()
-        .h(px(4.))
-        .rounded_full()
-        .overflow_hidden()
-        .bg(glass_ui::white(eclipse_theme::glass::fill::ACTIVE));
-    match fraction {
-        Some((from, to)) => {
-            let (from, to) = (from.clamp(0.02, 1.), to.clamp(0.02, 1.));
-            track.child(bar.left_0().with_animation(
-                ElementId::named_usize("bar", (to * 1000.) as usize),
-                Animation::new(theme::MOVE).with_easing(ease_out_quint()),
-                move |d, p| d.w(relative(from + (to - from) * p)),
-            ))
-        }
-        None => track.child(
-            bar.w(relative(0.3)).with_animation(
-                "shuttle",
-                Animation::new(Duration::from_millis(1600))
-                    .repeat()
-                    .with_easing(gpui::ease_in_out),
-                |d, p| d.left(relative(-0.3 + 1.3 * p)),
-            ),
-        ),
-    }
-}
-
 impl Render for Launcher {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
         let t = self.theme;
@@ -3217,24 +1569,19 @@ impl Render for Launcher {
             self.theme = self.settings_theme(window);
         }
         let size = window.viewport_size();
-        glass_ui::begin_frame(&self.theme, f32::from(size.height) < layout::SHORT_WINDOW);
+        ui::begin_frame(&self.theme, f32::from(size.height) < layout::SHORT_WINDOW);
         self.scale = window.scale_factor();
         self.perf.frame();
         if self.bench.as_ref().is_some_and(perf::Bench::scrolling) {
             self.bench_scroll(window);
         }
-        self.servers.note_focus(window, cx);
-        self.friend_focused = self.friend_focus.is_focused(window);
-        self.mods.note_focus(window);
-        self.github.note_focus(window);
-        self.args_focused = self.args_focus.is_focused(window);
-        self.proxy_focused = self.proxy_focus.is_focused(window);
+        self.fields.note_focus(window, cx);
         self.return_focus_from_menu(window, cx);
         self.window_width = f32::from(size.width);
         self.window_long_side = f32::from(size.width).max(f32::from(size.height));
         self.scale_factor = window.scale_factor();
         let content = match self.page {
-            Page::Play => self.play_page(cx),
+            Page::Home => self.home_page(cx),
             Page::Versions => self.versions_page(cx),
             Page::Mods => self.mods_page(cx),
             Page::Servers => self.servers_page(cx),
@@ -3260,65 +1607,27 @@ impl Render for Launcher {
         }
         self.scene.update(cx, |scene, _| scene.set_look(&t.night));
         let sky = self.scene.clone().into_any_element();
-        let sidebar = self.glass_sidebar(cx);
+        let sidebar = self.sidebar(cx);
         let row_menu = self.row_menu(cx);
         let mut root = div()
             .id("root")
             .track_focus(&self.root_focus)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                let k = &ev.keystroke;
-                match k.key.as_str() {
-                    "tab" => {
-                        if k.modifiers.shift {
-                            window.focus_prev(cx);
-                        } else {
-                            window.focus_next(cx);
-                        }
-                    }
-                    "escape" if this.close_menus() => {
-                        if let Some(opener) = this.menu_opener.take() {
-                            window.focus(&opener, cx);
-                        }
-                    }
-                    "escape" if this.confirm_escape() => {}
-                    "escape" if this.native_log_escape() => {}
-                    "escape" if this.servers_escape() => {}
-                    "escape" if this.instance_escape() => {}
-                    "escape" if this.screenshot_escape() => {}
-                    "left" if this.screenshot_step(false) => {}
-                    "right" if this.screenshot_step(true) => {}
-                    _ => return,
-                }
-                cx.stop_propagation();
-                cx.notify();
-            }))
+            .on_key_down(cx.listener(Self::root_key_down))
             // ⌘K (Ctrl+K elsewhere) wherever the focus is, even in a field: the palette.
-            .capture_key_down(cx.listener(|this, ev: &KeyDownEvent, window, cx| {
-                let k = &ev.keystroke;
-                let command = if cfg!(target_os = "macos") {
-                    k.modifiers.platform
-                } else {
-                    k.modifiers.control
-                };
-                if command && !k.modifiers.shift && k.key == "k" {
-                    this.palette_toggle(window, cx);
-                    cx.stop_propagation();
-                    cx.notify();
-                }
-            }))
+            .capture_key_down(cx.listener(Self::palette_key_down))
             .relative()
             .flex()
             .flex_col()
             .size_full()
             .font_family(theme::FONT)
-            .text_color(glass_ui::white(eclipse_theme::glass::ink::FULL))
+            .text_color(ui::white(eclipse_theme::glass::ink::FULL))
             .overflow_hidden()
             .child(
                 div().relative().flex().size_full().child(sidebar).child(
                     div().flex().flex_col().flex_1().min_w_0().child(
                         self.content_scroll
                             .wrap(
-                                glass_ui::scroll_pane("content", &self.content_scroll.handle)
+                                ui::scroll_pane("content", &self.content_scroll.handle)
                                     .relative()
                                     .flex_1()
                                     .min_h_0()
@@ -3384,13 +1693,13 @@ impl Render for Launcher {
         if let Some(panel) = self.native_log_panel(cx) {
             root = root.child(panel);
         }
-        if self.page == Page::Play {
+        if self.page == Page::Home {
             if let Some(viewer) = self.screenshot_viewer(cx) {
                 root = root.child(viewer);
             }
         }
         root = root.children(self.toast_float());
-        root = root.children(glass_ui::focus_tip(window));
+        root = root.children(ui::focus_tip(window));
         if let Some(palette) = self.palette_overlay(window, cx) {
             root = root.child(palette);
         }
@@ -3458,7 +1767,7 @@ fn key_bindings() -> Vec<KeyBinding> {
 /// A data folder that did not open starts on Settings, where the message, Retry and
 /// "Use the default folder" are; an explicit page still wins.
 fn page_after_startup(page: Page, data_folder_failed: bool) -> Page {
-    if page == Page::Play && data_folder_failed {
+    if page == Page::Home && data_folder_failed {
         Page::Settings
     } else {
         page
@@ -3466,7 +1775,7 @@ fn page_after_startup(page: Page, data_folder_failed: bool) -> Page {
 }
 
 /// The menu bar on macOS, where "Quit" belongs to the app menu.
-fn menus() -> Vec<Menu> {
+fn menu_bar() -> Vec<Menu> {
     vec![
         Menu {
             name: "Eclipse Launcher".into(),
@@ -3526,7 +1835,7 @@ fn main() {
     // The GPU's texture limit, which caps the pictures made from disk (`picture_cache`).
     eclipse_launcher::pictures::probe_gpu_limit();
     gpui_platform::application()
-        .with_assets(blocks::Assets)
+        .with_assets(icons::Assets)
         // `move`: the closure owns `setup_window`; `run` wants it to outlive this frame.
         .run(move |cx: &mut App| {
             cx.text_system()
@@ -3551,7 +1860,7 @@ fn main() {
                     }
                 })
             });
-            cx.set_menus(menus());
+            cx.set_menus(menu_bar());
             // The setup exe (and `eclipse-launcher.exe uninstall`) opens its own window instead.
             #[cfg(windows)]
             if let Some(mode) = setup_window {
@@ -3588,46 +1897,17 @@ fn main() {
         });
 }
 
-/// Whether the click `event` began with the mouse-down that closed a menu at `closed_at`.
-/// A keyboard click never did.
-fn closed_by_press(closed_at: Option<Point<Pixels>>, event: &ClickEvent) -> bool {
-    matches!(event, ClickEvent::Mouse(click) if closed_at == Some(click.down.position))
-}
-
 #[cfg(test)]
 mod tests {
     #[test]
     fn an_unopenable_data_folder_starts_on_settings_instead_of_exiting() {
         use super::{page_after_startup, Page};
         assert!(matches!(
-            page_after_startup(Page::Play, true),
+            page_after_startup(Page::Home, true),
             Page::Settings
         ));
-        assert!(matches!(page_after_startup(Page::Play, false), Page::Play));
+        assert!(matches!(page_after_startup(Page::Home, false), Page::Home));
         assert!(matches!(page_after_startup(Page::Mods, true), Page::Mods));
-    }
-
-    #[test]
-    fn a_menu_button_stays_closed_after_the_press_that_closed_its_menu() {
-        use super::closed_by_press;
-        use gpui::{point, px, ClickEvent, KeyboardClickEvent, MouseClickEvent, MouseDownEvent};
-        let click = |x: f32| {
-            ClickEvent::Mouse(MouseClickEvent {
-                down: MouseDownEvent {
-                    position: point(px(x), px(20.)),
-                    ..MouseDownEvent::default()
-                },
-                ..MouseClickEvent::default()
-            })
-        };
-        let closed_at = Some(point(px(10.), px(20.)));
-        // The press on the button that closed the open menu: it stays closed.
-        assert!(closed_by_press(closed_at, &click(10.)));
-        // A later press, or one with no menu closed, toggles as before.
-        assert!(!closed_by_press(closed_at, &click(11.)));
-        assert!(!closed_by_press(None, &click(10.)));
-        let keyboard = ClickEvent::Keyboard(KeyboardClickEvent::default());
-        assert!(!closed_by_press(closed_at, &keyboard));
     }
 
     #[cfg(target_os = "macos")]
@@ -3656,28 +1936,6 @@ mod tests {
             "v0.2.76"
         ));
         assert!(!super::removable(&installed, None, &[], "v0.2.85"));
-    }
-
-    #[test]
-    fn a_press_on_a_sidebar_row_opens_its_menu_or_closes_it() {
-        let open = |id: &str| Some((id.to_string(), false));
-        assert_eq!(
-            super::row_menu_after_press(None, "Eclipse"),
-            open("Eclipse")
-        );
-        assert_eq!(
-            super::row_menu_after_press(open("Other"), "Eclipse"),
-            open("Eclipse")
-        );
-        assert_eq!(
-            super::row_menu_after_press(open("Eclipse"), "Eclipse"),
-            None
-        );
-        // A Delete… already pressed on another row does not carry over.
-        assert_eq!(
-            super::row_menu_after_press(Some(("Other".into(), true)), "Eclipse"),
-            open("Eclipse")
-        );
     }
 
     #[test]
@@ -3759,7 +2017,7 @@ mod tests {
 
     #[test]
     fn the_app_menu_has_quit() {
-        let menus = super::menus();
+        let menus = super::menu_bar();
         assert_eq!(menus[0].name, "Eclipse Launcher");
         assert!(matches!(
             &menus[0].items[0],

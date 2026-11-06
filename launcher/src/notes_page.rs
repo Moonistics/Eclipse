@@ -1,10 +1,9 @@
 use super::*;
-use crate::glass_ui::{self as ui};
+use crate::ui;
 use eclipse_theme::glass::{ink, radius};
 
 impl Launcher {
-    pub(super) fn glass_notes(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
+    pub(super) fn notes_page(&mut self, cx: &mut Context<Self>) -> Div {
         let page = div()
             .flex()
             .flex_col()
@@ -58,8 +57,8 @@ impl Launcher {
                 } else {
                     title
                 };
-                let day = glass_versions::published(&release.date, "");
-                crate::glass::plate(radius::PANEL)
+                let day = versions_page::published(&release.date, "");
+                ui::card(radius::PANEL)
                     .flex()
                     .flex_col()
                     .gap(px(12.))
@@ -90,7 +89,7 @@ impl Launcher {
                         .child(tr("No notes for this release."))
                         .into_any_element()
                     } else {
-                        markdown::render(&release.body, &t)
+                        markdown::render(&release.body)
                     }))
             },
         );

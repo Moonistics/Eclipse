@@ -409,8 +409,8 @@ enum Sun {
 }
 
 fn sun_at(width: f32, height: f32, texel: f32) -> Sun {
-    let avail = width - crate::frame::SIDEBAR;
-    let column = (avail - 2. * crate::theme::PAGE_GUTTER).min(crate::theme::PAGE_MAX);
+    let avail = width - crate::layout::SIDEBAR;
+    let column = crate::layout::content_width(width);
     let gutter = (avail - column) / 2.;
     let reach = width.min(height) * SUN_SIZE * SUN_REACH;
     let fit = ((gutter - GUTTER_MARGIN) / (2. * reach)).min(1.);

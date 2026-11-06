@@ -1,7 +1,7 @@
 //! Settings > Account's skin panel for an offline name (`eclipse_launcher::skins`): the front
 //! of the skin and the cape, choosing either from a PNG, and the model.
 use super::*;
-use crate::glass_ui::{self as ui, white};
+use crate::ui::{self, white};
 use eclipse_launcher::skins::{self, Model};
 use eclipse_theme::glass::{fill, ink, radius, step};
 use gpui::RenderImage;
@@ -171,7 +171,7 @@ impl Launcher {
             },
         );
         let pick = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            button(id, label, Kind::Secondary).on_press(cx.listener(
+            button(id, label, ButtonKind::Secondary).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.choose_look_file(cape, cx);
                     cx.notify();
@@ -179,7 +179,7 @@ impl Launcher {
             ))
         };
         let drop = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            button(id, label, Kind::Ghost).on_press(cx.listener(
+            button(id, label, ButtonKind::Ghost).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     let _ = this.save_look(|l| match cape {
                         false => l.skin = false,
@@ -231,7 +231,7 @@ impl Launcher {
                             Ok(said) => {
                                 ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(said)
                             }
-                            Err(e) => error_note(e),
+                            Err(e) => ui::error_note(e),
                         }))
                         .child(ui::card_note(tr(
                             "Skins are 64×64 PNGs, capes 64×32. The game doesn't show them yet.",

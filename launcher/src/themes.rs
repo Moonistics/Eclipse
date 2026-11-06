@@ -15,14 +15,13 @@ pub struct Accent {
 }
 
 /// A launcher theme: free for everyone in Settings › Appearance, never sold or claimed. Each
-/// has a sky (six stops, top to bottom, behind the light appearance) and the accent it brings.
+/// has a sky (six stops, top to bottom, behind the light appearance).
 pub struct Theme {
     /// Its name in `Settings::theme`.
     pub id: &'static str,
     /// Its name in Settings, in English (through `tr`).
     pub name: &'static str,
     pub sky: [u32; 6],
-    pub accent_hue: f32,
 }
 
 /// First Light: the sky just before sunrise, with a harbour skyline.
@@ -30,7 +29,6 @@ pub const FIRST_LIGHT: Theme = Theme {
     id: "first_light",
     name: "First Light",
     sky: [0x0b1030, 0x1d2a63, 0x3d4c94, 0x7f78c0, 0xe2a0b0, 0xffd6a0],
-    accent_hue: 246.,
 };
 
 /// The launcher themes past Eclipse's own sky.
@@ -42,7 +40,7 @@ pub fn theme(id: Option<&str>) -> Option<&'static Theme> {
     THEMES.iter().find(|t| Some(t.id) == id)
 }
 
-/// The glass look's colour for each of [`Accent::ALL`]: the mockup's swatches.
+/// The look's colour for each of [`Accent::ALL`]: the mockup's swatches.
 pub const SWATCHES: [u32; 7] = [
     0xf5a524, 0x2563eb, 0x0f766e, 0x15803d, 0x6b4bff, 0xdc2626, 0xbe185d,
 ];
@@ -110,7 +108,7 @@ impl Accent {
         }
     }
 
-    /// The colour the glass look wears: the one typed, a named accent's swatch, else the hue at
+    /// The colour the look wears: the one typed, a named accent's swatch, else the hue at
     /// the violet's saturation and lightness.
     pub fn rgb(self) -> u32 {
         if let Some(rgb) = self.rgb {

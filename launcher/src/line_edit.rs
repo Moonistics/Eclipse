@@ -3,7 +3,7 @@
 //! its Enter/Escape; this is what is inside it. Positions count characters, not bytes.
 
 use super::*;
-use crate::glass_ui as ui;
+use crate::ui;
 use eclipse_theme::glass::ink;
 use gpui::{
     black, canvas, Bounds, Font, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
@@ -505,7 +505,6 @@ const CARET: f32 = 14.;
 /// with its selection and caret. `mask` shows dots (a token); `whole` shows all selected.
 pub(super) fn content(
     edit: &LineEdit,
-    _: &theme::Theme,
     focused: bool,
     whole: bool,
     mask: bool,
