@@ -75,6 +75,7 @@ impl Default for LineEdit {
     }
 }
 
+const SELECTION_ROUND: f32 = eclipse_theme::glass::space::XXS;
 const HISTORY: usize = 100;
 
 impl LineEdit {
@@ -576,7 +577,7 @@ pub(super) fn content_with(
         .when(!selected.is_empty(), |d| {
             d.child(
                 text(selected)
-                    .rounded(px(2.))
+                    .rounded(px(SELECTION_ROUND))
                     .bg(ui::color(ui::look().accent_soft).opacity(theme::SELECTION)),
             )
         })

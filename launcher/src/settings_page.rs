@@ -3,6 +3,7 @@
 //! More tabs for those that don't fit); the list follows the scroll and takes the pane to a section.
 
 use super::*;
+use crate::game_run::InstallState;
 use crate::tab_strip::StripTab;
 use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, space, step};
@@ -63,16 +64,16 @@ impl SettingsSection {
 
     fn name(self) -> &'static str {
         match self {
-            SettingsSection::Account => "Account",
-            SettingsSection::Updates => "Updates",
-            SettingsSection::Appearance => "Appearance",
-            SettingsSection::Language => "Language",
-            SettingsSection::Network => "Network",
-            SettingsSection::Game => "Game",
-            SettingsSection::Ai => "AI",
-            SettingsSection::Folders => "Folders",
-            SettingsSection::Developer => "Developer",
-            SettingsSection::DataCollection => "Data collection",
+            SettingsSection::Account => tr("Account"),
+            SettingsSection::Updates => tr("Updates"),
+            SettingsSection::Appearance => tr("Appearance"),
+            SettingsSection::Language => tr("Language"),
+            SettingsSection::Network => tr("Network"),
+            SettingsSection::Game => tr("Game"),
+            SettingsSection::Ai => tr("AI"),
+            SettingsSection::Folders => tr("Folders"),
+            SettingsSection::Developer => tr("Developer"),
+            SettingsSection::DataCollection => tr("Data collection"),
         }
     }
 
@@ -92,18 +93,28 @@ impl SettingsSection {
     }
 }
 
-const SECTION_LIST_WIDTH: f32 = 240.;
-
 const LANDING_SLACK: f32 = 1.;
 
 #[derive(Clone, Copy)]
 pub(super) struct Jump {
     to: SettingsSection,
     landed: bool,
+    enter: bool,
 }
 
-fn card() -> Div {
-    ui::card().flex().flex_col().p(px(ui::LIST_INSET))
+#[derive(Default)]
+pub(super) struct SettingsUi {
+    pub(super) pane: Scrollbar,
+    /// The section the list marked when last drawn.
+    pub(super) marked: usize,
+    pub(super) jump: Option<Jump>,
+    pub(super) enter: Option<FocusHandle>,
+    /// The any-colour swatch shows the hue strip (`settings_appearance.rs`).
+    pub(super) accent_strip: bool,
+    /// Where the hue strip is on screen, to map a click to a hue.
+    pub(super) hue_area: std::rc::Rc<std::cell::Cell<Option<Bounds<gpui::Pixels>>>>,
+    /// A drag on that strip is in flight, so a release anywhere writes the accent down.
+    pub(super) hue_dragging: bool,
 }
 
 fn update_tile(
@@ -130,26 +141,15 @@ fn update_tile(
 
 fn folder_row(
     id: &'static str,
-    name: &'static str,
-    open: &'static str,
+    name: SharedString,
+    open: SharedString,
     dir: std::path::PathBuf,
 ) -> Div {
     let path = ui::mono(step::CAPTION, ink::MUTED)
         .child(short(&dir))
         .into_any_element();
-    let open = ui::button(
-        id,
-        Some("folder-01"),
-        tr(open),
-        ButtonKind::Secondary,
-        ui::ButtonSize::Md,
-    )
-    .on_press(move |_, _, cx| {
-        let _ = std::fs::create_dir_all(&dir);
-        crate::toast::open(cx, &dir);
-    })
-    .into_any_element();
-    ui::setting_row(tr(name), Some(path), Some(open))
+    let open = ui::open_folder_button(id, open, dir, ui::ButtonSize::Md).into_any_element();
+    ui::setting_row(name, Some(path), Some(open))
 }
 
 /// The scroll spy: which section is being read, given each section's top from the pane's top
@@ -181,37 +181,42 @@ impl Launcher {
             .collect();
         let count = shown.len();
         let jump = self
-            .settings_jump
+            .settings_ui
+            .jump
             .and_then(|j| Some((j, shown.iter().position(|&s| s == j.to)?)));
         let active = match jump {
             Some((jump, i)) if self.settings_resting_at(i) => {
-                self.settings_jump = Some(Jump {
+                if jump.enter && !jump.landed && ui::keyboard_input() {
+                    self.settings_ui.enter =
+                        ui::try_focus_for(format!("settings-{}", shown[i].id()));
+                }
+                self.settings_ui.jump = Some(Jump {
                     landed: true,
                     ..jump
                 });
                 i
             }
             Some((jump, i)) if !jump.landed => {
-                self.settings_pane.handle.scroll_to_top_of_item(i);
+                self.settings_ui.pane.handle.scroll_to_top_of_item(i);
                 cx.notify();
                 i
             }
             _ => {
-                self.settings_jump = None;
+                self.settings_ui.jump = None;
                 self.settings_section(count)
             }
         };
-        self.settings_marked = active;
+        self.settings_ui.marked = active;
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
-        let pane = ui::scroll_pane("settings-pane", &self.settings_pane.handle)
+        let pane = ui::scroll_pane("settings-pane", &self.settings_ui.pane.handle)
             .size_full()
             // A scroll redraws the pane from its layer without rendering the page again, so the
             // list follows it here: on the next frame, once the offset has moved, and only when
             // the section changed.
             .on_scroll(cx.listener(move |this, _: &gpui::ScrollEvent, window, cx| {
-                this.settings_jump = None;
+                this.settings_ui.jump = None;
                 cx.on_next_frame(window, move |this, _, cx| {
-                    if this.settings_section(count) != this.settings_marked {
+                    if this.settings_section(count) != this.settings_ui.marked {
                         cx.notify();
                     }
                 });
@@ -222,6 +227,8 @@ impl Launcher {
             .gap(px(layout::CARD_GAP))
             .pb(px(space::SM))
             .children(sections);
+        let sky = self.theme.night.sky;
+        let clip_line = ui::color(eclipse_theme::night::over(sky[1], 0.5, sky[0]));
         let pane = div()
             .relative()
             .flex_1()
@@ -229,8 +236,12 @@ impl Launcher {
             .min_h_0()
             .child(ui::page_pane(
                 pane,
-                &self.settings_pane,
+                &self.settings_ui.pane,
                 layout::page_margin(self.window_width),
+            ))
+            .children(ui::more_above_fade(
+                &self.settings_ui.pane.handle,
+                clip_line,
             ));
         let body = if tabs {
             let named = shown
@@ -238,7 +249,7 @@ impl Launcher {
                 .map(|&section| StripTab {
                     value: section,
                     key: section.id().to_string(),
-                    label: tr(section.name()).into(),
+                    label: section.name().into(),
                     count: None,
                 })
                 .collect();
@@ -247,10 +258,11 @@ impl Launcher {
                 named,
                 shown[active],
                 layout::content_width(self.window_width),
-                |this, section| {
-                    this.settings_jump = Some(Jump {
+                |this, section, arrowed| {
+                    this.settings_ui.jump = Some(Jump {
                         to: section,
                         landed: false,
+                        enter: !arrowed,
                     })
                 },
                 cx,
@@ -263,36 +275,54 @@ impl Launcher {
                 .child(head)
                 .child(pane)
         } else {
-            let entries = shown.iter().enumerate().map(|(i, &section)| {
-                ui::nav_row(
-                    format!("settings-section-{}", section.id()),
-                    section.icon(),
-                    tr(section.name()),
-                    i == active,
-                    ui::NavDensity::List,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.settings_jump = Some(Jump {
-                        to: section,
-                        landed: false,
+            let entries = shown
+                .iter()
+                .enumerate()
+                .map(|(i, &section)| {
+                    let row = ui::nav_row(
+                        format!("settings-section-{}", section.id()),
+                        section.icon(),
+                        section.name(),
+                        i == active,
+                        ui::NavDensity::List,
+                    );
+                    (row, section.name().into(), i == active)
+                })
+                .collect();
+            let this = cx.entity().downgrade();
+            let picks = shown.clone();
+            let rail = ui::options(
+                div()
+                    .id("settings-sections")
+                    .aria_label(tr("Settings sections"))
+                    .flex()
+                    .flex_col()
+                    .flex_none()
+                    .self_start()
+                    .w(px(layout::SETTINGS_RAIL))
+                    .gap(px(space::XXS)),
+                entries,
+                true,
+                move |i, _, cx| {
+                    let Some(&section) = picks.get(i) else {
+                        return;
+                    };
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings_ui.jump = Some(Jump {
+                            to: section,
+                            landed: false,
+                            enter: i == this.settings_ui.marked,
+                        });
+                        cx.notify();
                     });
-                    cx.notify();
-                }))
-            });
+                },
+            );
             div()
                 .flex()
                 .gap(px(layout::CARD_GAP))
                 .flex_1()
                 .min_h_0()
-                .child(
-                    card()
-                        .id("settings-sections")
-                        .flex_none()
-                        .self_start()
-                        .w(px(SECTION_LIST_WIDTH))
-                        .gap(px(space::XXS))
-                        .children(entries),
-                )
+                .child(rail)
                 .child(pane)
         };
         div()
@@ -306,9 +336,10 @@ impl Launcher {
 
     pub(super) fn show_settings(&mut self, section: SettingsSection) {
         self.go(Page::Settings);
-        self.settings_jump = Some(Jump {
+        self.settings_ui.jump = Some(Jump {
             to: section,
             landed: false,
+            enter: true,
         });
     }
 
@@ -327,16 +358,16 @@ impl Launcher {
     }
 
     fn settings_resting_at(&self, i: usize) -> bool {
-        let pane = self.settings_pane.handle.bounds();
-        let Some(card) = self.settings_pane.handle.bounds_for_item(i) else {
+        let pane = self.settings_ui.pane.handle.bounds();
+        let Some(card) = self.settings_ui.pane.handle.bounds_for_item(i) else {
             return false;
         };
         if pane.size.height <= px(0.) {
             return false;
         }
-        let max = f32::from(self.settings_pane.handle.max_offset().y);
+        let max = f32::from(self.settings_ui.pane.handle.max_offset().y);
         let resting = f32::from(card.top() - pane.top()).clamp(0., max);
-        (resting + f32::from(self.settings_pane.handle.offset().y)).abs() < LANDING_SLACK
+        (resting + f32::from(self.settings_ui.pane.handle.offset().y)).abs() < LANDING_SLACK
     }
 
     pub(super) fn wide_controls_beside(&self) -> bool {
@@ -344,7 +375,7 @@ impl Launcher {
         let list = if self.window_width < layout::SETTINGS_LIST_BESIDE {
             0.
         } else {
-            SECTION_LIST_WIDTH + layout::CARD_GAP
+            layout::SETTINGS_RAIL + layout::CARD_GAP
         };
         content - list >= layout::SETTINGS_CONTROL_BESIDE
     }
@@ -354,17 +385,17 @@ impl Launcher {
     /// the scroll is taken off them here. Reading them as they were left the list on the first
     /// section until the pane hit its end.
     fn settings_section(&self, count: usize) -> usize {
-        let pane = self.settings_pane.handle.bounds();
-        let scrolled = -self.settings_pane.handle.offset().y;
+        let pane = self.settings_ui.pane.handle.bounds();
+        let scrolled = -self.settings_ui.pane.handle.offset().y;
         let tops: Vec<f32> = (0..count)
-            .map_while(|i| self.settings_pane.handle.bounds_for_item(i))
+            .map_while(|i| self.settings_ui.pane.handle.bounds_for_item(i))
             .map(|b| f32::from(b.top() - pane.top() - scrolled))
             .collect();
         spy(
             &tops,
             f32::from(pane.size.height),
             f32::from(scrolled),
-            f32::from(self.settings_pane.handle.max_offset().y),
+            f32::from(self.settings_ui.pane.handle.max_offset().y),
         )
     }
 
@@ -392,6 +423,7 @@ impl Launcher {
         let profile = native_mods::Profile::chosen(&self.settings);
         let picker = ui::segments(
             id,
+            tr("Build profile"),
             &ui::translated(&[
                 (native_mods::Profile::Performance, "Performance"),
                 (native_mods::Profile::Dev, "Dev"),
@@ -402,8 +434,7 @@ impl Launcher {
                 let this = cx.entity().downgrade();
                 move |choice, _, cx| {
                     let _ = this.update(cx, |this, cx| {
-                        this.settings.native_profile = Some(choice);
-                        this.settings.native_release = false;
+                        this.settings.set_native_profile(Some(choice));
                         this.native.done = None;
                         this.save_settings();
                         cx.notify();
@@ -427,6 +458,7 @@ impl Launcher {
         };
         let picker = ui::segments(
             "reduce-motion",
+            tr("Reduce motion"),
             &ui::translated(&[(None, system), (Some(true), "On"), (Some(false), "Off")]),
             self.settings.reduce_motion,
             {
@@ -448,27 +480,27 @@ impl Launcher {
         let installed = self
             .launcher_version()
             .map(|tag| eclipse_launcher::nightly::display_name(tag));
-        let state = match (&self.installing, &self.updates.eclipse) {
-            (Some((_, done)), _) => Some(ui::state_note(
-                ui::Tone::Busy,
-                format!("{} {:.0}%", tr("Installing"), done * 100.),
-            )),
-            (None, Some(r)) => Some(ui::state_note(
+        let own = self
+            .instances
+            .list
+            .iter()
+            .find(|i| i.kind == instances::Kind::Default);
+        let busy = own.and_then(|i| self.play_state(i).busy_line());
+        let checked =
+            self.checked.is_some() && !self.checking_updates && self.update_error.is_none();
+        let state = match (busy, own.map(|i| self.install_state(i))) {
+            (Some(line), _) => Some(ui::state_note(ui::Tone::Busy, line)),
+            (None, Some(InstallState::UpdateReady(tag))) => Some(ui::state_note(
                 ui::Tone::Accent(ui::look().accent_soft),
                 trf(
                     "{version} available",
-                    &[("version", &eclipse_launcher::nightly::display_name(&r.tag))],
+                    &[("version", &eclipse_launcher::nightly::display_name(&tag))],
                 ),
             )),
-            (None, None)
-                if installed.is_some()
-                    && self.checked.is_some()
-                    && !self.checking_updates
-                    && self.update_error.is_none() =>
-            {
-                Some(ui::state_note(ui::Tone::Live, tr("Up to date")))
+            (None, Some(InstallState::NotInstalled) | None) => {
+                Some(ui::state_note(ui::Tone::Off, tr("Not installed")))
             }
-            _ if installed.is_none() => Some(ui::state_note(ui::Tone::Off, tr("Not installed"))),
+            (None, Some(_)) if checked => Some(ui::state_note(ui::Tone::Live, tr("Up to date"))),
             _ => None,
         };
         let install = self
@@ -572,7 +604,11 @@ impl Launcher {
         };
         update_tile(
             ui::tile(ui::TILE_LG)
-                .child(ui::icon("computer", ui::IconSize::Px32, white(ink::STRONG)))
+                .child(ui::icon(
+                    "download-04",
+                    ui::IconSize::Px24,
+                    white(ink::BODY),
+                ))
                 .into_any_element(),
             tr("Launcher").into(),
             backend::VERSION.to_string(),
@@ -639,10 +675,9 @@ impl Launcher {
 
     fn settings_card(&mut self, section: SettingsSection, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = section.id();
-        let card = card().id(format!("settings-{id}")).child(
-            ui::section_title(format!("settings-{id}-title"), tr(section.name()))
-                .px(px(ui::SETTING_ROW_PADDING))
-                .pt(px(ui::SETTING_ROW_PADDING)),
+        let card = ui::setting_card(format!("settings-{id}"), section.name()).when_some(
+            ui::try_focus_for(format!("settings-{id}")),
+            |card, handle| card.track_focus(&handle.tab_stop(false)),
         );
         match section {
             SettingsSection::Account => card.child(self.account_card(cx)),
@@ -681,14 +716,14 @@ impl Launcher {
                 .child(self.minecraft_folder_row(cx))
                 .child(folder_row(
                     "open-data",
-                    "Data folder",
-                    "Open data folder",
+                    tr("Data folder").into(),
+                    tr("Open data folder").into(),
                     backend::data_dir(),
                 ))
                 .child(folder_row(
                     "open-logs",
-                    "Logs",
-                    "Open logs folder",
+                    tr("Logs").into(),
+                    tr("Open logs folder").into(),
                     backend::logs_dir(),
                 )),
             SettingsSection::Developer => card.child(self.dev_offline_row(cx)),
@@ -747,7 +782,7 @@ impl Launcher {
         ui::toggle_row(
             "auto-prune",
             tr("Delete old Eclipse versions automatically"),
-            Some(div().child(keeps).into_any_element()),
+            Some(keeps.into()),
             self.settings.auto_prune(),
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -781,6 +816,7 @@ impl Launcher {
     fn colour_mode_row(&mut self, cx: &mut Context<Self>) -> Div {
         let appearance = ui::segments(
             "appearance",
+            tr("Colour mode"),
             &ui::translated(&[
                 (backend::Appearance::Dark, "Dark"),
                 (backend::Appearance::Light, "Light"),
@@ -811,6 +847,7 @@ impl Launcher {
         }
         let picker = crate::ui::segments(
             "game-architecture",
+            tr("Game architecture"),
             &ui::translated(&[
                 (backend::GameArchitecture::Auto, "Automatic"),
                 (backend::GameArchitecture::X64, "x64"),

@@ -9,7 +9,7 @@
 use super::line_edit::{self, Key};
 use super::*;
 use crate::ui::{self, white};
-use eclipse_launcher::browser::Project;
+use eclipse_launcher::browser::{Kind as PackKind, Project};
 use eclipse_launcher::instances::Kind as InstanceKind;
 use eclipse_theme::glass::{ink, space};
 use std::path::PathBuf;
@@ -44,7 +44,8 @@ enum Run {
     NewInstance,
     Folder(PathBuf),
     Install(Box<Project>),
-    Remove(String),
+    OpenMod(Box<Project>),
+    AskRemove(String),
 }
 
 impl Run {
@@ -55,7 +56,8 @@ impl Run {
             Run::NewInstance => "new-instance".into(),
             Run::Folder(_) => "folder".into(),
             Run::Install(p) => format!("install-{}", p.id),
-            Run::Remove(id) => format!("remove-{id}"),
+            Run::OpenMod(p) => format!("open-{}", p.id),
+            Run::AskRemove(id) => format!("remove-{id}"),
         }
     }
 }
@@ -122,33 +124,41 @@ impl Launcher {
         });
         if let Some(home) = self.selected_instance().map(|i| i.home.clone()) {
             all.push(Command {
-                label: tr("Open the game folder").to_string(),
+                label: tr("Open instance folder").to_string(),
                 hint: crate::toast::tilde(&home),
                 run: Run::Folder(home),
             });
         }
+        let mut removals = Vec::new();
         if q.chars().count() >= 2 {
             let mods = self.palette.as_ref().map_or(&[][..], |p| &p.mods[..]);
             for p in mods.iter().filter(|p| p.title.to_lowercase().contains(q)) {
-                let has = self.mods_has(p);
+                let hint = trf("Mod · {instance}", &[("instance", &instance)]);
+                if !self.mods_has(p) {
+                    all.push(Command {
+                        label: trf("Install {name}", &[("name", &p.title)]),
+                        hint,
+                        run: Run::Install(Box::new(p.clone())),
+                    });
+                    continue;
+                }
                 all.push(Command {
-                    label: if has {
-                        trf("Remove {name}", &[("name", &p.title)])
-                    } else {
-                        trf("Install {name}", &[("name", &p.title)])
-                    },
-                    hint: trf("Mod · {instance}", &[("instance", &instance)]),
-                    run: if has {
-                        Run::Remove(p.id.clone())
-                    } else {
-                        Run::Install(Box::new(p.clone()))
-                    },
+                    label: trf("Open {name}", &[("name", &p.title)]),
+                    hint: hint.clone(),
+                    run: Run::OpenMod(Box::new(p.clone())),
+                });
+                removals.push(Command {
+                    label: trf("Remove {name}…", &[("name", &p.title)]),
+                    hint,
+                    run: Run::AskRemove(p.id.clone()),
                 });
             }
         }
         all.retain(|c| {
             q.is_empty() || c.label.to_lowercase().contains(q) || c.hint.to_lowercase().contains(q)
         });
+        all.truncate(SHOWN.saturating_sub(removals.len().min(SHOWN / 2)));
+        all.extend(removals);
         all.truncate(SHOWN);
         all
     }
@@ -167,16 +177,19 @@ impl Launcher {
             }
             Run::Go(page) => self.go(page),
             Run::NewInstance => self.open_instance_page(None),
-            Run::Folder(home) => {
-                let _ = std::fs::create_dir_all(&home);
-                crate::toast::open(cx, &home);
-            }
+            Run::Folder(home) => ui::open_folder(&home, cx),
             Run::Install(p) => {
                 let p = *p;
                 self.mods_install(p.source, p.id.clone(), Some(p));
             }
-            Run::Remove(id) => {
-                let _ = self.mods_remove(&id);
+            Run::OpenMod(p) => {
+                self.show_mods(p.kind);
+                self.mods_open(*p);
+            }
+            Run::AskRemove(id) => {
+                self.show_mods(PackKind::Mod);
+                self.mods.picked = Some(id.clone());
+                self.asking = Some(menus::Asking::Mod(id));
             }
         }
     }

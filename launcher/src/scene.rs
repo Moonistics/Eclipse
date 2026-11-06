@@ -13,6 +13,7 @@ type Rgb = [f32; 3];
 
 const SKY_AT: [f32; 6] = [0., 0.4, 0.66, 0.82, 0.92, 1.];
 const SKY_BAND: usize = 3;
+const AFTER_SUNSET: usize = SKY_AT.len() - 2;
 const HORIZON: f32 = 0.8;
 const THEME_SKY_WASH: f32 = 0.75;
 
@@ -25,11 +26,10 @@ const SETTING_RADIUS: f32 = 12.;
 const HOME_BOTTOM: f32 = 516.;
 const SHORT_HOME_BOTTOM: f32 = 484.;
 const HILLS_HIGHEST: f32 = 0.62;
-const SETTING_ACROSS: (f32, f32) = (0.74, 0.92);
-const HILLS_BELOW_CENTRE: f32 = 0.1;
-const LAND_UNDER_SUN: f32 = 12.;
-const DIP_REACH: f32 = 4.5;
-const DIP_CALM_REACH: f32 = 2.;
+const SETTING_ACROSS: (f32, f32) = (0.6, 0.95);
+const SETTING_AT: f32 = 0.84;
+const SETTING_SHOWN: f32 = 0.4;
+const SETTING_SHOWN_BEST: f32 = 0.45;
 
 const CORONA_ALPHAS: [f32; 4] = [0.14, 0.09, 0.06, 0.035];
 const CORONA_RING: f32 = 0.26;
@@ -68,10 +68,6 @@ const SNOW_WAVE: f32 = 5.;
 const SNOW_RAGGED: f32 = 8.;
 const SNOW_SEED: u32 = 17;
 const LIT_FACE: i32 = 2;
-const SUNLIT_FACE: i32 = 1;
-const SUNLIT_WARMTH: f32 = 0.35;
-const SHELF_WAVE: f32 = 3.;
-const SHELF_RAGGED: f32 = 2.;
 
 const RIDGED: f32 = 0.62;
 const PEAK_DETAIL: [(f32, f32); 2] = [(2.6, 0.26), (7., 0.12)];
@@ -88,6 +84,7 @@ const BURIED_STONE: f32 = 0.05;
 const TREE_EVERY: f32 = 22.;
 const LIT_LEAVES: f32 = 0.12;
 const TORCHES: [f32; 2] = [0.34, 0.63];
+const TORCH_HIGH: i32 = 4;
 const TORCH_FLAME_GLOW: (f32, f32) = (1.5, 0.32);
 const TORCH_HALO: (f32, f32) = (2.5, 0.12);
 
@@ -316,10 +313,6 @@ struct Stage {
 }
 
 impl Stage {
-    fn setting_line(&self) -> f32 {
-        self.skyline + 1. + SETTING_RADIUS * (1. + HILLS_BELOW_CENTRE)
-    }
-
     fn shows(&self, star: &Star, content_bottom: f32) -> bool {
         let reach = TEXT_CLEARANCE / self.texel;
         let (left, right) = self.column;
@@ -355,63 +348,137 @@ fn stage(width: f32, height: f32, texel: f32) -> Stage {
 }
 
 #[derive(Clone, Copy)]
-struct Dip {
+struct Tree {
     x: i32,
-    line: f32,
-    radius: f32,
+    foot: i32,
+    tall: i32,
+    wide: i32,
 }
 
-impl Dip {
-    fn mean(&self, top: impl Fn(i32) -> i32) -> f32 {
-        let span = self.radius as i32;
-        let tops = (self.x - span..=self.x + span).map(top);
-        tops.sum::<i32>() as f32 / (2 * span + 1) as f32
+impl Tree {
+    fn top(&self) -> i32 {
+        self.foot - self.tall - self.wide * 2 + 1
+    }
+}
+
+struct Land {
+    skyline: f32,
+    base: f32,
+    cols: f32,
+    rows: f32,
+    torches: [i32; 2],
+    trees: Vec<Tree>,
+}
+
+impl Land {
+    fn new(cols: usize, rows: usize, stage: Stage) -> Land {
+        let (w, h) = (cols as f32, rows as f32);
+        let mut land = Land {
+            skyline: stage.skyline,
+            base: (h * (GROUND_FOOT - GROUND_RISE / 2.)).max(stage.skyline),
+            cols: w,
+            rows: h,
+            torches: TORCHES.map(|at| (w * at) as i32),
+            trees: Vec::new(),
+        };
+        let mut rng = Rng(61);
+        for _ in 0..(w / TREE_EVERY).round() as usize {
+            let x = (rng.next() * w) as i32;
+            let tall = 3 + (rng.next() * 3.) as i32;
+            let wide = if rng.next() < 0.5 { 2 } else { 3 };
+            let tree = Tree {
+                x,
+                foot: land.ground(x),
+                tall,
+                wide,
+            };
+            let under_sidebar = x + wide < stage.sidebar;
+            let over_home = (tree.top() as f32) < stage.skyline;
+            let by_torch = land.torches.iter().any(|t| (x - t).abs() < wide + 4);
+            if !(under_sidebar || over_home || by_torch) {
+                land.trees.push(tree);
+            }
+        }
+        land
     }
 
-    fn off(&self, top: impl Fn(i32) -> i32) -> f32 {
-        let span = self.radius as i32;
-        (self.x - span..=self.x + span)
-            .map(|x| (self.line - top(x) as f32).abs())
-            .sum()
+    fn far(&self, x: i32) -> i32 {
+        FAR_RIDGE.top(x, self.skyline, self.base)
     }
 
-    fn over(&self, top: impl Fn(i32) -> i32) -> f32 {
-        let span = self.radius as i32;
-        (self.x - span..=self.x + span)
-            .map(|x| (self.line - top(x) as f32).max(0.))
-            .sum()
+    fn mid(&self, x: i32) -> i32 {
+        MID_RIDGE.top(x, self.skyline, self.base)
     }
 
-    fn near(&self, x: i32, reach: f32) -> f32 {
-        let t = (((x - self.x).abs() as f32 - self.radius) / (self.radius * (reach - 1.)))
-            .clamp(0., 1.);
-        1. - t * t * (3. - 2. * t)
+    fn ground(&self, x: i32) -> i32 {
+        let block = x.div_euclid(GROUND_BLOCK) * GROUND_BLOCK;
+        let rise = rolling(91, block as f32, GROUND_SPAN) * self.rows * GROUND_RISE;
+        even(self.rows * GROUND_FOOT - rise)
     }
 
-    fn lower(&self, top: i32, x: i32, depth: f32) -> i32 {
-        even(top as f32 + depth * self.near(x, DIP_REACH))
+    fn top(&self, x: i32) -> i32 {
+        let ridge = x - x.rem_euclid(2);
+        let crowns = self
+            .trees
+            .iter()
+            .filter(|t| (x - t.x).abs() <= t.wide)
+            .map(|t| t.top() + ((x - t.x).abs() == t.wide) as i32);
+        let flames = self
+            .torches
+            .iter()
+            .filter(|&&t| t == x)
+            .map(|_| self.ground(x) - TORCH_HIGH);
+        let hills = self.far(ridge).min(self.mid(ridge)).min(self.ground(x));
+        crowns.chain(flames).fold(hills, i32::min)
     }
 
-    fn flatten(&self, top: i32, x: i32, line: f32) -> i32 {
-        even(line + (top as f32 - line) * (1. - self.near(x, DIP_CALM_REACH)))
-    }
-
-    fn shelf(&self, x: i32) -> f32 {
-        let beside = (((x - self.x).abs() as f32 - self.radius) / self.radius).clamp(0., 1.);
-        let ragged = smooth(FAR_RIDGE.seed, x as f32 / SHELF_WAVE) * 2. - 1.;
-        self.line + even(ragged * SHELF_RAGGED * beside) as f32
-    }
-
-    fn below_shelf(&self, x: i32) -> f32 {
-        self.shelf(x) + (SUNLIT_FACE + 1) as f32
-    }
-
-    fn under(&self, top: i32, x: i32) -> i32 {
-        top.max(self.flatten(top, x, self.below_shelf(x)))
-    }
-
-    fn sunlight(&self, x: i32) -> f32 {
-        self.near(x, DIP_CALM_REACH)
+    fn setting_sun(&self) -> Option<(i32, i32)> {
+        let r = SETTING_RADIUS + 1.;
+        let reach = r as i32;
+        let w = self.cols;
+        let corona = SETTING_RADIUS + CORONA_ALPHAS.len() as f32 * corona_ring(SETTING_RADIUS);
+        let from = (w * SETTING_ACROSS.0) as i32;
+        let to = ((w * SETTING_ACROSS.1).min(w - corona) as i32).max(from);
+        let chords: Vec<(i32, i32)> = (-reach..reach)
+            .map(|dx| {
+                let rows: Vec<i32> = (-reach..reach).filter(|&dy| inside(r, dx, dy)).collect();
+                (rows[0], rows.len() as i32)
+            })
+            .collect();
+        let disc: i32 = chords.iter().map(|&(_, len)| len).sum();
+        let tops: Vec<i32> = (from - reach..to + reach).map(|x| self.top(x)).collect();
+        let shown = |x: i32, y: i32| {
+            let seen: Vec<i32> = (x - reach..x + reach)
+                .zip(&chords)
+                .map(|(at, &(first, len))| {
+                    (tops[(at - from + reach) as usize] - y - first).clamp(0, len)
+                })
+                .collect();
+            let pieces = seen
+                .windows(2)
+                .filter(|pair| pair[0] == 0 && pair[1] > 0)
+                .count()
+                + (seen[0] > 0) as usize;
+            let middle = seen[reach as usize - 1] > 0 && seen[reach as usize] > 0;
+            let share = seen.iter().sum::<i32>() as f32 / disc as f32;
+            (pieces == 1 && middle && share >= SETTING_SHOWN).then_some(share)
+        };
+        let rise = |x: i32| {
+            let under = &tops[(x - from) as usize..(x - from + 2 * reach) as usize];
+            under.iter().max().unwrap_or(&0) - under.iter().min().unwrap_or(&0)
+        };
+        let mut across: Vec<i32> = (from..=to).collect();
+        across.sort_by_key(|&x| (rise(x), (x - (w * SETTING_AT) as i32).abs()));
+        let highest = self.skyline as i32 + reach;
+        across.into_iter().find_map(|x| {
+            (highest..self.rows as i32)
+                .filter_map(|y| shown(x, y).map(|share| (y, share)))
+                .min_by(|a, b| {
+                    let off = |share: f32| (share - SETTING_SHOWN_BEST).abs();
+                    off(a.1).total_cmp(&off(b.1))
+                })
+                .map(|(y, _)| (x, y))
+        })
     }
 }
 
@@ -528,9 +595,7 @@ fn sun_at(width: f32, height: f32, stage: Stage, content_bottom: f32) -> Sun {
             x: (width - gutter / 2.) / width,
             scale: fit,
         }
-    } else if content_bottom > stage.skyline * stage.texel
-        || stage.setting_line() + LAND_UNDER_SUN > height / stage.texel
-    {
+    } else if content_bottom > stage.skyline * stage.texel {
         Sun::Set
     } else {
         Sun::Setting
@@ -549,57 +614,25 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         px: vec![[0.; 3]; cols * rows],
     };
     let (w, h) = (cols as f32, rows as f32);
+    let land = Land::new(cols, rows, stage);
 
-    let hills = |x: i32| -> i32 {
-        let block = x.div_euclid(GROUND_BLOCK) * GROUND_BLOCK;
-        even(h * GROUND_FOOT - rolling(91, block as f32, GROUND_SPAN) * h * GROUND_RISE)
+    let disc = match sun {
+        Sun::Beside { x, scale } => Some((
+            (w.min(h) * SUN_SIZE * scale).round().max(4.),
+            (w * x).round() as i32,
+            (h * SUN_HIGH).round() as i32,
+        )),
+        Sun::Setting => land.setting_sun().map(|(x, y)| (SETTING_RADIUS, x, y)),
+        Sun::Set => None,
     };
-    let base = (h * (GROUND_FOOT - GROUND_RISE / 2.)).max(stage.skyline);
-    let far = |x: i32| FAR_RIDGE.top(x, stage.skyline, base);
-    let mid = |x: i32| MID_RIDGE.top(x, stage.skyline, base);
 
-    let (disc, dip) = match sun {
-        Sun::Beside { x, scale } => (
-            Some((
-                (w.min(h) * SUN_SIZE * scale).round().max(4.),
-                (w * x).round() as i32,
-                (h * SUN_HIGH).round() as i32,
-            )),
-            None,
-        ),
-        Sun::Setting => {
-            let r = SETTING_RADIUS;
-            let reach = r + CORONA_ALPHAS.len() as f32 * corona_ring(r);
-            let highest = stage.setting_line();
-            let from = (w * SETTING_ACROSS.0) as i32;
-            let to = ((w * SETTING_ACROSS.1).min(w - reach) as i32).max(from);
-            let at = |x: i32| {
-                let mut tops: Vec<i32> = (x - r as i32..=x + r as i32).map(far).collect();
-                tops.sort_unstable();
-                Dip {
-                    x,
-                    line: (tops[tops.len() / 2] as f32).max(highest),
-                    radius: r + 1.,
-                }
-            };
-            let effort = |x: i32| {
-                let dip = at(x);
-                dip.off(far) + dip.over(mid) + dip.over(hills)
-            };
-            let x = (from..=to)
-                .step_by(2)
-                .min_by(|a, b| effort(*a).total_cmp(&effort(*b)))
-                .unwrap_or(from);
-            let dip = at(x);
-            let cy = (dip.line - HILLS_BELOW_CENTRE * r).round();
-            (Some((r, x, cy as i32)), Some(dip))
+    let horizon = match (sun, disc) {
+        (Sun::Beside { .. }, _) => h * HORIZON,
+        (_, Some((r, _, sy))) => (h * HORIZON).max(sy as f32 + r),
+        (_, None) => {
+            let lowest_sky = (stage.sidebar..cols as i32).map(|x| land.top(x)).max();
+            lowest_sky.unwrap_or(rows as i32) as f32 / SKY_AT[AFTER_SUNSET]
         }
-        Sun::Set => (None, None),
-    };
-
-    let horizon = match disc {
-        Some((r, _, sy)) if dip.is_some() => (h * HORIZON).max(sy as f32 + r),
-        _ => h * HORIZON,
     }
     .max(stage.skyline)
     .round();
@@ -726,17 +759,13 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         }
     }
 
-    let snowline = stage.skyline + (base - stage.skyline) * SNOW_LINE;
+    let snowline = stage.skyline + (land.base - stage.skyline) * SNOW_LINE;
+    let far = |x: i32| land.far(x);
+    let mid = |x: i32| land.mid(x);
     for (top, shape, farthest) in [
         (&far as &dyn Fn(i32) -> i32, &palette.far, true),
         (&mid, &palette.mid, false),
     ] {
-        let depth = dip.map_or(0., |dip| dip.line - dip.mean(top));
-        let top = |x: i32| match dip {
-            Some(dip) if farthest => dip.flatten(dip.lower(top(x), x, depth), x, dip.shelf(x)),
-            Some(dip) => dip.flatten(top(x), x, dip.below_shelf(x)),
-            None => top(x),
-        };
         for x in (0..cols as i32).step_by(2) {
             let (here, before) = (top(x), top(x - 2));
             c.rect(x, here, 2, rows as i32 - here, shape.body);
@@ -748,19 +777,12 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
             };
             let face = if before > here { LIT_FACE } else { 0 };
             c.rect(x, here, 2, snow.max(face), shape.edge);
-            let sunlight = dip.filter(|_| farthest).map_or(0., |dip| dip.sunlight(x));
-            if sunlight > 0. {
-                let warmed = mix(shape.edge, palette.corona, SUNLIT_WARMTH * sunlight);
-                c.rect(x, here, 2, SUNLIT_FACE, warmed);
-            }
         }
     }
 
-    let sunk = dip.map_or(0., |dip| (dip.line - dip.mean(hills)).max(0.));
-    let ground = |x: i32| dip.map_or(hills(x), |dip| dip.under(dip.lower(hills(x), x, sunk), x));
     let mut soil = Rng(53);
     for x in 0..cols as i32 {
-        let top = ground(x);
+        let top = land.ground(x);
         c.rect(x, top, 1, GRASS_ROWS, palette.grass);
         if soil.next() < LIT_GRASS {
             c.set(x, top, palette.grass_lit);
@@ -773,32 +795,22 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         }
     }
 
-    let torches = TORCHES.map(|at| (w * at) as i32);
-    let mut trees = Rng(61);
-    for _ in 0..(w / TREE_EVERY).round() as usize {
-        let x = (trees.next() * w) as i32;
-        let tall = 3 + (trees.next() * 3.) as i32;
-        let wide = if trees.next() < 0.5 { 2 } else { 3 };
-        let before_sun =
-            dip.is_some_and(|dip| ((x - dip.x).abs() as f32) <= dip.radius + wide as f32);
-        let under_sidebar = x + wide < stage.sidebar;
-        let foot = ground(x);
-        let (top, height) = (foot - tall - wide * 2 + 1, wide * 2);
-        let over_home = (top as f32) < stage.skyline;
-        if before_sun
-            || under_sidebar
-            || over_home
-            || torches.iter().any(|t| (x - t).abs() < wide + 4)
-        {
-            continue;
-        }
+    let mut leaves = Rng(67);
+    for tree in &land.trees {
+        let Tree {
+            x,
+            foot,
+            tall,
+            wide,
+        } = *tree;
+        let (top, height) = (tree.top(), wide * 2);
         c.rect(x, foot - tall, 1, tall, palette.trunk);
         for yy in 0..height {
             let inset = (yy == 0 || yy == height - 1) as i32;
             for xx in -wide + inset..=wide - inset {
                 let colour = if xx > 0 {
                     palette.leaves_shade
-                } else if trees.next() < LIT_LEAVES {
+                } else if leaves.next() < LIT_LEAVES {
                     palette.leaves_lit
                 } else {
                     palette.leaves
@@ -808,8 +820,8 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         }
     }
 
-    for x in torches {
-        torch(&mut c, x, ground(x), palette);
+    for x in land.torches {
+        torch(&mut c, x, land.ground(x), palette);
     }
 
     let texels =
@@ -828,12 +840,13 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
 }
 
 fn torch(c: &mut Canvas, x: i32, foot: i32, palette: &Palette) {
+    let flame = foot - TORCH_HIGH;
     if let Some(glow) = palette.glow {
-        c.halo(x, foot - 4, TORCH_HALO, glow);
-        c.halo(x, foot - 4, TORCH_FLAME_GLOW, palette.flame);
+        c.halo(x, flame, TORCH_HALO, glow);
+        c.halo(x, flame, TORCH_FLAME_GLOW, palette.flame);
     }
-    c.rect(x, foot - 3, 1, 3, palette.stick);
-    c.set(x, foot - 4, palette.flame);
+    c.rect(x, flame + 1, 1, TORCH_HIGH - 1, palette.stick);
+    c.set(x, flame, palette.flame);
 }
 
 type Key = (u32, u32, u32, Look, Sun);
@@ -1076,8 +1089,13 @@ mod tests {
         paint(cols, rows, stage, sun, look)
     }
 
-    const SETTING_SIZES: [(f32, f32); 4] =
-        [(800., 600.), (960., 600.), (1180., 760.), (1440., 900.)];
+    const SETTING_SIZES: [(f32, f32); 5] = [
+        (960., 600.),
+        (1180., 760.),
+        (1280., 800.),
+        (1366., 768.),
+        (1440., 900.),
+    ];
 
     fn moon_rows(p: &Picture, look: Look) -> Vec<usize> {
         let moon = look.palette().moon.map(|v| v as u8);
@@ -1099,25 +1117,117 @@ mod tests {
         assert!(light(at(&p, sx + r + 2, sy)) > light(at(&p, sx + r * 4, sy)));
     }
 
+    fn land(width: f32, height: f32) -> Land {
+        let t = texel(width as f64, 1.);
+        let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
+        Land::new(cols, rows, stage(width, height, t))
+    }
+
     #[test]
-    fn a_small_window_shows_the_whole_top_of_the_eclipse_below_the_content() {
+    fn the_setting_sun_shows_a_readable_cap_below_the_content() {
+        let r = SETTING_RADIUS + 1.;
+        let reach = r as i32;
         for (width, height) in SETTING_SIZES {
+            let land = land(width, height);
+            let (cx, cy) = land.setting_sun().expect("a setting sun");
+            let top = (cy - reach) as f32 * texel(width as f64, 1.);
+            assert!(
+                top >= home_bottom(height),
+                "{width}x{height}: the sun's top at {top} px"
+            );
             for night in [NIGHT, DAWN] {
                 let look = Look::of(&night);
+                let palette = look.palette();
+                let sun = [palette.moon, palette.rim, palette.bead].map(colour);
+                let arc = [palette.rim, palette.bead].map(colour);
                 let p = window(width, height, look);
-                let t = texel(width as f64, 1.);
-                let rows_with_moon = moon_rows(&p, look);
-                let first = *rows_with_moon.first().expect("the moon shows");
+                let shade = |x: i32, y: i32| {
+                    let [red, green, blue, _] = at(&p, x as usize, y as usize);
+                    [red, green, blue]
+                };
+                let size = format!("{width}x{height}, dark {}", look.dark);
+                let (mut shown, mut disc, mut columns, mut cut) = (0, 0, Vec::new(), Vec::new());
+                for dx in -reach..reach {
+                    let x = cx + dx;
+                    let column: Vec<i32> = (-reach..reach)
+                        .filter(|&dy| inside(r, dx, dy))
+                        .map(|dy| cy + dy)
+                        .collect();
+                    for &y in &column {
+                        let showing = sun.contains(&shade(x, y));
+                        assert_eq!(showing, y < land.top(x), "{size}: the sun at ({x}, {y})");
+                    }
+                    let seen = column.iter().filter(|&&y| y < land.top(x)).count();
+                    if seen > 0 {
+                        assert!(arc.contains(&shade(x, column[0])), "{size}: the arc at {x}");
+                        columns.push(dx);
+                        cut.push(land.top(x));
+                    }
+                    (shown, disc) = (shown + seen, disc + column.len());
+                }
                 assert!(
-                    first as f32 * t >= home_bottom(height),
-                    "{width}x{height}: the moon's top at {} px",
-                    first as f32 * t
+                    shown as f32 >= disc as f32 * SETTING_SHOWN,
+                    "{size}: {shown} of the disc's {disc} texels show"
                 );
                 assert!(
-                    rows_with_moon.len() as f32 >= SETTING_RADIUS - 1.,
-                    "{width}x{height}: {} rows of the moon show",
-                    rows_with_moon.len()
+                    columns.windows(2).all(|pair| pair[1] == pair[0] + 1)
+                        && columns.contains(&-1)
+                        && columns.contains(&0),
+                    "{size}: the arc shows over {columns:?}"
                 );
+                let rise = cut.iter().max().unwrap_or(&0) - cut.iter().min().unwrap_or(&0);
+                assert!(rise >= 2, "{size}: the hills cut the sun level at {cut:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn the_setting_sun_leaves_the_hills_as_they_are() {
+        for (width, height) in SETTING_SIZES {
+            let t = texel(width as f64, 1.);
+            let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
+            let stage = stage(width, height, t);
+            let land = Land::new(cols, rows, stage);
+            for night in [NIGHT, DAWN] {
+                let look = Look::of(&night);
+                let setting = paint(cols, rows, stage, Sun::Setting, look);
+                let set = paint(cols, rows, stage, Sun::Set, look);
+                assert!(!moon_rows(&setting, look).is_empty(), "{width}x{height}");
+                for x in 0..cols {
+                    for y in land.top(x as i32).max(0) as usize..rows {
+                        assert_eq!(
+                            at(&setting, x, y),
+                            at(&set, x, y),
+                            "{width}x{height}: the land at ({x}, {y})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn once_the_sun_has_set_no_glow_shows_over_the_hills() {
+        let look = Look::of(&NIGHT);
+        let dusk = rgb(NIGHT.sky[AFTER_SUNSET])[0] as u8;
+        for (width, height) in [SMALLEST, (960., 600.), (1180., 760.), (1440., 900.)] {
+            let p = showing(width, height, height + 400., look);
+            let land = land(width, height);
+            let sidebar = stage(width, height, texel(width as f64, 1.)).sidebar;
+            for x in sidebar..p.cols as i32 {
+                if land
+                    .torches
+                    .iter()
+                    .any(|t| (x - t).abs() <= TORCH_HALO.0 as i32)
+                {
+                    continue;
+                }
+                for y in 0..land.top(x) {
+                    assert!(
+                        at(&p, x as usize, y as usize)[0] <= dusk,
+                        "{width}x{height}: a glow at ({x}, {y})"
+                    );
+                }
             }
         }
     }
@@ -1286,85 +1396,6 @@ mod tests {
 
     fn colour(c: Rgb) -> [u8; 3] {
         c.map(|v| v as u8)
-    }
-
-    #[test]
-    fn the_setting_sun_goes_down_behind_a_clean_lit_ridge() {
-        let r = SETTING_RADIUS as i32;
-        for (width, height) in SETTING_SIZES {
-            for night in [NIGHT, DAWN] {
-                let look = Look::of(&night);
-                let palette = look.palette();
-                let (moon, rim, bead) = (
-                    colour(palette.moon),
-                    colour(palette.rim),
-                    colour(palette.bead),
-                );
-                let p = window(width, height, look);
-                let shade = |x: i32, y: i32| {
-                    let [red, green, blue, _] = at(&p, x as usize, y as usize);
-                    [red, green, blue]
-                };
-                let moon_at: Vec<(i32, i32)> = (0..p.rows as i32)
-                    .flat_map(|y| (0..p.cols as i32).map(move |x| (x, y)))
-                    .filter(|&(x, y)| shade(x, y) == moon)
-                    .collect();
-                let cx = moon_at.iter().map(|m| m.0).min().expect("the moon shows") + r;
-                let cy = moon_at.iter().map(|m| m.1).min().expect("the moon shows") + r;
-                let horizon = moon_at.iter().map(|m| m.1).max().expect("the moon shows") + 1;
-                let size = format!("{width}x{height}, dark {}", look.dark);
-                for y in cy - r - 1..(horizon + r).min(p.rows as i32) {
-                    for x in cx - r - 1..=cx + r {
-                        let here = shade(x, y);
-                        if here == bead {
-                            continue;
-                        }
-                        let showing = y < horizon && inside(SETTING_RADIUS, x - cx, y - cy);
-                        assert_eq!(here == moon, showing, "{size}: the moon at ({x}, {y})");
-                        assert!(
-                            y < horizon || here != rim,
-                            "{size}: the rim under the horizon at ({x}, {y})"
-                        );
-                    }
-                }
-                for x in [cx - r - 1, cx + r] {
-                    assert_eq!(shade(x, horizon - 1), rim, "{size}: the rim's foot at {x}");
-                }
-                let sunlit = mix(palette.far.edge, palette.corona, SUNLIT_WARMTH);
-                for x in cx - r - 1..=cx + r {
-                    let edge = shade(x, horizon);
-                    assert!(
-                        (0..3).all(|i| (sunlit[i] - edge[i] as f32).abs() <= 2.),
-                        "{size}: the ridge's edge under the sun at {x} is {edge:?}, not sunlit"
-                    );
-                    let far_below = (horizon + 1..p.rows as i32)
-                        .take_while(|&y| shade(x, y) == colour(palette.far.body))
-                        .count();
-                    assert!(
-                        far_below <= SUNLIT_FACE as usize,
-                        "{size}: {far_below} rows of the far ridge under the sun at {x}"
-                    );
-                }
-            }
-        }
-    }
-
-    #[test]
-    fn the_shelf_under_the_sun_is_level_and_the_ridge_beside_it_is_not() {
-        let dip = Dip {
-            x: 200,
-            line: 150.,
-            radius: SETTING_RADIUS + 1.,
-        };
-        let r = dip.radius as i32;
-        assert!((dip.x - r..=dip.x + r).all(|x| dip.shelf(x) == dip.line));
-        let beside: Vec<f32> = (dip.x + 2 * r..dip.x + 6 * r)
-            .map(|x| dip.shelf(x))
-            .collect();
-        assert!(beside.iter().any(|&y| y != dip.line));
-        assert!(beside
-            .iter()
-            .all(|&y| (y - dip.line).abs() <= SHELF_RAGGED && y as i32 % 2 == 0));
     }
 
     fn torch_on_page(palette: &Palette) -> Canvas {

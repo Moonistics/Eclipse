@@ -36,11 +36,123 @@ const MODDED_GAP: f32 = 2.;
 const PIXEL_ART_MAX: u32 = 256;
 const SHARP_FILL: f32 = 0.75;
 
+const MARK_SHARE: f32 = 2. / 3.;
+const ICON_GRID: f32 = 8.;
+
 pub(super) fn has_plate(loader: &str) -> bool {
     matches!(loader, "quilt" | "neoforge" | "forge")
 }
 
+#[derive(Clone, PartialEq, Debug)]
+pub(super) enum Mark {
+    Eclipse,
+    Grass,
+    Loader(String),
+}
+
+pub(super) enum Picture {
+    None,
+    Saved(Box<Instance>),
+    Picked { png: Vec<u8>, plated: bool },
+}
+
+pub(super) struct IconSpec {
+    pub(super) picture: Picture,
+    pub(super) icon: Option<instances::Icon>,
+    pub(super) mark: Mark,
+    pub(super) name: String,
+}
+
+fn inner(size: f32) -> f32 {
+    (size * MARK_SHARE / ICON_GRID).round() * ICON_GRID
+}
+
 impl Launcher {
+    pub(super) fn icon_spec(&self, i: &Instance) -> IconSpec {
+        let own = i.kind == InstanceKind::Default && i.icon.is_none();
+        IconSpec {
+            picture: if own {
+                Picture::None
+            } else {
+                Picture::Saved(Box::new(i.clone()))
+            },
+            icon: i.icon.clone(),
+            mark: if own { Mark::Eclipse } else { self.mark_of(i) },
+            name: i.name.clone(),
+        }
+    }
+
+    fn mark_of(&self, i: &Instance) -> Mark {
+        match self.instance_loader(i) {
+            Some(loader) if LOADERS.contains(&loader.as_str()) => Mark::Loader(loader),
+            _ if i.java.is_some() => Mark::Grass,
+            _ => Mark::Eclipse,
+        }
+    }
+
+    /// An instance's icon on a `size` tile: its picture, else the block or colour chosen for it,
+    /// else its mark, a share of the tile on the icon grid (a loader logo with its own plate fills
+    /// the tile); its initial on its colour (the accent when none was chosen) when none of these
+    /// can be drawn.
+    pub(super) fn icon_for(&mut self, spec: IconSpec, size: f32) -> AnyElement {
+        let inner = inner(size);
+        let tile = ui::tile(size);
+        let scale = self.scale;
+        let picture = match spec.picture {
+            Picture::None => None,
+            Picture::Saved(i) => self.instance_picture(&i, inner).map(|p| (p, false)),
+            Picture::Picked { png, plated } => {
+                use std::hash::{Hash, Hasher};
+                let mut h = std::collections::hash_map::DefaultHasher::new();
+                png.hash(&mut h);
+                let side = if plated { size } else { inner };
+                self.icon_image(format!("chosen:{:x}", h.finish()), side, false, || {
+                    Some(png)
+                })
+                .map(|p| (p, plated))
+            }
+        };
+        let mut colour = ui::look().accent;
+        match (picture, &spec.icon) {
+            (Some((image, true)), _) => return ui::image_tile(image, size),
+            (Some((image, false)), _) => {
+                return tile.child(centred(image, inner, scale)).into_any_element()
+            }
+            (None, Some(instances::Icon::Colour(hex))) => {
+                colour = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(colour);
+            }
+            (None, Some(instances::Icon::Texture(name))) => {
+                if let Some(image) = self.texture_image(name, inner) {
+                    return tile
+                        .child(gpui::img(image).flex_none().size(px(inner)))
+                        .into_any_element();
+                }
+            }
+            (None, None) => {
+                if let Mark::Loader(loader) = &spec.mark {
+                    if has_plate(loader) {
+                        if let Some(logo) = self.loader_logo(loader, size) {
+                            return ui::image_tile(logo, size);
+                        }
+                    }
+                }
+                if let Some(mark) = self.mark(&spec.mark, inner) {
+                    return tile.child(mark).into_any_element();
+                }
+            }
+        }
+        ui::letter_tile(ui::color(colour), &spec.name, size).into_any_element()
+    }
+
+    pub(super) fn mark(&mut self, mark: &Mark, size: f32) -> Option<AnyElement> {
+        let image = match mark {
+            Mark::Eclipse => return Some(self.eclipse_mark(size)),
+            Mark::Grass => self.grass_mark(size),
+            Mark::Loader(loader) => self.loader_logo(loader, size),
+        }?;
+        Some(centred(image, size, self.scale).into_any_element())
+    }
+
     /// The instance's own picture, `size` points square. Whether there is one is asked once:
     /// `reload_instances` forgets the answer.
     pub(super) fn instance_picture(
@@ -56,7 +168,7 @@ impl Launcher {
     pub(super) fn instance_loader(&self, instance: &Instance) -> Option<String> {
         match &instance.kind {
             InstanceKind::Port { slug } => {
-                let pack = self.packs.iter().find(|p| p.slug == *slug);
+                let pack = self.modpacks.imported.iter().find(|p| p.slug == *slug);
                 pack.map(|p| p.pack.loader.to_ascii_lowercase())
             }
             _ => instance
@@ -65,22 +177,6 @@ impl Launcher {
                 .and_then(|j| j.loader.as_ref())
                 .map(|l| l.kind.id().to_string()),
         }
-    }
-
-    /// What an instance shows when nothing was chosen for it.
-    pub(super) fn instance_mark(
-        &mut self,
-        instance: &Instance,
-        size: f32,
-    ) -> Option<Arc<RenderImage>> {
-        let loader = self.instance_loader(instance);
-        if let Some(loader) = loader.filter(|l| LOADERS.contains(&l.as_str())) {
-            return self.loader_logo(&loader, size);
-        }
-        if instance.java.is_some() {
-            return self.grass_mark(size);
-        }
-        self.mark_image(size)
     }
 
     /// Vanilla's grass block, `size` points square.

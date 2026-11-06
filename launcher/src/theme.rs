@@ -127,6 +127,20 @@ mod tests {
     }
 
     #[test]
+    fn a_switch_that_is_on_shows_it_by_its_track_not_its_knob() {
+        let look = Glass::default_look();
+        for bg in [look.plate, FLOAT] {
+            let track = contrast(look.accent, bg);
+            assert!(track >= 3.0, "on track on #{bg:06x}: {track:.2}");
+        }
+        let knob = contrast(PAPER, look.accent);
+        assert!(
+            knob < 3.0,
+            "the knob is not what shows the state: {knob:.2}"
+        );
+    }
+
+    #[test]
     fn a_light_switch_that_is_on_shows_its_edge() {
         use eclipse_theme::glass::SWITCH_EDGE_LIGHT;
         let hues = (0..360).map(|hue| Accent::custom(hue as f32));
@@ -159,6 +173,24 @@ mod tests {
             let selection = over(look.accent_soft, SELECTION, PAPER);
             let ratio = contrast(ON_LIGHT, selection);
             assert!(ratio >= 4.5, "{name}: text on a selection: {ratio:.2}");
+        }
+    }
+
+    #[test]
+    fn a_busy_label_reads_on_its_track() {
+        let hues = (0..360).map(|hue| Accent::custom(hue as f32));
+        for accent in Accent::ALL.into_iter().chain(hues) {
+            let dark = Glass::new(accent.rgb());
+            for (look, light) in [(dark, false), (dark.light(), true)] {
+                let track = look.busy_track(light);
+                let ratio = contrast(look.on_accent, track);
+                let full = contrast(look.on_accent, look.accent).min(4.5);
+                assert!(
+                    ratio >= full,
+                    "{}: busy label on #{track:06x}: {ratio:.2}",
+                    accent.name()
+                );
+            }
         }
     }
 }

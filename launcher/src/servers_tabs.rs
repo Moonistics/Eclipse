@@ -35,7 +35,10 @@ impl Launcher {
                     cx,
                     move |this| {
                         let verb = if op { "deop" } else { "op" };
-                        this.server_command("Changing operators", vec![verb.into(), n1.clone()]);
+                        this.server_command(
+                            ServerJob::ChangingOperators,
+                            vec![verb.into(), n1.clone()],
+                        );
                     },
                 ))
                 .child(self.player_action(
@@ -68,29 +71,27 @@ impl Launcher {
                 Some(actions.into_any_element()),
             ));
         }
-        tab = tab.child(
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(space::MD))
-                .child(ui::label(trf(
-                    "Online now ({count})",
-                    &[("count", &status.players.len().to_string())],
-                )))
-                .child(if status.players.is_empty() {
-                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                        .child(if running {
-                            tr("Nobody is playing right now.")
-                        } else {
-                            tr("The server is stopped.")
-                        })
-                        .into_any_element()
-                } else {
-                    online.into_any_element()
-                }),
-        );
+        tab = tab.child(ui::field_group(
+            "server-online-title",
+            trf(
+                "Online now ({count})",
+                &[("count", &status.players.len().to_string())],
+            ),
+            None,
+            if status.players.is_empty() {
+                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+                    .child(if running {
+                        tr("Nobody is playing right now.")
+                    } else {
+                        tr("The server is stopped.")
+                    })
+                    .into_any_element()
+            } else {
+                online.into_any_element()
+            },
+        ));
 
-        // Who may join.
+        // Who can join.
         let friends_only = self
             .servers
             .setting("server", "whitelist")
@@ -100,13 +101,12 @@ impl Launcher {
             "friends-only",
             tr("Friends only"),
             Some(
-                div()
-                    .child(if friends_only {
-                        tr("On: only players on the list can join.")
-                    } else {
-                        tr("Off: anyone who has the address can join.")
-                    })
-                    .into_any_element(),
+                if friends_only {
+                    tr("On: only players on the list can join.")
+                } else {
+                    tr("Off: anyone who has the address can join.")
+                }
+                .into(),
             ),
             friends_only,
         )
@@ -115,32 +115,7 @@ impl Launcher {
             this.set_setting("server.whitelist", (!friends_only).to_string());
             cx.notify();
         }));
-        let let_in = ui::button(
-            "player-add",
-            None,
-            tr("Let in"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        );
-        let add = div()
-            .flex()
-            .items_center()
-            .gap(px(space::SM))
-            .child(self.field(
-                Field::ServerPlayer,
-                tr("A player's name"),
-                layout::FIELD_MD,
-                ui::ButtonSize::Md,
-                cx,
-            ))
-            .child(if idle {
-                let_in.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.add_player();
-                    cx.notify();
-                }))
-            } else {
-                ui::disabled(let_in)
-            });
+        let add = self.name_adder(Field::ServerPlayer, "player", layout::FIELD_MD, idle, cx);
         let mut people: Vec<(String, String)> = whitelist.clone();
         for op in &ops {
             if !people.iter().any(|(n, _)| n.eq_ignore_ascii_case(op)) {
@@ -169,7 +144,7 @@ impl Launcher {
                         move |this| {
                             let verb = if op { "deop" } else { "op" };
                             this.server_command(
-                                "Changing operators",
+                                ServerJob::ChangingOperators,
                                 vec![verb.into(), n1.clone()],
                             );
                         },
@@ -187,7 +162,7 @@ impl Launcher {
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         this.server_command(
-                            "Updating the list",
+                            ServerJob::UpdatingList,
                             vec!["whitelist".into(), "remove".into(), n2.clone()],
                         );
                         cx.notify();
@@ -226,17 +201,19 @@ impl Launcher {
             .fields
             .invalid
             .and_then(|(f, e)| (f == Field::ServerPlayer).then(|| ui::error_note(tr(e))));
-        tab = tab.child(
+        tab = tab.child(ui::field_group(
+            "server-join-title",
+            tr("Who can join"),
+            None,
             div()
                 .flex()
                 .flex_col()
                 .gap(px(space::MD))
-                .child(ui::label(tr("Who may join")))
                 .child(friends)
                 .child(add)
                 .children(refused)
                 .child(allowed),
-        );
+        ));
 
         // Banned.
         if !banned.is_empty() {
@@ -262,17 +239,19 @@ impl Launcher {
                     Some(unban.into_any_element()),
                 ));
             }
-            tab = tab.child(
+            tab = tab.child(ui::field_group(
+                "server-banned-title",
+                tr("Banned"),
+                None,
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(space::MD))
-                    .child(ui::label(tr("Banned")))
                     .when(!running, |d| {
                         d.child(ui::card_note(tr("Start the server to unban someone.")))
                     })
                     .child(list),
-            );
+            ));
         }
         tab
     }
@@ -315,14 +294,9 @@ impl Launcher {
                 .server_setting_row(name, about, switch.into_any_element())
                 .into_any_element();
         };
-        ui::toggle_row(
-            id,
-            tr(name),
-            Some(div().child(about).into_any_element()),
-            on,
-        )
-        .on_press(press)
-        .into_any_element()
+        ui::toggle_row(id, tr(name), Some(about.into()), on)
+            .on_press(press)
+            .into_any_element()
     }
 
     /// − value + for a number setting within `range`.
@@ -342,6 +316,7 @@ impl Launcher {
     pub(super) fn server_segments(
         &self,
         id: &'static str,
+        name: &str,
         key: &'static str,
         options: &[(&'static str, &'static str)],
         cx: &mut Context<Self>,
@@ -355,6 +330,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         ui::segments(
             id,
+            name.to_string(),
             &ui::translated(options),
             current,
             move |value, _, cx| {
@@ -496,12 +472,18 @@ impl Launcher {
             .child(self.server_setting_row(
                 "Game mode",
                 format!("{} {live}", tr("For players who join for the first time.")),
-                self.server_segments("set-mode", "world.game_mode", &MODES, cx),
+                self.server_segments("set-mode", tr("Game mode"), "world.game_mode", &MODES, cx),
             ))
             .child(self.server_setting_row(
                 "Difficulty",
                 live.into(),
-                self.server_segments("set-difficulty", "world.difficulty", &DIFFICULTIES, cx),
+                self.server_segments(
+                    "set-difficulty",
+                    tr("Difficulty"),
+                    "world.difficulty",
+                    &DIFFICULTIES,
+                    cx,
+                ),
             ))
             .child(pvp)
             .child(self.server_setting_row(
@@ -580,7 +562,7 @@ impl Launcher {
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     if let Some(dir) = this.servers.open.clone() {
-                        this.servers.busy = Some("Moving server to trash".into());
+                        this.servers.busy = Some(ServerJob::Trashing);
                         let tx = this.servers.tx.clone();
                         std::thread::spawn(move || {
                             let result = servers::delete(&dir);
@@ -638,11 +620,7 @@ impl Launcher {
             idle.then(|| {
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.server_command(
-                        if on {
-                            "Turning off running in the background"
-                        } else {
-                            "Setting it to run in the background"
-                        },
+                        ServerJob::RunInBackground(!on),
                         vec![
                             "service".into(),
                             if on { "uninstall" } else { "install" }.into(),
@@ -698,7 +676,7 @@ impl Launcher {
                         if let Some(dir) = this.servers.open.clone() {
                             let done =
                                 format!("Updated to Eclipse {tag}. The world was backed up first.");
-                            this.server_job(format!("Updating to {tag}"), move |log| {
+                            this.server_job(ServerJob::UpdatingTo(tag.clone()), move |log| {
                                 servers::run_streamed(&dir, &["update"], log).map(|_| done)
                             });
                         }
@@ -759,12 +737,7 @@ impl Launcher {
                 self.server_stepper("updates.keep", 0..=5, cx),
             ));
         }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(space::MD))
-            .child(ui::label(tr("Updates")))
-            .child(rows)
+        ui::field_group("server-updates-title", tr("Updates"), None, rows)
     }
 
     /// The server's details came back without its settings: its eclipse-server predates
@@ -788,7 +761,7 @@ impl Launcher {
             );
             if idle {
                 b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.server_command("Backing up", vec!["backup".into()]);
+                    this.server_command(ServerJob::BackingUp, vec!["backup".into()]);
                     cx.notify();
                 }))
             } else {
@@ -817,7 +790,7 @@ impl Launcher {
                         this.asking = None;
                         if let Some(dir) = this.servers.open.clone() {
                             let (name, restored) = (name.clone(), restored.clone());
-                            this.server_job("Restoring", move |log| {
+                            this.server_job(ServerJob::Restoring, move |log| {
                                 servers::run_streamed(&dir, &["restore", &name, "--yes"], log)
                                     .map(|_| restored)
                             });
@@ -875,16 +848,15 @@ impl Launcher {
                 "auto-backup",
                 tr("Back up automatically"),
                 Some(
-                    div()
-                        .child(if auto {
-                            trf(
-                                "On: every {every} while the server runs, keeping the last {keep}.",
-                                &[("every", &every), ("keep", &keep)],
-                            )
-                        } else {
-                            tr("Off: only the backups you make.").to_string()
-                        })
-                        .into_any_element(),
+                    if auto {
+                        trf(
+                            "On: every {every} while the server runs, keeping the last {keep}.",
+                            &[("every", &every), ("keep", &keep)],
+                        )
+                    } else {
+                        tr("Off: only the backups you make.").to_string()
+                    }
+                    .into(),
                 ),
                 auto,
             )

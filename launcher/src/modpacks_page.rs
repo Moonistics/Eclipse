@@ -25,6 +25,7 @@ const COUNT_MIN: f32 = 120.;
 
 #[derive(Default)]
 pub(super) struct Modpacks {
+    pub(super) imported: Vec<Imported>,
     pub(super) registry: Vec<eclipse_pack::Installed>,
     pub(super) loaded: Option<Instant>,
     pub(super) open: Option<String>,
@@ -37,7 +38,7 @@ pub(super) struct Modpacks {
 impl Launcher {
     fn open_pack(&self) -> Option<&Imported> {
         let slug = self.modpacks.open.as_ref()?;
-        self.packs.iter().find(|p| &p.slug == slug)
+        self.modpacks.imported.iter().find(|p| &p.slug == slug)
     }
 
     /// Runs a pipeline step on a thread; its lines and its end arrive as messages.
@@ -69,9 +70,11 @@ impl Launcher {
             Ok(pack) => {
                 self.mods.report_list.reset();
                 self.modpacks.open = Some(pack.slug.clone());
-                self.packs.retain(|p| p.slug != pack.slug);
-                self.packs.push(*pack);
-                self.packs.sort_by_key(|p| p.title().to_ascii_lowercase());
+                self.modpacks.imported.retain(|p| p.slug != pack.slug);
+                self.modpacks.imported.push(*pack);
+                self.modpacks
+                    .imported
+                    .sort_by_key(|p| p.title().to_ascii_lowercase());
             }
             Err(e) => self.modpacks.error = Some(e),
         }
@@ -152,11 +155,11 @@ impl Launcher {
     pub(super) fn load_packs(&mut self) {
         if self.modpacks.loaded.is_none() {
             self.mods.report_list.reset();
-            self.packs = modpacks::list();
+            self.modpacks.imported = modpacks::list();
             self.modpacks.registry = eclipse_pack::list();
             self.reload_instances();
             if self.modpacks.open.is_none() {
-                self.modpacks.open = self.packs.first().map(|p| p.slug.clone());
+                self.modpacks.open = self.modpacks.imported.first().map(|p| p.slug.clone());
             }
             self.modpacks.loaded = Some(Instant::now());
         }
@@ -169,8 +172,8 @@ impl Launcher {
         let pick = |id: &'static str, label: &'static str, folder: bool| {
             let b = ui::button(
                 id,
-                None,
-                if busy { tr("Importing…") } else { tr(label) },
+                Some("folder-01"),
+                if busy { tr("Importing…") } else { label },
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
@@ -188,8 +191,12 @@ impl Launcher {
             .flex_wrap()
             .items_center()
             .gap(px(space::SM))
-            .child(pick("import-file", "Import a pack file…", false))
-            .child(pick("import-folder", "Import an instance folder…", true));
+            .child(pick("import-file", tr("Import a modpack…"), false))
+            .child(pick(
+                "import-folder",
+                tr("Import an instance folder…"),
+                true,
+            ));
         let mut page = div()
             .flex()
             .flex_col()
@@ -214,15 +221,15 @@ impl Launcher {
         if !self.modpacks.registry.is_empty() {
             page = page.child(self.registry_pack_rows(cx));
         }
-        if self.packs.is_empty() && !self.modpacks.registry.is_empty() {
+        if self.modpacks.imported.is_empty() && !self.modpacks.registry.is_empty() {
             return page;
         }
-        if self.packs.is_empty() {
+        if self.modpacks.imported.is_empty() {
             return page.child(ui::empty().child(tr("No modpacks yet.")));
         }
-        if self.packs.len() > 1 {
+        if self.modpacks.imported.len() > 1 {
             let mut list = div().flex().flex_col();
-            for p in self.packs.iter() {
+            for p in self.modpacks.imported.iter() {
                 let open = self.modpacks.open.as_ref() == Some(&p.slug);
                 let slug = p.slug.clone();
                 list = list.child(
@@ -521,6 +528,7 @@ impl Launcher {
         rows.sort_by(|a, b| (a.status, &a.key).cmp(&(b.status, &b.key)));
         let filter = ui::segments(
             "pack-filter",
+            tr("Port status"),
             &ui::translated(&FILTERS),
             self.modpacks.filter,
             {

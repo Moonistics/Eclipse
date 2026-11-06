@@ -1,4 +1,4 @@
-use super::VERSION;
+use super::{REPO, VERSION};
 use std::io::Read;
 use std::time::Duration;
 
@@ -101,6 +101,7 @@ fn host_name(url: &str) -> &str {
         .unwrap_or(url);
     if host == "github.com"
         || host.ends_with(".github.com")
+        || host.ends_with(".github.io")
         || host.ends_with(".githubusercontent.com")
     {
         "GitHub"
@@ -113,10 +114,13 @@ pub fn network_error(url: &str, e: ureq::Error) -> String {
     NetError::new(url, e).to_string()
 }
 
-/// The launcher's own user agent, through the player's proxy when one is set (`proxy`).
+/// The launcher's own user agent, through the player's proxy when one is set (`proxy`). Modrinth
+/// asks for one that names the project and how to reach it.
 fn builder(url: &str) -> ureq::AgentBuilder {
     crate::proxy::agent(
-        ureq::AgentBuilder::new().user_agent(&format!("eclipse-launcher/{VERSION}")),
+        ureq::AgentBuilder::new().user_agent(&format!(
+            "{REPO} eclipse-launcher/{VERSION} (github.com/{REPO})"
+        )),
         url,
     )
 }

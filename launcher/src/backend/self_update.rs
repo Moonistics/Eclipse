@@ -1,8 +1,9 @@
-use super::paths::{data_dir, plain};
+use super::paths::data_dir;
 use super::platform::{LAUNCHER_APPIMAGE_ASSET, LAUNCHER_ASSET, LAUNCHER_BINARY};
 use super::releases::{compare_versions, launcher_version, Release};
 use super::versions::{download, signed_digest, unpack};
 use super::{REPO, VERSION};
+use crate::files::plain;
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};

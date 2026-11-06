@@ -178,7 +178,7 @@ impl Launcher {
             .child(
                 ui::button(
                     "console-copy",
-                    None,
+                    Some("copy-01"),
                     tr("Copy log"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
@@ -199,10 +199,7 @@ impl Launcher {
                     ui::ButtonSize::Md,
                     false,
                 )
-                .on_press(move |_, _, cx| {
-                    let _ = std::fs::create_dir_all(&logs);
-                    crate::toast::open(cx, &logs);
-                }),
+                .on_press(move |_, _, cx| ui::open_folder(&logs, cx)),
             );
         let mut body = div()
             .flex()
@@ -264,21 +261,12 @@ impl Launcher {
                         div()
                             .flex()
                             .gap(px(space::SM))
-                            .child(
-                                ui::button(
-                                    "console-link-copy",
-                                    None,
-                                    tr("Copy link"),
-                                    ButtonKind::Secondary,
-                                    ui::ButtonSize::Md,
-                                )
-                                .on_press(move |_, _, cx| {
-                                    clipboard::copy_to_clipboard(
-                                        cx,
-                                        ClipboardItem::new_string(url.clone()),
-                                    )
-                                }),
-                            )
+                            .child(ui::copy_button(
+                                "console-link-copy",
+                                tr("Copy link"),
+                                url.clone(),
+                                ui::ButtonSize::Md,
+                            ))
                             .child(
                                 ui::button(
                                     "console-link-open",

@@ -109,6 +109,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let pick = ui::segments(
             "export-format",
+            tr("Export as"),
             &ui::translated(&[(Format::Mrpack, "Modrinth pack"), (Format::Zip, "Zip file")]),
             panel.format,
             move |format, _, cx| {
@@ -177,7 +178,7 @@ impl Launcher {
                         .child(
                             ui::button(
                                 "export-show",
-                                None,
+                                Some("folder-01"),
                                 tr("Show in folder"),
                                 ButtonKind::Secondary,
                                 ui::ButtonSize::Md,
@@ -186,7 +187,13 @@ impl Launcher {
                         ),
                 )
             }
-            Some(Err(e)) => Some(ui::error_note(e.clone())),
+            Some(Err(e)) => Some(div().child(ui::error_line_for(
+                "export-failed",
+                tr("Couldn't export"),
+                e,
+                None,
+                Vec::new(),
+            ))),
             None => None,
         };
         let close = ui::icon_button(

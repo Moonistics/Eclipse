@@ -159,6 +159,7 @@ impl Launcher {
         let weak = cx.entity().downgrade();
         let model = ui::segments(
             "skin-model",
+            tr("Arm style"),
             &ui::translated(&[(Model::Classic, "Classic arms"), (Model::Slim, "Slim arms")]),
             look.model,
             move |m, _, cx| {

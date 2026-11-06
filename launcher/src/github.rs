@@ -146,10 +146,8 @@ fn raw_with(
     }
     let text = fetch(&url)?;
     if let Some(text) = &text {
-        let fixed = eclipse_mods::index::native::revision(revision);
-        let partial = kept.with_extension("partial");
-        if fixed && fs::create_dir_all(cache).is_ok() && fs::write(&partial, text).is_ok() {
-            let _ = fs::rename(&partial, &kept);
+        if eclipse_mods::index::native::revision(revision) {
+            let _ = crate::files::write(&kept, text.as_bytes());
         }
     }
     Ok(text)
@@ -307,13 +305,8 @@ fn write_kept(file: &Path, url: &str, etag: &str, body: &serde_json::Value, save
         saved,
         body: body.clone(),
     };
-    let Some(dir) = file.parent() else { return };
-    let Ok(text) = serde_json::to_vec(&kept) else {
-        return;
-    };
-    let partial = file.with_extension("partial");
-    if fs::create_dir_all(dir).is_ok() && fs::write(&partial, text).is_ok() {
-        let _ = fs::rename(&partial, file);
+    if let Ok(text) = serde_json::to_vec(&kept) {
+        let _ = crate::files::write(file, &text);
     }
 }
 

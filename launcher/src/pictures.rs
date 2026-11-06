@@ -318,21 +318,8 @@ impl<K: Eq + Hash + Clone, V> Lru<K, V> {
         gone
     }
 
-    /// The bytes kept.
-    pub fn used(&self) -> u64 {
-        self.used
-    }
-
     pub fn over_budget(&self) -> bool {
         self.used > self.budget
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 }
 
@@ -452,11 +439,11 @@ mod tests {
         // `a` drawn again: `b` is now the least recently drawn.
         assert_eq!(lru.get(&"a", t0 + 3 * s), Some(&'a'));
         assert_eq!(lru.insert("c", 'c', 40, t0 + 6 * s), vec!['b']);
-        assert_eq!(lru.used(), 80);
+        assert_eq!(lru.used, 80);
         assert_eq!(lru.peek(&"b"), None);
         // Replacing a key hands back the old value and counts only the new one.
         assert_eq!(lru.insert("c", 'C', 10, t0 + 6 * s), vec!['c']);
-        assert_eq!(lru.used(), 50);
+        assert_eq!(lru.used, 50);
     }
 
     #[test]
@@ -467,7 +454,7 @@ mod tests {
             assert!(lru.insert(i, i, 40, t0).is_empty());
         }
         // All five drawn within the grace: over budget, but nothing goes.
-        assert_eq!(lru.used(), 200);
+        assert_eq!(lru.used, 200);
         assert!(lru.over_budget());
         // Later only 0 and 1 are still drawn: the rest go, oldest first, back under budget.
         let later = t0 + Duration::from_secs(5);
@@ -476,8 +463,8 @@ mod tests {
         let mut gone = lru.trim(later);
         gone.sort();
         assert_eq!(gone, vec![2, 3, 4]);
-        assert_eq!(lru.used(), 80);
-        assert_eq!(lru.len(), 2);
+        assert_eq!(lru.used, 80);
+        assert_eq!(lru.entries.len(), 2);
     }
 
     #[test]

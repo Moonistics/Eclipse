@@ -1,6 +1,6 @@
-use super::minecraft::{download_for_owner, java};
+use super::minecraft::download_for_owner;
 use super::net::get_bytes;
-use super::paths::{data_dir, version_dir};
+use super::paths::{data_dir, linked_minecraft_dir, own_minecraft_dir, version_dir};
 use super::resources::PREPARER_CRATE;
 use super::versions::{game_version, read_json};
 use crate::sources;
@@ -154,18 +154,13 @@ pub fn preparer(
         let pins = read_json(&dir.join("research-lock.json"))
             .and_then(|lock| sources::Pins::read(&lock))
             .ok_or("The version's research-lock.json doesn't pin the Minecraft files")?;
-        let own = data_dir().join("minecraft");
+        let own = own_minecraft_dir();
         let mut known = vec![("Eclipse's own download", own.clone())];
-        known.extend(
-            sources::Folders::current()
-                .map(|f| sources::known_folders(sources::Os::current(), &f))
-                .unwrap_or_default(),
-        );
-        let linked = data_dir().join("linked-minecraft");
+        known.extend(sources::known_folders_here());
+        let linked = linked_minecraft_dir();
         if from == MinecraftFrom::Mojang {
             // Straight from Mojang (what is already there and whole is kept), for an owner only.
-            download_for_owner(&pins, &own, &get_bytes, log)
-                .map_err(|e| e.trim_start_matches("\n  • ").to_string())?;
+            download_for_owner(&pins, &own, &get_bytes, log)?;
             own
         } else {
             let resolved = sources::resolve(minecraft, &pins, &known, &linked, &get_bytes, log);
@@ -177,7 +172,7 @@ pub fn preparer(
                     sources::Resolved::NotFound(checked) => {
                         let not_found = sources::not_found(&version, &checked, minecraft);
                         download_for_owner(&pins, &own, &get_bytes, log)
-                            .map_err(|e| not_found + &e)?;
+                            .map_err(|e| format!("{not_found}\n  • {e}"))?;
                         own
                     }
                 }
@@ -201,20 +196,21 @@ pub fn preparer(
     let major = read_json(&dir.join("research-lock.json"))
         .and_then(|lock| lock["minecraft"]["java_major"].as_i64())
         .unwrap_or(25);
-    let mut games = vec![chosen, minecraft.clone(), data_dir().join("minecraft")];
+    let mut games = vec![chosen, minecraft.clone(), own_minecraft_dir()];
     games.extend(
-        sources::Folders::current()
-            .map(|f| sources::known_folders(sources::Os::current(), &f))
-            .unwrap_or_default()
+        sources::known_folders_here()
             .into_iter()
             .map(|(_, dir)| dir),
     );
     set_prepare_step(PrepareStep::Java);
-    let java_home = java(
+    let java_home = crate::java::for_preparing(
         major,
         !eclipse_prepare::exporters::available(&dir),
         &games,
-        &manifest,
+        || {
+            read_json(&manifest)
+                .and_then(|json| json["javaVersion"]["component"].as_str().map(String::from))
+        },
         log,
     )?;
     let jar = data_dir()
@@ -228,12 +224,7 @@ pub fn preparer(
             .as_str()
             .ok_or_else(|| format!("{} has no server download", manifest.display()))?;
         log(format!("Downloading the {version} server jar from Mojang"));
-        fs::create_dir_all(jar.parent().unwrap()).map_err(|e| e.to_string())?;
-        let body = get_bytes(url)?;
-        let partial = jar.with_extension("partial");
-        fs::write(&partial, body)
-            .and_then(|_| fs::rename(&partial, &jar))
-            .map_err(|e| e.to_string())?;
+        crate::files::write(&jar, &get_bytes(url)?)?;
     }
     if let Some(binary) = binary {
         if eclipse_prepare::sources_sha256(&dir.join(PREPARER_CRATE)).as_deref()

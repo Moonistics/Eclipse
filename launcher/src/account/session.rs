@@ -103,12 +103,6 @@ impl Status {
     }
 }
 
-/// The process lock of the stores that share one keychain ([`SecretStore::operations`]).
-pub(super) fn process_lock() -> &'static Mutex<()> {
-    static OPERATIONS: Mutex<()> = Mutex::new(());
-    &OPERATIONS
-}
-
 pub(super) struct Operation<'a> {
     _process: MutexGuard<'a, ()>,
     _file: Option<File>,

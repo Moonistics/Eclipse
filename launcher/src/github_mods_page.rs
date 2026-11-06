@@ -255,7 +255,15 @@ impl Launcher {
                 panel = panel
                     .child(ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(done.clone()))
             }
-            Some(Err(e)) => panel = panel.child(ui::error_note(e.clone())),
+            Some(Err(e)) => {
+                panel = panel.child(ui::error_line_for(
+                    "github-failed",
+                    tr("Couldn't add the mod from GitHub"),
+                    e,
+                    None,
+                    Vec::new(),
+                ))
+            }
             None => {}
         }
         panel
@@ -317,7 +325,7 @@ impl Launcher {
             ui::button(
                 "github-trust",
                 None,
-                tr("I read it and trust it: install"),
+                tr("Trust and install"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
@@ -438,7 +446,7 @@ impl Launcher {
 
     pub(super) fn native_mod_actions(
         &self,
-        row: &native_status::Installed,
+        row: &github_mods::Installed,
         busy: bool,
         cx: &Context<Self>,
     ) -> Div {
@@ -514,7 +522,7 @@ impl Launcher {
 
     pub(super) fn native_mod_row(
         &self,
-        row: &native_status::Installed,
+        row: &github_mods::Installed,
         busy: bool,
         cx: &Context<Self>,
     ) -> Stateful<Div> {

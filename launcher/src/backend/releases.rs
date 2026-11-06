@@ -1,5 +1,4 @@
-use super::architecture::{game_assets_for, native_windows_architecture};
-use super::platform::{ASSET, GAME_FALLBACK};
+use super::architecture::game_assets;
 use super::self_update::launcher_asset;
 use super::settings::Settings;
 use super::REPO;
@@ -33,6 +32,16 @@ pub struct Release {
 pub fn is_game_tag(tag: &str) -> bool {
     tag.strip_prefix('v')
         .is_some_and(|rest| rest.starts_with(|c: char| c.is_ascii_digit()))
+}
+
+/// A version Eclipse published and signed: a release or a Nightly.
+pub fn is_release_or_nightly(version: &str) -> bool {
+    is_game_tag(version) || crate::nightly::date_of(version).is_some()
+}
+
+/// The newest release or Nightly in `installed` (newest first).
+pub fn newest_release_or_nightly(installed: &[String]) -> Option<&String> {
+    installed.iter().find(|t| is_release_or_nightly(t))
 }
 
 /// The launcher version in a `launcher@X.Y.Z` (or `launcher-vX.Y.Z`) tag, or None for any other tag.
@@ -220,23 +229,14 @@ pub fn releases() -> Result<Vec<Release>, String> {
 }
 
 /// The game's builds in `list`, newest first. A Nightly is listed under the version it installs as
-/// ([`crate::nightly::version_of`]); only the current one (`nightly`) is an update.
+/// (`eclipse_release_sign::nightly_version`); only the current one (`nightly`) is an update.
 pub(crate) fn game_releases(list: &serde_json::Value) -> Vec<Release> {
-    let settings = Settings::load();
-    let assets = game_assets_for(
-        std::env::consts::OS,
-        native_windows_architecture(),
-        std::env::consts::ARCH,
-        settings.game_architecture,
-    );
-    let (asset, fallback) = assets.map_or((ASSET, GAME_FALLBACK), |(asset, fallback)| {
-        (Some(asset), fallback)
-    });
+    let (asset, fallback) = game_assets(&Settings::load());
     game_releases_with(list, asset, fallback)
 }
 
 /// [`game_releases`] for one platform's asset, and the one it installs from a release that has
-/// none of its own ([`GAME_FALLBACK`]).
+/// none of its own (`GAME_FALLBACK`).
 pub(super) fn game_releases_with(
     list: &serde_json::Value,
     asset: Option<&str>,
@@ -254,7 +254,7 @@ pub(super) fn game_releases_with(
     }
     for r in &mut out {
         if eclipse_release_sign::is_nightly(&r.tag) {
-            let version = crate::nightly::version_of(r);
+            let version = eclipse_release_sign::nightly_version(&r.name, &r.date);
             let tag = std::mem::replace(&mut r.tag, version);
             r.prerelease = tag != eclipse_release_sign::NIGHTLY;
             r.nightly = Some(tag);

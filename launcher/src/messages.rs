@@ -23,6 +23,10 @@ impl Launcher {
                 changed = true;
             }
         }
+        while let Ok(started) = self.game.starts.rx.try_recv() {
+            changed = true;
+            self.game_started(started, cx);
+        }
         while let Ok(msg) = self.rx.try_recv() {
             changed = true;
             match msg {
@@ -82,126 +86,7 @@ impl Launcher {
                         Err(e) => self.sign_in_state = Some(SignInState::Done(Err(e))),
                     }
                 }
-                Msg::JavaGame(id, home, cmd) => {
-                    self.game.starting = None;
-                    let spawned = cmd.and_then(|(cmd, vars)| {
-                        self.game.vars = vars;
-                        backend::spawn(Job::Client, cmd, self.tx.clone())
-                    });
-                    match spawned {
-                        Ok(r) => {
-                            self.game.client = Some(r);
-                            self.game.home = Some(home);
-                            self.game.run = Some((id, Instant::now()));
-                            self.game.error = account::take_unsaved();
-                            self.step_aside(cx);
-                        }
-                        Err(e) => {
-                            if e == account::NoOwner.to_string() {
-                                self.owner = Some(false);
-                                self.owner_screen_open = true;
-                                self.game.error = Some(account::NoOwner::in_window());
-                            } else {
-                                self.game.error = Some(e);
-                            }
-                        }
-                    }
-                }
-                Msg::Session(session) => {
-                    self.load_auth_statuses(false);
-                    if let Some(tag) = self.game.starting.take() {
-                        let mut cmd = backend::client_command(&tag);
-                        let account::GameSession { file, offline, env } = match session {
-                            Ok(pass) => pass,
-                            Err(account::NoOwner) => {
-                                self.owner = Some(false);
-                                self.owner_screen_open = true;
-                                self.game.error = Some(account::NoOwner::in_window());
-                                self.game.pack = None;
-                                self.joining = None;
-                                self.quick_play = None;
-                                continue;
-                            }
-                        };
-                        // Past the gate by the developer option alone is no owner.
-                        if !self.settings.dev_offline {
-                            self.owner = Some(true);
-                        }
-                        if let Some(file) = file {
-                            cmd.arg("--session-file").arg(file);
-                        }
-                        cmd.envs(env);
-                        // Still play, offline, and say why.
-                        if let Some(e) = offline {
-                            self.game.error = Some(format!("Playing offline: {e}"));
-                        } else if let Some(e) = account::take_unsaved() {
-                            self.game.error = Some(e);
-                        }
-                        self.accounts = Accounts::load();
-                        // An offline name the player picked (the quick switch).
-                        if let Some(name) = self.accounts.name_arg() {
-                            cmd.arg("--name").arg(name);
-                        }
-                        cmd.envs(self.accounts.look_env());
-                        // A pack's Play button plays that pack; Play plays the selected instance.
-                        let (profile, run) = match self.game.pack.take() {
-                            Some(work) => {
-                                let id = instances::list()
-                                    .into_iter()
-                                    .find(|i| i.work == work)
-                                    .map(|i| i.id);
-                                let applied =
-                                    eclipse_launcher::modpacks::apply_profile(&mut cmd, &work);
-                                (applied, id)
-                            }
-                            None => {
-                                let instance = instances::selected();
-                                (instances::apply(&mut cmd, &instance), Some(instance.id))
-                            }
-                        };
-                        if let Err(e) = profile {
-                            self.game.error = Some(e);
-                            account::discard_unread_sessions();
-                            continue;
-                        }
-                        if let Some(code) = self.joining.take() {
-                            if let Err(e) = backend::join_friend(&mut cmd, &code) {
-                                self.game.error = Some(e);
-                            }
-                        }
-                        if let Some((flag, value)) = self.quick_play.take() {
-                            cmd.arg(flag).arg(value);
-                        }
-                        backend::append_game_args(&mut cmd);
-                        // Last, around every argument: the instance's pre-launch command,
-                        // wrapper and variables.
-                        let instance = run
-                            .as_ref()
-                            .and_then(|id| instances::list().into_iter().find(|i| &i.id == id));
-                        self.game.vars = instance
-                            .as_ref()
-                            .map(|i| i.vars(cmd.get_program()))
-                            .unwrap_or_default();
-                        cmd.envs(self.game.vars.iter().map(|(k, v)| (k, v)));
-                        let launch = instance.map(|i| i.launch).unwrap_or_default();
-                        let cmd = eclipse_launcher::launch::wrap(cmd, &launch);
-                        self.game.home = cmd.get_current_dir().map(|d| d.to_path_buf());
-                        match backend::spawn(Job::Client, cmd, self.tx.clone()) {
-                            Ok(r) => {
-                                self.game.client = Some(r);
-                                self.game.run = run.map(|id| (id, Instant::now()));
-                                self.step_aside(cx);
-                            }
-                            Err(e) => {
-                                self.game.error = Some(e);
-                                account::discard_unread_sessions();
-                            }
-                        }
-                    } else {
-                        // The start was called off: the sessions written for it go.
-                        account::discard_unread_sessions();
-                    }
-                }
+                Msg::JavaGame(..) | Msg::Session(_) => {}
                 Msg::Progress(tag, p) => {
                     self.bar = (self.bar.1, p);
                     self.installing = Some((tag, p));
@@ -489,6 +374,48 @@ impl Launcher {
         }
         if changed {
             cx.notify();
+        }
+    }
+}
+
+impl Launcher {
+    fn game_started(&mut self, started: game_run::Started, cx: &mut Context<Self>) {
+        self.load_auth_statuses(false);
+        if self.game.starting.take().is_none() {
+            account::discard_unread_sessions();
+            return;
+        }
+        let launched = match started.result {
+            Ok(launched) => launched,
+            Err(backend::PlayError::NoOwner) => {
+                self.owner = Some(false);
+                self.owner_screen_open = true;
+                self.game.error = Some(account::NoOwner::in_window());
+                return;
+            }
+            Err(e) => {
+                self.game.error = Some(e.to_string());
+                return;
+            }
+        };
+        // Past the gate by the developer option alone is no owner.
+        if started.eclipse && !self.settings.dev_offline {
+            self.owner = Some(true);
+        }
+        self.accounts = Accounts::load();
+        self.game.error = launched.notices().next();
+        self.game.vars = launched.vars;
+        self.game.home = Some(launched.home);
+        match backend::spawn(Job::Client, launched.cmd, self.tx.clone()) {
+            Ok(running) => {
+                self.game.client = Some(running);
+                self.game.run = Some((started.instance, Instant::now()));
+                self.step_aside(cx);
+            }
+            Err(e) => {
+                self.game.error = Some(e);
+                account::discard_unread_sessions();
+            }
         }
     }
 }

@@ -5,6 +5,7 @@
 use super::fields::Field;
 use super::*;
 use crate::ui;
+use eclipse_launcher::secrets;
 use eclipse_launcher::tailscale::{self, Api, Invite, Reach, State};
 use eclipse_theme::glass::{ink, space, step};
 use serde_json::Value;
@@ -101,7 +102,7 @@ impl Launcher {
         std::thread::spawn(move || {
             let _ = tx.send(Event::State(tailscale::status()));
             if want_token {
-                let token = account::keychain().get(tailscale::TOKEN_KEY).ok().flatten();
+                let token = secrets::keychain().get(tailscale::TOKEN_KEY).ok().flatten();
                 let _ = tx.send(Event::Token(token));
             }
         });
@@ -169,8 +170,8 @@ impl Launcher {
         }
         self.fields.text(Field::TailscaleToken).set(String::new());
         self.internet.asking_token = false;
-        self.internet.message = match account::keychain().set(tailscale::TOKEN_KEY, &token) {
-            Ok(()) if account::keychain().persistent() => None,
+        self.internet.message = match secrets::keychain().set(tailscale::TOKEN_KEY, &token) {
+            Ok(()) if secrets::keychain().persistent() => None,
             Ok(()) => Some(Ok(
                 "The token can't be saved on this computer. You'll need it again next time.".into(),
             )),
@@ -181,7 +182,7 @@ impl Launcher {
     }
 
     fn forget_token(&mut self) {
-        let _ = account::keychain().delete(tailscale::TOKEN_KEY);
+        let _ = secrets::keychain().delete(tailscale::TOKEN_KEY);
         let i = &mut self.internet;
         i.token = Some(None);
         i.invites = None;
@@ -248,10 +249,7 @@ impl Launcher {
     /// The Servers page's "Over the internet": the Tailscale address once it runs, else what
     /// to do about it.
     pub(super) fn internet_card(&mut self, port: u16, cx: &mut Context<Self>) -> Div {
-        let d = div()
-            .flex()
-            .flex_col()
-            .child(ui::label(tr("Over the internet")));
+        let d = div().flex().flex_col();
         let check = ui::button(
             "ts-check",
             None,
@@ -361,9 +359,13 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(space::MD))
-            .child(ui::label(tr("Invite a friend")))
             .child(self.invite_section(&ip, port, cx));
-        self.internet_message(panel)
+        ui::field_group(
+            "server-invite-title",
+            tr("Invite a friend"),
+            None,
+            self.internet_message(panel),
+        )
     }
 
     fn internet_message(&self, panel: Div) -> Div {
@@ -421,7 +423,7 @@ impl Launcher {
                             .child(self.field(
                                 Field::TailscaleToken,
                                 "tskey-api-…",
-                                300.,
+                                layout::FIELD_MD,
                                 ui::ButtonSize::Md,
                                 cx,
                             ))
@@ -561,7 +563,15 @@ impl Launcher {
                 }
                 d = d.child(rows);
             }
-            Some(Err(e)) => d = d.child(ui::error_note(e)),
+            Some(Err(e)) => {
+                d = d.child(ui::error_line_for(
+                    "ts-invites-failed",
+                    tr("Couldn't load invitations"),
+                    &e,
+                    None,
+                    Vec::new(),
+                ))
+            }
             _ => {}
         }
 

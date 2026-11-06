@@ -81,17 +81,20 @@ impl Launcher {
                             ui::ButtonSize::Md,
                             false,
                         )
-                        .on_press(move |_, _, cx| {
-                            let _ = std::fs::create_dir_all(&folder);
-                            crate::toast::open(cx, &folder);
-                        }),
+                        .on_press(move |_, _, cx| ui::open_folder(&folder, cx)),
                     ),
             ),
         );
         match self.game_packs.note.clone() {
             Some(Ok(m)) => body = body.child(ui::list_head(m)),
             Some(Err(e)) => {
-                body = body.child(ui::error_note(e).px(px(space::MD)).pb(px(space::SM)))
+                body = body.child(ui::error_line_for(
+                    "packs-failed",
+                    tr("Couldn't change the packs"),
+                    &e,
+                    None,
+                    Vec::new(),
+                ))
             }
             None => {}
         }

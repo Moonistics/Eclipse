@@ -3,7 +3,7 @@
 use super::*;
 use crate::menus::Menu;
 use crate::ui::{self};
-use eclipse_theme::glass::{ink, space};
+use eclipse_theme::glass::space;
 use std::time::Instant;
 
 const PLAY: f32 = 240.;
@@ -105,13 +105,7 @@ impl Launcher {
             }
             (None, None) => String::new(),
         };
-        ui::text(
-            eclipse_theme::glass::step::LEAD,
-            FontWeight::NORMAL,
-            ink::STRONG,
-        )
-        .mt(px(ui::TITLE_NOTE_GAP))
-        .child(ui::said("home-played", line))
+        ui::page_note("home-played", line)
     }
 
     /// Play and its ⋯ menu: Stop while the game runs, Update when the launcher's version has a
@@ -119,14 +113,10 @@ impl Launcher {
     fn play_group(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
         let state = self.selected_play_state();
         let running = state == PlayState::Running;
-        let follows = self
-            .selected_instance()
-            .is_some_and(|i| i.version.is_none());
         let update = self
-            .updates
-            .eclipse
-            .as_ref()
-            .filter(|_| follows && !tag.is_empty())
+            .selected_instance()
+            .and_then(|i| self.update_for(i))
+            .filter(|_| !tag.is_empty())
             .map(|r| r.tag.clone());
         let busy = state.busy();
         let open = self.menu_is(&Menu::Play) && !tag.is_empty();
@@ -347,10 +337,7 @@ impl Launcher {
                 ui::ButtonSize::Hero,
                 false,
             )
-            .on_press(move |_, _, cx| {
-                let _ = std::fs::create_dir_all(&home);
-                crate::toast::open(cx, &home);
-            }),
+            .on_press(move |_, _, cx| ui::open_folder(&home, cx)),
         )
     }
 

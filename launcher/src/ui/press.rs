@@ -20,7 +20,7 @@ const INSET_RING: f32 = 2.;
 
 const TIP_GAP: f32 = eclipse_theme::glass::space::SM;
 
-const SPARE_HANDLES: usize = 32;
+const SPARE_HANDLES: usize = 64;
 
 const PAGE_STEP: usize = 8;
 
@@ -138,6 +138,10 @@ pub fn has_focus(handle: &FocusHandle) -> bool {
     FOCUSED.with_borrow(|f| f.as_ref() == Some(handle))
 }
 
+pub fn keyboard_input() -> bool {
+    KEYBOARD.get()
+}
+
 pub fn keyboard_focus(handle: &FocusHandle) -> bool {
     KEYBOARD.get() && has_focus(handle)
 }
@@ -177,8 +181,18 @@ fn reveal_spot(spot: &Rc<RefCell<Spot>>, window: &mut Window) {
 }
 
 pub fn options(
+    list: Stateful<Div>,
+    rows: Vec<(Stateful<Div>, SharedString, bool)>,
+    follow: bool,
+    on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
+) -> Stateful<Div> {
+    options_with_heads(list, rows, Vec::new(), follow, on_pick)
+}
+
+pub fn options_with_heads(
     mut list: Stateful<Div>,
     rows: Vec<(Stateful<Div>, SharedString, bool)>,
+    heads: Vec<(usize, AnyElement)>,
     follow: bool,
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -201,6 +215,8 @@ pub fn options(
     CURSORS.with_borrow_mut(|c| c.insert(id.clone(), cursor));
     let ringed = handle.as_ref().is_some_and(keyboard_focus);
     let on_pick = Rc::new(on_pick);
+    let mut heads = heads.into_iter().peekable();
+    let mut children: Vec<AnyElement> = Vec::new();
     let rows = rows.into_iter().enumerate().map(|(i, (row, label, on))| {
         let (pick, key) = (on_pick.clone(), id.clone());
         let row = if row.a11y_role().is_none() {
@@ -240,7 +256,15 @@ pub fn options(
                 r.shadow(inset_shadow()).aria_active_descendant()
             })
     });
+    for (i, row) in rows.enumerate() {
+        while let Some((_, head)) = heads.next_if(|(at, _)| *at <= i) {
+            children.push(head);
+        }
+        children.push(row.into_any_element());
+    }
+    children.extend(heads.map(|(_, head)| head));
     let key = id.clone();
+    let soon = id.clone();
     let focus = handle.clone();
     let list = if list.a11y_role().is_none() {
         list.role(Role::ListBox)
@@ -251,49 +275,55 @@ pub fn options(
         Some(handle) => list.track_focus(handle),
         None => list,
     };
-    reveal_on_tab(
-        list.children(rows)
-            .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
-                if let Some(focus) = &focus {
-                    window.focus(focus, cx)
-                }
-            })
-            .on_key_down(move |ev: &KeyDownEvent, window, cx| {
-                if count == 0 {
+    list.children(children)
+        .on_key_up(move |ev: &KeyUpEvent, window, cx| {
+            if ev.keystroke.key != "tab" {
+                return;
+            }
+            REVEAL_SOON.with_borrow_mut(|r| r.insert(soon.clone()));
+            window.refresh();
+            cx.stop_propagation();
+        })
+        .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
+            if let Some(focus) = &focus {
+                window.focus(focus, cx)
+            }
+        })
+        .on_key_down(move |ev: &KeyDownEvent, window, cx| {
+            if count == 0 {
+                return;
+            }
+            let k = &ev.keystroke;
+            let last = count - 1;
+            let cursor = CURSORS
+                .with_borrow(|c| c.get(&key).copied())
+                .unwrap_or(cursor)
+                .min(last);
+            let to = match k.key.as_str() {
+                "up" | "left" => cursor.saturating_sub(1),
+                "down" | "right" => (cursor + 1).min(last),
+                "pageup" => cursor.saturating_sub(PAGE_STEP),
+                "pagedown" => (cursor + PAGE_STEP).min(last),
+                "home" => 0,
+                "end" => last,
+                "space" | "enter" => {
+                    on_pick(cursor, window, cx);
+                    cx.stop_propagation();
                     return;
                 }
-                let k = &ev.keystroke;
-                let last = count - 1;
-                let cursor = CURSORS
-                    .with_borrow(|c| c.get(&key).copied())
-                    .unwrap_or(cursor)
-                    .min(last);
-                let to = match k.key.as_str() {
-                    "up" | "left" => cursor.saturating_sub(1),
-                    "down" | "right" => (cursor + 1).min(last),
-                    "pageup" => cursor.saturating_sub(PAGE_STEP),
-                    "pagedown" => (cursor + PAGE_STEP).min(last),
-                    "home" => 0,
-                    "end" => last,
-                    "space" | "enter" => {
-                        on_pick(cursor, window, cx);
-                        cx.stop_propagation();
-                        return;
-                    }
-                    _ => match typed_match(k, &labels, cursor) {
-                        Some(at) => at,
-                        None => return,
-                    },
-                };
-                CURSORS.with_borrow_mut(|c| c.insert(key.clone(), to));
-                REVEAL_SOON.with_borrow_mut(|r| r.insert(key.clone()));
-                if follow && to != cursor {
-                    on_pick(to, window, cx);
-                }
-                window.refresh();
-                cx.stop_propagation();
-            }),
-    )
+                _ => match typed_match(k, &labels, cursor) {
+                    Some(at) => at,
+                    None => return,
+                },
+            };
+            CURSORS.with_borrow_mut(|c| c.insert(key.clone(), to));
+            REVEAL_SOON.with_borrow_mut(|r| r.insert(key.clone()));
+            if follow && to != cursor {
+                on_pick(to, window, cx);
+            }
+            window.refresh();
+            cx.stop_propagation();
+        })
 }
 
 pub fn options_cursor(id: &str) -> usize {

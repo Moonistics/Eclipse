@@ -47,6 +47,7 @@ mod line_edit;
 mod location_page;
 mod markdown;
 mod mcp;
+mod memory;
 mod menus;
 mod messages;
 mod microsoft;
@@ -61,6 +62,7 @@ mod owner_page;
 mod palette;
 mod perf;
 mod picture_cache;
+mod pictures;
 mod profile_heads;
 mod scene;
 mod scrollbar;
@@ -223,11 +225,8 @@ struct Launcher {
     /// How many times the page changed, for the page transition.
     switches: usize,
     content_scroll: Scrollbar,
-    /// The Settings page's own scroll: its sections beside their list.
-    settings_pane: Scrollbar,
-    /// The section the Settings list marked when last drawn (`settings_page`).
-    settings_marked: usize,
-    settings_jump: Option<settings_page::Jump>,
+    /// The Settings page's own scroll, its jumps and the accent picker (`settings_page`).
+    settings_ui: settings_page::SettingsUi,
     /// The Mods page's project card, kept in view beside its list.
     mods_sticky: sticky::Sticky,
     /// The rows of the page's long list (Versions, Patch notes) last drawn.
@@ -266,13 +265,6 @@ struct Launcher {
     native: native_build::NativeBuild,
     /// The Mod build log panel, opened from the sidebar's foot (`native_log_page.rs`).
     native_log: native_log_page::NativeLog,
-    /// Settings' any-colour swatch shows the hue strip.
-    accent_strip: bool,
-    /// Where the accent picker's hue strip is on screen (`settings_appearance.rs`), to map a click to a
-    /// hue.
-    hue_area: std::rc::Rc<std::cell::Cell<Option<Bounds<gpui::Pixels>>>>,
-    /// A drag on that strip is in flight, so a release anywhere writes the accent down.
-    hue_dragging: bool,
     open_menu: Option<menus::Menu>,
     asking: Option<menus::Asking>,
     /// Where the sidebar's rows were drawn, for the ⋯ menu beside them (`frame.rs`).
@@ -291,6 +283,7 @@ struct Launcher {
     location_error: Option<String>,
     location_note: Option<String>,
     settings: Settings,
+    settings_seen: serde_json::Value,
     /// The last failed settings write, kept across page changes until a save succeeds.
     settings_save_error: Option<String>,
     /// The Discord, sponsor and website links: built in until links.json on main has been read.
@@ -338,10 +331,8 @@ struct Launcher {
     dev_options: bool,
     /// The window's width at the last frame: the sidebar and Home's head lay out by it.
     window_width: f32,
-    /// The window's longer side in points, and the screen's pixels per point: the size pictures
-    /// are made at (`picture_cache`).
+    /// The window's longer side in points: the size pictures are made at (`picture_cache`).
     window_long_side: f32,
-    scale_factor: f32,
     joining: Option<String>,
     /// Where the next start goes at once: `--world <folder>` or `--server <address>`.
     quick_play: Option<(&'static str, String)>,
@@ -367,7 +358,6 @@ struct Launcher {
     project_icons: instance_mods::ProjectIcons,
     /// `eclipse-launcher benchmark` started this window to measure it.
     bench: Option<perf::Bench>,
-    packs: Vec<eclipse_launcher::modpacks::Imported>,
     modpacks: modpacks_page::Modpacks,
     /// The Mods page: the browser's search, installs and updates (`mods_page.rs`).
     mods: mods_page::Mods,
@@ -396,10 +386,8 @@ struct Launcher {
     /// The name the game made up for an offline player (`eclipse-player.txt`), for the sidebar's
     /// account chip.
     offline_name: Option<String>,
-    /// The player's servers, for the sidebar until the Servers page has read them.
-    side_servers: Vec<eclipse_launcher::servers::Entry>,
-    /// The pixel sunset of the new design: its own view, so a frame of it
-    /// alone redraws nothing else.
+    /// The eclipse night behind the launcher: its own view, so a frame of it alone redraws
+    /// nothing else.
     scene: gpui::Entity<scene::Scene>,
     /// The window's scale, as of its last frame, for art drawn outside `render`'s reach.
     scale: f32,
@@ -422,6 +410,7 @@ impl Launcher {
         })
         .detach();
         let mut settings = Settings::load();
+        let settings_seen = serde_json::to_value(&settings).unwrap_or_default();
         i18n::set(settings.language());
         motion::set_reduce_motion(settings.reduce_motion);
         if settings.minecraft_dir.is_none() {
@@ -456,9 +445,7 @@ impl Launcher {
             page,
             switches: 0,
             content_scroll: Scrollbar::default(),
-            settings_pane: Scrollbar::default(),
-            settings_marked: 0,
-            settings_jump: None,
+            settings_ui: Default::default(),
             mods_sticky: sticky::Sticky::default(),
             long_list: cull::Cull::default(),
             updates: Updates::default(),
@@ -484,9 +471,6 @@ impl Launcher {
             import_error: None,
             native: Default::default(),
             native_log: Default::default(),
-            accent_strip: false,
-            hue_area: std::rc::Rc::new(std::cell::Cell::new(None)),
-            hue_dragging: false,
             open_menu: None,
             asking: None,
             row_menu: Default::default(),
@@ -499,6 +483,7 @@ impl Launcher {
             location_error: location_page::startup_error(),
             location_note: location_page::startup_note(),
             settings,
+            settings_seen,
             settings_save_error: None,
             links: backend::Links::default(),
             game: Default::default(),
@@ -531,7 +516,6 @@ impl Launcher {
             dev_options: false,
             window_width: 0.,
             window_long_side: 0.,
-            scale_factor: 1.,
             joining: None,
             quick_play: None,
             collection: collection::Collection::load(),
@@ -547,7 +531,6 @@ impl Launcher {
             instance_mods: Default::default(),
             project_icons: Default::default(),
             bench: perf::Bench::from_env(),
-            packs: Vec::new(),
             modpacks: Default::default(),
             mods: mods_page::Mods::new(),
             github: github_mods_page::Github::new(),
@@ -567,7 +550,6 @@ impl Launcher {
             aside: while_playing::Aside::new(window.window_handle()),
             shortcuts: Default::default(),
             offline_name: offline_name(),
-            side_servers: eclipse_launcher::servers::list(),
             scene: cx.new(|_| scene::Scene::new()),
             scale: window.scale_factor(),
         };
@@ -630,49 +612,57 @@ impl Launcher {
 
     /// Keeps the current choices in memory if writing fails; every page offers the same retry.
     fn save_settings(&mut self) -> bool {
-        self.settings_save_error = self.settings.save().err();
+        let now = serde_json::to_value(&self.settings).unwrap_or_default();
+        let seen = self.settings_seen.clone();
+        let saved = Settings::update(|disk| {
+            let merged = changes_over(
+                &seen,
+                &now,
+                serde_json::to_value(&*disk).unwrap_or_default(),
+            );
+            if let Ok(settings) = serde_json::from_value::<Settings>(merged.clone()) {
+                *disk = settings;
+            }
+            merged
+        });
+        match saved {
+            Ok(merged) => {
+                if let Ok(settings) = serde_json::from_value::<Settings>(merged.clone()) {
+                    self.settings = settings;
+                }
+                self.settings_seen = merged;
+                self.settings_save_error = None;
+            }
+            Err(e) => self.settings_save_error = Some(e),
+        }
         self.settings_save_error.is_none()
     }
 
     fn settings_save_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
-        use eclipse_theme::glass::{ink, space, step};
         let error = self.settings_save_error.as_ref()?;
+        let retry = ui::button(
+            "settings-save-retry",
+            Some("refresh"),
+            tr("Try again"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.save_settings();
+            cx.notify();
+        }));
         Some(
             div()
                 .flex_none()
                 .px(px(layout::gutter(self.window_width)))
-                .py(px(space::MD))
-                .child(
-                    ui::card()
-                        .flex()
-                        .items_center()
-                        .gap(px(space::LG))
-                        .p(px(ui::PANEL_INSET))
-                        .child(
-                            div()
-                                .relative()
-                                .flex()
-                                .flex_col()
-                                .gap(px(space::XS))
-                                .flex_1()
-                                .min_w_0()
-                                .child(ui::error_note(tr("Settings were not saved.")))
-                                .child(
-                                    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-                                        .child(trf(
-                                            "Your changes are still in this window. Retry to save them. {error}",
-                                            &[("error", error)],
-                                        )),
-                                ),
-                        )
-                        .child(
-                            ui::button("settings-save-retry", None, tr("Retry"), ButtonKind::Secondary, ui::ButtonSize::Md)
-                                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.save_settings();
-                                    cx.notify();
-                                })),
-                        ),
-                ),
+                .py(px(eclipse_theme::glass::space::MD))
+                .child(ui::card().p(px(ui::PANEL_INSET)).child(ui::error_line_for(
+                    "settings-save",
+                    tr("Couldn't save settings"),
+                    error,
+                    Some(retry),
+                    Vec::new(),
+                ))),
         )
     }
 
@@ -789,8 +779,12 @@ impl Launcher {
         if self.installing.is_some() || self.removing.contains(&release.tag) {
             return;
         }
-        let select =
-            backend::select_after_update(self.settings.selected.as_deref(), &self.installed);
+        let downgrade = backend::nightly_downgrade(&release, &self.installed);
+        if let Some(warning) = &downgrade {
+            crate::toast::say(warning.clone());
+        }
+        let select = downgrade.is_none()
+            && backend::select_after_update(self.settings.selected.as_deref(), &self.installed);
         self.update_install = Some((release.tag.clone(), select));
         self.install(&release);
     }
@@ -1147,17 +1141,36 @@ impl Launcher {
         self.game.begin(Some(&instance));
         self.game.started = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
         self.game.starting = Some(instance.id.clone());
-        let tx = self.tx.clone();
+        let play = backend::Play {
+            server,
+            ..backend::Play::of(instance)
+        };
+        self.launch_in_background(play, None);
+    }
+
+    fn launch_in_background(&mut self, play: backend::Play, auto: Option<mods_page::AutoTarget>) {
+        let (tx, starts, mods_tx) = (
+            self.tx.clone(),
+            self.game.starts.tx.clone(),
+            self.mods.tx.clone(),
+        );
         std::thread::spawn(move || {
+            if let Some(auto) = auto {
+                let (lines, _) = mods_page::auto_update(&[auto]);
+                if !lines.is_empty() {
+                    let _ = mods_tx.send(mods_page::Event::AutoUpdated(lines, Vec::new()));
+                }
+            }
             let log = |line: String| {
                 let _ = tx.send(Msg::Line(Job::Client, line));
             };
-            let cmd = backend::java_game(&instance, server.as_deref(), &log).map(|mut cmd| {
-                let vars = instance.vars(cmd.get_program());
-                cmd.envs(vars.iter().map(|(k, v)| (k, v)));
-                (eclipse_launcher::launch::wrap(cmd, &instance.launch), vars)
+            let (instance, eclipse) = (play.instance.id.clone(), play.instance.java.is_none());
+            let result = backend::launch(play, &log);
+            let _ = starts.send(game_run::Started {
+                instance,
+                eclipse,
+                result,
             });
-            let _ = tx.send(Msg::JavaGame(instance.id, instance.home, cmd));
         });
     }
 
@@ -1187,43 +1200,51 @@ impl Launcher {
     }
 
     /// Starts the game: the session first (a network round trip when the token needs
-    /// renewing), then `drain` starts the process when it arrives.
+    /// renewing), then `drain` starts the process when it arrives. A pack's Play plays the
+    /// instance made for that pack; Play the selected one.
     fn start_client(&mut self, tag: String) {
         self.game.error = None;
         self.game.crash = None;
-        let selected = self.selected_instance().cloned();
-        self.game.begin(selected.as_ref());
+        let pack = self.game.pack.take();
+        let instance = match &pack {
+            Some(work) => self
+                .instances
+                .list
+                .iter()
+                .find(|i| i.work == *work)
+                .cloned(),
+            None => self.selected_instance().cloned(),
+        };
+        let Some(instance) = instance else {
+            return;
+        };
+        self.game.begin(Some(&instance));
         // A little earlier than the spawn: file times can be coarse.
         self.game.started = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
-        // What the resources lack (built-in packs, panorama, sounds) and the session (a network
-        // round trip when the token needs renewing) come first; `drain` starts the game when the
-        // session arrives.
         self.game.starting = Some(tag.clone());
         self.game.pressed = Some(Instant::now());
-        let tx = self.tx.clone();
-        let offline_without_owner = self.settings.dev_offline;
         // Registry mods update before the game reads them (`eclipse::auto`); native mods only
         // at start, where a build can follow.
-        let auto = self
-            .selected_instance()
-            .filter(|_| self.settings.auto_updates_mods() && self.game.pack.is_none())
-            .map(|i| mods_page::AutoTarget {
-                instance: i.clone(),
+        let auto =
+            (self.settings.auto_updates_mods() && pack.is_none()).then(|| mods_page::AutoTarget {
+                instance: instance.clone(),
                 level: Some(backend::mod_api_level(&tag)),
                 natives: false,
             });
-        let mods_tx = self.mods.tx.clone();
-        std::thread::spawn(move || {
-            backend::complete_assets(&tag);
-            if let Some(auto) = auto {
-                let (lines, _) = mods_page::auto_update(&[auto]);
-                if !lines.is_empty() {
-                    let _ = mods_tx.send(mods_page::Event::AutoUpdated(lines, Vec::new()));
-                }
-            }
-            let session = account::session_for_game(&backend::game_home(), offline_without_owner);
-            let _ = tx.send(Msg::Session(session));
-        });
+        let (world, server) = match self.quick_play.take() {
+            Some(("--world", world)) => (Some(world), None),
+            Some((_, server)) => (None, Some(server)),
+            None => (None, None),
+        };
+        let play = backend::Play {
+            version: Some(tag),
+            offline_without_owner: self.settings.dev_offline,
+            join: self.joining.take(),
+            world,
+            server,
+            ..backend::Play::of(instance)
+        };
+        self.launch_in_background(play, auto);
     }
 
     fn load_profile_heads(&mut self) {
@@ -1466,6 +1487,27 @@ fn player_name(text: &str) -> Option<String> {
         .map(str::to_owned)
 }
 
+fn changes_over(
+    seen: &serde_json::Value,
+    now: &serde_json::Value,
+    onto: serde_json::Value,
+) -> serde_json::Value {
+    let (Some(seen), Some(now), serde_json::Value::Object(mut merged)) =
+        (seen.as_object(), now.as_object(), onto)
+    else {
+        return now.clone();
+    };
+    for (key, value) in now {
+        if seen.get(key) != Some(value) {
+            merged.insert(key.clone(), value.clone());
+        }
+    }
+    for key in seen.keys().filter(|k| !now.contains_key(*k)) {
+        merged.remove(key);
+    }
+    serde_json::Value::Object(merged)
+}
+
 /// `1234` as `1,234`.
 fn thousands(n: u64) -> String {
     let digits = n.to_string();
@@ -1527,7 +1569,6 @@ impl Render for Launcher {
         }
         self.window_width = f32::from(size.width);
         self.window_long_side = f32::from(size.width).max(f32::from(size.height));
-        self.scale_factor = window.scale_factor();
         let content = match self.page {
             Page::Home => self.home_page(cx),
             Page::Versions => self.versions_page(cx),
@@ -1538,6 +1579,12 @@ impl Render for Launcher {
             Page::InstanceEditor => self.instance_page(cx),
         };
         self.pictures.free_retired(window);
+        if let Some(section) = self.settings_ui.enter.take() {
+            cx.on_next_frame(window, move |_, window, cx| {
+                window.focus(&section, cx);
+                window.focus_next(cx);
+            });
+        }
         // The new page fades in and rises a few pixels, as the website's tabs do.
         let content = div()
             .relative()
@@ -1582,6 +1629,7 @@ impl Render for Launcher {
                             self.content_scroll
                                 .wrap(
                                     ui::scroll_pane("content", &self.content_scroll.handle)
+                                        .role(gpui::Role::Main)
                                         .track_focus(&self.content_focus)
                                         .relative()
                                         .flex_1()
@@ -1789,7 +1837,7 @@ fn main() {
         }
     }
     // The GPU's texture limit, which caps the pictures made from disk (`picture_cache`).
-    eclipse_launcher::pictures::probe_gpu_limit();
+    pictures::probe_gpu_limit();
     gpui_platform::application()
         .with_assets(icons::Assets)
         // `move`: the closure owns `setup_window`; `run` wants it to outlive this frame.
@@ -1987,6 +2035,19 @@ mod tests {
         assert_eq!(player_name("name:Steve\r\n").as_deref(), Some("Steve"));
         assert_eq!(player_name("Player63010\n"), None);
         assert_eq!(player_name(""), None);
+    }
+
+    #[test]
+    fn a_save_keeps_what_another_process_wrote_meanwhile() {
+        use serde_json::json;
+        let seen = json!({"language": "en", "proxy": "http://old", "accent": "amber"});
+        let now = json!({"language": "de", "accent": "amber"});
+        let disk =
+            json!({"language": "en", "proxy": "http://old", "accent": "blue", "game_args": "-x"});
+        assert_eq!(
+            super::changes_over(&seen, &now, disk),
+            json!({"language": "de", "accent": "blue", "game_args": "-x"})
+        );
     }
 
     #[test]

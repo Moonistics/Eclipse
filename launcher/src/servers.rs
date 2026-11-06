@@ -262,7 +262,11 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
 
 /// What a release folder holds of the launcher's own and isn't copied for the servers: its
 /// prepared copy, install marker and the game's macOS app bundle.
-const LAUNCHER_FILES: [&str; 3] = [".local", ".installed", "Eclipse.app"];
+const LAUNCHER_FILES: [&str; 3] = [
+    ".local",
+    crate::backend::INSTALL_MARK,
+    crate::backend::GAME_APP,
+];
 
 /// Makes `link` point at the folder `target`, as install.sh (a symbolic link) and install.ps1 (a
 /// junction, which needs no admin rights) do.

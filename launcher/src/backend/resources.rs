@@ -1,6 +1,6 @@
 use super::minecraft::{download_for_owner, minecraft_folders};
 use super::net::get_bytes;
-use super::paths::{data_dir, version_dir, versions_dir};
+use super::paths::{own_minecraft_dir, version_dir, versions_dir};
 use super::versions::{game_version_at, installed_in, read_json};
 use crate::sources;
 use std::fs;
@@ -231,27 +231,6 @@ fn files_under(dir: &Path, relative: &Path) -> Vec<PathBuf> {
     files
 }
 
-pub(crate) fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    copy_dir_except(from, to, None)
-}
-
-/// Copy a folder, leaving out one directory when given.
-pub(crate) fn copy_dir_except(from: &Path, to: &Path, skip: Option<&Path>) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            if Some(entry.path().as_path()) != skip {
-                copy_dir_except(&entry.path(), &target, skip)?;
-            }
-        } else {
-            eclipse_prepare::clone_or_copy(&entry.path(), &target)?;
-        }
-    }
-    Ok(())
-}
-
 /// After an install: when `tag` is not prepared but another installed version made the same
 /// resources, copies them (not hard links: preparing again rewrites files in place, which would
 /// change both). The player then needs neither their Minecraft folder nor a new preparation to
@@ -281,7 +260,7 @@ pub(super) fn reuse_prepared(versions: &Path, tag: &str) -> Option<String> {
         let n = COPIES.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
         let partial = to.with_file_name(format!(".{version}.partial-{}-{n}", std::process::id()));
         let _ = fs::remove_dir_all(&partial);
-        let copied = copy_dir(&from, &partial).and_then(|_| {
+        let copied = crate::files::copy_dir(&from, &partial, &[]).and_then(|_| {
             if to.join(RESOURCES_MANIFEST).exists() {
                 return Ok(false); // Prepared meanwhile, by another copy or the player.
             }
@@ -435,7 +414,7 @@ pub fn complete_assets(tag: &str) {
 /// already whole. Called where a download is expected (`reuse_prepared_everywhere`), never on Play.
 pub(super) fn refill_own_store(tag: &str) {
     static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-    let own = data_dir().join("minecraft");
+    let own = own_minecraft_dir();
     let resources = resources_at(&versions_dir().join(tag));
     if !own.join("assets/indexes").is_dir()
         || !eclipse_prepare::missing_extras(&resources)

@@ -1,8 +1,27 @@
 use super::*;
 use eclipse_launcher::instances::Instance;
 
+pub(super) struct Started {
+    pub(super) instance: String,
+    pub(super) eclipse: bool,
+    pub(super) result: Result<backend::Launched, backend::PlayError>,
+}
+
+pub(super) struct Starts {
+    pub(super) tx: std::sync::mpsc::Sender<Started>,
+    pub(super) rx: std::sync::mpsc::Receiver<Started>,
+}
+
+impl Default for Starts {
+    fn default() -> Self {
+        let (tx, rx) = std::sync::mpsc::channel();
+        Self { tx, rx }
+    }
+}
+
 #[derive(Default)]
 pub(super) struct GameRun {
+    pub(super) starts: Starts,
     pub(super) client: Option<Running>,
     pub(super) error: Option<String>,
     pub(super) started: Option<std::time::SystemTime>,
@@ -58,7 +77,24 @@ pub(super) enum PlayState {
     Running,
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum InstallState {
+    NotInstalled,
+    UpdateReady(String),
+    NotSetUp,
+    Built(eclipse_launcher::native_status::Build),
+    Ready { pinned: Option<String> },
+}
+
 impl PlayState {
+    pub(super) fn busy_line(self) -> Option<String> {
+        let (label, progress) = self.busy()?;
+        Some(match progress {
+            Some(p) => format!("{label} {:.0}%", p * 100.),
+            None => label.to_string(),
+        })
+    }
+
     pub(super) fn busy(self) -> Option<(&'static str, Option<f32>)> {
         match self {
             PlayState::Updating(p) => Some((tr("Updating"), Some(p))),
@@ -71,12 +107,34 @@ impl PlayState {
 }
 
 impl Launcher {
+    pub(super) fn update_for(&self, i: &Instance) -> Option<&Release> {
+        let follows = i.version.is_none() && i.java.is_none();
+        self.updates.eclipse.as_ref().filter(|_| follows)
+    }
+
+    pub(super) fn install_state(&self, i: &Instance) -> InstallState {
+        let Some(tag) = self.version_of(i) else {
+            return InstallState::NotInstalled;
+        };
+        if let Some(update) = self.update_for(i) {
+            return InstallState::UpdateReady(update.tag.clone());
+        }
+        if !backend::is_prepared(tag) {
+            return InstallState::NotSetUp;
+        }
+        match self.native_build_of(tag) {
+            Some(build) => InstallState::Built(build),
+            None => InstallState::Ready {
+                pinned: i.version.as_ref().map(|_| tag.clone()),
+            },
+        }
+    }
+
     pub(super) fn play_state(&self, i: &Instance) -> PlayState {
         if self.game.client.is_some() && self.game.plays(i) {
             return PlayState::Running;
         }
-        let follows = i.version.is_none() && i.java.is_none();
-        let update = self.updates.eclipse.as_ref().filter(|_| follows);
+        let update = self.update_for(i);
         let installing = |tag: &str| {
             self.installing
                 .as_ref()

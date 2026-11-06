@@ -1,6 +1,6 @@
 //! The pictures Home draws from the player's disk (screenshots, their blurred copies, the
 //! background), made in the background at the size they are drawn and kept under a byte budget
-//! (`eclipse_launcher::pictures`).
+//! (`pictures`).
 //!
 //! GPUI's `img(path)` keeps every picture it ever drew, at full size, until the launcher quits,
 //! in RAM and in its sprite atlas: one 32768 × 16384 screenshot is 2 GiB, and Home drew the
@@ -9,7 +9,7 @@
 //! Pictures are therefore made at the size the screen shows them, never above that limit
 //! (`pictures::drawn_side`, `pictures::gpu_limit`).
 use super::*;
-use eclipse_launcher::pictures::{self, Lru};
+use crate::pictures::{self, Lru};
 use gpui::RenderImage;
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -76,17 +76,13 @@ impl Pictures {
 impl Launcher {
     /// The side to make a screenshot tile at, for this screen.
     pub(super) fn thumb_side(&self) -> u32 {
-        pictures::drawn_side(THUMB_POINTS, self.scale_factor, pictures::gpu_limit())
+        pictures::drawn_side(THUMB_POINTS, self.scale, pictures::gpu_limit())
     }
 
     /// The side to make a picture filling the window at (the viewer, the background): every
     /// pixel the screen can show, even on an 8K one, within the GPU's limit.
     pub(super) fn window_side(&self) -> u32 {
-        pictures::drawn_side(
-            self.window_long_side,
-            self.scale_factor,
-            pictures::gpu_limit(),
-        )
+        pictures::drawn_side(self.window_long_side, self.scale, pictures::gpu_limit())
     }
 
     /// The picture at `path` as `look`; None while it is being made, or when it can't be read

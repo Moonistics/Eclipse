@@ -40,6 +40,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let picker = ui::segments(
             "launcher-theme",
+            tr("Sky colours"),
             &ui::translated(&options),
             current,
             move |id, _, cx| {
@@ -124,7 +125,7 @@ impl Launcher {
                     this.save_settings();
                     this.restyle = true;
                 }
-                Some(None) => this.accent_strip = !this.accent_strip,
+                Some(None) => this.settings_ui.accent_strip = !this.settings_ui.accent_strip,
                 None => {}
             }
             cx.notify();
@@ -158,7 +159,9 @@ impl Launcher {
             .when(beside, |d| d.items_end())
             .gap(px(space::MD))
             .child(row)
-            .when(self.accent_strip, |d| d.child(self.hue_strip(cx)));
+            .when(self.settings_ui.accent_strip, |d| {
+                d.child(self.hue_strip(cx))
+            });
         ui::setting_row_fit(
             beside,
             tr("Accent colour"),
@@ -190,7 +193,7 @@ impl Launcher {
                     this.save_settings();
                     crate::motion::set_reduce_motion(None);
                     titlebar::apply_appearance(window, this.settings.appearance);
-                    this.accent_strip = false;
+                    this.settings_ui.accent_strip = false;
                     this.background_error = None;
                     this.theme = this.settings_theme(window);
                     crate::toast::say(tr("Appearance is back to its defaults"));
@@ -224,7 +227,7 @@ impl Launcher {
     /// A strip of every hue: a click or a drag picks any of them, the swatches being shortcuts.
     fn hue_strip(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let current = self.settings.accent.hue();
-        let area = self.hue_area.clone();
+        let area = self.settings_ui.hue_area.clone();
         let ink = ui::white(eclipse_theme::glass::ink::FULL);
         // Hues per painted quad: 60 of them, fine enough at this width.
         const STEPS: usize = 60;
@@ -320,8 +323,8 @@ impl Launcher {
 
     /// A release ends the drag and writes `settings.json` once.
     fn finish_hue(&mut self) {
-        if self.hue_dragging {
-            self.hue_dragging = false;
+        if self.settings_ui.hue_dragging {
+            self.settings_ui.hue_dragging = false;
             self.save_settings();
         }
     }
@@ -336,7 +339,7 @@ impl Launcher {
     }
 
     fn pick_hue(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(area) = self.hue_area.get() else {
+        let Some(area) = self.settings_ui.hue_area.get() else {
             return;
         };
         let width: f32 = area.size.width.into();
@@ -345,7 +348,7 @@ impl Launcher {
         }
         let across: f32 = (at.x - area.origin.x).into();
         let accent = Accent::custom(((across / width).clamp(0., 1.) * 360.).round());
-        self.hue_dragging = true;
+        self.settings_ui.hue_dragging = true;
         if accent == self.settings.accent {
             return;
         }
@@ -392,7 +395,7 @@ impl Launcher {
         let mut actions = div().flex().gap(px(space::XS)).child(
             ui::button(
                 "background-choose",
-                None,
+                Some("folder-01"),
                 tr("Choose image…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,

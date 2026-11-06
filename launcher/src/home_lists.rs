@@ -11,10 +11,6 @@ use gpui::ExternalPaths;
 use home_worlds_state::Action;
 use std::path::Path;
 
-const SERVER_NAME: f32 = 220.;
-const SERVER_ADDRESS: f32 = 300.;
-const SERVER_FIELD_MIN: f32 = 140.;
-
 impl Launcher {
     /// Home's Worlds tab: the selected instance's worlds, the last played first.
     pub(super) fn worlds_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
@@ -26,18 +22,22 @@ impl Launcher {
             Some(Ok((message, zip))) => {
                 let open = zip.map(|zip| {
                     let dir = zip.parent().map(Path::to_path_buf).unwrap_or(zip);
-                    ui::button(
+                    ui::open_folder_button(
                         "world-backups",
-                        None,
-                        tr("Open backups"),
-                        ButtonKind::Secondary,
+                        tr("Open backups folder"),
+                        dir,
                         ui::ButtonSize::Md,
                     )
-                    .on_press(move |_, _, cx| crate::toast::open(cx, &dir))
                 });
                 Some(ui::list_head(message).children(open))
             }
-            Some(Err(e)) => Some(ui::error_note(e).px(px(space::MD)).pb(px(space::SM))),
+            Some(Err(e)) => Some(div().child(ui::error_line_for(
+                "worlds-failed",
+                tr("Couldn't change the world"),
+                &e,
+                None,
+                Vec::new(),
+            ))),
             None => None,
         };
         let saves = home.join("saves");
@@ -200,7 +200,6 @@ impl Launcher {
             .into_any_element()
         } else {
             ui::menu_row("world-menu-delete", "delete-02", tr("Delete…"), true)
-                .mt(px(space::XS))
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.asking = Some(Asking::WorldDelete(key.clone()));
                     cx.notify();
@@ -240,7 +239,7 @@ impl Launcher {
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.close_menu();
-                    crate::toast::open(cx, &folder);
+                    ui::open_folder(&folder, cx);
                     cx.notify();
                 })),
             )
@@ -293,14 +292,20 @@ impl Launcher {
         body = body
             .child(ui::list_head(SharedString::default()).child(toggle.on_press(toggle_add(cx))));
         if let Some(e) = self.multiplayer.error.clone() {
-            body = body.child(ui::error_note(e).px(px(space::MD)).pb(px(space::SM)));
+            body = body.child(ui::error_line_for(
+                "multiplayer-failed",
+                tr("Couldn't save the server list"),
+                &e,
+                None,
+                Vec::new(),
+            ));
         }
         if adding {
             let name_field = self
                 .field(
                     fields::Field::MultiplayerName,
                     tr("Server name"),
-                    SERVER_NAME,
+                    layout::FIELD_MD,
                     ui::ButtonSize::Md,
                     cx,
                 )
@@ -309,12 +314,12 @@ impl Launcher {
                 .field(
                     fields::Field::MultiplayerAddress,
                     tr("Server address"),
-                    SERVER_ADDRESS,
+                    layout::FIELD_LG,
                     ui::ButtonSize::Md,
                     cx,
                 )
                 .w_full();
-            let room = |width: f32| div().flex_1().min_w(px(SERVER_FIELD_MIN)).max_w(px(width));
+            let room = |width: f32| div().flex_1().min_w(px(layout::FIELD_SM)).max_w(px(width));
             body = body.child(
                 div()
                     .id("server-form")
@@ -324,8 +329,8 @@ impl Launcher {
                     .gap(px(space::SM))
                     .px(px(space::MD))
                     .pb(px(space::SM))
-                    .child(room(SERVER_NAME).child(name_field))
-                    .child(room(SERVER_ADDRESS).child(address_field))
+                    .child(room(layout::FIELD_MD).child(name_field))
+                    .child(room(layout::FIELD_LG).child(address_field))
                     .child(
                         ui::button(
                             "server-save",

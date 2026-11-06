@@ -17,7 +17,11 @@ const NOTICE_PAD: (f32, f32) = (space::LG, space::MD);
 
 const TICK_SLOT: f32 = 20.;
 
-const RAISE_SHADE: f32 = 0.06;
+const RAISE_SHADE: f32 = 0.14;
+
+const RAISE_DROP: f32 = 2.;
+
+const SIDE_SELECTED_EDGE_LIGHT: f32 = 0.24;
 
 pub const ROW_EDGE: f32 = 1.;
 
@@ -35,10 +39,10 @@ pub fn side_selected(d: Stateful<Div>, on: bool) -> Stateful<Div> {
     d.rounded(px(radius::ROW))
         .border(px(ROW_EDGE))
         .bg(color(PAPER))
-        .border_color(edge())
+        .border_color(color(ON_LIGHT).opacity(SIDE_SELECTED_EDGE_LIGHT))
         .shadow(vec![BoxShadow {
             color: color(ON_LIGHT).opacity(RAISE_SHADE),
-            offset: point(px(0.), px(1.)),
+            offset: point(px(0.), px(RAISE_DROP)),
             blur_radius: px(0.),
             spread_radius: px(0.),
             inset: false,
@@ -344,6 +348,7 @@ pub fn menu_row(
     hoverable(id, radius::CONTROL, hover)
         .role(Role::MenuItem)
         .aria_label(label.clone())
+        .when(danger, |d| d.mt(px(space::XS)))
         .flex()
         .items_center()
         .gap(px(space::MD))
@@ -670,8 +675,8 @@ pub fn error_line_for(
     extra: Vec<Stateful<Div>>,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
-    let actions = retry.into_iter().chain(extra).chain([copy]);
+    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Sm);
+    let actions: Vec<_> = retry.into_iter().chain(extra).collect();
     div()
         .id(id.clone())
         .relative()
@@ -707,19 +712,22 @@ pub fn error_line_for(
                         .child(
                             text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(super::said(
                                 format!("{id}-cause"),
-                                super::plain_error(error).to_string(),
+                                super::told_cause(error),
                             )),
                         ),
-                ),
+                )
+                .child(copy.mt(px(-space::XS))),
         )
-        .child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(space::SM))
-                .children(actions),
-        )
+        .when(!actions.is_empty(), |d| {
+            d.child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .items_center()
+                    .gap(px(space::SM))
+                    .children(actions),
+            )
+        })
 }
 
 pub fn pick_item(

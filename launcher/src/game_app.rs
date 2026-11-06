@@ -9,8 +9,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// The bundle's folder in a version folder.
-pub const APP: &str = "Eclipse.app";
+use crate::backend::GAME_APP as APP;
 
 /// The game, then eclipse-ctl, which the game looks for beside itself (Copy Connection Details).
 const PROGRAMS: [&str; 2] = ["eclipse-client", "eclipse-ctl"];

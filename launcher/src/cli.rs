@@ -1088,7 +1088,9 @@ fn set_setting(s: &mut backend::Settings, key: &str, value: &str) -> Result<(), 
             s.language = match value.trim() {
                 "system" | "default" => None,
                 code => Some(Language::parse(code).ok_or_else(|| {
-                    format!("{value}: say system, en, fr, ru, de, zh, es, uk, pl or pt-br")
+                    let codes: Vec<&str> = Language::ALL.iter().map(|l| l.code()).collect();
+                    let (last, rest) = codes.split_last().expect("English is a language");
+                    format!("{value}: say system, {} or {last}", rest.join(", "))
                 })?),
             }
         }
@@ -1108,14 +1110,13 @@ fn set_setting(s: &mut backend::Settings, key: &str, value: &str) -> Result<(), 
         }
         "native-profile" => {
             // "default", as for the other settings, goes back to `performance`.
-            s.native_profile = match value {
+            s.set_native_profile(match value {
                 "default" => None,
                 _ => Some(
                     native_mods::Profile::parse(value)
                         .ok_or_else(|| format!("{value}: say performance, dev or release"))?,
                 ),
-            };
-            s.native_release = false;
+            });
         }
         "proxy" => {
             if value == "default" || value.is_empty() {
@@ -1473,45 +1474,22 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                 Some(name) => instances::find(&name)?,
                 None => instances::selected(),
             };
-            if instance.java.is_some() {
-                if version.is_some()
+            if instance.java.is_some()
+                && (version.is_some()
                     || world.is_some()
                     || join.is_some()
                     || creative
-                    || account.is_some()
-                {
-                    return Err(format!(
-                        "{} plays Minecraft: Java Edition: --version, --world, --creative, \
-                         --join and --account are for Eclipse instances.",
-                        instance.name
-                    ));
-                }
-                let server = server.map(|server| {
-                    let list = server_list::List::load(&instance.home);
-                    server_list::find(&list, &server).map_or(server, |(_, s)| s.ip)
-                });
-                let mut cmd =
-                    backend::java_game(&instance, server.as_deref(), &|line| eprintln!("{line}"))?;
-                if let Some(e) = account::take_unsaved() {
-                    eprintln!("{e}");
-                }
-                cmd.args(arg);
-                let vars = instance.vars(cmd.get_program());
-                cmd.envs(vars.iter().map(|(k, v)| (k, v)));
-                let started = std::time::Instant::now();
-                let played = attached(eclipse_launcher::launch::wrap(cmd, &instance.launch));
-                if let Err(e) = instances::record_play(&instance.id, started.elapsed()) {
-                    eprintln!("Play time not saved: {e}");
-                }
-                after_exit(&instance, &vars);
-                return played;
+                    || account.is_some())
+            {
+                return Err(format!(
+                    "{} plays Minecraft: Java Edition: --version, --world, --creative, \
+                     --join and --account are for Eclipse instances.",
+                    instance.name
+                ));
             }
-            // Who plays this launch; the accounts below choose it in memory only, for its
-            // `--name` and look.
-            let mut accounts = Accounts::load();
             let who = match account {
                 Some(who) => Some(account::Player::Microsoft(
-                    accounts
+                    Accounts::load()
                         .find(&who)
                         .ok_or_else(|| {
                             format!("No signed-in account {who}. See `eclipse-launcher account`.")
@@ -1521,40 +1499,16 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                 )),
                 None => None,
             };
-            if let Some(who) = &who {
-                accounts.play_as(account::store(), who.clone())?;
-            }
-            let mut cmd =
-                backend::client_as(&instance.resolve_version(version.as_deref())?, who.as_ref())?;
-            instances::apply(&mut cmd, &instance)?;
-            if let Some(code) = join {
-                backend::join_friend(&mut cmd, &code)?;
-            }
-            if let Some(world) = world {
-                cmd.arg("--world").arg(world);
-            }
-            if let Some(server) = server {
-                let list = server_list::List::load(&instance.home);
-                let ip = server_list::find(&list, &server).map_or(server, |(_, s)| s.ip);
-                cmd.arg("--server").arg(ip);
-            }
-            if creative {
-                cmd.arg("--creative");
-            }
-            cmd.args(arg);
-            let started = std::time::Instant::now();
-            if let Some(name) = accounts.name_arg() {
-                cmd.arg("--name").arg(name);
-            }
-            cmd.envs(accounts.look_env());
-            let vars = instance.vars(cmd.get_program());
-            cmd.envs(vars.iter().map(|(k, v)| (k, v)));
-            let played = attached(eclipse_launcher::launch::wrap(cmd, &instance.launch));
-            if let Err(e) = instances::record_play(&instance.id, started.elapsed()) {
-                eprintln!("Play time not saved: {e}");
-            }
-            after_exit(&instance, &vars);
-            played?
+            play(backend::Play {
+                version,
+                who,
+                join,
+                world,
+                server,
+                creative,
+                args: arg,
+                ..backend::Play::of(instance)
+            })?
         }
         Cmd::Server {
             dir,
@@ -2822,6 +2776,21 @@ fn other_json(f: &other_launchers::Found) -> serde_json::Value {
 }
 
 /// Runs the instance's post-exit command in this terminal, if it has one, and waits for it.
+fn play(request: backend::Play) -> Result<(), String> {
+    let instance = request.instance.clone();
+    let launched = backend::launch(request, &|line| eprintln!("{line}")).map_err(|e| e.hinted())?;
+    for notice in launched.notices() {
+        eprintln!("{notice}");
+    }
+    let started = std::time::Instant::now();
+    let played = attached(launched.cmd);
+    if let Err(e) = instances::record_play(&instance.id, started.elapsed()) {
+        eprintln!("Play time not saved: {e}");
+    }
+    after_exit(&instance, &launched.vars);
+    played
+}
+
 fn after_exit(instance: &instances::Instance, vars: &[(&'static str, std::ffi::OsString)]) {
     let Some(mut cmd) =
         eclipse_launcher::launch::after_exit(&instance.launch, &instance.home, vars)
@@ -3697,9 +3666,15 @@ fn modpack(action: ModpackCmd, as_json: bool) -> Result<(), String> {
             )?)
         }
         ModpackCmd::Play { pack, version } => {
-            let mut cmd = backend::client(&backend::resolve_version(version.as_deref())?)?;
-            modpacks::apply_profile(&mut cmd, &work(&pack)?)?;
-            attached(cmd)?
+            let work = work(&pack)?;
+            let instance = instances::list()
+                .into_iter()
+                .find(|i| i.work == work)
+                .ok_or_else(|| format!("{} is not an installed modpack.", work.display()))?;
+            play(backend::Play {
+                version,
+                ..backend::Play::of(instance)
+            })?
         }
         ModpackCmd::Remove { pack } => modpacks::remove(&work(&pack)?)?,
     }
@@ -3736,17 +3711,19 @@ mod tests {
     }
 
     #[test]
-    fn settings_accepts_german_and_chinese() {
+    fn settings_takes_every_language_and_names_them_all_when_refusing() {
         use crate::i18n::Language;
         let mut settings = backend::Settings::default();
-        for (code, language) in [("de", Language::German), ("zh", Language::Chinese)] {
-            set_setting(&mut settings, "language", code).unwrap();
+        let refused = set_setting(&mut settings, "language", "xx").unwrap_err();
+        let named: Vec<&str> = refused
+            .split([',', ' '])
+            .filter(|w| !w.is_empty())
+            .collect();
+        for language in Language::ALL {
+            set_setting(&mut settings, "language", language.code()).unwrap();
             assert_eq!(settings.language, Some(language));
+            assert!(named.contains(&language.code()), "{refused}");
         }
-        assert_eq!(
-            set_setting(&mut settings, "language", "xx").unwrap_err(),
-            "xx: say system, en, fr, ru, de, zh, es, uk, pl or pt-br"
-        );
         set_setting(&mut settings, "language", "system").unwrap();
         assert_eq!(settings.language, None);
     }

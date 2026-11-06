@@ -189,18 +189,24 @@ impl Launcher {
 
     pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let now = self.draft_loader();
+        let marks = self.choice_marks();
         let mut cards = Vec::new();
         let all = loaders();
         for &loader in &all {
-            let logo = if instance_icons::has_plate(loader.id()) {
+            let logo = if !marks {
+                None
+            } else if instance_icons::has_plate(loader.id()) {
                 self.loader_logo(loader.id(), ui::TILE_LG)
                     .map(|image| ui::image_tile(image, ui::TILE_LG))
             } else {
                 self.loader_logo(loader.id(), ui::MARK)
                     .map(|image| ui::mark_tile(ui::image_tile(image, ui::MARK)).into_any_element())
             };
-            let logo = logo.unwrap_or_else(|| {
-                ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG).into_any_element()
+            let logo = logo.or_else(|| {
+                marks.then(|| {
+                    ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG)
+                        .into_any_element()
+                })
             });
             let note = match loader.id() {
                 "fabric" => tr("Most mods for new versions"),
@@ -210,11 +216,11 @@ impl Launcher {
                 _ => "",
             };
             let card = ui::choice_card(format!("loader-{}", loader.id()), loader == now)
-                .items_center()
+                .items_start()
                 .gap(px(space::LG))
                 .p(px(space::MD))
                 .min_w_0()
-                .child(logo)
+                .children(logo)
                 .child(ui::item_text_wrapped(
                     loader.name(),
                     note,

@@ -6,35 +6,22 @@
 //!
 //! Before that it was opt-in and played in its own "Nightly" instance (`instances/nightly/`):
 //! that instance, and its worlds, stay, and keep following the Nightly.
-use crate::backend::{self, Release};
+use crate::backend;
 use crate::instances;
-use eclipse_release_sign::NIGHTLY;
 
 /// The id of the instance (its folder in `instances/`) the opt-in Nightly played in.
 pub const INSTANCE: &str = "nightly";
 
-/// The version a nightly installs as: `nightly-2026-10-28-0c02067`, from its title
-/// ("Nightly 2026-10-28 · 0c02067"), else its publication date.
-pub fn version_of(release: &Release) -> String {
-    let mut words = release
-        .name
-        .strip_prefix("Nightly ")
-        .unwrap_or_default()
-        .split(" · ");
-    let date = words.next().filter(|d| is_date(d)).unwrap_or(&release.date);
-    let commit = words
-        .next()
-        .filter(|c| !c.is_empty() && c.chars().all(|c| c.is_ascii_hexdigit()));
-    match commit {
-        Some(commit) => format!("{NIGHTLY}-{date}-{commit}"),
-        None => format!("{NIGHTLY}-{date}"),
-    }
-}
-
 /// The date of a nightly's version (`nightly-2026-10-28-0c02067`), or None for any other version.
-pub fn date_of(version: &str) -> Option<&str> {
-    let date = version.strip_prefix("nightly-")?.get(..10)?;
-    is_date(date).then_some(date)
+pub use eclipse_release_sign::nightly_date as date_of;
+
+/// The commit a nightly's version names (`0c02067` in `nightly-2026-10-28-0c02067`), or None for
+/// any other version.
+pub fn commit_of(version: &str) -> Option<&str> {
+    date_of(version)?;
+    version
+        .get("nightly-2026-10-28-".len()..)
+        .filter(|c| !c.is_empty())
 }
 
 /// A Nightly's version as a player reads it, the way its release is titled:
@@ -42,10 +29,9 @@ pub fn date_of(version: &str) -> Option<&str> {
 /// not one.
 pub fn label(version: &str) -> Option<String> {
     let date = date_of(version)?;
-    let commit = version.strip_prefix("nightly-")?.get(11..);
-    Some(match commit {
-        Some(commit) if !commit.is_empty() => format!("Nightly {date} · {commit}"),
-        _ => format!("Nightly {date}"),
+    Some(match commit_of(version) {
+        Some(commit) => format!("Nightly {date} · {commit}"),
+        None => format!("Nightly {date}"),
     })
 }
 
@@ -53,17 +39,6 @@ pub fn display_name(version: &str) -> String {
     label(version)
         .or_else(|| crate::build_import::label(version))
         .unwrap_or_else(|| version.trim_start_matches('v').to_string())
-}
-
-fn is_date(text: &str) -> bool {
-    text.len() == 10
-        && text.chars().enumerate().all(|(i, c)| {
-            if i == 4 || i == 7 {
-                c == '-'
-            } else {
-                c.is_ascii_digit()
-            }
-        })
 }
 
 /// After `version`, a Nightly, installed as an update: the old Nightly instance follows it, and the
@@ -88,35 +63,20 @@ pub fn after_update(version: &str) -> Vec<String> {
 mod tests {
     use super::*;
 
-    fn release(name: &str, date: &str) -> Release {
-        Release {
-            tag: NIGHTLY.into(),
-            name: name.into(),
-            body: String::new(),
-            date: date.into(),
-            time: String::new(),
-            asset: Some(("https://example/eclipse.zip".into(), 1)),
-            prerelease: true,
-            nightly: None,
-        }
-    }
-
     #[test]
-    fn a_nightly_installs_under_its_date_and_commit() {
-        let r = release("Nightly 2026-10-28 · 0c02067", "2026-10-28");
-        assert_eq!(version_of(&r), "nightly-2026-10-28-0c02067");
-        let untitled = release("Something else", "2026-10-29");
-        assert_eq!(version_of(&untitled), "nightly-2026-10-29");
-        assert_eq!(date_of(&version_of(&r)), Some("2026-10-28"));
-        assert_eq!(date_of("v0.2.95"), None);
-        assert_eq!(date_of("nightly"), None);
-        assert!(eclipse_release_sign::is_nightly(&version_of(&r)));
+    fn a_nightly_names_the_commit_it_was_built_from() {
+        assert_eq!(commit_of("nightly-2026-10-28-0c02067"), Some("0c02067"));
+        assert_eq!(commit_of("nightly-2026-10-28"), None);
+        assert_eq!(commit_of("v0.2.95"), None);
+        assert_eq!(commit_of("nightly"), None);
     }
 
     #[test]
     fn a_nightly_reads_as_its_release_is_titled() {
-        let r = release("Nightly 2026-10-29 · 4baa571", "2026-10-29");
-        assert_eq!(label(&version_of(&r)), Some(r.name));
+        assert_eq!(
+            label("nightly-2026-10-29-4baa571").as_deref(),
+            Some("Nightly 2026-10-29 · 4baa571")
+        );
         assert_eq!(
             label("nightly-2026-10-29").as_deref(),
             Some("Nightly 2026-10-29")

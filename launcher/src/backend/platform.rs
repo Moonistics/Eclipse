@@ -111,6 +111,9 @@ pub(super) const LAUNCHER_BINARY: &str = if cfg!(windows) {
     "eclipse-launcher"
 };
 
+/// The app bundle macOS starts a version's game through, inside its folder (`game_app`).
+pub(crate) const GAME_APP: &str = "Eclipse.app";
+
 pub(crate) const CLIENT: &str = if cfg!(windows) {
     "eclipse-client.exe"
 } else {

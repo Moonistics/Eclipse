@@ -1,5 +1,7 @@
 use super::paths::version_dir;
-use super::platform::{game_fallback_for, platform_assets, CLIENT};
+use super::platform::{
+    game_fallback_for, platform_assets, ASSET, CLIENT, GAME_FALLBACK, PLATFORMS,
+};
 use super::releases::Release;
 use super::settings::Settings;
 use std::fs;
@@ -54,11 +56,11 @@ fn architecture_for_platform(architecture: &str) -> Option<GameArchitecture> {
 }
 
 pub(super) fn architecture_for_asset(asset: &str) -> Option<GameArchitecture> {
-    match asset.rsplit('/').next()? {
-        "eclipse-windows-x64.zip" => Some(GameArchitecture::X64),
-        "eclipse-windows-arm64.zip" => Some(GameArchitecture::Arm64),
-        _ => None,
-    }
+    let file = asset.rsplit('/').next()?;
+    let (_, architecture, _, _) = PLATFORMS
+        .iter()
+        .find(|(os, _, game, _)| *os == "windows" && *game == file)?;
+    architecture_for_platform(architecture)
 }
 
 /// Detect the native Windows machine even if this launcher process is running under emulation.
@@ -147,39 +149,57 @@ pub(super) fn supports_game_architecture_choice(os: &str, native: Option<&str>) 
 
 /// Resolves the game's asset and fallback. Auto follows the process architecture, preserving
 /// existing x64, Linux and macOS behavior. Manual choices are honored on native Windows ARM.
+fn game_architecture_for<'a>(
+    os: &str,
+    native: Option<&str>,
+    process: &'a str,
+    choice: GameArchitecture,
+) -> &'a str {
+    if !supports_game_architecture_choice(os, native) {
+        return process;
+    }
+    match choice {
+        GameArchitecture::Auto => process,
+        GameArchitecture::X64 => "x86_64",
+        GameArchitecture::Arm64 => "aarch64",
+    }
+}
+
 pub(super) fn game_assets_for(
     os: &str,
     native: Option<&str>,
     process: &str,
     choice: GameArchitecture,
 ) -> Option<(&'static str, Option<&'static str>)> {
-    let arch = if supports_game_architecture_choice(os, native) {
-        match choice {
-            GameArchitecture::Auto => process,
-            GameArchitecture::X64 => "x86_64",
-            GameArchitecture::Arm64 => "aarch64",
-        }
-    } else {
-        process
-    };
+    let arch = game_architecture_for(os, native, process, choice);
     let (asset, _) = platform_assets(os, arch)?;
     Some((asset, game_fallback_for(os, arch)))
+}
+
+/// The release asset the game installs from here, for the architecture `settings` pick, and the
+/// one it takes from a release that has none of its own ([`GAME_FALLBACK`]).
+pub(super) fn game_assets(settings: &Settings) -> (Option<&'static str>, Option<&'static str>) {
+    let assets = game_assets_for(
+        std::env::consts::OS,
+        native_windows_architecture(),
+        std::env::consts::ARCH,
+        settings.game_architecture,
+    );
+    assets.map_or((ASSET, GAME_FALLBACK), |(asset, fallback)| {
+        (Some(asset), fallback)
+    })
 }
 
 pub(super) fn selected_game_architecture(settings: &Settings) -> Option<GameArchitecture> {
     if std::env::consts::OS != "windows" {
         return None;
     }
-    let arch = if supports_game_architecture_choice("windows", native_windows_architecture()) {
-        match settings.game_architecture {
-            GameArchitecture::Auto => std::env::consts::ARCH,
-            GameArchitecture::X64 => "x86_64",
-            GameArchitecture::Arm64 => "aarch64",
-        }
-    } else {
-        std::env::consts::ARCH
-    };
-    architecture_for_platform(arch)
+    architecture_for_platform(game_architecture_for(
+        "windows",
+        native_windows_architecture(),
+        std::env::consts::ARCH,
+        settings.game_architecture,
+    ))
 }
 
 /// True for both native ARM64 launchers and x64 launchers under ARM64 emulation.

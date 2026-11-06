@@ -28,7 +28,9 @@ numbers `launcher/src/layout.rs`.
   whole texel and sits in the gutter beside the page on wide windows.
 - **Opaque cards, one level only.** A card is `look.plate` (`#15171e` for amber) with a hairline
   edge (`ui::edge()`: `EDGE`, white at 7 %; `EDGE_LIGHT`, 12 % of the ink, in light), paper white in
-  light. Menus and dialogs float on `FLOAT` with a shadow. Corners (`glass::radius`): dialogs 14,
+  light. Menus and floats sit on `FLOAT` with a shadow (`ui::float_card`); dialogs are a card plate over
+  the dimmed page (`ui::dialog_plate`); a footer pinned over a pane lifts with a shadow
+  (`ui::foot_card`). Corners (`glass::radius`): dialogs 14,
   cards 12, menus 10, rows and tiles 8, buttons, tabs, fields and dropdowns 6, switches 4.
 - **One accent, corona amber** (`ACCENT`, `#f5a524`). It fills the one main action of a view (the
   Play block, with a 2 px shine and a 3 px shade), a switch that is on and the open tab's 3 px
@@ -55,7 +57,8 @@ numbers `launcher/src/layout.rs`.
   grid), only on its 9 px grid (`MONOCRAFT_PIXEL`, `glass::pixel_text`): 18 for buttons, tabs,
   navigation (uppercase) and section titles (`ui::section_title`, mixed case); 27 for card and
   entity titles, empty, loading and error state titles (mixed case) and the Hero buttons' labels
-  (PLAY); 36 for page titles. Hierarchy comes from size: page title 36 > entity and state title
+  (PLAY); 36 for page titles. At 125 % and 175 % its pixel grows to whole device pixels
+  (`ui::on_pixel_grid`: PRESS 21.6 at 125 %), as do the 16 and 32 px icons. Hierarchy comes from size: page title 36 > entity and state title
   27 > section title 18 in full ink > a Secondary or Ghost label 18 in body ink (an icon button's
   icon too) > Geist. A section title names a group of controls; `ui::card_title` (Geist 16) names
   a thing inside a card (a release, a version, a product). Text is drawn in greyscale so the pixel stems stay clean.
@@ -69,7 +72,8 @@ numbers `launcher/src/layout.rs`.
   and says why in a tooltip, on keyboard focus too, with its focus ring at full strength
   (`ui::unavailable`). Play never greys out: it
   prepares the game first when it has to, and while it works it fills its block with its ⋯ on the
-  same track (`ui::primary_busy`, `ui::more_busy`). The keyboard focus ring is 2 px
+  same track (`ui::primary_busy`, `ui::more_busy`: a solid track, `Glass::busy_track`, the accent
+  over the plate from 70 % until the label reads at 4.5:1). The keyboard focus ring is 2 px
   of `accent-soft`: outside a solid control with a gap in the page colour, inside anything
   translucent.
 - **Window**: at least 800 × 500 (`layout::MIN_WINDOW`); the sidebar is 236 wide, 208 under 960
@@ -91,7 +95,9 @@ numbers `launcher/src/layout.rs`.
   2 px a pixel (`ui::icon` asks `icons::path` for the size). 16 in controls, 24 in the Hero
   buttons (Play and its icon buttons alike) and the empty, loading and error states. A text button
   carries an icon when it names what the button acts on or does: refresh (Try again), copy
-  (Copy details), globe (Proxy settings), folder, download, plus (add, create), search (find);
+  (Copy code, Copy link, Copy log), globe (Proxy settings), folder (every folder opener and file
+  picker: `ui::open_folder_button`, imports, Choose image…), download, plus (add, create), search
+  (find); Copy details is a Ghost copy icon with its name as tooltip;
   confirmation verbs, Cancel, Close, Dismiss and Not now carry none.
 - **Pictures**: a mod's or pack's own icon and gallery images from its source,
   downloaded when first shown and kept on disk (`launcher/src/browser/images.rs`); the launcher
@@ -108,10 +114,12 @@ numbers `launcher/src/layout.rs`.
   in mono with Copy code, Open link as the main action and Not now; the window goes on by itself
   once Microsoft answers (`ECLIPSE_LAUNCHER_PAGE=sign-in` shows it with a made-up code).
 - **Instance icons** (`launcher/src/instance_icons.rs`): the sidebar's rows, Home's head and the
-  New instance page show the same icon: its own picture first (one the player chose, or its
+  New instance page show the same icon through one resolver (`Launcher::icon_for(IconSpec, size)`):
+  its own picture first (one the player chose, or its
   modpack's), else the block or colour chosen for it, else its mark (the loader's logo, the grass
-  block for plain Minecraft, Eclipse's for Eclipse), the letter tile last. Pixel-art logos scale by
-  whole pixels; each is decoded once per size.
+  block for plain Minecraft, Eclipse's for Eclipse) two thirds of its tile on the 8 px grid (a
+  loader logo with its own plate fills the tile), the letter tile on its colour last (the accent
+  when the colour can't be read). Pixel-art logos scale by whole pixels; each is decoded once per size.
 - **Home's tabs** (`launcher/src/home_tabs.rs`): under the head, one at a time: Patch notes (an
   Eclipse instance), Mods, Worlds, Multiplayer, Packs, Screenshots, and Console once the game has
   said something. A tab names how many it holds when the strip has room ("Worlds 3")
@@ -167,12 +175,14 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   accent, 16 above what they open. Every strip (Home, Mods, a project's page, a server, Settings in
   a narrow window) shows its counts when they fit, then tightens its tabs (`TAB_PAD_TIGHT`), then
   moves the tabs that still don't fit under More tabs (a ⋯ menu), keeping the open one in the
-  strip: it never wraps. **Segments** (`ui::segments`) pick one of a few values on an inset track:
-  one Tab stop, the arrows pick.
+  strip: it never wraps. Only the open tab is a Tab stop; Left, Right, Home and End move and open.
+  **Segments** (`ui::segments(id, name, ..)`) pick one of a few values on an inset track:
+  one Tab stop, the arrows pick, the group named for assistive tech.
 - **Switches** (`ui::toggle`, `ui::toggle_row`, `ui::toggle_label`): a blocky switch; in a row the
   whole row is pressed and is the switch.
-- **Navigation** (`ui::nav_row` with `NavDensity::Sidebar` or `List`): the sidebar's pages and
-  Settings' section list; a label that doesn't fit gets its tooltip (`ui::tip_when_clipped`, the
+- **Navigation** (`ui::nav_row` with `NavDensity::Sidebar` or `List`): the sidebar's pages (links;
+  the current one says so) and Settings' section list (from a 1440 px window, no card: an in-page
+  outline that is a pick list; a tab strip below 1440); a label that doesn't fit gets its tooltip (`ui::tip_when_clipped`, the
   room from `ui::nav_text_room` and `ui::side_row_text_room`). A page's name, title and icon have
   one owner (`Page::label`, `Page::title`, `Page::icon` in `main.rs`).
 - **Rows and selection** (`ui::row(id, name, current)`, `ui::side_row(id, name, current)`,
@@ -184,9 +194,11 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
 - **Lists to pick from** (`ui::options`): one Tab stop for the whole list; the arrows, Page Up and
   Down, Home, End and typed letters move through it, a single choice follows the cursor and a
   multiple one toggles with Space or Enter. Used by New instance's versions, games, loaders, icons
-  and colours, the accent swatches, segments, the Mods results (a row's Install is a Tab stop only
-  on the row the cursor is on) and the Mods filters. Shift+F10 or the Menu key opens a sidebar
-  row's ⋯ menu.
+  and colours, the accent swatches, segments, Settings' section list, the sidebar's instances and
+  servers (one list with its group headings, `ui::options_with_heads`), the Mods results (a row's
+  Install shows on the row under the pointer, the cursor's and the selected one, and is a Tab stop
+  only on the cursor's; the others show their state) and the Mods filters. Shift+F10 or the Menu
+  key opens a sidebar row's ⋯ menu.
 - **Labelled groups** (`ui::field_group`, `ui::section_card`, `ui::labelled_field`): a section
   title (a level-2 heading) over its content, in a card or not; a field's own label is `ui::label`
   (Geist 12 caps). A dropdown that names itself shows its name inside its face
@@ -212,9 +224,11 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   card: an icon tile, a title at 27, one sentence that ends with the next step, then the actions.
 - **One presentation for a failure**: a plain title, one plain cause line, the actions that fix it
   and Copy details with the whole error. In a pane `ui::error_state` / `ui::error_state_with`
-  (the cause is the error's first line) or `ui::error_state_told` (a cause written for the
-  player); in a card `ui::error_line_for(id, title, error, retry, extra)`. Never a raw multi-line
-  error on screen.
+  (the cause is the error's first line when that is a sentence, else "Copy the details to report
+  it.": `ui::told_cause`) or `ui::error_state_told` (a cause written for the player); in a card
+  `ui::error_line_for(id, title, error, retry, extra)`, Copy details on its title row. Never a raw
+  multi-line error on screen. **Progress** is one line (`ui::progress_line`): what runs and its
+  percent, the eased bar, the step it is on.
 - **Notices** (`ui::notice(Notice::Info | Warn | InCard, ..)`, `ui::notice_line(tone, ..)`,
   `ui::error_note`, `ui::error_line`): an icon or the state dot and a line on a
   faint (or warn) fill, one padding (`NOTICE_PAD`), its actions with Cancel first; a notice that is

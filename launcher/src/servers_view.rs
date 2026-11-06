@@ -11,8 +11,6 @@ const SIDE: f32 = 320.;
 
 const LIST_ROW_PAD: f32 = space::SM + space::XXS;
 
-const COMMAND_WIDTH: f32 = 520.;
-
 /// The tabs under the server's card.
 const LOWER_TABS: [(Tab, &str); 3] = [
     (Tab::Players, "Players"),
@@ -188,7 +186,7 @@ impl Launcher {
             ui::ButtonSize::Sm,
             false,
         )
-        .on_press(move |_, _, cx| crate::toast::open(cx, &folder));
+        .on_press(move |_, _, cx| ui::open_folder(&folder, cx));
 
         let mut buttons = div().flex().flex_none().items_center().gap(px(space::SM));
         if running {
@@ -202,7 +200,7 @@ impl Launcher {
             buttons = buttons.child(if idle {
                 restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.servers.restart_needed.clear();
-                    this.server_command("Restarting", vec!["restart".into()]);
+                    this.server_command(ServerJob::Restarting, vec!["restart".into()]);
                     cx.notify();
                 }))
             } else {
@@ -210,20 +208,20 @@ impl Launcher {
             });
             let stop = ui::button(
                 "server-stop",
-                None,
+                Some("stop"),
                 tr("Stop"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Lg,
             );
             buttons = buttons.child(if idle {
                 stop.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.server_command("Stopping", vec!["stop".into()]);
+                    this.server_command(ServerJob::Stopping, vec!["stop".into()]);
                     cx.notify();
                 }))
             } else {
                 ui::disabled(stop)
             });
-        } else if self.servers.busy.as_deref() == Some("Starting") {
+        } else if self.servers.busy == Some(ServerJob::Starting) {
             buttons = buttons.child(ui::primary_busy(
                 "server-start",
                 tr("Starting"),
@@ -231,7 +229,13 @@ impl Launcher {
                 ui::ButtonSize::Lg,
             ));
         } else {
-            let start = ui::primary("server-start", tr("Start"), ui::ButtonSize::Lg);
+            let start = ui::button(
+                "server-start",
+                Some("play"),
+                tr("Start"),
+                ButtonKind::Primary,
+                ui::ButtonSize::Lg,
+            );
             buttons = buttons.child(if idle {
                 start.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.start_server();
@@ -254,17 +258,9 @@ impl Launcher {
                     .justify_between()
                     .gap(px(space::MD))
                     .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(space::SM))
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                             .min_w_0()
-                            .child(ui::dot(tone(&status)))
-                            .child(
-                                ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-                                    .truncate()
-                                    .child(state),
-                            ),
+                            .child(ui::state_line(tone(&status), state)),
                     )
                     .child(
                         div()
@@ -316,18 +312,13 @@ impl Launcher {
     /// The action under way, a problem, a note and settings waiting for a restart.
     fn server_notes(&mut self, running: bool, idle: bool, cx: &mut Context<Self>) -> Vec<Div> {
         let mut out = Vec::new();
-        if let Some(label) = self.servers.busy.clone() {
+        if let Some(job) = self.servers.busy.clone() {
             let last = self.servers.job_log.back().cloned().unwrap_or_default();
-            out.push(
-                div()
-                    .relative()
-                    .mt(px(space::LG))
-                    .flex()
-                    .flex_col()
-                    .gap(px(space::SM))
-                    .child(ui::progress_bar(None))
-                    .child(ui::card_note(format!("{}… {last}", tr(&label))).truncate()),
-            );
+            out.push(div().relative().mt(px(space::LG)).child(ui::progress_line(
+                job.label(),
+                None,
+                last,
+            )));
         }
         if let Some(p) = self.servers.problem.clone() {
             let mut actions = Vec::new();
@@ -398,7 +389,7 @@ impl Launcher {
                 .child(if idle {
                     restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.servers.restart_needed.clear();
-                        this.server_command("Restarting", vec!["restart".into()]);
+                        this.server_command(ServerJob::Restarting, vec!["restart".into()]);
                         cx.notify();
                     }))
                 } else {
@@ -471,16 +462,14 @@ impl Launcher {
                 Field::ServerCommand,
                 Some(slash),
                 tr("Type a command, like list or time set day"),
-                COMMAND_WIDTH,
+                layout::FIELD_XL,
                 ui::ButtonSize::Md,
                 Some(send.into_any_element()),
                 cx,
             )
             .w_full()
             .mt(px(space::SM))
-            .pr(px(space::XS))
-            .font_family(theme::MONO)
-            .text_size(px(step::NOTE.size)),
+            .pr(px(space::XS)),
         )
     }
 
@@ -634,20 +623,29 @@ impl Launcher {
                 )
                 .child(button)
         };
-        let here = div()
-            .flex()
-            .flex_col()
-            .child(ui::label(tr("On this network")))
-            .child(address(
-                lan.clone(),
-                step::FIGURE,
-                copy("address-copy", lan),
-            ))
-            .child(
-                ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))
-                    .mt(px(space::XS)),
-            );
-        let internet = self.internet_card(port, cx);
+        let here = ui::field_group(
+            "server-lan-title",
+            tr("On this network"),
+            None,
+            div()
+                .flex()
+                .flex_col()
+                .child(address(
+                    lan.clone(),
+                    step::FIGURE,
+                    copy("address-copy", lan),
+                ))
+                .child(
+                    ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))
+                        .mt(px(space::XS)),
+                ),
+        );
+        let internet = ui::field_group(
+            "server-internet-title",
+            tr("Over the internet"),
+            None,
+            self.internet_card(port, cx),
+        );
         ui::card()
             .flex()
             .flex_col()
@@ -673,7 +671,7 @@ impl Launcher {
             tabs,
             self.servers.tab,
             layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
-            |this, tab| {
+            |this, tab, _| {
                 this.servers.tab = tab;
                 this.asking = None;
             },

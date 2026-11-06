@@ -133,12 +133,15 @@ pub mod fill {
     pub const PRIMARY_HOVER: f32 = 0.14;
     pub const FIELD: f32 = 0.07;
     pub const BUTTON: f32 = 0.08;
-    pub const BUTTON_LIGHT: f32 = 0.12;
+    pub const BUTTON_LIGHT: f32 = 0.06;
     pub const SELECTED: f32 = 0.1;
     pub const ACTIVE: f32 = 0.12;
     pub const WELL_SHADE: f32 = 0.25;
     pub const DANGER: f32 = 0.12;
+    pub const BUSY_TRACK: f32 = 0.7;
 }
+
+const BUSY_TRACK_STEPS: u32 = 10;
 
 pub const FIELD_BG: u32 = 0x1a1e29;
 pub const FIELD_BG_FOCUS: u32 = 0x222735;
@@ -161,7 +164,7 @@ impl Glass {
             accent,
             accent_soft: mix_oklab(accent, 0xffffff, 0.62),
             mark: accent,
-            on_accent: if luminance(accent) > 0.4 {
+            on_accent: if crate::contrast(ON_LIGHT, accent) > crate::contrast(0xffffff, accent) {
                 ON_LIGHT
             } else {
                 0xffffff
@@ -180,6 +183,21 @@ impl Glass {
             mark: on_light(self.accent, 3.),
             ..self
         }
+    }
+
+    pub fn busy_track(&self, light: bool) -> u32 {
+        let under = match (self.on_accent == ON_LIGHT, light) {
+            (true, true) => PAPER,
+            (true, false) => self.plate,
+            (false, _) => PAGE,
+        };
+        let alphas = (0..=BUSY_TRACK_STEPS).map(|step| {
+            fill::BUSY_TRACK + (1. - fill::BUSY_TRACK) * step as f32 / BUSY_TRACK_STEPS as f32
+        });
+        alphas
+            .map(|alpha| crate::night::over(self.accent, alpha, under))
+            .find(|&track| crate::contrast(self.on_accent, track) >= 4.5)
+            .unwrap_or(self.accent)
     }
 
     /// Every colour by its CSS name (`--glass-<name>`), for `tokens.css`.
@@ -298,19 +316,6 @@ pub fn mix_oklab(a: u32, b: u32, p: f32) -> u32 {
     from_oklab([0, 1, 2].map(|i| x[i] * p + y[i] * (1. - p)))
 }
 
-/// WCAG relative luminance, which picks the label colour on the accent.
-pub fn luminance(c: u32) -> f32 {
-    let [r, g, b] = [16, 8, 0].map(|s| {
-        let v = ((c >> s) & 255) as f32 / 255.;
-        if v <= 0.03928 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    });
-    0.2126 * r + 0.7152 * g + 0.0722 * b
-}
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -390,14 +395,18 @@ mod tests {
 
     #[test]
     fn every_ink_level_reads_on_every_surface() {
-        use crate::night::over;
+        use crate::night::{over, NIGHT, UNCARDED_STOPS};
         for level in ink::LEVELS {
             let a = light_ink(level);
             for bg in light_surfaces() {
                 let ratio = crate::contrast(over(ON_LIGHT, a, bg), bg);
                 assert!(ratio >= 4.5, "light ink {a} on #{bg:06x}: {ratio:.2}");
             }
-            for bg in dark_surfaces(&Glass::default_look()) {
+            let uncarded = NIGHT.sky[..UNCARDED_STOPS].iter().copied();
+            for bg in dark_surfaces(&Glass::default_look())
+                .into_iter()
+                .chain(uncarded)
+            {
                 let ratio = crate::contrast(over(0xffffff, level, bg), bg);
                 assert!(ratio >= 4.5, "ink {level} on #{bg:06x}: {ratio:.2}");
             }

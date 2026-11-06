@@ -151,10 +151,9 @@ pub fn keep(dir: &Path, name: &str, file: &Path, cape: bool) -> Result<(), Strin
         false => read_skin(&bytes).map(|_| ())?,
         true => read_cape(&bytes).map(|_| ())?,
     }
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let (skin, cape_file) = files(dir, name);
     let to = if cape { cape_file } else { skin };
-    std::fs::write(&to, bytes).map_err(|e| format!("{}: {e}", to.display()))
+    crate::files::write(&to, &bytes)
 }
 
 /// Drops a forgotten name's files (`Accounts::remove_offline`); missing files are fine.

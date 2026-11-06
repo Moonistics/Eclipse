@@ -21,6 +21,8 @@ const OBJECTS: &str = "https://resources.download.minecraft.net";
 /// The index of Mojang's Java runtimes, the one the official launcher reads.
 const JAVA_RUNTIMES: &str = "https://launchermeta.mojang.com/v1/products/java-runtime/2ec0cc96c44e5a76b9c8b7c39df7210883d12871/all.json";
 
+pub const FILES_AT_A_TIME: usize = 8;
+
 /// The download under way: files done, of how many (0 when none runs).
 static DONE: AtomicUsize = AtomicUsize::new(0);
 static TOTAL: AtomicUsize = AtomicUsize::new(0);

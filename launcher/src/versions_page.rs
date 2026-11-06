@@ -24,7 +24,7 @@ impl Launcher {
         } else {
             ui::button(
                 "import-build",
-                None,
+                Some("folder-01"),
                 tr("Import a version from file…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
@@ -54,14 +54,16 @@ impl Launcher {
                 .mb(px(space::MD))
             }))
             .children(self.local_builds(
-                "Native mod builds",
+                "versions-native",
+                tr("Native mod builds").into(),
                 native_mods::is_native,
                 None,
                 on_disk,
                 cx,
             ))
             .children(self.local_builds(
-                "Imported builds",
+                "versions-imported",
+                tr("Imported builds").into(),
                 build_import::is_imported,
                 Some(tr("Not checked by Eclipse. Only use builds you trust.")),
                 on_disk,
@@ -76,7 +78,8 @@ impl Launcher {
             }
             Load::Failed(e) => {
                 let offline = self.local_builds(
-                    "Installed versions",
+                    "versions-installed",
+                    tr("Installed versions").into(),
                     |tag| !native_mods::is_native(tag) && !build_import::is_imported(tag),
                     None,
                     on_disk,
@@ -121,7 +124,7 @@ impl Launcher {
             keep,
             |i| {
                 let release = releases[i].clone();
-                let title = release_title(&release);
+                let title = eclipse_launcher::nightly::display_name(&release.tag);
                 let mut line = dates::published(&release.date, &release.time);
                 let right = self.release_action(&release, cx);
                 self.version_card(&release.tag, title, &mut line, i == 0, on_disk, right)
@@ -254,7 +257,11 @@ impl Launcher {
                     .into_any_element();
             }
             return self
-                .version_actions(&tag, &release_title(release), cx)
+                .version_actions(
+                    &tag,
+                    &eclipse_launcher::nightly::display_name(&release.tag),
+                    cx,
+                )
                 .into_any_element();
         }
         if release.asset.is_none() {
@@ -281,17 +288,12 @@ impl Launcher {
 
     /// A bar with its word: an install's progress, or a removal's.
     fn install_progress(&self, fraction: Option<f32>, label: &str) -> Div {
-        let word = match fraction {
-            Some(p) => format!("{:.0}%", p * 100.),
-            None => label.to_string(),
-        };
-        div()
-            .flex()
-            .items_center()
-            .gap(px(space::MD))
-            .w(px(PROGRESS_WIDTH))
-            .child(ui::progress_bar(fraction.map(|_| self.bar)))
-            .child(ui::card_note(word).flex_none())
+        let note = if fraction.is_some() { "" } else { label };
+        div().w(px(PROGRESS_WIDTH)).child(ui::progress_line(
+            "",
+            fraction.map(|_| self.bar),
+            note.to_string(),
+        ))
     }
 
     /// An installed version's actions: Use (when it isn't the one in use) and the bin, which asks
@@ -346,7 +348,8 @@ impl Launcher {
     /// there are none.
     fn local_builds(
         &self,
-        title: &str,
+        id: &str,
+        title: SharedString,
         is: fn(&str) -> bool,
         notice_: Option<&str>,
         on_disk: &dyn Fn(&String) -> Option<u64>,
@@ -360,13 +363,14 @@ impl Launcher {
             .cloned()
             .collect();
         (!tags.is_empty()).then(|| {
-            let mut d = div()
-                .flex()
-                .flex_col()
-                .gap(px(space::MD))
-                .mb(px(space::XL))
-                .child(ui::label(tr(title).to_string()))
-                .children(notice_.map(|n| ui::notice_line(Tone::Warn, n.to_string())));
+            let mut d =
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(layout::CARD_GAP))
+                    .children(notice_.map(|n| {
+                        ui::notice(ui::Notice::Warn, "alert-circle", n.to_string(), Vec::new())
+                    }));
             for tag in tags {
                 let mut line = Vec::new();
                 if let Some(about) = native_mods::about(&tag) {
@@ -387,19 +391,8 @@ impl Launcher {
                 };
                 d = d.child(self.version_card(&tag, title, &mut line, false, on_disk, right));
             }
-            d
+            ui::field_group(format!("{id}-title"), title, None, d).mb(px(layout::CARD_GAP))
         })
-    }
-}
-
-pub(super) fn release_title(release: &Release) -> String {
-    let title = release
-        .name
-        .split_once(": ")
-        .map_or(release.name.as_str(), |(_, rest)| rest);
-    match title.is_empty() {
-        true => release.tag.clone(),
-        false => title.to_string(),
     }
 }
 

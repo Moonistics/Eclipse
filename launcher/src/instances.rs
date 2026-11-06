@@ -405,13 +405,11 @@ pub fn delete_with_selection(query: &str) -> Result<(Instance, Result<(), String
         query,
         &crate::desktop_seams::to_trash,
     )?;
-    let mut settings = backend::Settings::load();
-    let saved = if settings.instance.as_ref() == Some(&gone.id) {
-        settings.instance = None;
-        settings.save()
-    } else {
-        Ok(())
-    };
+    let saved = backend::Settings::update(|settings| {
+        if settings.instance.as_ref() == Some(&gone.id) {
+            settings.instance = None;
+        }
+    });
     Ok((gone, saved))
 }
 
@@ -449,9 +447,9 @@ pub fn selected() -> Instance {
 
 pub fn select(query: &str) -> Result<Instance, String> {
     let instance = find(query)?;
-    let mut settings = backend::Settings::load();
-    settings.instance = (instance.kind != Kind::Default).then(|| instance.id.clone());
-    settings.save()?;
+    backend::Settings::update(|settings| {
+        settings.instance = (instance.kind != Kind::Default).then(|| instance.id.clone());
+    })?;
     Ok(instance)
 }
 

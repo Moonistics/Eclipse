@@ -134,7 +134,7 @@ fn runtime(home: PathBuf, source: Source) -> Option<Runtime> {
 
 /// Mojang's runtimes Eclipse downloaded.
 pub fn runtimes_dir() -> PathBuf {
-    backend::data_dir().join("minecraft").join("runtime")
+    backend::own_minecraft_dir().join("runtime")
 }
 
 /// The runtimes in a Mojang `runtime` folder.
@@ -234,20 +234,31 @@ pub fn pick(
         .cloned())
 }
 
-pub fn download(component: &str, log: &dyn Fn(String)) -> Result<PathBuf, String> {
-    mojang::java_runtime(component, &runtimes_dir(), 8, &backend::get_bytes, log)
+fn download(component: &str, log: &dyn Fn(String)) -> Result<PathBuf, String> {
+    mojang::java_runtime(
+        component,
+        &runtimes_dir(),
+        mojang::FILES_AT_A_TIME,
+        &backend::get_bytes,
+        log,
+    )
+}
+
+/// The dynamic loader glibc programs on x86-64 Linux start through.
+const GLIBC_LOADER: &str = "/lib64/ld-linux-x86-64.so.2";
+
+/// Mojang builds its Linux Java for glibc: without glibc's loader (NixOS without nix-ld, musl
+/// distributions) it cannot start, so it isn't downloaded.
+fn without_glibc() -> bool {
+    cfg!(all(target_os = "linux", target_arch = "x86_64")) && !Path::new(GLIBC_LOADER).exists()
 }
 
 /// Downloads Mojang's runtime for `need` into [`runtimes_dir`] (what is already there and whole
 /// is kept).
 pub fn install(need: &Need, log: &dyn Fn(String)) -> Result<Runtime, String> {
-    // Mojang builds its Linux Java for glibc: it cannot start without glibc's loader.
-    if cfg!(all(target_os = "linux", target_arch = "x86_64"))
-        && !Path::new(backend::GLIBC_LOADER).exists()
-    {
+    if without_glibc() {
         return Err(format!(
-            "Mojang's Java needs glibc ({} is missing; on NixOS, enable programs.nix-ld). Install Java {} and pick it instead.",
-            backend::GLIBC_LOADER,
+            "Mojang's Java needs glibc ({GLIBC_LOADER} is missing; on NixOS, enable programs.nix-ld). Install Java {} and pick it instead.",
             need.major
         ));
     }
@@ -259,6 +270,50 @@ pub fn install(need: &Need, log: &dyn Fn(String)) -> Result<Runtime, String> {
         .unwrap_or(home);
     runtime(home, Source::Mojang)
         .ok_or_else(|| format!("Mojang's {} has no usable java", need.component))
+}
+
+/// The Java home a preparation runs with: a JDK of `major` when the version's preparer compiles
+/// (`compiler`), else a runtime of it, found as eclipse-prepare finds Java: on this computer, then
+/// among the runtimes of the Minecraft folders `games`, then Mojang's `component()` (the one the
+/// version's file names), downloaded into [`runtimes_dir`] (Mojang's runtimes are whole JDKs).
+pub fn for_preparing(
+    major: i64,
+    compiler: bool,
+    games: &[PathBuf],
+    component: impl FnOnce() -> Option<String>,
+    log: &dyn Fn(String),
+) -> Result<PathBuf, String> {
+    let find = if compiler {
+        eclipse_prepare::java::find
+    } else {
+        eclipse_prepare::java::find_runtime
+    };
+    if let Ok(jdk) = find(major, &[]) {
+        return Ok(jdk.home());
+    }
+    let mut runtimes: Vec<PathBuf> = Vec::new();
+    for home in games
+        .iter()
+        .flat_map(|game| eclipse_prepare::java::minecraft_runtimes(&game.join("runtime")))
+    {
+        if !runtimes.contains(&home) {
+            runtimes.push(home);
+        }
+    }
+    let missing = match find(major, &runtimes) {
+        Ok(jdk) => return Ok(jdk.home()),
+        Err(e) => e,
+    };
+    let component = component().ok_or_else(|| missing.clone())?;
+    if without_glibc() {
+        return Err(format!(
+            "{missing}\n  • Minecraft's own Java from Mojang needs glibc ({GLIBC_LOADER} is missing; on NixOS, enable programs.nix-ld), so install compatible Java instead."
+        ));
+    }
+    let home = download(&component, log).map_err(|e| {
+        format!("{missing}\n  • Eclipse also tried to download Minecraft's own Java from Mojang, but: {e}")
+    })?;
+    find(major, &[home]).map(|jdk| jdk.home())
 }
 
 #[cfg(test)]

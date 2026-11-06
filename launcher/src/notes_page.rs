@@ -46,7 +46,7 @@ impl Launcher {
             |_| false,
             |i| {
                 let release = &releases[i];
-                let title = versions_page::release_title(release);
+                let title = eclipse_launcher::nightly::display_name(&release.tag);
                 let day = dates::published(&release.date, "");
                 ui::card()
                     .flex()

@@ -85,6 +85,42 @@ pub(super) enum Event {
     Failed(String),
 }
 
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum ServerJob {
+    Starting,
+    Restarting,
+    Stopping,
+    Trashing,
+    CopyingGameFiles,
+    ChangingOperators,
+    UpdatingList,
+    LettingIn(String),
+    RunInBackground(bool),
+    UpdatingTo(String),
+    BackingUp,
+    Restoring,
+}
+
+impl ServerJob {
+    pub(super) fn label(&self) -> String {
+        match self {
+            ServerJob::Starting => tr("Starting").into(),
+            ServerJob::Restarting => tr("Restarting").into(),
+            ServerJob::Stopping => tr("Stopping").into(),
+            ServerJob::Trashing => tr("Moving server to trash").into(),
+            ServerJob::CopyingGameFiles => tr("Copying the game files").into(),
+            ServerJob::ChangingOperators => tr("Changing operators").into(),
+            ServerJob::UpdatingList => tr("Updating the list").into(),
+            ServerJob::LettingIn(name) => trf("Letting {name} in", &[("name", name)]),
+            ServerJob::RunInBackground(true) => tr("Setting it to run in the background").into(),
+            ServerJob::RunInBackground(false) => tr("Turning off running in the background").into(),
+            ServerJob::UpdatingTo(tag) => trf("Updating to {tag}", &[("tag", tag)]),
+            ServerJob::BackingUp => tr("Backing up").into(),
+            ServerJob::Restoring => tr("Restoring").into(),
+        }
+    }
+}
+
 /// The Create dialog's answers.
 pub(super) struct Create {
     new_world: bool,
@@ -106,8 +142,7 @@ pub(super) struct Create {
     friends: Vec<String>,
 }
 
-/// What the sidebar shows of the Servers page: its list once the page has read it, and whether
-/// a server answers.
+/// What the sidebar shows of the Servers page: its list, and whether a server answers.
 impl Servers {
     /// A stopped server's line in the list: "Survival · stopped". The open
     /// server's mode is the one its settings show now, once read; the others' (and the open one's
@@ -133,8 +168,8 @@ impl Servers {
         }
     }
 
-    pub(super) fn sidebar_list(&self) -> Option<&[Entry]> {
-        self.loaded.then_some(&self.list[..])
+    pub(super) fn listed(&self) -> &[Entry] {
+        &self.list
     }
 
     pub(super) fn is_up(&self, dir: &std::path::Path) -> bool {
@@ -158,7 +193,7 @@ pub(super) struct Servers {
     console_scroll: ScrollHandle,
     create_scroll: Scrollbar,
     /// The action under way, and what it printed.
-    busy: Option<String>,
+    busy: Option<ServerJob>,
     job_log: VecDeque<String>,
     problem: Option<Problem>,
     note: Option<String>,
@@ -184,7 +219,7 @@ impl Servers {
     pub(super) fn new() -> Self {
         let (tx, rx) = channel();
         Self {
-            list: Vec::new(),
+            list: servers::list(),
             loaded: false,
             open: None,
             tab: Tab::Players,

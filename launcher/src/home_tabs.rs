@@ -104,7 +104,7 @@ impl Launcher {
             tabs,
             open,
             layout::content_width(self.window_width),
-            |this, tab| this.home_tab = tab,
+            |this, tab, _| this.home_tab = tab,
             cx,
         );
         let body: Option<AnyElement> = match open {

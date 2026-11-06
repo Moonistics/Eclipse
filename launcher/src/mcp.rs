@@ -80,30 +80,32 @@ impl Session {
                     None => instances::selected(),
                 };
                 let tag = instance.resolve_version(arg_str(args, "version"))?;
-                let mut cmd = backend::client(&tag)?;
-                instances::apply(&mut cmd, &instance)?;
-                cmd.args(game_tools::control_args());
-                if let Some(world) = arg_str(args, "world") {
-                    cmd.arg("--world").arg(world);
+                let on = |flag| args.get(flag).and_then(Value::as_bool).unwrap_or(false);
+                let mut extra = game_tools::control_args();
+                if on("offscreen") {
+                    extra.push("--offscreen".into());
                 }
-                for flag in ["creative", "offscreen"] {
-                    if args.get(flag).and_then(Value::as_bool).unwrap_or(false) {
-                        cmd.arg(format!("--{flag}"));
-                    }
+                if let Some(more) = args.get("arg").and_then(Value::as_array) {
+                    extra.extend(more.iter().filter_map(Value::as_str).map(String::from));
                 }
-                if let Some(code) = arg_str(args, "join") {
-                    backend::join_friend(&mut cmd, code)?;
+                let text = |key| arg_str(args, key).map(String::from);
+                let launched = backend::launch(
+                    backend::Play {
+                        version: Some(tag.clone()),
+                        join: text("join"),
+                        world: text("world"),
+                        server: text("server"),
+                        creative: on("creative"),
+                        args: extra,
+                        ..backend::Play::of(instance)
+                    },
+                    &|line| eprintln!("{line}"),
+                )
+                .map_err(|e| e.hinted())?;
+                for notice in launched.notices() {
+                    eprintln!("{notice}");
                 }
-                if let Some(server) = arg_str(args, "server") {
-                    let list = eclipse_launcher::server_list::List::load(&instance.home);
-                    let ip = eclipse_launcher::server_list::find(&list, server)
-                        .map_or_else(|_| server.to_string(), |(_, s)| s.ip);
-                    cmd.arg("--server").arg(ip);
-                }
-                if let Some(extra) = args.get("arg").and_then(Value::as_array) {
-                    cmd.args(extra.iter().filter_map(Value::as_str));
-                }
-                let client = Logged::start(Job::Client, cmd)?;
+                let client = Logged::start(Job::Client, launched.cmd)?;
                 // Started once its control socket answers, as eclipse-ctl launch waits.
                 let deadline = std::time::Instant::now() + Duration::from_secs(120);
                 while !game_tools::listening() {
@@ -209,7 +211,7 @@ impl Session {
                     // Sign-ins outlast the launcher: in the keychain, or in the secrets file
                     // where it refused them (`secrets_file`: the file holds a sign-in).
                     "keychain": account::store().persistent(),
-                    "secrets_file": account::in_secrets_file(),
+                    "secrets_file": eclipse_launcher::secrets::in_secrets_file(),
                     // Play needs an account that owns the game (the owner gate).
                     "owner": accounts.has_owner(account::store()),
                     "sign_in": sign_in,

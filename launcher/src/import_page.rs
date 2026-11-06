@@ -121,7 +121,13 @@ impl Launcher {
             (Some(Ok(said)), _) => {
                 ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(said.clone())
             }
-            (Some(Err(e)), _) => ui::error_note(e.clone()),
+            (Some(Err(e)), _) => div().child(ui::error_line_for(
+                "import-failed",
+                tr("Couldn't import"),
+                e,
+                None,
+                Vec::new(),
+            )),
             (None, _) => return None,
         };
         Some(ui::corner_float(
@@ -131,7 +137,6 @@ impl Launcher {
                 .items_center()
                 .gap(px(space::MD))
                 .p(px(ui::PANEL_INSET))
-                .shadow_lg()
                 .child(ui::icon(
                     "download-04",
                     ui::IconSize::Px16,

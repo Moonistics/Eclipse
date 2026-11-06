@@ -7,9 +7,9 @@
 use super::*;
 use crate::fields::Field;
 use crate::menus::Asking;
-use crate::ui::{self, white};
+use crate::ui;
 use account::Player;
-use eclipse_theme::glass::{fill, ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 
 const HEAD: f32 = ui::FACE_XL;
 const MICROSOFT_MIN: f32 = 280.;
@@ -86,25 +86,19 @@ impl Launcher {
             let forget_id = SharedString::from(format!("offline-forget-{offline}"));
             if self.is_asking(&asked) {
                 let forget = offline.clone();
-                chips = chips.child(
-                    ui::confirm(
-                        forget_id,
-                        ui::Confirm::Remove(&offline),
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.asking = None;
-                            cx.notify();
-                        }),
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.asking = None;
-                            this.forget_offline(&forget);
-                            cx.notify();
-                        }),
-                    )
-                    .h(px(ui::CHIP))
-                    .px(px(ui::LIST_INSET))
-                    .rounded(px(radius::ROW))
-                    .bg(white(fill::HOVER)),
-                );
+                chips = chips.child(ui::chip_confirm(
+                    forget_id,
+                    ui::Confirm::Remove(&offline),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.asking = None;
+                        cx.notify();
+                    }),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.asking = None;
+                        this.forget_offline(&forget);
+                        cx.notify();
+                    }),
+                ));
                 continue;
             }
             let (who, skin) = (offline.clone(), offline.clone());
@@ -183,30 +177,7 @@ impl Launcher {
                     ),
             );
         }
-        let add = div()
-            .flex()
-            .items_center()
-            .gap(px(space::SM))
-            .child(self.field(
-                Field::OfflineName,
-                tr("Add a name"),
-                layout::FIELD_SM,
-                ui::ButtonSize::Md,
-                cx,
-            ))
-            .child(
-                ui::button(
-                    "offline-add",
-                    None,
-                    tr("Add"),
-                    ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.offline_name_enter();
-                    cx.notify();
-                })),
-            );
+        let add = self.name_adder(Field::OfflineName, "offline", layout::FIELD_MD, true, cx);
         let can_add = self.can_add_offline_names();
         let can_sign_in = account::client_id().is_some();
         let show_names = can_add || can_sign_in;
@@ -226,15 +197,18 @@ impl Launcher {
             .flex()
             .flex_col()
             .child(header)
-            .when(show_names, |d| {
-                d.child(ui::label(tr("Offline names")).mt(px(space::XXL)))
-            })
-            .when(show_names || has_chips, |d| {
-                d.child(
-                    chips
-                        .when(can_add, |d| d.child(add))
-                        .when(!show_names, |d| d.mt(px(space::XL))),
-                )
+            .map(|d| {
+                let chips = chips.when(can_add, |d| d.child(add));
+                if show_names {
+                    d.child(
+                        ui::field_group("offline-names-title", tr("Offline names"), None, chips)
+                            .mt(px(space::XXL)),
+                    )
+                } else if has_chips {
+                    d.child(chips.mt(px(space::XL)))
+                } else {
+                    d
+                }
             })
             .when(!can_add && can_sign_in, |d| {
                 d.child(ui::card_note(tr(
@@ -543,21 +517,12 @@ impl Launcher {
                 div()
                     .flex()
                     .gap(px(space::XS))
-                    .child(
-                        ui::button(
-                            "sign-in-copy",
-                            None,
-                            tr("Copy code"),
-                            ButtonKind::Secondary,
-                            ui::ButtonSize::Md,
-                        )
-                        .on_press(move |_, _, cx| {
-                            clipboard::copy_to_clipboard(
-                                cx,
-                                gpui::ClipboardItem::new_string(user_code.clone()),
-                            )
-                        }),
-                    )
+                    .child(ui::copy_button(
+                        "sign-in-copy",
+                        tr("Copy code"),
+                        user_code.clone(),
+                        ui::ButtonSize::Md,
+                    ))
                     .child(
                         ui::button(
                             "sign-in-open",
@@ -661,31 +626,21 @@ pub(super) fn account_status_line(
     progress: Option<&str>,
 ) -> Div {
     use account::session::State;
-    use eclipse_theme::glass::ink;
-    let muted = ui::white(ink::MUTED);
-    let (icon, color, label) = if let Some(progress) = progress {
-        ("clock", muted, progress)
-    } else {
-        let (icon, color) = match status.map(|s| s.state) {
-            Some(State::Ready) => ("tick-02", ui::live()),
-            Some(State::NeedsRefresh | State::Retry) => ("refresh", ui::warn()),
-            Some(State::SignInRequired) => ("user", ui::danger()),
-            Some(State::OwnershipRequired) => ("alert-circle", ui::danger()),
-            None => ("information-circle", muted),
-        };
-        (
-            icon,
-            color,
-            status.map_or("Sign-in not checked", |s| s.label()),
-        )
+    let (tone, label) = match (progress, status) {
+        (Some(progress), _) => (ui::Tone::Busy, progress),
+        (None, Some(status)) => (
+            match status.state {
+                State::Ready => ui::Tone::Live,
+                State::NeedsRefresh
+                | State::Retry
+                | State::SignInRequired
+                | State::OwnershipRequired => ui::Tone::Warn,
+            },
+            status.label(),
+        ),
+        (None, None) => (ui::Tone::Off, tr("Sign-in not checked")),
     };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(space::SM))
-        .text_color(color)
-        .child(ui::icon(icon, ui::IconSize::Px16, color))
-        .child(tr(label).to_owned())
+    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(ui::state_line(tone, tr(label)))
 }
 
 /// Microsoft account actions go below the profile in the fixed-width card.
@@ -710,7 +665,7 @@ pub(super) fn account_row(
                     slot.rounded(px(eclipse_theme::glass::radius::ROW))
                         .overflow_hidden(),
                 )
-                .child(ui::setting_row(name, detail, None).p_0().flex_1()),
+                .child(ui::setting_text(name, detail)),
         )
         .child(actions.flex_wrap().px(px(space::LG)).pb(px(space::MD)))
 }

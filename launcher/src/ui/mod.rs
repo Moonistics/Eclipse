@@ -31,6 +31,7 @@ thread_local! {
     /// The light appearance: the white ink and fills turn to [`INK`].
     static LIGHT: Cell<bool> = const { Cell::new(false) };
     static SHORT: Cell<bool> = const { Cell::new(false) };
+    static SCALE: Cell<f32> = const { Cell::new(1.) };
 }
 
 /// A listener, boxed so a helper can return it.
@@ -77,6 +78,8 @@ const SHUTTLE_SHARE: f32 = 0.3;
 
 const STILL_SHUTTLE: f32 = 0.4;
 
+const ICON_CELLS: f32 = 8.;
+
 pub const TILE_SM: f32 = 24.;
 
 pub const TILE_MD: f32 = 36.;
@@ -87,6 +90,7 @@ pub fn begin_frame(theme: &Theme, short: bool, window: &Window, cx: &mut App) {
     LOOK.set(theme.look);
     LIGHT.set(!theme.dark);
     SHORT.set(short);
+    SCALE.set(window.scale_factor());
     press::forget_spots();
     press::note_focus(window, cx);
     hover::forget_disabled();
@@ -196,7 +200,18 @@ pub fn text_width(text: &str, step: TextStep) -> f32 {
 }
 
 pub fn on_pixel_grid(size: f32) -> f32 {
-    ((size / MONOCRAFT_PIXEL).floor() * MONOCRAFT_PIXEL).max(MONOCRAFT_PIXEL)
+    on_device_grid(size, SCALE.get())
+}
+
+fn on_device_grid(size: f32, scale: f32) -> f32 {
+    let font_pixel = (size / MONOCRAFT_PIXEL).floor().max(1.);
+    let device = (font_pixel * scale).round().max(1.);
+    device / scale * MONOCRAFT_PIXEL
+}
+
+fn icon_px(size: IconSize, scale: f32) -> f32 {
+    let cell = (size.px() / ICON_CELLS * scale).round().max(1.);
+    cell / scale * ICON_CELLS
 }
 
 pub fn pixel_text(size: f32) -> Div {
@@ -275,14 +290,14 @@ pub fn page_head_with(
         .pt(px(page_top()))
         .mb(px(page_gap()))
         .child(head)
-        .when(!note.is_empty(), |d| {
-            d.child(
-                text(step::LEAD, FontWeight::NORMAL, ink::BODY)
-                    .mt(px(TITLE_NOTE_GAP))
-                    .max_w(px(crate::layout::MEASURE_NOTE))
-                    .child(said("page-note", note)),
-            )
-        })
+        .when(!note.is_empty(), |d| d.child(page_note("page-note", note)))
+}
+
+pub fn page_note(id: impl Into<ElementId>, note: impl Into<SharedString>) -> Div {
+    text(step::LEAD, FontWeight::NORMAL, ink::BODY)
+        .mt(px(TITLE_NOTE_GAP))
+        .max_w(px(crate::layout::MEASURE_NOTE))
+        .child(said(id, note))
 }
 
 pub fn page_title(title: SharedString) -> Stateful<Div> {
@@ -326,10 +341,14 @@ impl IconSize {
 }
 
 pub fn icon(name: &'static str, size: IconSize, color: Hsla) -> Svg {
+    let drawn = match size {
+        IconSize::Px24 => size.px(),
+        _ => icon_px(size, SCALE.get()),
+    };
     svg()
         .path(crate::icons::path(name, size))
         .flex_none()
-        .size(px(size.px()))
+        .size(px(drawn))
         .text_color(color)
 }
 
@@ -400,6 +419,37 @@ pub fn progress_bar(fraction: Option<(f32, f32)>) -> Stateful<Div> {
             ),
         ),
     }
+}
+
+pub fn progress_line(
+    label: impl Into<SharedString>,
+    fraction: Option<(f32, f32)>,
+    note: impl Into<SharedString>,
+) -> Div {
+    let (label, note): (SharedString, SharedString) = (label.into(), note.into());
+    let percent = fraction.map(|(_, to)| format!("{:.0}%", to.clamp(0., 1.) * 100.));
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(space::SM))
+        .min_w_0()
+        .when(!label.is_empty() || percent.is_some(), |d| {
+            d.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(space::MD))
+                    .child(self::label(label))
+                    .children(percent.map(|p| {
+                        text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
+                            .flex_none()
+                            .child(p)
+                    })),
+            )
+        })
+        .child(div().flex().child(progress_bar(fraction)))
+        .when(!note.is_empty(), |d| d.child(card_note(note).truncate()))
 }
 
 fn bar_track() -> Stateful<Div> {
@@ -491,13 +541,26 @@ mod tests {
             (Some(Role::Switch), Some(Toggled::True))
         );
 
-        let (role, n) = read(&toggle_row("auto", "Install automatically", None, false));
+        let (role, n) = read(&toggle_row(
+            "auto",
+            "Install automatically",
+            Some("Keeps the 2 newest.".into()),
+            false,
+        ));
         assert_eq!(role, Some(Role::Switch));
         assert_eq!(n.label(), Some("Install automatically"));
         assert_eq!(n.toggled(), Some(Toggled::False));
+        assert_eq!(n.description(), Some("Keeps the 2 newest."));
 
-        let (role, n) = read(&count_tab("home-tab-worlds", "Worlds", None, true, TAB_PAD));
+        let (role, n) = read(&count_tab(
+            "home-tab-worlds",
+            "Worlds",
+            Some(3),
+            true,
+            TAB_PAD,
+        ));
         assert_eq!((role, n.is_selected()), (Some(Role::Tab), Some(true)));
+        assert_eq!(n.description(), Some("3"));
         assert_eq!(
             read(&tab_strip_padded("home-tabs", TAB_PAD, [])).0,
             Some(Role::TabList)
@@ -549,13 +612,21 @@ mod tests {
             (Some(Role::SpinButton), Some(10.))
         );
 
-        let (role, _) = read(&segments(
+        let (role, n) = read(&segments(
             "difficulty",
+            "Difficulty",
             &[(1, SharedString::from("Easy"))],
             1,
             |_, _, _| {},
         ));
-        assert_eq!(role, Some(Role::RadioGroup));
+        assert_eq!(
+            (role, n.label()),
+            (Some(Role::RadioGroup), Some("Difficulty"))
+        );
+        assert_eq!(
+            buttons::segment_key(&Some("first_light")),
+            "some-first-light"
+        );
 
         let (role, n) = read(&link("eula", "Read the EULA"));
         assert_eq!((role, n.label()), (Some(Role::Link), Some("Read the EULA")));
@@ -568,6 +639,32 @@ mod tests {
             (role, n.level(), n.label()),
             (Some(Role::Heading), Some(2), Some("Game"))
         );
+    }
+
+    #[test]
+    fn pixel_text_and_icons_land_on_whole_device_pixels() {
+        let device = |size: f32, scale: f32| on_device_grid(size, scale) / MONOCRAFT_PIXEL * scale;
+        for scale in [1., 1.25, 1.5, 1.75, 2.] {
+            for size in [pixel::PRESS, pixel::CARD_TITLE, pixel::PAGE_TITLE] {
+                let per_pixel = device(size, scale);
+                assert!(
+                    (per_pixel - per_pixel.round()).abs() < 1e-4,
+                    "{size} at {scale}x: {per_pixel} device px a font pixel"
+                );
+            }
+            for size in [IconSize::Px16, IconSize::Px32] {
+                let cell = icon_px(size, scale) / ICON_CELLS * scale;
+                assert!((cell - cell.round()).abs() < 1e-4, "{size:?} at {scale}x");
+            }
+        }
+        for scale in [1., 1.5, 2.] {
+            assert_eq!(on_device_grid(pixel::PRESS, scale), pixel::PRESS);
+            assert_eq!(on_device_grid(pixel::PAGE_TITLE, scale), pixel::PAGE_TITLE);
+        }
+        assert!((on_device_grid(pixel::PRESS, 1.25) - 21.6).abs() < 1e-4);
+        assert!((on_device_grid(pixel::CARD_TITLE, 1.25) - 28.8).abs() < 1e-4);
+        assert!((on_device_grid(pixel::PRESS, 1.75) - 20.571_43).abs() < 1e-3);
+        assert_eq!(on_device_grid(20., 1.), pixel::PRESS);
     }
 
     #[test]

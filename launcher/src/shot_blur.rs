@@ -70,9 +70,8 @@ impl Launcher {
 /// The picture at `path`, small, blurred and smoothed up, as GPUI draws it (BGRA, premultiplied).
 /// Read already shrunk (`pictures::load_fitted`): never the whole screenshot.
 pub(super) fn blurred(path: &Path) -> Option<Arc<RenderImage>> {
-    let picture = image::DynamicImage::ImageRgba8(
-        eclipse_launcher::pictures::load_fitted(path, SMALL.0 * 4).ok()?,
-    );
+    let picture =
+        image::DynamicImage::ImageRgba8(crate::pictures::load_fitted(path, SMALL.0 * 4).ok()?);
     let small = picture
         .resize_to_fill(SMALL.0, SMALL.1, image::imageops::FilterType::Triangle)
         .to_rgba8();

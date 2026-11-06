@@ -18,7 +18,7 @@ fn failed_removal_stays_listed_and_can_be_retried() {
         std::env::temp_dir().join(format!("eclipse-remove-locked-{}", std::process::id()));
     let dir = versions.join("v0.2.0");
     fs::create_dir_all(&dir).unwrap();
-    fs::write(dir.join(COMPLETE), "").unwrap();
+    fs::write(dir.join(INSTALL_MARK), "").unwrap();
     fs::write(dir.join(CLIENT), "locked executable").unwrap();
     // Refuse delete sharing, as a running Windows executable does.
     let running = fs::File::options()
@@ -33,27 +33,6 @@ fn failed_removal_stays_listed_and_can_be_retried() {
     assert!(installed_in(&versions).is_empty());
     assert!(!dir.exists());
     fs::remove_dir_all(versions).unwrap();
-}
-
-/// A canonical path loses Windows' verbatim prefix on a drive (horizon-mixins' output
-/// check stats `\\?\C:`, the volume itself, which Windows refuses, os error 1), and keeps
-/// it where there is no drive form.
-#[test]
-fn a_canonical_windows_path_loses_only_a_drives_verbatim_prefix() {
-    let plain = |p: &str| plain(PathBuf::from(p));
-    assert_eq!(
-        plain(r"\\?\C:\Users\me\AppData\Roaming\eclipse-launcher\native"),
-        PathBuf::from(r"C:\Users\me\AppData\Roaming\eclipse-launcher\native")
-    );
-    // A share has no drive form to fall back to; other paths have no prefix.
-    assert_eq!(
-        plain(r"\\?\UNC\server\share\native"),
-        PathBuf::from(r"\\?\UNC\server\share\native")
-    );
-    assert_eq!(
-        plain("/home/me/.local/share/eclipse-launcher/native"),
-        PathBuf::from("/home/me/.local/share/eclipse-launcher/native")
-    );
 }
 
 /// [#5189](https://github.com/Moonistics/Eclipse/issues/5189): MinGW-w64's tools can't
@@ -81,7 +60,7 @@ fn the_build_dir_is_a_path_the_tools_can_read() {
             built,
             built
                 .canonicalize()
-                .map(plain)
+                .map(crate::files::plain)
                 .unwrap_or_else(|_| built.clone())
         );
     }
@@ -126,9 +105,25 @@ fn a_game_program_says_its_mod_api_level() {
     fs::write(&marked, &program).unwrap();
     let old = dir.join("old");
     fs::write(&old, b"\x7fELF code without a mark").unwrap();
-    assert_eq!(program_mod_api_level(&marked), 7);
-    assert_eq!(program_mod_api_level(&old), 0);
-    assert_eq!(program_mod_api_level(&dir.join("missing")), 0);
+    assert_eq!(program_mod_api_level(&marked), Some(7));
+    assert_eq!(program_mod_api_level(&old), Some(0));
+    assert_eq!(program_mod_api_level(&dir.join("missing")), None);
+    fs::remove_dir_all(&dir).unwrap();
+}
+
+/// A program that couldn't be read once (not there yet, held by a scan) isn't level 0 for the
+/// rest of the run.
+#[test]
+fn a_program_read_later_says_its_own_level() {
+    let tag = format!("v0.0.{}-level", std::process::id());
+    let dir = version_dir(&tag);
+    let _ = fs::remove_dir_all(&dir);
+    assert_eq!(mod_api_level(&tag), 0);
+    fs::create_dir_all(&dir).unwrap();
+    let mut program = b"\x7fELF code code".to_vec();
+    program.extend_from_slice(b"eclipse-mod-api-level:0007;");
+    fs::write(dir.join(CLIENT), &program).unwrap();
+    assert_eq!(mod_api_level(&tag), 7);
     fs::remove_dir_all(&dir).unwrap();
 }
 
@@ -952,10 +947,8 @@ fn the_appearance_is_dark_unless_picked() {
     assert_eq!(Settings::parse("{}").unwrap().appearance, Appearance::Dark);
     let light = Settings::parse(r#"{"appearance": "light", "game_args": "--x"}"#).unwrap();
     assert_eq!(light.appearance, Appearance::Light);
-    let settings = Settings {
-        appearance: Appearance::System,
-        ..Settings::default()
-    };
+    let mut settings = Settings::default();
+    settings.appearance = Appearance::System;
     let text = serde_json::to_string(&settings).unwrap();
     assert!(text.contains(r#""appearance":"system""#), "{text}");
 }
@@ -1628,10 +1621,8 @@ fn new_versions_install_automatically_unless_turned_off() {
         .unwrap()
         .auto_install());
     // Saving after the player turned it off keeps it off.
-    let off = Settings {
-        install_new_versions: Some(false),
-        ..Settings::default()
-    };
+    let mut off = Settings::default();
+    off.install_new_versions = Some(false);
     assert!(!Settings::parse(&serde_json::to_string(&off).unwrap())
         .unwrap()
         .auto_install());
@@ -1687,7 +1678,7 @@ fn a_new_version_reuses_resources_prepared_by_a_compatible_one() {
         fs::write(path, text).unwrap();
     };
     let release = |tag: &str, minecraft: &str| {
-        write(tag, COMPLETE, "");
+        write(tag, INSTALL_MARK, "");
         let lock = serde_json::json!({"minecraft": {"version": minecraft, "client_sha1": "c", "server_sha1": "s"}});
         write(tag, "research-lock.json", &lock.to_string());
         write(tag, "tools/prepare_native_client.py", "schema 7");
@@ -1794,7 +1785,7 @@ fn prepared_resources_follow_the_preparers_output_version() {
     let lib = "crates/eclipse-prepare/src/lib.rs";
     // A preparer with its sources (as releases ship them) and the exporters it runs.
     let release = |tag: &str, code: &str| {
-        write(tag, COMPLETE, "");
+        write(tag, INSTALL_MARK, "");
         let lock = serde_json::json!({"minecraft": {"version": "26.3", "client_sha1": "c", "server_sha1": "s"}});
         write(tag, "research-lock.json", &lock.to_string());
         write(tag, "crates/eclipse-prepare/Cargo.toml", "[package]");
@@ -1887,7 +1878,7 @@ fn prepared_versions_get_the_run_time_reports_without_preparing_again() {
         fs::write(path, text).unwrap();
     };
     let release = |tag: &str, server: &str| {
-        write(tag, COMPLETE, "");
+        write(tag, INSTALL_MARK, "");
         let lock = serde_json::json!({"minecraft": {"version": "26.3", "client_sha1": "c", "server_sha1": server}});
         write(tag, "research-lock.json", &lock.to_string());
         write(
@@ -1999,7 +1990,7 @@ fn prepared_versions_get_what_the_asset_store_adds_without_preparing_again() {
     let placeholder = b"\x89PNG\r\n\x1a\n\0\0\0\x0dIHDR\0\0\0\x01\0\0\0\x01";
     let release = |tag: &str, prepared: bool| {
         let root = versions.join(tag);
-        write(root.join(COMPLETE), b"");
+        write(root.join(INSTALL_MARK), b"");
         let lock = serde_json::json!({"minecraft": {"version": "9.9", "java_major": 25,
             "client_sha1": "c", "server_sha1": "s", "manifest_sha1": sources::sha1_hex(manifest.as_bytes())}});
         write(root.join("research-lock.json"), lock.to_string().as_bytes());
@@ -2340,4 +2331,182 @@ fn package_roots_are_matched_as_path_components() {
     ] {
         assert!(!package_managed(Path::new(path)), "{path}");
     }
+}
+
+#[test]
+fn every_request_names_the_project_and_where_to_reach_it() {
+    use std::io::{Read, Write};
+    let listener = std::net::TcpListener::bind("127.0.0.1:0").unwrap();
+    let url = format!("http://{}/", listener.local_addr().unwrap());
+    let server = std::thread::spawn(move || {
+        let (mut stream, _) = listener.accept().unwrap();
+        let mut request = vec![0; 4096];
+        let n = stream.read(&mut request).unwrap();
+        stream
+            .write_all(b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\n\r\n")
+            .unwrap();
+        String::from_utf8_lossy(&request[..n]).to_lowercase()
+    });
+    get(&url).unwrap();
+    let request = server.join().unwrap();
+    assert!(
+        request.contains(
+            &format!(
+                "user-agent: {} eclipse-launcher/{VERSION} (github.com/{})",
+                REPO, REPO
+            )
+            .to_lowercase()
+        ),
+        "{request}"
+    );
+}
+
+#[test]
+fn a_failure_on_githubs_pages_names_github() {
+    let error = NetError::new(
+        "https://horizon-rust.github.io/horizon-mods/index.json",
+        ureq::Error::Status(503, ureq::Response::new(503, "Unavailable", "").unwrap()),
+    );
+    assert!(
+        error.to_string().starts_with("GitHub isn't answering"),
+        "{error}"
+    );
+}
+
+/// Settings files from before native mods were on by default still read; their
+/// `native_mods` key is ignored, and the notice stays read.
+#[test]
+fn old_settings_with_the_native_mods_switch_still_read() {
+    let s: Settings =
+        serde_json::from_str(r#"{"native_mods": true, "native_mods_noticed": true}"#).unwrap();
+    assert!(s.native_mods_noticed);
+    let s: Settings = serde_json::from_str(r#"{"native_mods": false}"#).unwrap();
+    assert!(!s.native_mods_noticed);
+    let saved = serde_json::to_string(&s).unwrap();
+    assert!(!saved.contains("native_mods"), "{saved}");
+}
+
+#[test]
+fn the_setting_picks_the_profile_and_the_old_switch_still_picks_release() {
+    let read = |text: &str| Settings::parse(text).unwrap();
+    assert_eq!(
+        NativeProfile::chosen(&read("{}")),
+        NativeProfile::Performance
+    );
+    let mut old = read(r#"{"native_release": true}"#);
+    assert_eq!(NativeProfile::chosen(&old), NativeProfile::Release);
+    old.set_native_profile(Some(NativeProfile::Dev));
+    assert_eq!(NativeProfile::chosen(&old), NativeProfile::Dev);
+    let text = serde_json::to_string(&old).unwrap();
+    assert!(text.contains("\"native_profile\":\"dev\""), "{text}");
+    old.set_native_profile(None);
+    assert_eq!(
+        NativeProfile::chosen(&old),
+        NativeProfile::Performance,
+        "the old switch is gone"
+    );
+    assert_eq!(
+        NativeProfile::parse("performance"),
+        Some(NativeProfile::Performance)
+    );
+    assert_eq!(
+        NativeProfile::parse("fast"),
+        Some(NativeProfile::Performance)
+    );
+    assert_eq!(
+        NativeProfile::parse(" release "),
+        Some(NativeProfile::Release)
+    );
+    assert_eq!(NativeProfile::parse("debug"), None);
+}
+
+/// The window opens its owner screen on this refusal.
+#[test]
+fn a_launch_with_no_account_that_owns_the_game_is_refused_as_such() {
+    let tag = format!("v0.0.{}-gate", std::process::id());
+    let dir = version_dir(&tag);
+    fs::create_dir_all(&dir).unwrap();
+    mark_installed(&dir).unwrap();
+    let mut eclipse = crate::instances::list().remove(0);
+    eclipse.version = Some(tag.clone());
+    let refused = launch(Play::of(eclipse), &|_| {}).err();
+    fs::remove_dir_all(&dir).unwrap();
+    assert_eq!(refused, Some(PlayError::NoOwner));
+}
+
+/// A registry mod taken down is turned off in the folder that plays, an instance's own too: Play
+/// once checked only the game's default folder.
+#[test]
+fn play_turns_a_taken_down_mod_off_in_the_instance_it_plays() {
+    use crate::browser::{installed, java, Kind, SourceId};
+    let tag = format!("v0.0.{}-taken-down", std::process::id());
+    let dir = version_dir(&tag);
+    let resources = resources(&tag);
+    fs::create_dir_all(&resources).unwrap();
+    fs::write(resources.join("eclipse-resources.json"), "{}").unwrap();
+    mark_installed(&dir).unwrap();
+    let home = std::env::temp_dir().join(format!("eclipse-taken-down-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(home.join("eclipse-mods")).unwrap();
+    fs::write(home.join("eclipse-mods/coords_hud.emod"), "mod").unwrap();
+    installed::Installed::open(&home)
+        .unwrap()
+        .record(installed::Entry {
+            source: SourceId::Eclipse,
+            project: "coords_hud".into(),
+            slug: "coords_hud".into(),
+            title: "Coordinates HUD".into(),
+            kind: Kind::Mod,
+            version: "0.1.0".into(),
+            number: "0.1.0".into(),
+            file: "eclipse-mods/coords_hud.emod".into(),
+            checksum: String::new(),
+            page: String::new(),
+            dependency: false,
+            verdict: None,
+            skipped: vec![],
+            namespaces: vec![],
+        })
+        .unwrap();
+    java::set_enabled(&home, "coords_hud", true).unwrap();
+    let fixture = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../crates/eclipse-mods/tests/index/index-v1.json");
+    let mut index: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(fixture).unwrap()).unwrap();
+    index["revoked"] =
+        serde_json::json!([{ "id": "coords_hud", "reason": "Test.", "date": "2026-11-06" }]);
+    let kept = game_home().join("mod-browser/eclipse-index.json");
+    let before = fs::read(&kept).ok();
+    fs::create_dir_all(kept.parent().unwrap()).unwrap();
+    fs::write(&kept, index.to_string()).unwrap();
+    let instance = crate::instances::Instance {
+        id: "taken-down".into(),
+        name: "Taken down".into(),
+        kind: crate::instances::Kind::Own,
+        work: home.clone(),
+        home: home.clone(),
+        icon: None,
+        group: None,
+        version: Some(tag),
+        played: std::time::Duration::ZERO,
+        last_played: None,
+        launch: Default::default(),
+        java: None,
+    };
+    let launched = launch(
+        Play {
+            offline_without_owner: true,
+            ..Play::of(instance)
+        },
+        &|_| {},
+    );
+    let on = java::is_enabled(&home, "coords_hud");
+    match before {
+        Some(text) => fs::write(&kept, text).unwrap(),
+        None => fs::remove_file(&kept).unwrap(),
+    }
+    fs::remove_dir_all(&dir).unwrap();
+    fs::remove_dir_all(&home).unwrap();
+    assert_eq!(launched.err(), None);
+    assert!(!on, "the taken-down mod is off in the instance's folder");
 }

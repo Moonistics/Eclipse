@@ -470,18 +470,7 @@ fn checked_path(path: &Path) -> Result<PathBuf> {
             Err(e) => return Err(problem(&current, e)),
         }
     }
-    Ok(plain_drive(current))
-}
-
-/// `canonicalize`'s verbatim `\\?\C:\…` as the plain drive path the other roots use.
-fn plain_drive(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    if let Some(rest) = path.to_str().and_then(|s| s.strip_prefix(r"\\?\")) {
-        if rest.as_bytes().get(1) == Some(&b':') {
-            return PathBuf::from(rest);
-        }
-    }
-    path
+    Ok(crate::files::plain(current))
 }
 
 /// The pointer and its lock sit in the platform config folder, which may be a link (a
@@ -500,7 +489,7 @@ fn pointer_path(path: &Path) -> Result<PathBuf> {
     loop {
         match fs::canonicalize(existing) {
             Ok(real) => {
-                let real = plain_drive(real);
+                let real = crate::files::plain(real);
                 return Ok(rest.iter().rev().fold(real, |path, part| path.join(part)));
             }
             Err(e) if e.kind() == std::io::ErrorKind::NotFound => {}

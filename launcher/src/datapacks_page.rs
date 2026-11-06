@@ -101,7 +101,7 @@ impl Launcher {
             .mb(px(space::SM));
         let add = ui::button(
             "world-packs-add",
-            None,
+            Some("plus-sign"),
             tr("Add data pack…"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -111,18 +111,12 @@ impl Launcher {
             cx.notify();
         }));
         let folder = {
-            let dir = world.path.join("datapacks");
-            ui::button(
+            ui::open_folder_button(
                 "world-packs-folder",
-                None,
                 tr("Open data packs folder"),
-                ButtonKind::Secondary,
+                world.path.join("datapacks"),
                 ui::ButtonSize::Md,
             )
-            .on_press(move |_, _, cx| {
-                let _ = std::fs::create_dir_all(&dir);
-                crate::toast::open(cx, &dir);
-            })
         };
         let (shown, empty_actions) = if empty {
             (None, vec![add, folder])
@@ -132,18 +126,19 @@ impl Launcher {
                 Vec::new(),
             )
         };
-        let mut head = div().flex().flex_col().gap(px(space::SM)).child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .child(ui::label(tr("Data packs")))
-                .children(shown),
-        );
+        let mut head = div().flex().flex_col().gap(px(space::SM));
         let mut failed = None;
         match &self.world_packs.note {
             Some(Ok(m)) => head = head.child(ui::card_note(m.clone())),
-            Some(Err(e)) => failed = Some(ui::error_note(e.clone())),
+            Some(Err(e)) => {
+                failed = Some(ui::error_line_for(
+                    "world-packs-failed",
+                    tr("Couldn't change the data packs"),
+                    e,
+                    None,
+                    Vec::new(),
+                ))
+            }
             None => {}
         }
         if empty {
@@ -155,7 +150,14 @@ impl Launcher {
                 empty_actions,
             ));
         }
-        panel = panel.child(head).children(failed);
+        panel = panel
+            .child(ui::field_group(
+                "world-packs-title",
+                tr("Data packs"),
+                shown.map(IntoElement::into_any_element),
+                head,
+            ))
+            .children(failed);
         for pack in self.world_packs.list.clone() {
             let confirming = self.is_asking(&Asking::WorldPack(pack.file.clone()));
             let remove_id = SharedString::from(format!("world-pack-remove-{}", pack.file));

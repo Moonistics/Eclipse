@@ -1,11 +1,10 @@
 use super::architecture::{
-    architecture_for_asset, game_assets_for, native_windows_architecture,
-    selected_game_architecture, GameArchitecture, InstalledGameArchitecture,
-    GAME_BUILD_ARCHITECTURE,
+    architecture_for_asset, game_assets, selected_game_architecture, GameArchitecture,
+    InstalledGameArchitecture, GAME_BUILD_ARCHITECTURE,
 };
 use super::net::{fetch_small, get};
 use super::paths::{version_dir, versions_dir};
-use super::platform::{ASSET, CLIENT, GAME_FALLBACK};
+use super::platform::{CLIENT, GAME_APP};
 use super::releases::{compare_versions, is_game_tag, releases, Release};
 use super::resources::reuse_prepared_for;
 use super::settings::Settings;
@@ -13,8 +12,9 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
+use std::time::SystemTime;
 
-pub(super) const COMPLETE: &str = ".installed";
+pub(crate) const INSTALL_MARK: &str = ".installed";
 
 /// The mod API level of the game players run: the selected version's, else the newest installed
 /// one's. None with no version installed: the launcher doesn't know yet which game will run mods.
@@ -29,22 +29,26 @@ pub fn game_mod_api_level() -> Option<u32> {
 
 /// A game version's mod API level, read once from the mark its program carries
 /// (`eclipse_mods::api_level::MARK`). A program from before the mark serves level 0, the
-/// contract of Eclipse 0.2.67 and 0.2.68.
+/// contract of Eclipse 0.2.67 and 0.2.68; so does one that can't be read now, asked again next
+/// time.
 pub fn mod_api_level(tag: &str) -> u32 {
     static LEVELS: Mutex<Vec<(String, u32)>> = Mutex::new(Vec::new());
     let mut levels = LEVELS.lock().unwrap_or_else(|e| e.into_inner());
     if let Some(&(_, level)) = levels.iter().find(|(t, _)| t == tag) {
         return level;
     }
-    let level = program_mod_api_level(&version_dir(tag).join(CLIENT));
+    let Some(level) = program_mod_api_level(&version_dir(tag).join(CLIENT)) else {
+        return 0;
+    };
     levels.push((tag.to_owned(), level));
     level
 }
 
-/// The mod API level in the game program at `path`: its mark's, else 0.
-pub(super) fn program_mod_api_level(path: &Path) -> u32 {
-    let program = fs::read(path).unwrap_or_default();
-    eclipse_mods::api_level::read_mark(&program).unwrap_or(0)
+/// The mod API level in the game program at `path`: its mark's, else 0; None when it can't be
+/// read.
+pub(super) fn program_mod_api_level(path: &Path) -> Option<u32> {
+    let program = fs::read(path).ok()?;
+    Some(eclipse_mods::api_level::read_mark(&program).unwrap_or(0))
 }
 
 /// Installed versions, newest tag first.
@@ -53,11 +57,44 @@ pub fn installed() -> Vec<String> {
 }
 
 pub(crate) fn is_installed(dir: &Path) -> bool {
-    dir.join(COMPLETE).is_file()
+    dir.join(INSTALL_MARK).is_file()
 }
 
+/// Marks the version in `dir` installed, or used again: [`installed_at`] then says now.
 pub(crate) fn mark_installed(dir: &Path) -> std::io::Result<()> {
-    fs::write(dir.join(COMPLETE), "")
+    fs::write(dir.join(INSTALL_MARK), "")
+}
+
+/// When the version in `dir` was installed or last marked used; None when it isn't installed.
+pub(crate) fn installed_at(dir: &Path) -> Option<SystemTime> {
+    let mark = fs::metadata(dir.join(INSTALL_MARK)).ok()?;
+    Some(mark.modified().unwrap_or(SystemTime::UNIX_EPOCH))
+}
+
+/// Copies installed version `from` into `to` for another build of the game to play on its files:
+/// its game program, the app bundle macOS starts that through (`game_app`) and its install mark
+/// stay behind, and so do the `leave_out` names.
+pub(crate) fn copy_version_except(
+    from: &Path,
+    to: &Path,
+    leave_out: &[&str],
+) -> Result<(), String> {
+    let own = [INSTALL_MARK, CLIENT, GAME_APP];
+    fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
+    for entry in fs::read_dir(from).map_err(|e| e.to_string())?.flatten() {
+        let name = entry.file_name();
+        if own.iter().chain(leave_out).any(|n| name == *n) {
+            continue;
+        }
+        let path = entry.path();
+        let to = to.join(&name);
+        let copied = match path.is_dir() {
+            true => crate::files::copy_dir(&path, &to, &[]),
+            false => crate::files::copy_file(&path, &to),
+        };
+        copied.map_err(|e| format!("Could not copy {}: {e}", path.display()))?;
+    }
+    Ok(())
 }
 
 pub(super) fn installed_in(versions: &Path) -> Vec<String> {
@@ -168,15 +205,7 @@ pub(super) fn unpack(archive: &Path, url: &str, to: &Path) -> Result<(), String>
 pub fn install(release: &Release, progress: impl Fn(f32)) -> Result<(), String> {
     let tag = release.tag.as_str();
     let settings = Settings::load();
-    let assets = game_assets_for(
-        std::env::consts::OS,
-        native_windows_architecture(),
-        std::env::consts::ARCH,
-        settings.game_architecture,
-    );
-    let (asset, fallback) = assets.map_or((ASSET, GAME_FALLBACK), |(asset, fallback)| {
-        (Some(asset), fallback)
-    });
+    let (asset, fallback) = game_assets(&settings);
     let asset = asset_installed(release, asset, fallback).ok_or_else(|| {
         crate::i18n::trf(
             "{tag} has no build for the selected game architecture.",
@@ -305,7 +334,7 @@ pub(super) fn remove_in(dir: &Path) -> Result<(), String> {
     let installed = is_installed(dir);
     // The marker goes first: a version counted as installed until its folder is gone comes back
     // into `installed` when an overlapping removal re-reads the list mid-delete.
-    let _ = fs::remove_file(dir.join(COMPLETE));
+    let _ = fs::remove_file(dir.join(INSTALL_MARK));
     // Windows holds a file for a moment after the game, a scan or the launcher's own reader lets
     // go of it, and remove_dir_all stops at the first one. Retry for a second; a folder that is
     // already gone is removed.

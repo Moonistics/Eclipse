@@ -16,7 +16,7 @@ impl Launcher {
         tabs: Vec<StripTab<T>>,
         open: T,
         room: f32,
-        pick: impl Fn(&mut Self, T) + Clone + 'static,
+        pick: impl Fn(&mut Self, T, bool) + Clone + 'static,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let widths = |pad: f32, counts: bool| -> Vec<f32> {
@@ -40,37 +40,66 @@ impl Launcher {
         );
         let mut strip = Vec::new();
         let mut hidden = Vec::new();
+        let mut keys = Vec::new();
         for (tab, shown) in tabs.into_iter().zip(shown) {
             if !shown {
                 hidden.push(tab);
                 continue;
             }
             let (value, pick) = (tab.value, pick.clone());
+            let id = format!("{prefix}-{}", tab.key);
+            let focus = ui::try_focus_for(id.clone());
+            keys.push((value, focus.clone()));
             strip.push(
                 ui::count_tab(
-                    format!("{prefix}-{}", tab.key),
+                    id,
                     tab.label,
                     tab.count.filter(|_| counts),
                     value == open,
                     pad,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    pick(this, value);
+                    pick(this, value, false);
                     cx.notify();
-                })),
+                }))
+                .when_some(focus, |tab, focus| {
+                    tab.track_focus(&focus.tab_stop(value == open))
+                }),
             );
         }
         if !hidden.is_empty() {
-            strip.push(self.more_tabs(prefix, hidden, pick, cx));
+            strip.push(self.more_tabs(prefix, hidden, pick.clone(), cx));
         }
-        ui::tab_strip_padded(format!("{prefix}s"), pad, strip)
+        ui::tab_strip_padded(format!("{prefix}s"), pad, strip).on_key_down(cx.listener(
+            move |this, ev: &KeyDownEvent, window, cx| {
+                let at = keys.iter().position(|(v, _)| *v == open).unwrap_or(0);
+                let last = keys.len().saturating_sub(1);
+                let to = match ev.keystroke.key.as_str() {
+                    "left" => at.checked_sub(1).unwrap_or(last),
+                    "right" if at == last => 0,
+                    "right" => at + 1,
+                    "home" => 0,
+                    "end" => last,
+                    _ => return,
+                };
+                let Some((value, focus)) = keys.get(to).cloned() else {
+                    return;
+                };
+                pick(this, value, true);
+                if let Some(focus) = focus {
+                    window.focus(&focus, cx);
+                }
+                cx.stop_propagation();
+                cx.notify();
+            },
+        ))
     }
 
     fn more_tabs<T: Copy + 'static>(
         &mut self,
         prefix: &str,
         hidden: Vec<StripTab<T>>,
-        pick: impl Fn(&mut Self, T) + Clone + 'static,
+        pick: impl Fn(&mut Self, T, bool) + Clone + 'static,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let strip = format!("{prefix}s");
@@ -100,7 +129,7 @@ impl Launcher {
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.close_menu();
-                    pick(this, value);
+                    pick(this, value, false);
                     cx.notify();
                 }));
                 list = list.child(if i == 0 { ui::starts_menu(row) } else { row });

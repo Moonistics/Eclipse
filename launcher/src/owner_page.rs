@@ -98,21 +98,12 @@ impl Launcher {
                                 )))
                                 .child(ui::sign_in_code(user_code.to_string())),
                         )
-                        .child(
-                            ui::button(
-                                "owner-copy",
-                                None,
-                                tr("Copy code"),
-                                ButtonKind::Secondary,
-                                ui::ButtonSize::Md,
-                            )
-                            .on_press(move |_, _, cx| {
-                                clipboard::copy_to_clipboard(
-                                    cx,
-                                    gpui::ClipboardItem::new_string(copy.clone()),
-                                )
-                            }),
-                        ),
+                        .child(ui::copy_button(
+                            "owner-copy",
+                            tr("Copy code"),
+                            copy.clone(),
+                            ui::ButtonSize::Md,
+                        )),
                 )
             }
             Shown::Starting(what) => card.child(

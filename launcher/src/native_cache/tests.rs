@@ -112,10 +112,8 @@ fn limit_keeps_warm_cache_until_exceeded_and_zero_disables_automatic_cleanup() {
     let dir = Temp::new();
     let artifact = dir.put("native/target/fast/compiled", b"12345");
     let cache = Cache::acquire(&dir.0).unwrap();
-    let off = crate::backend::Settings {
-        native_cache_gib: Some(0),
-        ..Default::default()
-    };
+    let mut off = crate::backend::Settings::default();
+    off.native_cache_gib = Some(0);
     assert_eq!(cache.trim(limit_bytes(&off)).unwrap(), 0);
     assert_eq!(cache.trim(Some(6)).unwrap(), 0);
     assert_eq!(cache.trim(Some(5)).unwrap(), 0);

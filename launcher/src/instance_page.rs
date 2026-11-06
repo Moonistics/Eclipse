@@ -1,10 +1,10 @@
 //! The New instance page: what the instance plays, its name and group, its version and its icon
 //! in cards; at the foot the instance as it will be, with Cancel and Create.
 use super::*;
-use crate::ui::{self, white};
+use crate::ui;
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{fill, ink, pixel_text, space};
+use eclipse_theme::glass::{ink, pixel_text, space};
 use fields::Field;
 use instance_state::{NewKind, VersionList};
 
@@ -20,9 +20,7 @@ const COLOURS: [u32; 7] = [
 const PREVIEW_ICON: f32 = ui::TILE_LG;
 const PREVIEW_ICON_SHORT: f32 = ui::TILE_MD;
 const CHOICE_ICON: f32 = ui::TILE_MD;
-const NAME_FIELD_WIDTH: f32 = 340.;
 const ECLIPSE_LIST: f32 = 248.;
-const ECLIPSE_COLUMN: f32 = 240.;
 pub(super) const CHOICE_NOTE_LINES: usize = 2;
 
 /// The loaders a new modded instance can use now.
@@ -120,12 +118,13 @@ impl Launcher {
             .flex_col()
             .size_full()
             .gap(px(layout::CARD_GAP))
+            .pb(px(layout::CARD_GAP))
             .children(cards);
         let pane = div()
             .relative()
             .flex_1()
             .min_h_0()
-            .pb(px(layout::CONTENT_INSET + foot_height() + layout::CARD_GAP))
+            .pb(px(layout::CONTENT_INSET + foot_height()))
             .child(ui::page_pane(
                 pane,
                 &scroll,
@@ -143,6 +142,10 @@ impl Launcher {
 
     pub(super) fn instance_page_compact(&self) -> bool {
         layout::content_width(self.window_width) < layout::INSTANCE_COMPACT_BELOW
+    }
+
+    pub(super) fn choice_marks(&self) -> bool {
+        !self.instance_page_compact()
     }
 
     /// The loader a modded instance plays (or will).
@@ -196,30 +199,16 @@ impl Launcher {
             .cloned()
     }
 
-    /// The mark an instance shows when nothing is chosen: Eclipse's, the grass block, its
-    /// loader's logo.
-    fn auto_mark(&mut self, kind: NewKind, loader: Loader, size: f32) -> AnyElement {
-        let mark = match kind {
-            NewKind::Eclipse => return self.eclipse_mark(size),
-            NewKind::Vanilla => self.grass_mark(size),
-            NewKind::Modded => self.loader_logo(loader.id(), size),
-        };
-        match mark {
-            Some(image) if kind == NewKind::Vanilla => {
-                instance_icons::centred(image, size, self.scale).into_any_element()
-            }
-            Some(image) => ui::image_tile(image, size),
-            None => {
-                let name = match kind {
-                    NewKind::Vanilla => "Vanilla",
-                    _ => loader.name(),
-                };
-                ui::letter_tile(white(fill::BUTTON), name, size).into_any_element()
-            }
+    /// The mark an instance of `kind` shows when nothing is chosen for it.
+    fn auto_mark(kind: NewKind, loader: Loader) -> instance_icons::Mark {
+        match kind {
+            NewKind::Eclipse => instance_icons::Mark::Eclipse,
+            NewKind::Vanilla => instance_icons::Mark::Grass,
+            NewKind::Modded => instance_icons::Mark::Loader(loader.id().to_string()),
         }
     }
 
-    /// The icon the instance will show, `size` px.
+    /// The icon the instance will show, `size` px: the same tile the sidebar draws.
     fn draft_icon(
         &mut self,
         editing: Option<&Instance>,
@@ -230,48 +219,23 @@ impl Launcher {
         let Some(d) = self.instances.draft.as_ref() else {
             return div().into_any_element();
         };
-        let d_logo = d.logo;
-        let (icon, picture) = (
-            d.icon.clone(),
-            d.picture
-                .as_ref()
-                .map(|p| p.as_ref().map(|c| c.png.clone())),
-        );
-        let image = match picture {
-            Some(Some(png)) => {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                png.hash(&mut h);
-                self.icon_image(format!("chosen:{:x}", h.finish()), size, false, || {
-                    Some(png)
-                })
-            }
-            Some(None) => None,
-            None => editing.and_then(|i| self.instance_picture(i, size)),
-        };
-        if let Some(image) = image {
-            // A loader's logo is a tile, round as the others; a picture keeps its own shape.
-            return match d_logo {
-                Some(_) => ui::image_tile(image, size),
-                None => instance_icons::centred(image, size, self.scale).into_any_element(),
-            };
-        }
-        match icon {
-            Some(Icon::Colour(hex)) => {
-                let rgb = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(0);
-                ui::letter_tile(ui::color(rgb), name, size).into_any_element()
-            }
-            Some(Icon::Texture(texture)) => match self.texture_image(&texture, size) {
-                Some(image) => ui::image_tile(image, size),
-                None => {
-                    ui::letter_tile(ui::color(ui::look().accent), name, size).into_any_element()
-                }
+        let picture = match &d.picture {
+            Some(Some(chosen)) => instance_icons::Picture::Picked {
+                png: chosen.png.clone(),
+                plated: d.logo.is_some_and(instance_icons::has_plate),
             },
-            None => {
-                let loader = self.draft_loader();
-                self.auto_mark(kind, loader, size)
-            }
-        }
+            Some(None) => instance_icons::Picture::None,
+            None => editing.map_or(instance_icons::Picture::None, |i| {
+                instance_icons::Picture::Saved(Box::new(i.clone()))
+            }),
+        };
+        let spec = instance_icons::IconSpec {
+            picture,
+            icon: d.icon.clone(),
+            mark: Self::auto_mark(kind, self.draft_loader()),
+            name: name.to_string(),
+        };
+        self.icon_for(spec, size)
     }
 
     fn draft_summary(&self, kind: NewKind, name: &str) -> String {
@@ -312,7 +276,7 @@ impl Launcher {
         // One made in the launcher can switch what it plays; the game's home and modpacks
         // play what they were made with.
         let switches = editing.is_none_or(|i| i.kind == instances::Kind::Own);
-        let marks = !self.instance_page_compact();
+        let marks = self.choice_marks();
         let mut cards = Vec::new();
         let kinds = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
         for k in kinds {
@@ -323,7 +287,9 @@ impl Launcher {
             };
             let mark = marks.then(|| match k {
                 NewKind::Modded => self.modded_mark(ui::MARK),
-                _ => self.auto_mark(k, loader, ui::MARK),
+                _ => self
+                    .mark(&Self::auto_mark(k, loader), ui::MARK)
+                    .unwrap_or_else(|| div().into_any_element()),
             });
             let card = ui::choice_card(format!("new-kind-{id}"), k == kind)
                 .items_start()
@@ -346,7 +312,7 @@ impl Launcher {
         let import = (offers_import && editing.is_none()).then(|| {
             let import = ui::button(
                 "instance-import",
-                None,
+                Some("folder-01"),
                 if importing {
                     tr("Importing…")
                 } else {
@@ -394,7 +360,7 @@ impl Launcher {
             .field(
                 Field::InstanceName,
                 tr("My instance"),
-                NAME_FIELD_WIDTH,
+                layout::FIELD_LG,
                 ui::ButtonSize::Lg,
                 cx,
             )
@@ -403,7 +369,7 @@ impl Launcher {
             .field(
                 Field::InstanceGroup,
                 tr("For example Survival"),
-                NAME_FIELD_WIDTH,
+                layout::FIELD_LG,
                 ui::ButtonSize::Lg,
                 cx,
             )
@@ -429,16 +395,12 @@ impl Launcher {
             )
             .children(editing.map(|i| {
                 let home = i.home.clone();
-                div().flex().child(
-                    ui::button(
-                        "instance-open-folder",
-                        Some("folder-01"),
-                        tr("Open instance folder"),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
-                    )
-                    .on_press(move |_, _, cx| crate::toast::open(cx, &home)),
-                )
+                div().flex().child(ui::open_folder_button(
+                    "instance-open-folder",
+                    tr("Open instance folder"),
+                    home,
+                    ui::ButtonSize::Md,
+                ))
             }))
     }
 }
@@ -539,7 +501,7 @@ impl Launcher {
                     cx.notify();
                 })))
         };
-        ui::card()
+        ui::foot_card()
             .id("instance-foot")
             .absolute()
             .left_0()
@@ -594,7 +556,7 @@ impl Launcher {
                     .child(
                         ui::item_text(label.clone(), date.unwrap_or_default())
                             .flex_none()
-                            .w(px(ECLIPSE_COLUMN)),
+                            .w(px(layout::FIELD_MD)),
                     )
                     .children(newest.then(|| {
                         ui::text(
@@ -715,7 +677,9 @@ impl Launcher {
             }
         }
         let loader = self.draft_loader();
-        let auto = self.auto_mark(kind, loader, CHOICE_ICON);
+        let auto = self
+            .mark(&Self::auto_mark(kind, loader), CHOICE_ICON)
+            .unwrap_or_else(|| div().into_any_element());
         let auto_on = !pictured && icon.is_none();
         first.push((
             icon_choice("icon-auto", auto_on).child(auto),
@@ -815,7 +779,7 @@ impl Launcher {
         let colours = picker("instance-colours", colours, cx);
         let choose = ui::button(
             "instance-picture",
-            Some("image-01"),
+            Some("folder-01"),
             tr("Choose image…"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,

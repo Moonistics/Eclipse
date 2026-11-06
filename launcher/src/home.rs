@@ -59,56 +59,29 @@ impl Launcher {
         // Play is the last step when it was pressed, not Prepare.
         let play = self.game.play_when_prepared.is_some();
         let soft = ui::look().accent_soft;
-        let pill = |name: &str, state: std::cmp::Ordering| {
-            let (mark, tone) = match state {
-                std::cmp::Ordering::Less => (
-                    ui::icon("tick-02", ui::IconSize::Px16, ui::live()).into_any_element(),
-                    ink::BODY,
-                ),
-                std::cmp::Ordering::Equal => {
-                    (ui::dot(Tone::Accent(soft)).into_any_element(), ink::FULL)
-                }
-                std::cmp::Ordering::Greater => (ui::dot(Tone::Off).into_any_element(), ink::MUTED),
+        let step_line = |name: &str, state: std::cmp::Ordering| {
+            let (tone, ink) = match state {
+                std::cmp::Ordering::Less => (Tone::Live, ink::BODY),
+                std::cmp::Ordering::Equal => (Tone::Accent(soft), ink::FULL),
+                std::cmp::Ordering::Greater => (Tone::Off, ink::MUTED),
             };
-            div()
-                .flex()
-                .items_center()
-                .gap(px(space::SM))
-                .child(mark)
-                .child(
-                    ui::text(step::CAPTION, FontWeight::MEDIUM, tone).child(tr(name).to_string()),
-                )
+            ui::text(step::CAPTION, FontWeight::MEDIUM, ink)
+                .child(ui::state_line(tone, name.to_string()))
+        };
+        let fraction = download.map(|(done, total)| {
+            let f = done as f32 / total as f32;
+            (f, f)
+        });
+        let note = match left {
+            Some(left) => format!("{doing} · {left}"),
+            None => doing,
         };
         div()
             .flex()
             .flex_col()
             .gap(px(space::MD))
             .max_w(px(STEPS_WIDTH))
-            .child(
-                div()
-                    .flex()
-                    .child(ui::progress_bar(download.map(|(done, total)| {
-                        let f = done as f32 / total as f32;
-                        (f, f)
-                    }))),
-            )
-            .child(
-                div()
-                    .flex()
-                    .justify_between()
-                    .gap(px(space::LG))
-                    .child(
-                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
-                            .min_w_0()
-                            .truncate()
-                            .child(doing),
-                    )
-                    .children(left.map(|l| {
-                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
-                            .flex_none()
-                            .child(l)
-                    })),
-            )
+            .child(ui::progress_line("", fraction, note))
             .child(
                 div()
                     .flex()
@@ -117,9 +90,9 @@ impl Launcher {
                     .children(
                         backend::PrepareStep::ALL
                             .iter()
-                            .map(|s| pill(s.name(), s.cmp(&now))),
+                            .map(|s| step_line(tr(s.name()), s.cmp(&now))),
                     )
-                    .children(play.then(|| pill("Play", std::cmp::Ordering::Greater))),
+                    .children(play.then(|| step_line(tr("Play"), std::cmp::Ordering::Greater))),
             )
     }
 }
@@ -322,11 +295,10 @@ impl Launcher {
         if self.installing.is_some() {
             return ui::loading_state("play-installing", tr("Installing Eclipse")).child(
                 div()
-                    .flex()
                     .w_full()
                     .max_w(px(INSTALL_BAR_WIDTH))
                     .mt(px(space::LG))
-                    .child(ui::progress_bar(Some(self.bar))),
+                    .child(ui::progress_line("", Some(self.bar), "")),
             );
         }
         let update = self.updates.eclipse.as_ref().map(|r| r.tag.clone());
@@ -472,20 +444,12 @@ impl Launcher {
                     )),
                 );
         }
-        actions = actions.child(
-            ui::button(
-                "crash-logs",
-                None,
-                tr("Open logs folder"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
-            )
-            .on_press(|_, _, cx| {
-                let dir = backend::logs_dir();
-                let _ = std::fs::create_dir_all(&dir);
-                crate::toast::open(cx, &dir);
-            }),
-        );
+        actions = actions.child(ui::open_folder_button(
+            "crash-logs",
+            tr("Open logs folder"),
+            backend::logs_dir(),
+            ui::ButtonSize::Md,
+        ));
         actions = actions.child(
             ui::button(
                 "crash-dismiss",

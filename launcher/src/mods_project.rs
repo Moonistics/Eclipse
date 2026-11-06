@@ -397,14 +397,21 @@ impl Launcher {
                     (format!("mods-loader-{l}"), l.clone(), on)
                 })
                 .collect();
-            self.filter_row("mods-loaders", "Loader", None, chips, cx, move |f, i| {
-                let v = values[i].clone();
-                f.loader = if f.loader.as_ref() == Some(&v) {
-                    None
-                } else {
-                    Some(v)
-                };
-            })
+            self.filter_row(
+                "mods-loaders",
+                tr("Loader"),
+                None,
+                chips,
+                cx,
+                move |f, i| {
+                    let v = values[i].clone();
+                    f.loader = if f.loader.as_ref() == Some(&v) {
+                        None
+                    } else {
+                        Some(v)
+                    };
+                },
+            )
         };
         let versions = {
             let values: Vec<String> = tags.game_versions.iter().take(12).cloned().collect();
@@ -420,7 +427,7 @@ impl Launcher {
                 .map(|grass| img(grass).size(px(20.)).flex_none().into_any_element());
             self.filter_row(
                 "mods-versions",
-                "Game version",
+                tr("Game version"),
                 grass,
                 chips,
                 cx,
@@ -444,7 +451,7 @@ impl Launcher {
                 .collect();
             self.filter_row(
                 "mods-environments",
-                "Environment",
+                tr("Environment"),
                 None,
                 chips,
                 cx,
@@ -469,7 +476,7 @@ impl Launcher {
                 .collect();
             self.filter_row(
                 "mods-categories",
-                "Categories",
+                tr("Categories"),
                 None,
                 chips,
                 cx,
@@ -493,7 +500,7 @@ impl Launcher {
                     (format!("mods-tag-{tag}"), tag_name(tag), on)
                 })
                 .collect();
-            self.filter_row("mods-tags", "Tags", None, chips, cx, move |f, i| {
+            self.filter_row("mods-tags", tr("Tags"), None, chips, cx, move |f, i| {
                 let v = values[i].clone();
                 if !f.tags.contains(&v) {
                     f.tags.push(v);
@@ -531,7 +538,7 @@ impl Launcher {
     fn filter_row(
         &self,
         id: &'static str,
-        title: &'static str,
+        title: &str,
         lead: Option<AnyElement>,
         chips: Vec<(String, String, bool)>,
         cx: &mut Context<Self>,
@@ -548,7 +555,7 @@ impl Launcher {
             .flex_wrap()
             .items_center()
             .gap(px(space::XS))
-            .child(ui::label(tr(title)).w(px(FILTER_NAME)))
+            .child(ui::label(title.to_string()).w(px(FILTER_NAME)))
             .children(lead);
         ui::options(list, rows, false, move |i, _, cx| {
             let _ = this.update(cx, |this, cx| {
@@ -700,7 +707,7 @@ impl Launcher {
             _ => None,
         };
         let icon = self.mods_icon(&p, ui::FACE_XL);
-        let busy = self.mods.busy.as_ref().map(|b| b.0.clone());
+        let busy = self.mods.busy.clone();
         let installed = self.mods.entry(&p).is_some();
         let checking = self.mods.checking(&p);
         let instance = self
@@ -720,7 +727,7 @@ impl Launcher {
             ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(tone, said))
         };
         let mut action = div().flex().flex_none().items_center().gap(px(space::MD));
-        if busy.as_deref() == Some(p.id.as_str()) {
+        if busy.as_ref().is_some_and(|b| b.installs(&p.id)) {
             action = action.child(state(ui::Tone::Busy, tr("Installing…").to_string()));
         } else if installed {
             action = action.child(state(
@@ -746,11 +753,9 @@ impl Launcher {
             action = action.child(install);
         } else if let Some(minecraft) = vanilla {
             action = action.child(
-                ui::button(
+                ui::primary(
                     "mods-page-new-fabric",
-                    None,
                     tr("Create a Fabric instance"),
-                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -836,17 +841,17 @@ impl Launcher {
                     .flex()
                     .flex_col()
                     .gap(px(space::XS))
-                    .child(ui::label(tr(title)))
+                    .child(ui::label(title.to_string()))
                     .children(list.iter().map(|l| {
                         ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(l.clone())
                     }))
             };
             let mut what = div().flex().flex_wrap().gap(px(space::XXL));
             if !c.ports.is_empty() {
-                what = what.child(lines("Ports", &c.ports));
+                what = what.child(lines(tr("Ports"), &c.ports));
             }
             if !c.skipped.is_empty() {
-                what = what.child(lines("Doesn't port", &c.skipped));
+                what = what.child(lines(tr("Doesn't port"), &c.skipped));
             }
             page = page.child(what);
         }
@@ -897,7 +902,7 @@ impl Launcher {
             named,
             tab,
             layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
-            |this, shown| {
+            |this, shown, _| {
                 if let Some(o) = &mut this.mods.browse.open {
                     o.tab = shown;
                 }

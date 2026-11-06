@@ -31,7 +31,7 @@ pub(super) struct ModRow {
     pub(super) entry: Option<installed::Entry>,
     /// The icon its jar names, scaled to the row (`images::ROW`) and decoded once by the UI.
     pub(super) icon: Option<Arc<gpui::Image>>,
-    pub(super) native: Option<native_status::Installed>,
+    pub(super) native: Option<eclipse_launcher::github_mods::Installed>,
 }
 
 /// Modrinth projects' icon URLs by project id, kept on disk beside the image cache so the icons
@@ -49,12 +49,10 @@ fn project_icons_file() -> PathBuf {
 
 #[derive(Default)]
 pub(super) struct InstanceMods {
-    home: Option<PathBuf>,
     pub(super) fresh: bool,
     reading: bool,
     pub(super) list: Vec<ModRow>,
-    /// The browser was installing at the last draw: its end changes the list.
-    was_busy: bool,
+    made_from: u64,
     /// Only the rows near the view are built (a modpack has hundreds), measured again when the
     /// shown list changes (its length and the filter).
     pub(super) cull: cull::Cull,
@@ -81,21 +79,29 @@ impl InstanceMods {
         self.fingerprint.clone()
     }
 
-    /// Delivers a read, marking it fresh only if its fingerprint is still current.
-    fn complete_read(&mut self, home: &Path, fingerprint: &str, list: Vec<ModRow>) {
+    fn made_from(&mut self, read: u64) {
+        if self.made_from != read {
+            self.made_from = read;
+            self.invalidate();
+        }
+    }
+
+    /// Delivers a read, marking it fresh only if it was made from the installed list and
+    /// native files as they are now.
+    fn complete_read(&mut self, made_from: u64, fingerprint: &str, list: Vec<ModRow>) {
         self.reading = false;
-        if self.home.as_deref() == Some(home) {
+        if self.made_from == made_from {
             self.list = list;
             self.fresh = self.fingerprint == fingerprint;
         }
     }
 }
 
-/// The mods of the instance at `home`: a Java one's jars in `mods/` (on or off), a Eclipse one's
-/// registry mods. Each jar names itself (`fabric.mod.json`, `quilt.mod.json`...), else its file.
-fn read(home: &Path, java_instance: bool) -> Vec<ModRow> {
-    let entries: Vec<installed::Entry> = installed::Installed::load(home)
-        .entries
+/// The mods of the instance at `home`, with what the browser installed there (`entries`): a Java
+/// one's jars in `mods/` (on or off), a Eclipse one's registry mods. Each jar names itself
+/// (`fabric.mod.json`, `quilt.mod.json`...), else its file.
+fn read(home: &Path, java_instance: bool, entries: Vec<installed::Entry>) -> Vec<ModRow> {
+    let entries: Vec<installed::Entry> = entries
         .into_iter()
         .filter(|e| e.kind == PackKind::Mod)
         .collect();
@@ -149,7 +155,7 @@ fn read(home: &Path, java_instance: bool) -> Vec<ModRow> {
     };
     if !java_instance {
         rows.extend(
-            native_status::untracked(home)
+            eclipse_launcher::github_mods::untracked(home)
                 .into_iter()
                 .map(|native| ModRow {
                     file: native.file.clone(),
@@ -185,24 +191,18 @@ impl Launcher {
             .is_some_and(|i| i.java.as_ref().is_none_or(|j| j.loader.is_some()))
     }
 
-    /// Reads the selected instance's mods off the UI thread, once until something changes them.
+    /// Reads the selected instance's mods off the UI thread, once until something changes them:
+    /// the Mods page's installed list (read again after every install, removal and switch) or the
+    /// native files.
     fn load_instance_mods(&mut self, cx: &mut Context<Self>) {
         let Some(i) = self.selected_instance() else {
             return;
         };
-        let (home, java_instance) = (i.home.clone(), i.java.is_some());
+        let java_instance = i.java.is_some();
+        let home = self.mods.home();
+        let (made_from, entries) = (self.mods.installed_read, self.mods.installed.clone());
         let m = &mut self.instance_mods;
-        if m.home.as_ref() != Some(&home) {
-            *m = InstanceMods {
-                home: Some(home.clone()),
-                ..InstanceMods::default()
-            };
-        }
-        let busy = self.mods.busy.is_some();
-        if m.was_busy && !busy {
-            m.invalidate();
-        }
-        m.was_busy = busy;
+        m.made_from(made_from);
         let fingerprint = if java_instance {
             String::new()
         } else {
@@ -215,12 +215,12 @@ impl Launcher {
         let read_fingerprint = m.begin_read();
         let task = cx
             .background_executor()
-            .spawn(async move { (home.clone(), read(&home, java_instance)) });
+            .spawn(async move { read(&home, java_instance, entries) });
         cx.spawn(async move |this, cx| {
-            let (home, list) = task.await;
+            let list = task.await;
             let _ = this.update(cx, |this, cx| {
                 let m = &mut this.instance_mods;
-                m.complete_read(&home, &read_fingerprint, list);
+                m.complete_read(made_from, &read_fingerprint, list);
                 let ids = this
                     .instance_mods
                     .list
@@ -311,15 +311,14 @@ impl Launcher {
     }
 
     pub(super) fn switch_mod(&mut self, row: &ModRow) {
-        let home = self.instance_mods.home.clone().unwrap_or_default();
-        let java_instance = self.selected_instance().is_some_and(|i| i.java.is_some());
         match &row.entry {
-            Some(e) if !java_instance => self.mods_switch(e),
-            _ => {
+            Some(e) => self.mods_switch(e),
+            None => {
+                let home = self.mods.home();
                 self.mods.message = switch_jar(&home, &row.file, !row.on).err().map(Err);
+                self.instance_mods.invalidate();
             }
         }
-        self.instance_mods.invalidate();
     }
 }
 
@@ -368,14 +367,11 @@ mod tests {
         std::fs::create_dir_all(&installed).unwrap();
         std::fs::write(installed.join("first.hnmod"), b"unreadable").unwrap();
 
-        let mut mods = InstanceMods {
-            home: Some(home.clone()),
-            ..InstanceMods::default()
-        };
+        let mut mods = InstanceMods::default();
         mods.observe_fingerprint(native_status::fingerprint(home, None));
         assert!(!mods.fresh);
         let read_fingerprint = mods.begin_read();
-        let old_list = read(home, false);
+        let old_list = read(home, false, Vec::new());
         assert_eq!(old_list.len(), 1);
 
         std::fs::write(installed.join("second.hnmod"), b"unreadable").unwrap();
@@ -383,11 +379,11 @@ mod tests {
         assert!(!mods.fresh);
         assert!(mods.reading, "the first read must still be pending");
 
-        mods.complete_read(home, &read_fingerprint, old_list);
+        mods.complete_read(0, &read_fingerprint, old_list);
         let another_read_needed = !mods.fresh && !mods.reading;
         if another_read_needed {
             let read_fingerprint = mods.begin_read();
-            mods.complete_read(home, &read_fingerprint, read(home, false));
+            mods.complete_read(0, &read_fingerprint, read(home, false, Vec::new()));
         }
         let final_files: Vec<_> = mods.list.iter().map(|row| row.file.as_str()).collect();
         let final_listing_is_fresh = mods.fresh
@@ -421,7 +417,7 @@ mod tests {
             .unwrap();
         java::set_enabled(&home, "local", false).unwrap();
         java::set_enabled(&home, "registry", true).unwrap();
-        let rows = read(&home, false);
+        let rows = read(&home, false, installed::Installed::load(&home).entries);
         let seen: Vec<_> = rows
             .iter()
             .map(|r| (r.name.as_str(), r.on, r.native.is_some()))
@@ -431,7 +427,7 @@ mod tests {
             [("local", false, true), ("Registry mod", true, false)]
         );
         assert!(
-            read(&home, true).is_empty(),
+            read(&home, true, Vec::new()).is_empty(),
             "native mods stay out of Java instances"
         );
         std::fs::remove_dir_all(home).unwrap();
@@ -445,11 +441,11 @@ mod tests {
         std::fs::write(mods.join("zeta-1.0.jar"), b"not a zip").unwrap();
         std::fs::write(mods.join("alpha-2.0.jar.disabled"), b"not a zip").unwrap();
         std::fs::write(mods.join("notes.txt"), b"").unwrap();
-        let rows = read(&home, true);
+        let rows = read(&home, true, Vec::new());
         let seen: Vec<_> = rows.iter().map(|r| (r.name.as_str(), r.on)).collect();
         assert_eq!(seen, [("alpha-2.0", false), ("zeta-1.0", true)]);
         switch_jar(&home, "mods/alpha-2.0.jar", true).unwrap();
-        assert!(read(&home, true).iter().all(|r| r.on));
+        assert!(read(&home, true, Vec::new()).iter().all(|r| r.on));
         let _ = std::fs::remove_dir_all(&home);
     }
 }

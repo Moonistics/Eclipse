@@ -109,6 +109,12 @@ impl Os {
 
 const OFFICIAL: &str = "the official launcher";
 
+pub fn known_folders_here() -> Vec<(&'static str, PathBuf)> {
+    Folders::current()
+        .map(|f| known_folders(Os::current(), &f))
+        .unwrap_or_default()
+}
+
 /// Every launcher's default game folder on `os`, the official launcher's first. MultiMC on
 /// macOS and Windows has none (it lives where it was unzipped): it is chosen by hand.
 pub fn known_folders(os: Os, f: &Folders) -> Vec<(&'static str, PathBuf)> {

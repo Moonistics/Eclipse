@@ -10,7 +10,6 @@
 
 use crate::backend::{self, CLIENT};
 use crate::i18n::{tr, trf};
-use crate::native_mods::{self, Target};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Cursor, Read, Seek};
@@ -69,8 +68,7 @@ fn base_for(
     requested: Option<&str>,
     selected: Option<&str>,
 ) -> Result<String, String> {
-    let usable =
-        |v: &str| native_mods::is_release_or_nightly(v) && installed.iter().any(|t| t == v);
+    let usable = |v: &str| backend::is_release_or_nightly(v) && installed.iter().any(|t| t == v);
     match requested {
         Some(b) if usable(b) => Ok(b.to_owned()),
         Some(b) => Err(format!("{b} is not an installed release or Nightly.")),
@@ -78,7 +76,7 @@ fn base_for(
             selected
                 .filter(|s| usable(s))
                 .map(str::to_owned)
-                .or_else(|| native_mods::newest_installed(installed).cloned())
+                .or_else(|| backend::newest_release_or_nightly(installed).cloned())
                 .ok_or_else(|| {
                     tr("Install a release or Nightly first: an imported build plays with its game \
                     files.")
@@ -109,10 +107,7 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
         ));
     }
     backend::reuse_prepared_for(&tag);
-    // Read again: the window may have saved other settings during the copy.
-    let mut settings = backend::Settings::load();
-    settings.selected = Some(tag.clone());
-    settings.save()?;
+    backend::Settings::update(|settings| settings.selected = Some(tag.clone()))?;
     Ok(tag)
 }
 
@@ -266,7 +261,7 @@ fn install_in(
         .iter()
         .map(|b| format!("{b:02x}"))
         .collect();
-    let short = native_mods::short(&sha256);
+    let short = &sha256[..7];
     // The same program imported on another day is the version made then.
     let made = fs::read_dir(versions)
         .into_iter()
@@ -298,7 +293,7 @@ fn install_in(
     };
     let made = fs::create_dir_all(&partial)
         .map_err(|e| e.to_string())
-        .and_then(|()| native_mods::copy_base(&versions.join(base), &partial, Target::Client))
+        .and_then(|()| backend::copy_version_except(&versions.join(base), &partial, &[]))
         .and_then(|()| finish(&partial, &dir, program, &record).map_err(|e| e.to_string()));
     let _ = retried(|| fs::remove_dir_all(&partial).or_else(|_| gone(&partial)));
     if let Err(e) = made {
@@ -411,7 +406,7 @@ mod tests {
             tag.starts_with("imported-2026-11-01-") && tag.len() == 27,
             "{tag}"
         );
-        assert!(is_imported(&tag) && !native_mods::is_release_or_nightly(&tag));
+        assert!(is_imported(&tag) && !backend::is_release_or_nightly(&tag));
         assert_eq!(label(&tag).as_deref(), Some("Imported · 2026-11-01"));
         let dir = versions.join(&tag);
         assert_eq!(fs::read(dir.join(CLIENT)).unwrap(), built);

@@ -246,7 +246,7 @@ impl Launcher {
             f == self.root_focus || f == self.content_focus || f == self.side_focus
         });
         let pane = match self.page {
-            Page::Settings => &self.settings_pane.handle,
+            Page::Settings => &self.settings_ui.pane.handle,
             Page::InstanceEditor => match &self.instances.draft {
                 Some(d) => &d.scroll.handle,
                 None => &self.content_scroll.handle,

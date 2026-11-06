@@ -25,7 +25,17 @@ const CORNER_FLOAT_WIDTH: f32 = 440.;
 
 const MORE_BELOW_FADE: f32 = 32.;
 
+const MORE_BELOW_FADE_SHORT: f32 = 16.;
+
 pub const SCROLL_FADE: f32 = MORE_BELOW_FADE;
+
+fn fade_height() -> f32 {
+    if super::short_window() {
+        MORE_BELOW_FADE_SHORT
+    } else {
+        MORE_BELOW_FADE
+    }
+}
 
 const STATE_ACTIONS_GAP: f32 = space::XL;
 
@@ -35,11 +45,21 @@ const DIALOG_WIDE: f32 = 680.;
 
 const DIALOG_PADDING: f32 = space::XXL;
 
+const SPLIT_DIALOG_MAX: (f32, f32) = (1180., 840.);
+
 const SCRIM_SHADE: f32 = 0.5;
 
 const SCRIM_SHADE_LIGHT: f32 = 0.2;
 
 const LOG_HEIGHT: f32 = 320.;
+
+const FOOT_LIFT: f32 = space::SM;
+
+const FOOT_BLUR: f32 = space::XL;
+
+const FOOT_SHADE: f32 = 0.45;
+
+const FOOT_SHADE_LIGHT: f32 = 0.1;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Surface {
@@ -81,10 +101,26 @@ pub fn card() -> Div {
         .child(backdrop(Surface::Card, radius::PANEL))
 }
 
+pub fn foot_card() -> Div {
+    let shade = if light() {
+        color(eclipse_theme::glass::ON_LIGHT).opacity(FOOT_SHADE_LIGHT)
+    } else {
+        gpui::black().opacity(FOOT_SHADE)
+    };
+    card().shadow(vec![gpui::BoxShadow {
+        color: shade,
+        offset: point(px(0.), px(-FOOT_LIFT)),
+        blur_radius: px(FOOT_BLUR),
+        spread_radius: px(0.),
+        inset: false,
+    }])
+}
+
 pub fn float_card() -> Div {
     div()
         .relative()
         .rounded(px(radius::POPOVER))
+        .shadow_lg()
         .child(backdrop(Surface::Float, radius::POPOVER))
 }
 
@@ -247,7 +283,6 @@ pub fn dialog(
     foot: Vec<AnyElement>,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let title: SharedString = title.into();
     dialog_plate()
         .id(id.clone())
         .occlude()
@@ -259,50 +294,97 @@ pub fn dialog(
         }))
         .max_w_full()
         .max_h_full()
-        .child(
+        .children(dialog_column(id, eyebrow, title.into(), body, foot))
+}
+
+pub fn split_dialog(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    aside: Option<AnyElement>,
+    body: impl IntoElement,
+    foot: Vec<AnyElement>,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    dialog_plate()
+        .id(id.clone())
+        .occlude()
+        .flex()
+        .w_full()
+        .max_w(px(SPLIT_DIALOG_MAX.0))
+        .h_full()
+        .max_h(px(SPLIT_DIALOG_MAX.1))
+        .children(aside.map(|aside| {
             div()
                 .relative()
                 .flex()
-                .flex_col()
                 .flex_none()
-                .gap(px(space::SM))
-                .px(px(DIALOG_PADDING))
-                .pt(px(DIALOG_PADDING))
-                .children(eyebrow.map(super::label))
-                .child(
-                    heading(format!("{id}-title"), title.clone(), 2)
-                        .child(entity_title(title, pixel_text::CARD_TITLE)),
-                ),
-        )
+                .h_full()
+                .rounded_l(px(radius::MODAL))
+                .bg(inset())
+                .child(aside)
+        }))
         .child(
             div()
                 .relative()
                 .flex()
                 .flex_col()
-                .min_h_0()
-                .px(px(DIALOG_PADDING))
-                .pt(px(space::MD))
-                .pb(px(if foot.is_empty() {
-                    DIALOG_PADDING
-                } else {
-                    space::LG
-                }))
-                .child(body),
+                .flex_1()
+                .min_w_0()
+                .children(dialog_column(id, None, title.into(), body, foot)),
         )
+}
+
+fn dialog_column(
+    id: SharedString,
+    eyebrow: Option<SharedString>,
+    title: SharedString,
+    body: impl IntoElement,
+    foot: Vec<AnyElement>,
+) -> [AnyElement; 3] {
+    let head = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .gap(px(space::SM))
+        .px(px(DIALOG_PADDING))
+        .pt(px(DIALOG_PADDING))
+        .children(eyebrow.map(super::label))
+        .child(
+            heading(format!("{id}-title"), title.clone(), 2)
+                .child(entity_title(title, pixel_text::CARD_TITLE)),
+        );
+    let body = div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_h_0()
+        .px(px(DIALOG_PADDING))
+        .pt(px(space::MD))
+        .pb(px(if foot.is_empty() {
+            DIALOG_PADDING
+        } else {
+            space::LG
+        }))
+        .child(body);
+    let foot = div()
+        .relative()
+        .flex()
+        .flex_none()
+        .flex_wrap()
+        .items_center()
+        .justify_end()
+        .gap(px(space::MD))
         .when(!foot.is_empty(), |d| {
-            d.child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_none()
-                    .flex_wrap()
-                    .justify_end()
-                    .gap(px(space::MD))
-                    .px(px(DIALOG_PADDING))
-                    .pb(px(DIALOG_PADDING))
-                    .children(foot),
-            )
+            d.px(px(DIALOG_PADDING)).pb(px(DIALOG_PADDING))
         })
+        .children(foot);
+    [
+        head.into_any_element(),
+        body.into_any_element(),
+        foot.into_any_element(),
+    ]
 }
 
 pub fn dialog_colour() -> Hsla {
@@ -385,8 +467,7 @@ pub fn error_state_with(
     extra: Vec<Stateful<Div>>,
     retry: ButtonKind,
 ) -> Stateful<Div> {
-    let cause = plain_error(error).to_string();
-    error_state_told(id, title, cause, error, on_retry, extra, retry)
+    error_state_told(id, title, told_cause(error), error, on_retry, extra, retry)
 }
 
 pub fn error_state_told(
@@ -417,6 +498,17 @@ pub fn error_state_told(
 
 pub fn plain_error(error: &str) -> &str {
     error.lines().next().unwrap_or_default()
+}
+
+pub fn told_cause(error: &str) -> String {
+    let line = plain_error(error);
+    if line.ends_with('.') {
+        return line.to_string();
+    }
+    match line.split_once(": ") {
+        Some((said, _)) if said.starts_with(char::is_uppercase) => format!("{said}."),
+        _ => crate::tr("Copy the details to report it.").to_string(),
+    }
 }
 
 pub fn empty_card(state: Stateful<Div>) -> Div {
@@ -484,6 +576,20 @@ pub fn section_card(
         .child(field_group(format!("{id}-title"), title, aside, body))
 }
 
+pub fn setting_card(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    card()
+        .id(id.clone())
+        .flex()
+        .flex_col()
+        .p(px(super::LIST_INSET))
+        .child(
+            section_title(format!("{id}-title"), title)
+                .px(px(super::SETTING_ROW_PADDING))
+                .pt(px(super::SETTING_ROW_PADDING)),
+        )
+}
+
 pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
     nested_list(id)
         .flex()
@@ -503,7 +609,7 @@ pub fn more_above_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
             .left_0()
             .right_0()
             .top_0()
-            .h(px(MORE_BELOW_FADE))
+            .h(px(fade_height()))
             .bg(gpui::linear_gradient(
                 180.,
                 gpui::linear_color_stop(under, 0.),
@@ -531,7 +637,7 @@ pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
             .left_0()
             .right_0()
             .bottom_0()
-            .h(px(MORE_BELOW_FADE))
+            .h(px(fade_height()))
             .bg(gpui::linear_gradient(
                 180.,
                 gpui::linear_color_stop(under.opacity(0.), 0.),

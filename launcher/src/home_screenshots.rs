@@ -36,10 +36,7 @@ impl Launcher {
                         ui::ButtonSize::Md,
                         false,
                     )
-                    .on_press(move |_, _, cx| {
-                        let _ = std::fs::create_dir_all(&folder);
-                        crate::toast::open(cx, &folder);
-                    }),
+                    .on_press(move |_, _, cx| ui::open_folder(&folder, cx)),
                 ),
         );
         let shown = if self.screenshots.all {

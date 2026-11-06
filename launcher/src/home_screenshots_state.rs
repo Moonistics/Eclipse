@@ -172,7 +172,7 @@ impl Launcher {
                 .child(
                     ui::button(
                         "screenshot-copy",
-                        None,
+                        Some("copy-01"),
                         tr("Copy"),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,
@@ -197,7 +197,7 @@ impl Launcher {
                 .child(
                     ui::button(
                         "screenshot-show",
-                        None,
+                        Some("folder-01"),
                         tr("Show in folder"),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,

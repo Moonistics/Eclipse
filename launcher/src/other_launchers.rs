@@ -500,7 +500,7 @@ pub fn copy_game(found: &Found, to: &Path) -> std::io::Result<()> {
             continue;
         }
         if entry.file_type()?.is_dir() {
-            crate::backend::copy_dir(&entry.path(), &to.join(name.as_ref()))?;
+            crate::files::copy_dir(&entry.path(), &to.join(name.as_ref()), &[])?;
         } else {
             fs::copy(entry.path(), to.join(name.as_ref()))?;
         }

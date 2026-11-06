@@ -28,14 +28,16 @@ fn root(
         .join(default)
 }
 
-/// A canonical path without Windows' verbatim prefix: `canonicalize` gives `\\?\C:\...` there,
-/// and some tools stat `\\?\C:` — the volume itself — and fail. A drive path loses its `\\?\`;
-/// any other path is left as it is.
-pub(crate) fn plain(path: PathBuf) -> PathBuf {
-    match path.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
-        Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
-        _ => path,
-    }
+/// Eclipse's own Minecraft folder, in the official launcher's layout: what it downloads from
+/// Mojang for an account that owns the game (versions, libraries, assets, Java runtimes).
+pub fn own_minecraft_dir() -> PathBuf {
+    data_dir().join("minecraft")
+}
+
+/// Where other launchers' game files are linked into the official layout for a preparation
+/// (`sources::resolve`).
+pub(super) fn linked_minecraft_dir() -> PathBuf {
+    data_dir().join("linked-minecraft")
 }
 
 /// `path` spelled only in ASCII: what Windows' MinGW-w64 tools can open (they read paths
@@ -65,7 +67,7 @@ pub fn build_dir() -> PathBuf {
     }
     let data = data_dir();
     let _ = fs::create_dir_all(&data);
-    let real = data.canonicalize().map(plain).unwrap_or(data);
+    let real = data.canonicalize().map(crate::files::plain).unwrap_or(data);
     if tool_safe(&real) {
         return real;
     }

@@ -105,16 +105,12 @@ impl Launcher {
         let draft = self.collection.draft;
         let rows = telemetry::SWITCHES.iter().map(|&(kind, name, what)| {
             let on = draft.allows(kind);
-            ui::toggle_row(
-                kind_id("ask", kind),
-                tr(name),
-                Some(div().child(tr(what)).into_any_element()),
-                on,
+            ui::toggle_row(kind_id("ask", kind), tr(name), Some(tr(what).into()), on).on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.collection.draft.set(kind, !on);
+                    cx.notify();
+                }),
             )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.collection.draft.set(kind, !on);
-                cx.notify();
-            }))
         });
         let viewing = self.collection.view.is_some();
         // The body scrolls inside the card, so the answers stay at its foot however short the
@@ -205,22 +201,17 @@ impl Launcher {
         let mut list = div().flex().flex_col();
         for &(kind, name, what) in telemetry::SWITCHES.iter() {
             let on = !consent.needs_asking() && consent.choices.allows(kind);
-            let row = ui::toggle_row(
-                kind_id("data", kind),
-                tr(name),
-                Some(div().child(tr(what)).into_any_element()),
-                on,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                let mut choices = if this.collection.consent.needs_asking() {
-                    Choices::NONE
-                } else {
-                    this.collection.consent.choices
-                };
-                choices.set(kind, !on);
-                this.answer_consent(choices);
-                cx.notify();
-            }));
+            let row = ui::toggle_row(kind_id("data", kind), tr(name), Some(tr(what).into()), on)
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let mut choices = if this.collection.consent.needs_asking() {
+                        Choices::NONE
+                    } else {
+                        this.collection.consent.choices
+                    };
+                    choices.set(kind, !on);
+                    this.answer_consent(choices);
+                    cx.notify();
+                }));
             list = list.child(row);
         }
         let waiting = eclipse_telemetry::outbox::pending(&telemetry::home()).len();

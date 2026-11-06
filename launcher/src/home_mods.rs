@@ -148,14 +148,11 @@ impl Launcher {
                 .as_ref()
                 .is_some_and(|e| self.project_icon(e).is_some());
         let icon = if known {
-            div()
-                .relative()
-                .flex_none()
-                .size(px(ui::TILE_MD))
-                .rounded(px(radius::ROW))
-                .overflow_hidden()
-                .child(self.mod_icon(row.entry.as_ref(), row.icon.clone(), ui::TILE_MD))
-                .into_any_element()
+            ui::face(
+                self.mod_icon(row.entry.as_ref(), row.icon.clone(), ui::TILE_MD),
+                ui::TILE_MD,
+            )
+            .into_any_element()
         } else {
             ui::row_picture(None, "puzzle")
         };

@@ -64,16 +64,22 @@ impl Launcher {
             options.push((WhilePlaying::Hide, "Hide"));
         }
         let current = self.settings.while_playing.here();
-        let picker = crate::ui::segments("while-playing", &ui::translated(&options), current, {
-            let this = cx.entity().downgrade();
-            move |choice, _, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    this.settings.while_playing = choice;
-                    this.save_settings();
-                    cx.notify();
-                });
-            }
-        });
+        let picker = crate::ui::segments(
+            "while-playing",
+            tr("Launcher window while playing"),
+            &ui::translated(&options),
+            current,
+            {
+                let this = cx.entity().downgrade();
+                move |choice, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings.while_playing = choice;
+                        this.save_settings();
+                        cx.notify();
+                    });
+                }
+            },
+        );
         ui::setting_row_fit(
             self.wide_controls_beside(),
             tr("Launcher window while playing"),

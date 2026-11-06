@@ -80,6 +80,10 @@ impl Field {
         }
     }
 
+    fn holds_code(self) -> bool {
+        matches!(self, Field::ServerCommand)
+    }
+
     fn empty(self) -> LineEdit {
         let max = match self {
             Field::InviteCode | Field::Proxy => 256,
@@ -239,6 +243,10 @@ impl Launcher {
             .aria_placeholder(placeholder)
             .when(!secret, |d| d.aria_value(self.fields.value(f).to_string()))
             .w(px(width))
+            .when(f.holds_code(), |d| {
+                d.font_family(crate::theme::MONO)
+                    .text_size(px(step::NOTE.size))
+            })
             .cursor_text()
             .children(lead.map(|l| div().relative().flex_none().child(l)))
             .child(
@@ -256,6 +264,40 @@ impl Launcher {
             .when(trailing.is_some(), |d| d.pr(px(TRAILING_INSET)))
             .children(trailing.map(|t| div().relative().flex_none().child(t)));
         self.text_input(f, field, cx)
+    }
+
+    pub(super) fn name_adder(
+        &mut self,
+        f: Field,
+        id: &str,
+        width: f32,
+        can_add: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let add = ui::button(
+            format!("{id}-add"),
+            Some("plus-sign"),
+            tr("Add"),
+            ui::ButtonKind::Secondary,
+            ui::ButtonSize::Sm,
+        );
+        let add = if can_add {
+            add.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.field_enter(f);
+                cx.notify();
+            }))
+        } else {
+            ui::disabled(add)
+        };
+        self.field_with(
+            f,
+            None,
+            tr("A player's name"),
+            width,
+            ui::ButtonSize::Md,
+            Some(add.into_any_element()),
+            cx,
+        )
     }
 
     pub(super) fn text_input(

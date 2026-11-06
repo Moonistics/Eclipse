@@ -31,8 +31,6 @@ const BEVEL_SHADE: f32 = 0.22;
 
 const SPLIT_RULE: f32 = 0.2;
 
-const BUSY_TRACK: f32 = 0.35;
-
 const LINK_MIN_HEIGHT: f32 = 24.;
 
 const TAB_UNDERLINE: f32 = 3.;
@@ -121,9 +119,13 @@ pub fn press_text() -> Div {
     pixel_text(PRESS)
 }
 
+pub fn button_width(label: &str, size: ButtonSize) -> f32 {
+    press_width(&label.to_uppercase()) + 2. * size.pad()
+}
+
 pub fn press_width(label: &str) -> f32 {
-    let advance =
-        eclipse_theme::glass::MONOCRAFT_ADVANCE * PRESS / eclipse_theme::glass::MONOCRAFT_PIXEL;
+    let advance = eclipse_theme::glass::MONOCRAFT_ADVANCE * super::on_pixel_grid(PRESS)
+        / eclipse_theme::glass::MONOCRAFT_PIXEL;
     label.chars().count() as f32 * advance
 }
 
@@ -294,7 +296,7 @@ pub fn more_busy(
 }
 
 fn busy_track() -> Hsla {
-    color(look().accent).opacity(BUSY_TRACK)
+    color(look().busy_track(super::light()))
 }
 
 pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div {
@@ -393,6 +395,19 @@ pub fn confirm(
         )
 }
 
+pub fn chip_confirm(
+    id: impl Into<SharedString>,
+    asked: Confirm,
+    cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    confirm(id, asked, cancel, sure)
+        .h(px(super::CHIP))
+        .px(px(LIST_INSET))
+        .rounded(px(radius::ROW))
+        .bg(white(fill::HOVER))
+}
+
 pub fn menu_confirm(
     id: impl Into<SharedString>,
     asked: Confirm,
@@ -461,15 +476,43 @@ pub fn copy_details(
     details: String,
     size: ButtonSize,
 ) -> Stateful<Div> {
-    button(
+    icon_button(
         id,
-        Some("copy-01"),
+        "copy-01",
         crate::tr("Copy details"),
-        ButtonKind::Secondary,
+        ButtonKind::Ghost,
         size,
+        false,
     )
     .on_press(move |_, _, cx| {
         crate::clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(details.clone()))
+    })
+}
+
+pub fn open_folder(dir: &std::path::Path, cx: &mut App) {
+    let _ = std::fs::create_dir_all(dir);
+    crate::toast::open(cx, dir);
+}
+
+pub fn open_folder_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    dir: std::path::PathBuf,
+    size: ButtonSize,
+) -> Stateful<Div> {
+    button(id, Some("folder-01"), label, ButtonKind::Secondary, size)
+        .on_press(move |_, _, cx| open_folder(&dir, cx))
+}
+
+pub fn copy_button(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    size: ButtonSize,
+) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    button(id, Some("copy-01"), label, ButtonKind::Secondary, size).on_press(move |_, _, cx| {
+        crate::clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(text.to_string()))
     })
 }
 
@@ -579,15 +622,18 @@ fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
 pub fn toggle_row(
     id: impl Into<SharedString>,
     title: impl Into<SharedString>,
-    note: Option<AnyElement>,
+    note: Option<SharedString>,
     on: bool,
 ) -> Stateful<Div> {
     let (id, title): (SharedString, SharedString) = (id.into(), title.into());
     let switch = switch_face(format!("{id}-switch"), on);
+    let described = note.clone();
+    let note = note.map(|n| div().child(n).into_any_element());
     hoverable(id, radius::ROW, Hover::Row)
         .role(Role::Switch)
         .aria_toggled(Toggled::from(on))
         .aria_label(title.clone())
+        .when_some(described, |d, note| d.aria_description(note))
         .flex()
         .items_center()
         .gap(px(SETTING_ROW_GAP))
@@ -626,6 +672,7 @@ pub fn toggle_label(
 /// one raised.
 pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
     options: &[(T, SharedString)],
     current: T,
     on_pick: impl Fn(T, &mut Window, &mut App) + Clone + 'static,
@@ -637,15 +684,19 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         .map(|(value, label)| {
             let active = current == *value;
             let segment = chosen(
-                hoverable(format!("{id}-{value:?}"), radius::CONTROL, Hover::Row)
-                    .role(Role::RadioButton)
-                    .aria_toggled(Toggled::from(active))
-                    .flex()
-                    .items_center()
-                    .h(px(ButtonSize::Sm.height()))
-                    .px(px(ButtonSize::Sm.pad()))
-                    .text_color(white(if active { ink::FULL } else { ink::MUTED }))
-                    .child(press_text().relative().child(label.to_uppercase())),
+                hoverable(
+                    format!("{id}-{}", segment_key(value)),
+                    radius::CONTROL,
+                    Hover::Row,
+                )
+                .role(Role::RadioButton)
+                .aria_toggled(Toggled::from(active))
+                .flex()
+                .items_center()
+                .h(px(ButtonSize::Sm.height()))
+                .px(px(ButtonSize::Sm.pad()))
+                .text_color(white(if active { ink::FULL } else { ink::MUTED }))
+                .child(press_text().relative().child(label.to_uppercase())),
                 active,
             )
             .rounded(px(radius::CONTROL));
@@ -655,6 +706,7 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     let group = div()
         .id(id)
         .role(Role::RadioGroup)
+        .aria_label(name.into())
         .flex()
         .flex_none()
         .gap(px(space::XS))
@@ -666,6 +718,15 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
             on_pick(value, window, cx)
         }
     })
+}
+
+pub(super) fn segment_key(value: &impl std::fmt::Debug) -> String {
+    let shown = format!("{value:?}").to_lowercase();
+    let words: Vec<&str> = shown
+        .split(|c: char| !c.is_alphanumeric())
+        .filter(|w| !w.is_empty())
+        .collect();
+    words.join("-")
 }
 
 fn padded_tab(
@@ -737,7 +798,6 @@ pub fn tab_strip_padded(
         .id(id.into())
         .role(Role::TabList)
         .flex()
-        .flex_wrap()
         .items_center()
         .mx(px(-pad))
         .mb(px(TAB_STRIP_GAP))
@@ -753,11 +813,13 @@ pub fn count_tab(
     pad: f32,
 ) -> Stateful<Div> {
     let label: SharedString = label.into();
-    padded_tab(id, label, open, pad).children(count.map(|n| {
-        press_text()
-            .text_color(white(ink::DIM))
-            .child(n.to_string())
-    }))
+    padded_tab(id, label, open, pad)
+        .when_some(count, |d, n| d.aria_description(n.to_string()))
+        .children(count.map(|n| {
+            press_text()
+                .text_color(white(ink::DIM))
+                .child(n.to_string())
+        }))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -798,10 +860,14 @@ pub fn nav_row(
     } else {
         ink::BODY
     };
+    let sidebar = density == NavDensity::Sidebar;
     let row = hoverable(id, radius::ROW, Hover::Row)
-        .role(Role::Link)
+        .when(sidebar, |d| d.role(Role::Link))
         .aria_selected(current)
         .aria_label(text.clone())
+        .when(sidebar && current, |d| {
+            d.aria_description(crate::tr("Current page"))
+        })
         .flex()
         .flex_none()
         .items_center()
@@ -874,7 +940,7 @@ pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stat
 
 pub const NAV_ROW: f32 = 40.;
 
-pub const NAV_ROW_SHORT: f32 = 36.;
+pub const NAV_ROW_SHORT: f32 = 32.;
 
 pub fn chevron(open: bool) -> gpui::Svg {
     icon("arrow-down-01", IconSize::Px16, white(ink::MUTED)).with_transformation(

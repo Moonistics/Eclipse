@@ -184,7 +184,7 @@ impl Launcher {
         let copy = {
             let b = ui::button(
                 "native-log-copy",
-                None,
+                Some("copy-01"),
                 tr("Copy log"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
@@ -228,7 +228,7 @@ impl Launcher {
             .child({
                 let b = ui::button(
                     "native-log-reveal",
-                    None,
+                    Some("folder-01"),
                     tr("Show in folder"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,

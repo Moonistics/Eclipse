@@ -1,7 +1,7 @@
 //! Whether an instance plays its native mods (docs/native-mods.md): the mods turned on in its
 //! folder against the ones its version was built with (`native-mods.json`, written by
 //! `native_mods::build`). The Mods page shows the answer beside its Build button.
-use crate::{browser::java, native_mods};
+use crate::{browser::java, game_folder, native_mods};
 use std::fs;
 use std::path::Path;
 
@@ -121,7 +121,7 @@ pub fn eclipse_label(version: &str) -> String {
 /// the on/off list is keyed by the manifest id, which an unreadable file can't give.
 pub fn enabled(home: &Path) -> Vec<Mod> {
     let mut out = Vec::new();
-    for path in hnmods(home) {
+    for path in native_mods::installed_files(home) {
         match eclipse_mods::index::native::Bundle::read(&path) {
             Ok(b) => {
                 if java::is_enabled(home, &b.manifest.id) {
@@ -149,45 +149,10 @@ pub fn pinning(home: &Path, revision: &str) -> Vec<String> {
 
 /// The readable native mods turned on in game folder `home`.
 pub fn bundles_on(home: &Path) -> Vec<eclipse_mods::index::native::Bundle> {
-    hnmods(home)
+    native_mods::installed_files(home)
         .into_iter()
         .filter_map(|path| eclipse_mods::index::native::Bundle::read(&path).ok())
         .filter(|b| java::is_enabled(home, &b.manifest.id))
-        .collect()
-}
-
-/// A native file not tracked by the registry/browser, including GitHub installs.
-#[derive(Clone)]
-pub struct Installed {
-    pub file: String,
-    pub id: String,
-    pub version: String,
-    pub origin: Option<crate::github_mods::Origin>,
-}
-
-/// Discover the actual files, not just GitHub sidecars. Registry files already have a row.
-pub fn untracked(home: &Path) -> Vec<Installed> {
-    let tracked = crate::browser::installed::Installed::load(home);
-    hnmods(home)
-        .into_iter()
-        .filter_map(|path| {
-            let file = format!("{}/{}", native_mods::INSTALLED, path.file_name()?.to_str()?);
-            if !path.is_file() || tracked.entries.iter().any(|e| e.file == file) {
-                return None;
-            }
-            let (id, version) = eclipse_mods::index::native::Bundle::read(&path)
-                .map(|b| (b.manifest.id, b.manifest.version))
-                .unwrap_or_else(|_| (stem(&path), String::new()));
-            let origin = (path.file_stem()?.to_str()? == id)
-                .then(|| crate::github_mods::origin(home, &id))
-                .flatten();
-            Some(Installed {
-                file,
-                id,
-                version,
-                origin,
-            })
-        })
         .collect()
 }
 
@@ -215,12 +180,11 @@ fn built_mods(about: native_mods::About) -> Vec<Mod> {
 /// list and each `.hnmod`'s size and time. The Mods page reads the mods again when it changes.
 pub fn fingerprint(home: &Path, version: Option<&str>) -> String {
     let mut out = format!("{}\n{version:?}\n", home.display());
-    // The on/off list (`browser::java::is_enabled`).
-    out += &fs::read_to_string(home.join("eclipse-mods.txt")).unwrap_or_default();
-    for path in hnmods(home)
+    out += &fs::read_to_string(home.join(game_folder::MODS_LIST)).unwrap_or_default();
+    for path in native_mods::installed_files(home)
         .into_iter()
         .flat_map(|p| [p.clone(), p.with_extension("origin.json")])
-        .chain([home.join("mod-browser.json")])
+        .chain([home.join(game_folder::BROWSER_LIST)])
     {
         let meta = fs::metadata(&path).ok();
         let time = meta.as_ref().and_then(|m| m.modified().ok());
@@ -229,16 +193,7 @@ pub fn fingerprint(home: &Path, version: Option<&str>) -> String {
     out
 }
 
-fn hnmods(home: &Path) -> Vec<std::path::PathBuf> {
-    let mut paths: Vec<_> = fs::read_dir(home.join(native_mods::INSTALLED))
-        .map(|dir| dir.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default();
-    paths.retain(|p| p.extension().is_some_and(|e| e == "hnmod"));
-    paths.sort();
-    paths
-}
-
-fn stem(path: &Path) -> String {
+pub(crate) fn stem(path: &Path) -> String {
     path.file_stem()
         .map(|s| s.to_string_lossy().into_owned())
         .unwrap_or_default()
@@ -247,7 +202,6 @@ fn stem(path: &Path) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::backend;
 
     fn m(id: &str, version: &str) -> Mod {
         (id.into(), version.into(), None)
@@ -255,109 +209,6 @@ mod tests {
 
     fn d(id: &str, version: &str, digest: &str) -> Mod {
         (id.into(), version.into(), Some(digest.into()))
-    }
-
-    #[test]
-    fn github_and_local_files_are_listed_once_and_drive_build_state() {
-        use crate::browser::{installed, Kind, SourceId};
-        use std::io::Write;
-        let home = std::env::temp_dir().join(format!("native-list-{}", std::process::id()));
-        let _ = fs::remove_dir_all(&home);
-        fs::create_dir_all(home.join(native_mods::INSTALLED)).unwrap();
-        let pin = "a".repeat(40);
-        for (file, id) in [
-            ("registry", "registry"),
-            ("github", "github"),
-            ("renamed", "local"),
-        ] {
-            let path = home
-                .join(native_mods::INSTALLED)
-                .join(format!("{file}.hnmod"));
-            let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
-            let manifest = serde_json::json!({"schema":1,"id":id,"version":"1.2","game":"26.3","eclipse":pin,"mixins":pin});
-            let source = format!("[mod]\nid = \"{id}\"\nversion = \"1.2\"\n[compatibility]\neclipse_revision = \"{pin}\"\n");
-            for (name, bytes) in [
-                ("eclipse-native.json".into(), manifest.to_string()),
-                (format!("mixins/{id}/eclipse-mixin.toml"), source),
-            ] {
-                zip.start_file(name, zip::write::SimpleFileOptions::default())
-                    .unwrap();
-                zip.write_all(bytes.as_bytes()).unwrap();
-            }
-            zip.finish().unwrap();
-        }
-        let record = crate::github_mods::Origin {
-            id: "github".into(),
-            version: "1.2".into(),
-            owner: "example".into(),
-            repo: "mods".into(),
-            tag: None,
-            commit: pin,
-            asset: None,
-            sha256: "ab".repeat(32),
-        };
-        fs::write(
-            home.join(native_mods::INSTALLED).join("github.origin.json"),
-            serde_json::to_vec(&record).unwrap(),
-        )
-        .unwrap();
-        installed::Installed::open(&home)
-            .unwrap()
-            .record(installed::Entry {
-                source: SourceId::Eclipse,
-                project: "registry".into(),
-                slug: "registry".into(),
-                title: "Registry mod".into(),
-                kind: Kind::Mod,
-                version: "1.2".into(),
-                number: "1.2".into(),
-                file: format!("{}/registry.hnmod", native_mods::INSTALLED),
-                checksum: String::new(),
-                page: String::new(),
-                dependency: false,
-                verdict: None,
-                skipped: vec![],
-                namespaces: vec![],
-            })
-            .unwrap();
-        let files = untracked(&home);
-        let seen: Vec<_> = files
-            .iter()
-            .map(|m| (m.id.as_str(), m.version.as_str(), m.origin.is_some()))
-            .collect();
-        assert_eq!(seen, [("github", "1.2", true), ("local", "1.2", false)]);
-        for id in ["registry", "github", "local"] {
-            java::set_enabled(&home, id, true).unwrap();
-        }
-        assert_eq!(state(&enabled(&home), None), State::NotBuilt);
-        for id in ["registry", "github", "local"] {
-            java::set_enabled(&home, id, false).unwrap();
-        }
-        assert_eq!(state(&enabled(&home), None), State::NoMods);
-        assert_eq!(
-            untracked(&home).len(),
-            2,
-            "disabled mods remain in the list"
-        );
-        let before = fingerprint(&home, None);
-        fs::remove_file(home.join(&files[0].file)).unwrap();
-        assert_ne!(before, fingerprint(&home, None));
-        assert_eq!(
-            untracked(&home).len(),
-            1,
-            "a stale origin is not an installed mod"
-        );
-        fs::write(
-            home.join(native_mods::INSTALLED).join("broken.hnmod"),
-            b"broken",
-        )
-        .unwrap();
-        assert_eq!(
-            untracked(&home)[0].id,
-            "broken",
-            "unreadable files can still be removed"
-        );
-        fs::remove_dir_all(home).unwrap();
     }
 
     #[test]
@@ -480,18 +331,5 @@ mod tests {
         assert!(!is_native_file("eclipse-native-mods-old/x.hnmod"));
         assert!(!is_native_file("eclipse-mods/zoom.emod"));
         assert!(!is_native_file("resourcepacks/x.zip"));
-    }
-
-    /// Settings files from before native mods were on by default still read; their
-    /// `native_mods` key is ignored, and the notice stays read.
-    #[test]
-    fn old_settings_with_the_native_mods_switch_still_read() {
-        let s: backend::Settings =
-            serde_json::from_str(r#"{"native_mods": true, "native_mods_noticed": true}"#).unwrap();
-        assert!(s.native_mods_noticed);
-        let s: backend::Settings = serde_json::from_str(r#"{"native_mods": false}"#).unwrap();
-        assert!(!s.native_mods_noticed);
-        let saved = serde_json::to_string(&s).unwrap();
-        assert!(!saved.contains("native_mods"), "{saved}");
     }
 }

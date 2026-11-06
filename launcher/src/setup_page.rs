@@ -396,7 +396,7 @@ impl Setup {
             }
         }
         ui::dialog_plate()
-            .w(px(560.))
+            .w(px(crate::layout::FIELD_XL))
             .p(px(space::XXL))
             .flex()
             .flex_col()

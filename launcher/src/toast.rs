@@ -123,7 +123,6 @@ impl Launcher {
                 })
                 .aria_label(text)
                 .on_hover(|hovered, _, _| HELD.store(*hovered, Ordering::Relaxed))
-                .shadow_lg()
                 .flex()
                 .items_center()
                 .gap(px(space::SM))

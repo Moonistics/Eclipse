@@ -45,57 +45,19 @@ pub const MIXINS_REV: &str = "5a64af938ec86b00d53d16a408aabc0038fb3e57";
 /// The features of the release's own game (game-build.yml).
 const FEATURES: &str = "eclipse-client/mods";
 
-/// What a native build is compiled for. `Performance`, the default, is the workspace's `fast` (16
-/// codegen units, incremental, thin-local LTO only), so changing a mod recompiles only `eclipse-client`'s
-/// changed parts; `Dev`, for developing a mod, is `fast` with `eclipse-client` unoptimized: the
-/// quickest to rebuild after an edit, for a game about twice as slow; `Release` is the release's
-/// own (thin LTO, one codegen unit): slowest to build, slightly faster game. `Performance` and
-/// `Dev` share `native/target/fast/`: every other crate is built alike, so switching between them
-/// recompiles only `eclipse-client`, and Cargo keeps both builds of it. Each profile has its own
-/// key, so their builds never mix.
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Profile {
-    #[default]
-    Performance,
-    Dev,
-    Release,
-}
+pub use crate::backend::NativeProfile as Profile;
 
 impl Profile {
-    pub fn name(self) -> &'static str {
-        match self {
-            Self::Performance => "performance",
-            Self::Dev => "dev",
-            Self::Release => "release",
-        }
-    }
-
-    /// The profile named `text`; `fast`, `Performance`'s name before `Dev`, still names it.
-    pub fn parse(text: &str) -> Option<Self> {
-        match text.trim() {
-            "performance" | "fast" => Some(Self::Performance),
-            "dev" => Some(Self::Dev),
-            "release" => Some(Self::Release),
-            _ => None,
-        }
-    }
-
-    /// The settings' profile (`native_profile`, or the older `native_release` switch for
-    /// `Release`).
-    pub fn chosen(settings: &crate::backend::Settings) -> Self {
-        settings
-            .native_profile
-            .unwrap_or(if settings.native_release {
-                Self::Release
-            } else {
-                Self::Performance
-            })
-    }
-
     /// The Cargo profile it compiles with (its folder in `native/target/`), and what it sets over
     /// it as `cargo --config` values: here rather than in `[profile.fast]`, which the workspace's
-    /// own builds share.
+    /// own builds share. `Performance`, the default, is the workspace's `fast` (16 codegen units,
+    /// incremental, thin-local LTO only), so changing a mod recompiles only `eclipse-client`'s
+    /// changed parts; `Dev`, for developing a mod, is `fast` with `eclipse-client` unoptimized: the
+    /// quickest to rebuild after an edit, for a game about twice as slow; `Release` is the
+    /// release's own (thin LTO, one codegen unit): slowest to build, slightly faster game.
+    /// `Performance` and `Dev` share `native/target/fast/`: every other crate is built alike, so
+    /// switching between them recompiles only `eclipse-client`, and Cargo keeps both builds of it.
+    /// Each profile has its own key, so their builds never mix.
     fn cargo(self) -> (&'static str, &'static [&'static str]) {
         match self {
             Self::Performance => (native_cache::FAST, &[]),
@@ -377,16 +339,8 @@ impl Records {
     }
 
     fn write(&self) -> Result<(), String> {
-        write_json(&Dirs::current().records(), self)
+        crate::files::write_json(&Dirs::current().records(), self)
     }
-}
-
-fn write_json(path: &Path, value: &impl serde::Serialize) -> Result<(), String> {
-    let text = serde_json::to_vec_pretty(value).map_err(|e| e.to_string())?;
-    let partial = path.with_extension("partial");
-    fs::write(&partial, text)
-        .and_then(|()| fs::rename(&partial, path))
-        .map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// A build record's key in `built.json`: the profile's folder in `native/target/` for a game
@@ -621,6 +575,16 @@ impl Drop for Unpacked {
     }
 }
 
+/// The `.hnmod`s in game folder `home` ([`INSTALLED`]), on or off, in name order.
+pub(crate) fn installed_files(home: &Path) -> Vec<PathBuf> {
+    let mut paths: Vec<PathBuf> = fs::read_dir(home.join(INSTALLED))
+        .map(|dir| dir.flatten().map(|e| e.path()).collect())
+        .unwrap_or_default();
+    paths.retain(|p| p.extension().is_some_and(|e| e == "hnmod"));
+    paths.sort();
+    paths
+}
+
 /// The native mods turned on in the game folder `home`, unpacked into a folder [`build`] takes.
 /// Each `.hnmod` is checked again as the registry checks it (Rust and TOML under
 /// `mixins/<id>/`, plus files under its `data/`, nothing run).
@@ -633,13 +597,8 @@ pub fn installed_mods(home: &Path) -> Result<Unpacked, String> {
             .join(format!("{}-{n}", std::process::id())),
     );
     let _ = fs::remove_dir_all(out.path());
-    let mut paths: Vec<PathBuf> = fs::read_dir(home.join(INSTALLED))
-        .map(|dir| dir.flatten().map(|e| e.path()).collect())
-        .unwrap_or_default();
-    paths.retain(|p| p.extension().is_some_and(|e| e == "hnmod"));
-    paths.sort();
     let mut count = 0;
-    for path in paths {
+    for path in installed_files(home) {
         let bundle = eclipse_mods::index::native::Bundle::read(&path)
             .map_err(|e| format!("{}: {e}", path.display()))?;
         if !crate::browser::java::is_enabled(home, &bundle.manifest.id) {
@@ -1141,7 +1100,7 @@ fn remembered(
     }
     let date = ask(repo, revision)?;
     dates.insert(key, date.clone());
-    if let Err(e) = write_json(file, &dates) {
+    if let Err(e) = crate::files::write_json(file, &dates) {
         log_warning(&e);
     }
     Ok(date)
@@ -1341,16 +1300,9 @@ fn profile_of(source: &Path, chosen: Profile) -> Profile {
     }
 }
 
-fn nightly_commit(version: &str) -> Option<&str> {
-    crate::nightly::date_of(version)?;
-    version
-        .get("nightly-2026-10-28-".len()..)
-        .filter(|c| !c.is_empty())
-}
-
 /// The Eclipse commit `version` (an installed release or Nightly) was built from, from GitHub.
 pub fn revision_of(version: &str) -> Result<String, String> {
-    let reference = nightly_commit(version).unwrap_or(version);
+    let reference = crate::nightly::commit_of(version).unwrap_or(version);
     let commit = crate::github::api(&format!("repos/{}/commits/{reference}", backend::REPO))?;
     commit["sha"]
         .as_str()
@@ -1444,7 +1396,8 @@ impl About {
     /// Nightly's: mods pinned it.
     pub fn off_its_nightly(&self) -> bool {
         self.base_eclipse.is_none()
-            && nightly_commit(&self.base).is_some_and(|commit| !self.eclipse.starts_with(commit))
+            && crate::nightly::commit_of(&self.base)
+                .is_some_and(|commit| !self.eclipse.starts_with(commit))
     }
 }
 
@@ -1478,16 +1431,6 @@ fn pinned_revision(
     Ok((revision, by))
 }
 
-/// The newest installed release or Nightly in `installed` (newest first).
-pub(crate) fn newest_installed(installed: &[String]) -> Option<&String> {
-    installed.iter().find(|t| is_release_or_nightly(t))
-}
-
-/// A version Eclipse published and signed: a release or a Nightly.
-pub(crate) fn is_release_or_nightly(version: &str) -> bool {
-    backend::is_game_tag(version) || crate::nightly::date_of(version).is_some()
-}
-
 /// The installed version a build for an instance that plays `current` starts from: `current`
 /// itself, so a rebuild stays on the Eclipse it plays (a native build's own revision, [`about`]).
 /// With `update`, or when it plays nothing installed, the newest installed release or Nightly.
@@ -1496,14 +1439,14 @@ pub fn base_for(current: Option<&str>, installed: &[String], update: bool) -> Op
     let imported = current.and_then(crate::build_import::about).map(|a| a.base);
     match imported.as_deref().or(current) {
         Some(v) if !update && installed.iter().any(|t| t == v) => Some(v.to_owned()),
-        _ => newest_installed(installed).cloned(),
+        _ => backend::newest_release_or_nightly(installed).cloned(),
     }
 }
 
 /// The newer Eclipse a build with `update` would move a native build started from `base` to: the
 /// newest installed release or Nightly, when it is newer than `base`.
 pub fn newer_than(base: &str, installed: &[String]) -> Option<String> {
-    newest_installed(installed)
+    backend::newest_release_or_nightly(installed)
         .filter(|n| *n != base && backend::compare_versions(n, base).is_gt())
         .cloned()
 }
@@ -2109,7 +2052,11 @@ fn sync(from: &Path, to: &Path) -> Result<(), String> {
 fn copy_bundle(bundle: &Bundle, to: &Path) -> Result<(), String> {
     let root = bundle.dir.canonicalize().map_err(|e| e.to_string())?;
     let skip = api_target(&root, bundle.api.as_deref())?;
-    backend::copy_dir_except(&root, to, skip.as_deref()).map_err(|e| e.to_string())
+    match skip {
+        Some(skip) => crate::files::copy_dir_without(&root, to, &skip),
+        None => crate::files::copy_dir(&root, to, &[]),
+    }
+    .map_err(|e| e.to_string())
 }
 
 /// Stage only manifests horizon-mixins can apply, after trait injections are prepared.
@@ -2131,7 +2078,8 @@ fn stage_trait_data(mods: &[Bundle], stage: &Path) -> Result<(), String> {
         let data = bundle.dir.join("data");
         if data.is_dir() {
             let to = stage.join(crates::DATA).join(&bundle.id);
-            backend::copy_dir(&data, &to).map_err(|e| format!("{}: {e}", to.display()))?;
+            crate::files::copy_dir(&data, &to, &[])
+                .map_err(|e| format!("{}: {e}", to.display()))?;
         }
     }
     Ok(())
@@ -2756,7 +2704,7 @@ pub fn build_server(
 /// Copies the built version folder `from` into `output` (outside the managed versions) as one
 /// piece: staged in a hidden folder beside `output`, then renamed into place, so an interrupted
 /// export leaves nothing half-written at `output` and overwrites nothing already there.
-/// Executable files keep their permissions ([`backend::copy_dir`], a clone where the disk can).
+/// Executable files keep their permissions ([`crate::files::copy_dir`], a clone where the disk can).
 fn export(from: &Path, output: &Path) -> Result<(), String> {
     let name = output.file_name().ok_or_else(|| {
         trf(
@@ -2772,7 +2720,7 @@ fn export(from: &Path, output: &Path) -> Result<(), String> {
         std::process::id()
     ));
     fs::create_dir(&staging).map_err(|e| format!("{}: {e}", staging.display()))?;
-    if let Err(e) = copy_runtime(from, &staging) {
+    if let Err(e) = crate::files::copy_dir(from, &staging, &[]) {
         let _ = fs::remove_dir_all(&staging);
         return Err(trf(
             "Could not copy the build: {error}",
@@ -2800,22 +2748,6 @@ fn already_exists(path: &Path) -> String {
         "{path} already exists. Move it away, or build into another folder.",
         &[("path", &path.display().to_string())],
     )
-}
-
-/// Reflinks are independent files but may not preserve executable permissions.
-fn copy_runtime(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let destination = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_runtime(&entry.path(), &destination)?;
-        } else {
-            eclipse_prepare::clone_or_copy(&entry.path(), &destination)?;
-            fs::set_permissions(&destination, entry.metadata()?.permissions())?;
-        }
-    }
-    Ok(())
 }
 
 /// Copies the program `from` (in the shared target folder) to `to`, keeping it executable.
@@ -2858,59 +2790,29 @@ fn install(
     backend::mark_installed(&dir).map_err(|e| e.to_string())
 }
 
-/// Copies version folder `from` into `to` but for what a new build of `target` makes its own
-/// ([`carried_over`]), cloned where the disk can. Also an imported build's start (`build_import`).
-pub(crate) fn copy_base(from: &Path, to: &Path, target: Target) -> Result<(), String> {
-    for entry in fs::read_dir(from).map_err(|e| e.to_string())?.flatten() {
-        let name = entry.file_name();
-        if !carried_over(&name, target) {
-            continue;
-        }
-        let to = to.join(&name);
-        let copied = if entry.path().is_dir() {
-            backend::copy_dir(&entry.path(), &to)
-        } else {
-            // A clone is a new file: eclipse-ctl and eclipse-server keep their permissions.
-            eclipse_prepare::clone_or_copy(&entry.path(), &to)
-                .and_then(|()| fs::set_permissions(&to, entry.metadata()?.permissions()))
-        };
-        copied.map_err(|e| format!("Could not copy {}: {e}", entry.path().display()))?;
-    }
-    Ok(())
-}
-
-/// Whether a file of the version a build starts from goes into the new build. The game (the
-/// target's own binary), its record, and the mods' post-build data (`native-data/`, which the
-/// new build's steps write again) are the new build's own: a mod turned off leaves none of its
-/// data behind. A server build is the headless engine: it keeps neither the game's own binary
-/// nor any `eclipse-engine` the base shipped, which would run unmodded beside its own.
-fn carried_over(name: &std::ffi::OsStr, target: Target) -> bool {
-    let mut own: Vec<String> = ["Eclipse.app", RECORD, crates::DATA]
-        .iter()
-        .map(|s| s.to_string())
-        .collect();
-    own.push(backend::CLIENT.to_string());
-    own.push(".installed".to_string());
+/// Copies version folder `from` into `to` for a new build of `target`, but for what the new build
+/// makes its own: its record and the mods' post-build data (`native-data/`, which the new build's
+/// steps write again: a mod turned off leaves none of its data behind). A server build is the
+/// headless engine: it keeps no `eclipse-engine` the base shipped, which would run unmodded beside
+/// its own.
+fn copy_base(from: &Path, to: &Path, target: Target) -> Result<(), String> {
+    let engine = Target::Server.binary();
+    let mut own = vec![RECORD, crates::DATA];
     if target == Target::Server {
-        own.push("eclipse-engine".to_string());
+        own.extend(["eclipse-engine", engine.as_str()]);
     }
-    let named = |n: &str| name == std::ffi::OsStr::new(n);
-    !own.iter()
-        .any(|n| named(n) || named(&format!("{n}{}", std::env::consts::EXE_SUFFIX)))
+    backend::copy_version_except(from, to, &own)
 }
 
-/// How many native builds no instance plays stay installed, the newest first: switching a mod
+/// How many native builds nothing needs stay installed, the newest first: switching a mod
 /// off and on again plays the kept build again, without compiling.
 const SPARE_BUILDS: usize = 3;
 
-/// Removes the native builds no instance plays, but `keep` and the [`SPARE_BUILDS`] newest, and
-/// any the selection or a running game still needs ([`backend::remove_unused`]). The compiled
-/// crates (`native/target`) stay, so the next build only compiles what changed.
+/// Removes the native builds nothing needs (no instance plays them and none is selected,
+/// [`backend::needed_versions`]), but `keep` and the [`SPARE_BUILDS`] newest, and any a running
+/// game still runs from ([`backend::remove_unused`]). The compiled crates (`native/target`) stay,
+/// so the next build only compiles what changed.
 pub fn prune(keep: &str) {
-    let played: Vec<String> = instances::list()
-        .into_iter()
-        .filter_map(|i| i.version)
-        .collect();
     let builds = made(
         backend::installed()
             .into_iter()
@@ -2920,28 +2822,25 @@ pub fn prune(keep: &str) {
                 (v, dir)
             }),
     );
-    backend::remove_unused(stale(builds, keep, &played));
+    backend::remove_unused(stale(builds, keep, &backend::needed_versions()));
 }
 
-/// The installed builds among `builds` (name, folder), with when each was made or last used:
-/// its `.installed` mark's time, which a build used again writes anew.
+/// The installed builds among `builds` (name, folder), with when each was made or last used
+/// ([`backend::installed_at`]; a build used again is marked anew).
 fn made(builds: impl Iterator<Item = (String, PathBuf)>) -> Vec<(String, std::time::SystemTime)> {
     builds
-        .filter_map(|(name, dir)| {
-            let mark = fs::metadata(dir.join(".installed")).ok()?;
-            Some((name, mark.modified().unwrap_or(std::time::UNIX_EPOCH)))
-        })
+        .filter_map(|(name, dir)| Some((name, backend::installed_at(&dir)?)))
         .collect()
 }
 
-/// The native `builds` (with when each was made or last used) to remove: those no instance plays
-/// (`played`), other than `keep`, past the [`SPARE_BUILDS`] newest.
+/// The native `builds` (with when each was made or last used) to remove: those not `needed`, other
+/// than `keep`, past the [`SPARE_BUILDS`] newest.
 fn stale(
     mut builds: Vec<(String, std::time::SystemTime)>,
     keep: &str,
-    played: &[String],
+    needed: &[String],
 ) -> Vec<String> {
-    builds.retain(|(v, _)| v != keep && !played.contains(v));
+    builds.retain(|(v, _)| v != keep && !needed.contains(v));
     builds.sort_by(|a, b| b.1.cmp(&a.1).then_with(|| a.0.cmp(&b.0)));
     builds
         .into_iter()
@@ -3014,27 +2913,42 @@ mod tests {
 
     #[test]
     fn a_rebuild_leaves_the_old_builds_mod_data_behind() {
-        use std::ffi::OsStr;
-        for own in [
+        let base = dir("copy-base");
+        let engine = Target::Server.binary();
+        for file in [
             backend::CLIENT,
-            ".installed",
-            "native-mods.json",
-            "native-data",
+            backend::INSTALL_MARK,
+            RECORD,
+            "eclipse-ctl",
+            "LICENSE",
+            &engine,
         ] {
-            assert!(!carried_over(OsStr::new(own), Target::Client), "{own}");
+            fs::create_dir_all(base.join("from")).unwrap();
+            fs::write(base.join("from").join(file), file).unwrap();
         }
-        for kept in ["eclipse-ctl", "resources", "LICENSE"] {
-            assert!(carried_over(OsStr::new(kept), Target::Client), "{kept}");
+        for folder in [crates::DATA, "resources"] {
+            fs::create_dir_all(base.join("from").join(folder).join("inside")).unwrap();
         }
+        let copied = |target: Target| {
+            let to = base.join(target.name());
+            copy_base(&base.join("from"), &to, target).unwrap();
+            let mut names: Vec<String> = fs::read_dir(&to)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().into_string().unwrap())
+                .collect();
+            names.sort();
+            names
+        };
+        let mut client = vec!["LICENSE", "eclipse-ctl", "resources", engine.as_str()];
+        client.sort();
+        assert_eq!(copied(Target::Client), client);
         // A server build keeps neither the game's own binary nor a stale `eclipse-engine` the
         // base shipped, which would run unmodded beside the built one.
-        let engine = Target::Server.binary();
-        assert!(
-            !carried_over(OsStr::new(&engine), Target::Server),
-            "{engine}"
+        assert_eq!(
+            copied(Target::Server),
+            ["LICENSE", "eclipse-ctl", "resources"]
         );
-        assert!(!carried_over(OsStr::new(backend::CLIENT), Target::Server));
-        assert!(carried_over(OsStr::new("resources"), Target::Server));
+        fs::remove_dir_all(&base).unwrap();
     }
 
     fn known<T>(read: impl Fn(&str) -> Option<T>) -> impl Fn(&str) -> Result<Option<T>, String> {
@@ -4070,7 +3984,7 @@ mod tests {
         let fixture =
             Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/native-crate-demo");
         let d = dir("crate-key");
-        backend::copy_dir(&fixture, &d).unwrap();
+        crate::files::copy_dir(&fixture, &d, &[]).unwrap();
         let found = bundles(&d).unwrap();
         assert_eq!(found[0].id, "crate_demo");
         let key = || {
@@ -4455,22 +4369,6 @@ mod tests {
             selected_before,
             "no version is selected"
         );
-    }
-
-    #[test]
-    fn the_setting_picks_the_profile_and_the_old_switch_still_picks_release() {
-        let mut settings = crate::backend::Settings::default();
-        assert_eq!(Profile::chosen(&settings), Profile::Performance);
-        settings.native_release = true;
-        assert_eq!(Profile::chosen(&settings), Profile::Release);
-        settings.native_profile = Some(Profile::Dev);
-        assert_eq!(Profile::chosen(&settings), Profile::Dev);
-        assert_eq!(Profile::parse("performance"), Some(Profile::Performance));
-        assert_eq!(Profile::parse("fast"), Some(Profile::Performance));
-        assert_eq!(Profile::parse(" release "), Some(Profile::Release));
-        assert_eq!(Profile::parse("debug"), None);
-        let text = serde_json::to_string(&settings).unwrap();
-        assert!(text.contains("\"native_profile\":\"dev\""), "{text}");
     }
 
     /// The build log ([`clear_log`], [`append_log`]): fresh for every attempt, and an early

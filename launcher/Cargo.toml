@@ -26,7 +26,7 @@ quote = "1"
 sha1 = "0.10"
 # The mod browser checks Modrinth's SHA-512 before a pack reaches the game folder (browser/download.rs).
 sha2 = "0.10"
-# The secrets file is encrypted where no keychain answers (account.rs, FileStore).
+# The secrets file is encrypted where no keychain answers (secrets.rs, FileStore).
 chacha20poly1305 = "0.10"
 pulldown-cmark = { version = "0.12", default-features = false }
 flate2 = "1"
@@ -86,7 +86,7 @@ oo7 = { version = "0.6", default-features = false, features = ["async-std", "nat
 futures-lite = "2"
 [target.'cfg(target_os = "macos")'.dependencies]
 keyring = { version = "3", features = ["apple-native"] }
-# Decode Keychain OSStatus errors without matching localized error strings (account.rs).
+# Decode Keychain OSStatus errors without matching localized error strings (secrets.rs).
 security-framework = "3"
 # Painting the window's title bar dark or light (titlebar::apply_appearance), and the system's
 # reduced motion (sky::moves): crates already in the lockfile through gpui and wgpu.

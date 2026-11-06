@@ -1,8 +1,9 @@
 use super::*;
+use crate::game_run::InstallState;
 use crate::menus::{Asking, Menu};
 use crate::ui::{self, Tone};
 use eclipse_launcher::account::Player;
-use eclipse_launcher::instances::{Icon, Instance, Kind as InstanceKind};
+use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, space, step};
 use gpui::{canvas, point, ScrollHandle};
 use std::cell::{Cell, RefCell};
@@ -10,7 +11,7 @@ use std::collections::HashMap;
 use std::rc::Rc;
 
 const ACCOUNT_CHIP: f32 = 52.;
-const ACCOUNT_CHIP_SHORT: f32 = 44.;
+const ACCOUNT_CHIP_SHORT: f32 = 40.;
 const ACCOUNT_TOP: f32 = ui::SIDEBAR_PAD;
 const ACCOUNT_TOP_SHORT: f32 = space::SM;
 const ACCOUNT_HEAD: f32 = ui::TILE_MD;
@@ -34,6 +35,8 @@ fn row_width(window: f32) -> f32 {
 
 const SIDE_REVEAL_MARGIN: f32 = ui::SCROLL_FADE;
 
+const SIDE_ROWS: &str = "side-rows";
+
 fn account_chip(compact: bool) -> f32 {
     if compact {
         ACCOUNT_CHIP_SHORT
@@ -56,7 +59,7 @@ pub struct RowMenu {
     /// Where each row was drawn last, by instance id: the menu opens beside its row.
     pub rows: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     list: ScrollHandle,
-    shown: Rc<RefCell<Option<(String, Pixels, Pixels)>>>,
+    shown: Rc<RefCell<Option<(String, Pixels)>>>,
     labels: Rc<RefCell<Vec<Bounds<Pixels>>>>,
     lone_label: Rc<Cell<f32>>,
 }
@@ -74,58 +77,25 @@ fn measure_label(labels: &Rc<RefCell<Vec<Bounds<Pixels>>>>) -> impl IntoElement 
     ui::measure(move |bounds| labels.borrow_mut().push(bounds))
 }
 
-fn group_label(text: impl Into<SharedString>, labels: &Rc<RefCell<Vec<Bounds<Pixels>>>>) -> Div {
-    ui::label(text)
+fn group_label(
+    id: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    labels: &Rc<RefCell<Vec<Bounds<Pixels>>>>,
+) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    ui::heading(id, text.clone(), 2)
         .relative()
         .px(px(ui::SIDEBAR_INSET - ui::SIDEBAR_PAD))
         .pt(px(GROUP_TOP))
         .pb(px(GROUP_BOTTOM))
+        .child(ui::label(text))
         .child(measure_label(labels))
 }
 
 impl Launcher {
-    /// An instance's icon on a `size` tile: Eclipse's mark for Eclipse's own instance; else its
-    /// picture or the block chosen for it; else its loader's or Minecraft's mark, each two thirds
-    /// of the tile on the 8 px grid (a loader logo with its own plate fills the tile); else its
-    /// initial on its colour (the accent when none was chosen).
     pub(super) fn instance_icon(&mut self, i: &Instance, size: f32) -> AnyElement {
-        let inner = (size * 2. / 3. / 8.).round() * 8.;
-        let tile = ui::tile(size);
-        if i.kind == InstanceKind::Default && i.icon.is_none() {
-            return tile.child(self.eclipse_mark(inner)).into_any_element();
-        }
-        if let Some(picture) = self.instance_picture(i, inner) {
-            return tile
-                .child(instance_icons::centred(picture, inner, self.scale))
-                .into_any_element();
-        }
-        let mut colour = ui::look().accent;
-        match &i.icon {
-            Some(Icon::Colour(hex)) => {
-                colour = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(colour);
-            }
-            Some(Icon::Texture(name)) => {
-                if let Some(image) = self.texture_image(name, inner) {
-                    return tile
-                        .child(gpui::img(image).flex_none().size(px(inner)))
-                        .into_any_element();
-                }
-            }
-            None => {
-                let plated = self
-                    .instance_loader(i)
-                    .filter(|loader| instance_icons::has_plate(loader));
-                if let Some(logo) = plated.and_then(|loader| self.loader_logo(&loader, size)) {
-                    return ui::image_tile(logo, size);
-                }
-                if let Some(mark) = self.instance_mark(i, inner) {
-                    return tile
-                        .child(instance_icons::centred(mark, inner, self.scale))
-                        .into_any_element();
-                }
-            }
-        }
-        ui::letter_tile(ui::color(colour), &i.name, size).into_any_element()
+        let spec = self.icon_spec(i);
+        self.icon_for(spec, size)
     }
 
     /// A sidebar row's state line and its dot, from what the launcher knows of the instance.
@@ -134,41 +104,39 @@ impl Launcher {
         if state == PlayState::Running {
             return (Tone::Live, tr("Running").into());
         }
-        if let Some((label, progress)) = state.busy() {
-            return match progress {
-                Some(p) => (Tone::Busy, format!("{label} {:.0}%", p * 100.)),
-                None => (Tone::Busy, label.into()),
-            };
+        if let Some(line) = state.busy_line() {
+            return (Tone::Busy, line);
         }
         match &i.kind {
-            InstanceKind::Default | InstanceKind::Own => {
-                let tag = self.version_of(i).cloned();
-                let prepared = tag.as_deref().is_some_and(backend::is_prepared);
-                match (&i.java, &tag, &i.version) {
-                    (Some(java), _, _) => (Tone::Live, java.line()),
-                    (None, None, _) => (Tone::Off, tr("Not installed").into()),
-                    // Following the launcher's version, which has a newer one waiting.
-                    (None, Some(_), None) if self.updates.eclipse.is_some() => (
+            InstanceKind::Default | InstanceKind::Own => match &i.java {
+                Some(java) => (Tone::Live, java.line()),
+                None => match self.install_state(i) {
+                    InstallState::NotInstalled => (Tone::Off, tr("Not installed").into()),
+                    InstallState::UpdateReady(_) => (
                         Tone::Accent(ui::look().accent_soft),
                         tr("Update available").into(),
                     ),
-                    (None, Some(_), _) if !prepared => (Tone::Off, tr("Not set up").into()),
-                    (None, Some(tag), _) if self.native_build_of(tag).is_some() => {
-                        let build = self.native_build_of(tag).unwrap_or_default();
-                        (
-                            Tone::Live,
-                            trf(
-                                "Built with mods · {version}",
-                                &[("version", &build.eclipse_short())],
-                            ),
-                        )
-                    }
-                    (None, Some(tag), Some(_)) => (Tone::Live, format!("{} · {tag}", tr("Ready"))),
-                    (None, Some(_), None) => (Tone::Live, tr("Ready").into()),
-                }
-            }
+                    InstallState::NotSetUp => (Tone::Off, tr("Not set up").into()),
+                    InstallState::Built(build) => (
+                        Tone::Live,
+                        trf(
+                            "Built with mods · {version}",
+                            &[("version", &build.eclipse_short())],
+                        ),
+                    ),
+                    InstallState::Ready { pinned: Some(tag) } => (
+                        Tone::Live,
+                        format!(
+                            "{} · {}",
+                            tr("Ready"),
+                            eclipse_launcher::nightly::display_name(&tag)
+                        ),
+                    ),
+                    InstallState::Ready { pinned: None } => (Tone::Live, tr("Ready").into()),
+                },
+            },
             InstanceKind::Port { slug } => {
-                let summary = self.packs.iter().find(|p| p.slug == *slug);
+                let summary = self.modpacks.imported.iter().find(|p| p.slug == *slug);
                 (
                     Tone::Live,
                     summary.map_or_else(|| tr("Modpack").into(), |p| p.summary()),
@@ -178,8 +146,9 @@ impl Launcher {
         }
     }
 
-    /// The instances by group: those without a group first.
-    fn sidebar_instances(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
+    /// The sidebar's instances by group, those without a group first, then the servers: one
+    /// list, one Tab stop, the arrows between rows.
+    fn sidebar_rows(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         self.row_menu.labels.borrow_mut().clear();
         let editing = self
             .instances
@@ -193,20 +162,23 @@ impl Launcher {
                 .flatten()
         });
         let on_packs = self.page == Page::Mods && self.mods.on_modpacks();
-        let mut out = Vec::new();
+        let keyboard = ui::try_focus_for(format!("options-{SIDE_ROWS}"))
+            .is_some_and(|h| ui::keyboard_focus(&h));
+        let cursor = ui::options_cursor(SIDE_ROWS);
+        let mut rows = Vec::new();
+        let mut heads = Vec::new();
         let mut group = None;
         let row_end = ui::ButtonSize::Sm.height() + 2. * MORE_INSET;
-        let mut list = div().flex().flex_col().gap(px(space::XS));
-        let flush = |list: Div, out: &mut Vec<AnyElement>| {
-            out.push(list.into_any_element());
-            div().flex().flex_col().gap(px(space::XS))
-        };
-        for i in self.instances.list.clone() {
+        let instances = self.instances.list.clone();
+        for (at, i) in instances.iter().enumerate() {
             if i.group != group {
-                list = flush(list, &mut out);
                 group = i.group.clone();
                 if let Some(g) = &group {
-                    out.push(group_label(g.clone(), &self.row_menu.labels).into_any_element());
+                    heads.push((
+                        at,
+                        group_label(format!("side-group-{g}"), g.clone(), &self.row_menu.labels)
+                            .into_any_element(),
+                    ));
                 }
             }
             let current = match &i.kind {
@@ -216,17 +188,19 @@ impl Launcher {
                 }
                 InstanceKind::Pack { .. } => false,
             };
-            let state = self.row_state(&i);
-            let icon = self.instance_icon(&i, ROW_TILE);
-            let clicked = i.clone();
+            let state = self.row_state(i);
+            let icon = self.instance_icon(i, ROW_TILE);
             let open = self.menu_is(&Menu::InstanceRow(i.id.clone()));
-            // A right click on the row opens the same menu the ⋯ does.
-            let (right_id, key_id) = (i.id.clone(), i.id.clone());
+            let right_id = i.id.clone();
             let (row_id, more_id): (SharedString, SharedString) = (
                 format!("side-instance-{}", i.id).into(),
                 format!("side-more-{}", i.id).into(),
             );
-            let lit = current || open || ui::hover_is(&row_id) || ui::hover_is(&more_id);
+            let lit = current
+                || open
+                || (keyboard && cursor == at)
+                || ui::hover_is(&row_id)
+                || ui::hover_is(&more_id);
             let more = div()
                 .absolute()
                 .top_0()
@@ -245,7 +219,8 @@ impl Launcher {
                         ),
                         Menu::InstanceRow(i.id.clone()),
                         cx,
-                    ),
+                    )
+                    .tab_stop(false),
                     lit,
                 ));
             let end = if lit { row_end } else { space::SM };
@@ -253,72 +228,120 @@ impl Launcher {
             let clipped = ui::text_width(&i.name, step::BODY)
                 .max(ui::DOT_ROOM + ui::text_width(&state.1, step::NOTE));
             let full = format!("{} · {}", i.name, state.1);
-            list = list.child(
-                div()
-                    .relative()
-                    .child(measure(&self.row_menu.rows, i.id.clone()))
-                    .child(
-                        ui::tip_when_clipped(
-                            ui::side_row(row_id, i.name.clone(), current)
-                                .aria_description(state.1.clone()),
-                            full,
-                            clipped,
-                            room,
-                        )
-                        .pr(px(end))
-                        .pl(px(NAV_INSET))
-                        .child(div().relative().flex_none().child(icon))
-                        .child(ui::item_text(
-                            i.name.clone(),
-                            ui::state_line(state.0, state.1),
-                        ))
-                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            match &clicked.kind {
-                                InstanceKind::Default | InstanceKind::Own => {
-                                    this.select_instance(&clicked);
-                                    this.go(Page::Home);
-                                }
-                                InstanceKind::Port { slug } => {
-                                    this.show_modpack(Some(slug.clone()))
-                                }
-                                InstanceKind::Pack { .. } => this.show_modpack(None),
-                            }
-                            cx.notify();
-                        }))
-                        // The ⋯ menu, from a right click anywhere on the row.
-                        .on_mouse_down(
-                            gpui::MouseButton::Right,
-                            cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
-                                // The open menu's mouse-down-out already closed it on this
-                                // press: reopening here would make the toggle a no-op.
-                                if this.menu_closed_at.take() == Some(event.position) {
-                                    cx.notify();
-                                    return;
-                                }
-                                this.open_menu = menus::menu_after_press(
-                                    this.open_menu.take(),
-                                    Menu::InstanceRow(right_id.clone()),
-                                );
-                                this.stop_asking(|a| matches!(a, Asking::InstanceDelete(_)));
-                                cx.notify();
-                            }),
-                        )
-                        .on_key_down(cx.listener(
-                            move |this, ev: &gpui::KeyDownEvent, window, cx| {
-                                if !ui::opens_row_menu(&ev.keystroke) {
-                                    return;
-                                }
-                                this.open_menu_from(Menu::InstanceRow(key_id.clone()), window, cx);
-                                cx.stop_propagation();
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .child(more),
+            let row = ui::tip_when_clipped(
+                ui::side_row(row_id, i.name.clone(), current)
+                    .aria_description(state.1.clone())
+                    .aria_keyshortcuts("Shift+F10"),
+                full,
+                clipped,
+                room,
+            )
+            .pr(px(end))
+            .pl(px(NAV_INSET))
+            .child(measure(&self.row_menu.rows, i.id.clone()))
+            .child(div().relative().flex_none().child(icon))
+            .child(ui::item_text(
+                i.name.clone(),
+                ui::state_line(state.0, state.1),
+            ))
+            .child(more)
+            .on_mouse_down(
+                gpui::MouseButton::Right,
+                cx.listener(move |this, event: &gpui::MouseDownEvent, window, cx| {
+                    // The open menu's mouse-down-out already closed it on this press:
+                    // reopening here would make the toggle a no-op.
+                    if this.menu_closed_at.take() == Some(event.position) {
+                        cx.notify();
+                        return;
+                    }
+                    this.toggle_menu(Menu::InstanceRow(right_id.clone()), window, cx);
+                    cx.notify();
+                }),
             );
+            rows.push((row, SharedString::from(i.name.clone()), current));
         }
-        out.push(list.into_any_element());
-        out
+        let servers = self.servers.listed().to_vec();
+        if !servers.is_empty() {
+            heads.push((
+                rows.len(),
+                group_label("side-group-servers", tr("Servers"), &self.row_menu.labels)
+                    .into_any_element(),
+            ));
+        }
+        for e in &servers {
+            let up = self.servers.is_up(&e.dir);
+            let open = self.page == Page::Servers && self.servers.open.as_ref() == Some(&e.dir);
+            let state = if up { tr("Running") } else { tr("Stopped") };
+            let row = ui::side_row(
+                format!("side-server-{}", e.dir.display()),
+                e.name.clone(),
+                open,
+            )
+            .aria_description(state)
+            .pr(px(space::SM))
+            .pl(px(NAV_INSET))
+            .child(ui::tile(ROW_TILE).relative().child(ui::icon(
+                Page::Servers.icon(),
+                ui::IconSize::Px16,
+                ui::icon_tone(open),
+            )))
+            .child(ui::item_text(
+                e.name.clone(),
+                ui::state_line(if up { Tone::Live } else { Tone::Off }, state),
+            ));
+            rows.push((row, SharedString::from(e.name.clone()), open));
+        }
+        let picks: Vec<Result<Instance, std::path::PathBuf>> = instances
+            .into_iter()
+            .map(Ok)
+            .chain(servers.iter().map(|e| Err(e.dir.clone())))
+            .collect();
+        let menus: Vec<Option<String>> = picks
+            .iter()
+            .map(|p| p.as_ref().ok().map(|i| i.id.clone()))
+            .collect();
+        let this = cx.entity().downgrade();
+        ui::options_with_heads(
+            div().id(SIDE_ROWS).flex().flex_col().gap(px(space::XS)),
+            rows,
+            heads,
+            false,
+            move |i, _, cx| {
+                let Some(pick) = picks.get(i).cloned() else {
+                    return;
+                };
+                let _ = this.update(cx, |this, cx| {
+                    match pick {
+                        Ok(clicked) => match &clicked.kind {
+                            InstanceKind::Default | InstanceKind::Own => {
+                                this.select_instance(&clicked);
+                                this.go(Page::Home);
+                            }
+                            InstanceKind::Port { slug } => this.show_modpack(Some(slug.clone())),
+                            InstanceKind::Pack { .. } => this.show_modpack(None),
+                        },
+                        Err(dir) => {
+                            this.open_server(dir);
+                            this.go(Page::Servers);
+                        }
+                    }
+                    cx.notify();
+                });
+            },
+        )
+        .on_key_down(
+            cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
+                if !ui::opens_row_menu(&ev.keystroke) {
+                    return;
+                }
+                let Some(Some(id)) = menus.get(ui::options_cursor(SIDE_ROWS)).cloned() else {
+                    return;
+                };
+                this.open_menu_from(Menu::InstanceRow(id), window, cx);
+                cx.stop_propagation();
+                cx.notify();
+            }),
+        )
     }
 
     fn keep_selected_shown(&self) -> impl IntoElement {
@@ -327,12 +350,16 @@ impl Launcher {
         let list = self.row_menu.list.clone();
         let shown = self.row_menu.shown.clone();
         let covered = px(self.row_menu.lone_label.get());
+        let side = self.side_focus.clone();
         canvas(
-            move |view, window, _| {
+            move |view, window, cx| {
                 let Some(id) = id else {
                     return;
                 };
-                let key = (id, view.size.height, covered);
+                if window.last_input_was_keyboard() && side.contains_focused(window, cx) {
+                    return;
+                }
+                let key = (id, view.size.height);
                 if shown.borrow().as_ref() == Some(&key) {
                     return;
                 }
@@ -451,7 +478,7 @@ impl Launcher {
             )
     }
 
-    pub(super) fn sidebar(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn sidebar(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         self.load_packs();
         let compact = ui::short_window();
         let account = self.account_block(compact, cx);
@@ -494,58 +521,19 @@ impl Launcher {
             .pr(px(ui::SIDEBAR_PAD + MORE_INSET))
             .pt(px(if compact { LIST_TOP_SHORT } else { LIST_TOP }))
             .pb(px(GROUP_BOTTOM))
-            .child(ui::label(tr("Instances")))
+            .child(
+                ui::heading("side-instances-title", tr("Instances").into(), 2)
+                    .child(ui::label(tr("Instances"))),
+            )
             .child(add);
-        let mut list = ui::scroll_pane("side-list", &self.row_menu.list)
+        let rows = self.sidebar_rows(cx);
+        let list = ui::scroll_pane("side-list", &self.row_menu.list)
             .flex()
             .flex_col()
             .flex_1()
             .min_h_0()
             .px(px(ui::SIDEBAR_PAD))
-            .children(self.sidebar_instances(cx));
-
-        let servers: Vec<_> = self
-            .servers
-            .sidebar_list()
-            .map(<[_]>::to_vec)
-            .unwrap_or_else(|| self.side_servers.clone());
-        if !servers.is_empty() {
-            list = list.child(group_label(tr("Servers"), &self.row_menu.labels));
-        }
-        let mut server_rows = div().flex().flex_col().gap(px(space::XXS));
-        for e in &servers {
-            let up = self.servers.is_up(&e.dir);
-            let open = self.page == Page::Servers && self.servers.open.as_ref() == Some(&e.dir);
-            let dir = e.dir.clone();
-            server_rows = server_rows.child(
-                ui::side_row(
-                    format!("side-server-{}", e.dir.display()),
-                    e.name.clone(),
-                    open,
-                )
-                .aria_description(if up { tr("Running") } else { tr("Stopped") })
-                .pr(px(space::SM))
-                .pl(px(NAV_INSET))
-                .child(ui::tile(ROW_TILE).relative().child(ui::icon(
-                    "computer-terminal-01",
-                    ui::IconSize::Px16,
-                    ui::icon_tone(open),
-                )))
-                .child(ui::item_text(
-                    e.name.clone(),
-                    if up {
-                        ui::state_line(Tone::Live, tr("Running"))
-                    } else {
-                        ui::state_line(Tone::Off, tr("Stopped"))
-                    },
-                ))
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.open_server(dir.clone());
-                    this.go(Page::Servers);
-                    cx.notify();
-                })),
-            );
-        }
+            .child(rows);
         let side = self.theme.side;
         let lone_label = self.row_menu.lone_label.get();
         let list = div()
@@ -554,7 +542,7 @@ impl Launcher {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .child(list.child(server_rows))
+            .child(list)
             .child(self.keep_selected_shown())
             .child(self.cover_lone_label())
             .when(lone_label > 0., |d| {
@@ -719,6 +707,8 @@ impl Launcher {
             });
 
         div()
+            .id("sidebar")
+            .role(gpui::Role::Navigation)
             .relative()
             .flex()
             .flex_col()
@@ -823,7 +813,8 @@ impl Launcher {
             return None;
         };
         let row = self.row_menu.rows.borrow().get(&id).copied()?;
-        let at = point(row.right() + px(ui::MENU_GAP), row.top());
+        let beside = row.right().max(px(layout::sidebar(self.window_width))) + px(ui::MENU_GAP);
+        let at = point(beside, row.top());
         let item = |key: &'static str, icon: &'static str, label: String| {
             ui::menu_row(format!("row-menu-{key}"), icon, label, false)
         };
@@ -870,8 +861,7 @@ impl Launcher {
                 item("folder", "folder-01", tr("Open instance folder").into()).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
-                        let _ = std::fs::create_dir_all(&home);
-                        crate::toast::open(cx, &home);
+                        ui::open_folder(&home, cx);
                         cx.notify();
                     }),
                 ),
@@ -944,7 +934,6 @@ impl Launcher {
             .into_any_element()
         } else {
             let ask = ui::menu_row("row-menu-delete", "delete-02", tr("Delete…"), true);
-            let ask = ask.mt(px(space::XS));
             if can_delete {
                 let asked = instance.id.clone();
                 ask.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {

@@ -19,9 +19,6 @@ static COVERS: LazyLock<[Arc<gpui::Image>; 3]> = LazyLock::new(|| {
 });
 
 const FRIEND_FACE: f32 = ui::CHIP_FACE;
-const FRIEND_FIELD: f32 = 260.;
-
-const DIALOG_MAX: (f32, f32) = (1180., 840.);
 
 const ASIDE_WIDTH: f32 = 360.;
 
@@ -70,8 +67,10 @@ impl Launcher {
     pub(crate) fn create_dialog(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let creating = self.servers.creating;
         self.servers.create.as_ref()?;
-        let aside = (self.window_width >= layout::DIALOG_ASIDE_WIDE).then(|| self.create_aside());
-        let main = self.create_main(aside.is_some(), cx);
+        let aside = (self.window_width >= layout::DIALOG_ASIDE_WIDE)
+            .then(|| self.create_aside().into_any_element());
+        let body = self.create_body(cx);
+        let foot = self.create_foot(cx);
         let close = cx.listener(move |this, _: &MouseDownEvent, _, cx| {
             if !creating {
                 this.servers.create = None;
@@ -79,16 +78,7 @@ impl Launcher {
             }
             cx.notify();
         });
-        let card = ui::dialog_plate()
-            .id("create-card")
-            .occlude()
-            .flex()
-            .w_full()
-            .max_w(px(DIALOG_MAX.0))
-            .h_full()
-            .max_h(px(DIALOG_MAX.1))
-            .children(aside)
-            .child(main);
+        let card = ui::split_dialog("create-card", tr("Create a server"), aside, body, foot);
         Some(
             ui::modal(
                 "create-dialog",
@@ -174,8 +164,6 @@ impl Launcher {
             .h_full()
             .p(px(space::XL))
             .overflow_y_scroll()
-            .rounded_l(px(radius::MODAL))
-            .bg(ui::inset())
             .child(
                 div()
                     .w(px(COVER.0))
@@ -203,8 +191,8 @@ impl Launcher {
             )
     }
 
-    /// The right column: the title, every choice, and the foot.
-    fn create_main(&mut self, aside: bool, cx: &mut Context<Self>) -> Div {
+    /// Every choice, scrolling between the dialog's title and its foot.
+    fn create_body(&mut self, cx: &mut Context<Self>) -> Div {
         let Some(c) = self.servers.create.as_ref() else {
             return div();
         };
@@ -213,38 +201,6 @@ impl Launcher {
         let (mode, difficulty, max) = (c.mode, c.difficulty, c.max_players);
         let (friends_only, check, friends) = (c.friends_only, c.check_accounts, c.friends.clone());
         let locked_out = check && c.offline;
-        let creating = self.servers.creating;
-        let head = div()
-            .flex()
-            .flex_none()
-            .items_start()
-            .justify_between()
-            .gap(px(space::LG))
-            .px(px(space::XXL))
-            .pt(px(space::XXL))
-            .pb(px(space::XL))
-            .child(div().flex().flex_col().min_w_0().child(ui::entity_title(
-                tr("Create a server"),
-                pixel_text::CARD_TITLE,
-            )))
-            .child(
-                ui::icon_button(
-                    "create-close",
-                    "cancel-01",
-                    tr("Close"),
-                    ButtonKind::Ghost,
-                    ui::ButtonSize::Md,
-                    false,
-                )
-                .when(creating, ui::disabled)
-                .when(!creating, |b| {
-                    b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.servers.create = None;
-                        this.servers.problem = None;
-                        cx.notify();
-                    }))
-                }),
-            );
 
         // The world: new (with a seed) or a copy of one of the player's.
         let card = |id: &'static str, on: bool, title: SharedString, note: String| {
@@ -262,30 +218,50 @@ impl Launcher {
                 &[("count", &worlds.len().to_string())],
             )
         };
-        let mut copy_card = card(
+        let copy_card = card(
             "create-world-copy",
             !new_world,
             tr("Copy one of my worlds").into(),
             count,
         );
-        copy_card = if worlds.is_empty() {
-            ui::disabled(copy_card)
-        } else {
-            copy_card.on_press(set(cx, |c| c.new_world = false))
-        };
-        let kinds = div()
-            .flex()
-            .gap(px(space::MD))
-            .child(
-                card(
-                    "create-world-new",
-                    new_world,
+        let no_worlds = worlds.is_empty();
+        let this = cx.entity().downgrade();
+        let kinds = ui::options(
+            div().id("create-world-kinds").flex().gap(px(space::MD)),
+            vec![
+                (
+                    card(
+                        "create-world-new",
+                        new_world,
+                        tr("New world").into(),
+                        String::new(),
+                    ),
                     tr("New world").into(),
-                    String::new(),
-                )
-                .on_press(set(cx, |c| c.new_world = true)),
-            )
-            .child(copy_card);
+                    new_world,
+                ),
+                (
+                    if no_worlds {
+                        ui::disabled(copy_card)
+                    } else {
+                        copy_card
+                    },
+                    tr("Copy one of my worlds").into(),
+                    !new_world,
+                ),
+            ],
+            true,
+            move |i, _, cx| {
+                if i == 1 && no_worlds {
+                    return;
+                }
+                let _ = this.update(cx, |this, cx| {
+                    if let Some(c) = &mut this.servers.create {
+                        c.new_world = i == 0;
+                    }
+                    cx.notify();
+                });
+            },
+        );
         let detail = if new_world {
             self.field(
                 Field::NewServerSeed,
@@ -297,39 +273,51 @@ impl Launcher {
             .w_full()
             .into_any_element()
         } else {
-            let mut list = ui::list_box("create-worlds", WORLD_LIST);
-            for (name, path) in worlds {
-                let on = copy.as_ref() == Some(&path);
-                let icon = path.join("icon.png");
-                let thumb = div()
-                    .flex_none()
-                    .w(px(WORLD_THUMB.0))
-                    .h(px(WORLD_THUMB.1))
-                    .overflow_hidden()
-                    .rounded(px(radius::ROW))
-                    .bg(white(fill::BUTTON))
-                    .when(icon.is_file(), |d| {
-                        d.child(img(icon).size_full().object_fit(gpui::ObjectFit::Cover))
+            let rows = worlds
+                .iter()
+                .map(|(name, path)| {
+                    let on = copy.as_ref() == Some(path);
+                    let icon = path.join("icon.png");
+                    let thumb = div()
+                        .flex_none()
+                        .w(px(WORLD_THUMB.0))
+                        .h(px(WORLD_THUMB.1))
+                        .overflow_hidden()
+                        .rounded(px(radius::ROW))
+                        .bg(white(fill::BUTTON))
+                        .when(icon.is_file(), |d| {
+                            d.child(img(icon).size_full().object_fit(gpui::ObjectFit::Cover))
+                        });
+                    let (shown, line) = match details.get(path) {
+                        Some((name, line)) => (name.clone(), line.clone()),
+                        None => (name.clone(), short(path)),
+                    };
+                    let row =
+                        ui::list_choice(SharedString::from(format!("create-copy-{name}")), on)
+                            .p(px(space::SM))
+                            .pr(px(space::LG))
+                            .gap(px(space::LG))
+                            .child(thumb)
+                            .child(ui::item_text(shown.clone(), line))
+                            .child(ui::tick_slot(on));
+                    (row, SharedString::from(shown), on)
+                })
+                .collect();
+            let paths: Vec<_> = worlds.iter().map(|(_, path)| path.clone()).collect();
+            let this = cx.entity().downgrade();
+            let list = ui::options(
+                ui::list_box("create-worlds", WORLD_LIST),
+                rows,
+                true,
+                move |i, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        if let (Some(c), Some(path)) = (&mut this.servers.create, paths.get(i)) {
+                            c.copy = Some(path.clone());
+                        }
+                        cx.notify();
                     });
-                list = list.child(
-                    ui::list_choice(SharedString::from(format!("create-copy-{name}")), on)
-                        .p(px(space::SM))
-                        .pr(px(space::LG))
-                        .gap(px(space::LG))
-                        .child(thumb)
-                        .child(match details.get(&path) {
-                            Some((name, line)) => ui::item_text(name.clone(), line.clone()),
-                            None => ui::item_text(name, short(&path)),
-                        })
-                        .child(ui::tick_slot(on))
-                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            if let Some(c) = &mut this.servers.create {
-                                c.copy = Some(path.clone());
-                            }
-                            cx.notify();
-                        })),
-                );
-            }
+                },
+            );
             ui::with_scrollbar(list).into_any_element()
         };
         let world = ui::field_group(
@@ -376,6 +364,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let difficulties = ui::segments(
             "create-difficulty",
+            tr("Difficulty"),
             &ui::translated(&DIFFICULTIES),
             difficulty,
             move |id, _, cx| {
@@ -452,26 +441,28 @@ impl Launcher {
                 .child(ui::card_note(tr("The first name becomes an operator.")).mt(px(space::MD)));
         }
 
-        let locked_out_line = tr("You play offline, so you couldn't join it.");
         let accounts = ui::toggle_row(
             "create-accounts",
             tr("Require Microsoft sign-in"),
-            Some(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(space::XS))
-                    .child(tr("Stops anyone joining under someone else's name."))
-                    .when(locked_out, |d| {
-                        d.child(ui::state_note(ui::Tone::Warn, locked_out_line))
-                    })
-                    .into_any_element(),
-            ),
+            Some(tr("Stops anyone joining under someone else's name.").into()),
             check,
         )
-        .when(locked_out, |row| row.aria_description(locked_out_line))
         .bg(ui::inset())
         .on_press(set(cx, |c| c.check_accounts = !c.check_accounts));
+        let accounts = div()
+            .flex()
+            .flex_col()
+            .gap(px(space::SM))
+            .child(accounts)
+            .when(locked_out, |d| {
+                d.child(
+                    ui::state_note(
+                        ui::Tone::Warn,
+                        tr("You play offline, so you couldn't join it."),
+                    )
+                    .px(px(ui::SETTING_ROW_PADDING)),
+                )
+            });
 
         let body = ui::scroll_pane("create-body", &self.servers.create_scroll.handle)
             .flex()
@@ -479,8 +470,7 @@ impl Launcher {
             .flex_1()
             .min_h_0()
             .gap(px(space::XXL))
-            .px(px(space::XXL))
-            .pb(px(space::XXL))
+            .pb(px(space::LG))
             .child(ui::field_group(
                 "create-name-title",
                 tr("Name"),
@@ -509,24 +499,15 @@ impl Launcher {
                 who,
             ))
             .child(accounts);
-        div()
-            .flex()
-            .flex_col()
+        self.servers
+            .create_scroll
+            .wrap(body)
             .flex_1()
-            .min_w_0()
-            .child(head)
-            .child(
-                self.servers
-                    .create_scroll
-                    .wrap(body)
-                    .flex_1()
-                    .min_h_0()
-                    .children(ui::more_below_fade(
-                        &self.servers.create_scroll.handle,
-                        ui::dialog_colour(),
-                    )),
-            )
-            .child(self.create_foot(aside, cx))
+            .min_h_0()
+            .children(ui::more_below_fade(
+                &self.servers.create_scroll.handle,
+                ui::dialog_colour(),
+            ))
     }
 
     /// The friends let in, as chips with their face (the first is an operator), then a field to add one.
@@ -578,28 +559,11 @@ impl Launcher {
         }
         let typed = self.fields.value(Field::NewServerFriend).trim().to_string();
         let ok = valid_name(&typed) && !friends.contains(&typed);
-        let add = ui::button(
-            "create-friend-add",
-            None,
-            tr("Add"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Sm,
-        );
-        let add = if ok {
-            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.add_create_friend();
-                cx.notify();
-            }))
-        } else {
-            ui::disabled(add)
-        };
-        chips.child(self.field_with(
+        chips.child(self.name_adder(
             Field::NewServerFriend,
-            None,
-            tr("Add a friend's name"),
-            FRIEND_FIELD,
-            ui::ButtonSize::Lg,
-            Some(add.into_any_element()),
+            "create-friend",
+            layout::FIELD_MD,
+            ok,
             cx,
         ))
     }
@@ -616,10 +580,10 @@ impl Launcher {
         }
     }
 
-    /// The foot: the EULA and its link, what is happening, Cancel and Create server.
-    fn create_foot(&mut self, aside: bool, cx: &mut Context<Self>) -> Div {
+    /// The foot: what is happening, the EULA and its link, Cancel and Create server.
+    fn create_foot(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let Some(c) = self.servers.create.as_ref() else {
-            return div();
+            return Vec::new();
         };
         let (eula, missing, creating) = (c.eula, c.eula_missing, self.servers.creating);
         let agree = ui::toggle_label("create-eula", tr("I agree to the Minecraft EULA"), eula)
@@ -632,7 +596,6 @@ impl Launcher {
             }));
         let read = ui::link("create-eula-read", tr("Read the EULA"))
             .on_press(|_, _, cx| cx.open_url(servers::EULA_URL));
-        // What is happening, between the EULA and the buttons.
         let status = if creating {
             let last = self.servers.job_log.back().cloned().unwrap_or_default();
             Some(ui::card_note(last).truncate())
@@ -654,76 +617,62 @@ impl Launcher {
             None,
             tr("Cancel"),
             ButtonKind::Ghost,
-            ui::ButtonSize::Lg,
+            ui::ButtonSize::Md,
         );
-        let buttons = if creating {
+        let mut foot: Vec<AnyElement> = status
+            .map(|s| s.w_full().min_w_0().into_any_element())
+            .into_iter()
+            .collect();
+        foot.push(
             div()
                 .flex()
-                .gap(px(space::SM))
-                .child(ui::disabled(cancel))
-                .child(ui::primary_busy(
-                    "create-go",
-                    tr("Creating"),
-                    None,
-                    ui::ButtonSize::Lg,
-                ))
-        } else {
-            let create = ui::primary("create-go", tr("Create server"), ui::ButtonSize::Lg);
-            div()
-                .flex()
-                .gap(px(space::SM))
-                .children(fix.map(|fix| {
-                    ui::button(
-                        "create-fix",
-                        None,
-                        tr("Prepare game files"),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Lg,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.fix(fix.clone(), cx);
-                            cx.notify();
-                        },
-                    ))
-                }))
-                .child(cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                .items_center()
+                .gap(px(space::MD))
+                .mr_auto()
+                .child(agree)
+                .child(read)
+                .into_any_element(),
+        );
+        if creating {
+            foot.push(ui::disabled(cancel).into_any_element());
+            foot.push(
+                ui::primary_busy("create-go", tr("Creating"), None, ui::ButtonSize::Md)
+                    .into_any_element(),
+            );
+            return foot;
+        }
+        foot.extend(fix.map(|fix| {
+            ui::button(
+                "create-fix",
+                None,
+                tr("Prepare game files"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.fix(fix.clone(), cx);
+                cx.notify();
+            }))
+            .into_any_element()
+        }));
+        foot.push(
+            cancel
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.servers.create = None;
                     this.servers.problem = None;
                     cx.notify();
-                })))
-                .child(create.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                }))
+                .into_any_element(),
+        );
+        foot.push(
+            ui::primary("create-go", tr("Create server"), ui::ButtonSize::Md)
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.create_server();
                     cx.notify();
-                })))
-        };
-        div()
-            .flex()
-            .flex_none()
-            .flex_col()
-            .gap(px(space::MD))
-            .px(px(space::XXL))
-            .py(px(space::XL))
-            .rounded_br(px(radius::MODAL))
-            .when(!aside, |d| d.rounded_bl(px(radius::MODAL)))
-            .bg(ui::inset())
-            .children(status.map(|s| s.min_w_0()))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(space::LG))
-                    .child(
-                        div()
-                            .flex()
-                            .items_center()
-                            .gap(px(space::MD))
-                            .child(agree)
-                            .child(read),
-                    )
-                    .child(buttons.ml_auto()),
-            )
+                }))
+                .into_any_element(),
+        );
+        foot
     }
 }
 

@@ -19,11 +19,13 @@ pub const HOME_HEAD_WIDE: f32 = 1280.;
 pub const PACK_GRID_WIDE: f32 = 1280.;
 pub const MODS_DETAIL_BESIDE: f32 = 1280.;
 pub const ACCOUNT_CARDS_BESIDE: f32 = 1500.;
-pub const SETTINGS_LIST_BESIDE: f32 = 1100.;
+pub const SETTINGS_LIST_BESIDE: f32 = 1440.;
 pub const DIALOG_ASIDE_WIDE: f32 = 1100.;
 pub const SERVER_CARD_MIN: f32 = 540.;
 pub const INSTANCE_COMPACT_BELOW: f32 = 600.;
 pub const SETTINGS_CONTROL_BESIDE: f32 = 840.;
+
+pub const SETTINGS_RAIL: f32 = FIELD_MD;
 
 pub const MEASURE_NOTE: f32 = 560.;
 pub const MEASURE_TEXT: f32 = 720.;

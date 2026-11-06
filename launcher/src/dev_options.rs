@@ -31,12 +31,11 @@ impl Launcher {
             "dev-offline",
             tr("Offline names without an account"),
             Some(
-                div()
-                    .child(tr(
-                        "Offline names play without a Microsoft account that owns the game. \
-                         Minecraft still comes from your own install.",
-                    ))
-                    .into_any_element(),
+                tr(
+                    "Offline names play without a Microsoft account that owns the game. \
+                     Minecraft still comes from your own install.",
+                )
+                .into(),
             ),
             self.settings.dev_offline,
         )

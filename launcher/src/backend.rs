@@ -44,32 +44,34 @@ pub use game_output::{
 };
 pub use jobs::{prepare_command, spawn, Job, Logged, Msg, Running, RuntimeGuard, LOG_KEEP};
 pub use links::{links, Links};
-pub(crate) use minecraft::GLIBC_LOADER;
 pub use minecraft::{default_minecraft_dir, download_version_for_owner, minecraft_dir};
 pub(crate) use net::{agent, agent_within, get, rate_limited, request};
 pub use net::{get_bytes, network_error, NetError};
-pub use paths::{build_dir, data_dir, game_home, version_dir};
-pub(crate) use platform::CLIENT;
+pub use paths::{build_dir, data_dir, game_home, own_minecraft_dir, version_dir};
 pub use platform::{ASSET, LAUNCHER_APPIMAGE_ASSET, LAUNCHER_ASSET, PLATFORMS};
+pub(crate) use platform::{CLIENT, GAME_APP};
+#[cfg(test)]
+use play::client_command;
 pub use play::{
-    agree_eula, append_game_args, client, client_as, client_command, eula_agreed, game_args,
-    java_game, join_friend, need_prepared, no_ai, server, server_command, server_dir, set_no_ai,
-    split_args, LAUNCHER_RENDER_ENV, SIGN_IN_HINT,
+    agree_eula, eula_agreed, game_args, join_friend, launch, need_prepared, no_ai, server,
+    server_command, server_dir, set_no_ai, split_args, Launched, Play, PlayError,
+    LAUNCHER_RENDER_ENV, SIGN_IN_HINT,
 };
 pub use prepare::{
     prepare_in_process, prepare_step, preparer, set_prepare_step, sounds, MinecraftFrom,
     PrepareStep, Preparer,
 };
 pub use releases::{
-    compare_versions, installable_updates, is_game_tag, latest, launcher_version, markdown_to_text,
-    own_tag, release_notes, release_order, releases, Identifier, Prerelease, Release, ReleaseOrder,
-    CHECK_EVERY, LAUNCHER_TAG_PREFIX, OLD_LAUNCHER_TAG_PREFIX,
+    compare_versions, installable_updates, is_game_tag, is_release_or_nightly, latest,
+    launcher_version, markdown_to_text, newest_release_or_nightly, own_tag, release_notes,
+    release_order, releases, Identifier, Prerelease, Release, ReleaseOrder, CHECK_EVERY,
+    LAUNCHER_TAG_PREFIX, OLD_LAUNCHER_TAG_PREFIX,
 };
+pub(crate) use resources::reuse_prepared_for;
 pub use resources::{
     complete_assets, has_sounds, is_prepared, resources, resources_summary,
     reuse_prepared_everywhere,
 };
-pub(crate) use resources::{copy_dir, copy_dir_except, reuse_prepared_for};
 #[cfg(test)]
 pub(crate) use self_update::new_stage_folder;
 #[cfg(windows)]
@@ -81,14 +83,17 @@ pub use self_update::{
     place_staged, remove_stage, restart, self_update, self_update_allowed, stage_folder,
     stage_update, update_target, update_work_dir, Staged,
 };
-pub use settings::{Appearance, Settings, WhilePlaying};
+pub use settings::{Appearance, NativeProfile, Settings, WhilePlaying};
 pub use updates::{check_updates, eclipse_update, launcher_update, releases_and_updates, Updates};
 pub use versions::{
     after_install, disk_use, game_mod_api_level, game_version, install, install_tag, installed,
     mod_api_level, nightly_downgrade, no_version_installed, prune_old_versions, remove,
     remove_version, resolve_version, select_after_update,
 };
-pub(crate) use versions::{download, is_installed, mark_installed, remove_unused};
+pub(crate) use versions::{
+    copy_version_except, download, installed_at, is_installed, mark_installed, needed_versions,
+    remove_unused, INSTALL_MARK,
+};
 
 #[cfg(test)]
 mod release_loading_tests;

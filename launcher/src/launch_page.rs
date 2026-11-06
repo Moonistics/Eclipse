@@ -47,7 +47,9 @@ pub(super) struct MemorySlider {
 
 impl MemorySlider {
     fn total(&mut self) -> u32 {
-        *self.total.get_or_insert_with(launch::total_memory_mb)
+        *self
+            .total
+            .get_or_insert_with(crate::memory::total_memory_mb)
     }
 }
 
@@ -161,7 +163,7 @@ impl Launcher {
         }
         let across: f32 = (at.x - area.origin.x).into();
         let total = slider.total();
-        let picked = launch::memory_at((across / width).clamp(0., 1.), total);
+        let picked = crate::memory::memory_at((across / width).clamp(0., 1.), total);
         slider.saved = None;
         slider.dragging = Some(picked);
         cx.notify();
@@ -203,7 +205,7 @@ impl Launcher {
     /// Saves what's in the box to `id`, if it's a value and a new one.
     fn save_typed_memory(&mut self, id: &str) {
         let typed = self.fields.value(Field::MemoryLimit).to_owned();
-        let Ok(memory) = launch::parse_memory(&typed) else {
+        let Ok(memory) = crate::memory::parse_memory(&typed) else {
             self.memory_slider.saved = None;
             self.fields.set_field_invalid(Field::MemoryLimit, true);
             return;
@@ -257,12 +259,12 @@ impl Launcher {
         let saved = Self::saved_memory(&instance)?;
         let memory = self.memory_slider.dragging.unwrap_or(saved);
         self.sync_memory_box(&instance.id, memory);
-        let typed = launch::parse_memory(self.fields.value(Field::MemoryLimit));
+        let typed = crate::memory::parse_memory(self.fields.value(Field::MemoryLimit));
         let memory = match (self.fields.has_focus(Field::MemoryLimit), typed) {
             (true, Ok(typed)) => typed.unwrap_or(instances::DEFAULT_MEMORY_MB),
             _ => memory,
         };
-        let f = launch::memory_fraction(memory, total).clamp(0., 1.);
+        let f = crate::memory::memory_fraction(memory, total).clamp(0., 1.);
         let about = "Too little and the game can crash.";
         let track = div()
             .id("instance-memory")
@@ -411,14 +413,9 @@ impl Launcher {
                     .children(about.map(|about| ui::card_note(tr(about)))),
             );
         }
-        found.any().then(|| {
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(space::MD))
-                .child(ui::label(tr("On this computer")))
-                .child(list)
-        })
+        found
+            .any()
+            .then(|| ui::field_group("launch-found-title", tr("On this computer"), None, list))
     }
 
     /// The Launch card on Home, while open for the selected instance.

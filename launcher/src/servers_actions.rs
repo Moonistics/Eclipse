@@ -6,13 +6,13 @@ impl Launcher {
     /// Runs `job` on a thread with the page busy; its lines and result arrive as events.
     pub(super) fn server_job(
         &mut self,
-        label: impl Into<String>,
+        what: ServerJob,
         job: impl FnOnce(&dyn Fn(String)) -> Result<String, Problem> + Send + 'static,
     ) {
         if self.servers.busy.is_some() {
             return;
         }
-        self.servers.busy = Some(label.into());
+        self.servers.busy = Some(what);
         self.servers.job_log.clear();
         self.servers.problem = None;
         self.servers.note = None;
@@ -27,11 +27,11 @@ impl Launcher {
     }
 
     /// `eclipse-server <args>` on the open server, as a job.
-    pub(crate) fn server_command(&mut self, label: &str, args: Vec<String>) {
+    pub(crate) fn server_command(&mut self, what: ServerJob, args: Vec<String>) {
         let Some(dir) = self.servers.open.clone() else {
             return;
         };
-        self.server_job(label.to_string(), move |log| {
+        self.server_job(what, move |log| {
             let args: Vec<&str> = args.iter().map(String::as_str).collect();
             servers::run_streamed(&dir, &args, log).map(|_| String::new())
         });
@@ -238,7 +238,6 @@ impl Launcher {
                     .retain(|started| started != &dir);
                 if !s.list.iter().any(|entry| entry.dir == dir) {
                     s.open = None;
-                    self.side_servers = s.list.clone();
                 }
                 match result {
                     Ok(()) => s.note = Some(trf("{name} moved to the trash.", &[("name", &name)])),
@@ -358,7 +357,7 @@ impl Launcher {
         };
         STARTED_HERE.lock().unwrap().push(dir.clone());
         self.servers.restart_needed.clear();
-        self.server_job("Starting", move |log| {
+        self.server_job(ServerJob::Starting, move |log| {
             log("A new world takes a minute the first time".into());
             servers::run_streamed(&dir, &["start"], log).map(|_| String::new())
         });
@@ -377,7 +376,7 @@ impl Launcher {
             }
             Fix::Prepare => match self.selected().cloned() {
                 Some(tag) if backend::is_prepared(&tag) => {
-                    self.server_job("Copying the game files", move |log| {
+                    self.server_job(ServerJob::CopyingGameFiles, move |log| {
                         log(format!("Copying the game files prepared for Eclipse {tag}"));
                         servers::set_up(&tag)
                             .map(|_| "The game files are ready. Press Start again.".to_string())
@@ -415,7 +414,7 @@ impl Launcher {
             Fix::ShowLog => {
                 self.servers.tab = Tab::Players;
                 if let Some(dir) = &self.servers.open {
-                    crate::toast::open(cx, &dir.join("logs"));
+                    ui::open_folder(&dir.join("logs"), cx);
                 }
             }
         }
@@ -589,7 +588,7 @@ impl Launcher {
         }
         self.fields.text(Field::ServerPlayer).set(String::new());
         self.server_command(
-            &format!("Letting {name} in"),
+            ServerJob::LettingIn(name.clone()),
             vec!["whitelist".into(), "add".into(), name],
         );
     }

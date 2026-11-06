@@ -630,6 +630,41 @@ pub fn origins(home: &Path) -> Vec<Origin> {
     found
 }
 
+/// A native file not tracked by the registry/browser, including GitHub installs.
+#[derive(Clone)]
+pub struct Installed {
+    pub file: String,
+    pub id: String,
+    pub version: String,
+    pub origin: Option<Origin>,
+}
+
+/// Discover the actual files, not just GitHub sidecars. Registry files already have a row.
+pub fn untracked(home: &Path) -> Vec<Installed> {
+    let tracked = crate::browser::installed::Installed::load(home);
+    native_mods::installed_files(home)
+        .into_iter()
+        .filter_map(|path| {
+            let file = format!("{}/{}", native_mods::INSTALLED, path.file_name()?.to_str()?);
+            if !path.is_file() || tracked.entries.iter().any(|e| e.file == file) {
+                return None;
+            }
+            let (id, version) = eclipse_mods::index::native::Bundle::read(&path)
+                .map(|b| (b.manifest.id, b.manifest.version))
+                .unwrap_or_else(|_| (crate::native_status::stem(&path), String::new()));
+            let origin = (path.file_stem()?.to_str()? == id)
+                .then(|| origin(home, &id))
+                .flatten();
+            Some(Installed {
+                file,
+                id,
+                version,
+                origin,
+            })
+        })
+        .collect()
+}
+
 /// Installs `packed` (from `found`) into the game folder `home`, turns it on and records where
 /// it came from. A mod from the registry or the player's own is never replaced; one from GitHub
 /// is (that is how it updates).

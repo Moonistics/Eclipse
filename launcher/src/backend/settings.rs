@@ -65,6 +65,48 @@ impl WhilePlaying {
     }
 }
 
+/// What native builds are compiled for, as the player picks it (`native_mods::Profile::cargo`
+/// says how each one compiles).
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum NativeProfile {
+    #[default]
+    Performance,
+    Dev,
+    Release,
+}
+
+impl NativeProfile {
+    pub fn name(self) -> &'static str {
+        match self {
+            Self::Performance => "performance",
+            Self::Dev => "dev",
+            Self::Release => "release",
+        }
+    }
+
+    /// The profile named `text`; `fast`, `Performance`'s name before `Dev`, still names it.
+    pub fn parse(text: &str) -> Option<Self> {
+        match text.trim() {
+            "performance" | "fast" => Some(Self::Performance),
+            "dev" => Some(Self::Dev),
+            "release" => Some(Self::Release),
+            _ => None,
+        }
+    }
+
+    /// The settings' profile: the one picked, else `Release` for an older file's release switch.
+    pub fn chosen(settings: &Settings) -> Self {
+        settings
+            .native_profile
+            .unwrap_or(if settings.native_release {
+                Self::Release
+            } else {
+                Self::Performance
+            })
+    }
+}
+
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     pub selected: Option<String>,
@@ -138,17 +180,17 @@ pub struct Settings {
     /// Native mods are always on: an older file's `native_mods` switch is ignored.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub native_mods_noticed: bool,
-    /// The profile native builds compile with (`native_mods::Profile::chosen`); none is the
-    /// default, or the release's own while `native_release` is on.
+    /// The profile native builds compile with ([`NativeProfile::chosen`]), set through
+    /// [`Settings::set_native_profile`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub native_profile: Option<crate::native_mods::Profile>,
+    native_profile: Option<NativeProfile>,
     /// Combined fast/release compilation cache limit in GiB. Unset is 30; zero disables
     /// automatic cleanup. Installed native versions and player data are not this cache.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub native_cache_gib: Option<u64>,
     /// An older file's switch for the release profile, read when `native_profile` is unset.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
-    pub native_release: bool,
+    native_release: bool,
     /// Developer options (hidden: seven clicks on the sidebar's launcher version reveal them):
     /// offline names play without an account that owns the game, in the window only
     /// (`account::Accounts::play_as_with`, `account::launch_for_game`). Never a download: the game still
@@ -229,6 +271,13 @@ impl Settings {
         let answer = change(&mut settings);
         crate::files::write_json(path, &settings)?;
         Ok(answer)
+    }
+
+    /// Picks the profile native builds compile with (None: the default); an older file's release
+    /// switch goes with it.
+    pub fn set_native_profile(&mut self, profile: Option<NativeProfile>) {
+        self.native_profile = profile;
+        self.native_release = false;
     }
 
     pub fn desktop_entry(&self) -> bool {
