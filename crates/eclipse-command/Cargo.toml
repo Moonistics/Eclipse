@@ -1,0 +1,16 @@
+[package]
+name = "eclipse-command"
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.90"
+description = "Commands (Brigadier): the vanilla command tree, argument types, selectors, parsing, suggestions and the network form of the tree"
+
+[dependencies]
+eclipse-client-core = { path = "../eclipse-client-core" }
+eclipse-core = { path = "../eclipse-core" }
+eclipse-protocol = { path = "../eclipse-protocol" }
+eclipse-world = { path = "../eclipse-world" }
+
+[lints]
+workspace = true

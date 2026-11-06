@@ -1,0 +1,11 @@
+LocationPredicate.matches	port	crates/eclipse-client/src/advancements.rs::location	position, biome, structure, dimension and block checks for advancement criteria
+MultiLineEditBox.setValue	port	crates/eclipse-client-render/src/multiline_edit.rs::MultiLineEdit::set_value	the multiline box's own text setter: truncates at the character limit and keeps the old text when the value would overflow the line limit
+TransferableSelectionList.PackEntry.mouseClicked	inline	crates/eclipse-client-render/src/pack_screen.rs::PackScreen::click	entry select, move arrows and double-click transfer
+CompoundTag.getIntArray	skip:java		typed NBT accessor; Rust matches Tag::IntArray where it reads one
+Component.toFlatList	skip:java		Eclipse Text already keeps flat styled spans
+Style.withColor	port	crates/eclipse-client-core/src/text.rs::Text::with_color	colour on the text span
+MinecraftServer.halt	port	crates/eclipse-client/src/game/integrated.rs::Integrated::halt	stop the integrated server and wait for it
+DedicatedPlayerList.loadOps	inline	crates/eclipse-server-files/src/user_lists.rs::UserList::load	ops.json through the shared user-list loader
+ServerStatsCounter.toJson	inline	crates/eclipse-client/src/game/stats.rs::Stats::write	stats JSON built while saving
+LevelChunk.getFluidState	port	crates/eclipse-world/src/level/mod.rs::Behaviours::fluid	fluid state of a block state
+Fox.getBreedOffspring	inline	crates/eclipse-client/src/game/creatures.rs::Game::breed	the Fox arm: either parent's variant on a coin flip

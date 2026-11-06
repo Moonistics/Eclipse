@@ -1,0 +1,356 @@
+# Cosmetics
+
+Small items Eclipse players wear: a hat, something on the back, a shirt, a pet on the shoulder, a
+style for their name tag. They are drawn by Eclipse clients only and change nothing in the game.
+**On by default** (Ludovic, 2026-11-04: on when the shop opens), your own shown. Other players'
+show by default only if your account owns a cosmetic: a player who owns none sees a vanilla game,
+and the game asks the service nothing about other players (CONTRIBUTING.md: Eclipse-only features
+that change the look are off by default). The settings below change both.
+
+## Rules
+
+- **Only Eclipse clients see them.** Other Eclipse players learn what someone wears from Eclipse's
+  cosmetics service, keyed by the Minecraft UUID. The game protocol doesn't change: servers, vanilla
+  clients and anticheats receive nothing.
+- **No gameplay effect of any kind**, no capes or anything that looks or acts like one, no random
+  draws.
+- **A setting hides them**: other players' cosmetics, and your own.
+- **Zero cost when none is in view**, and a vertex budget per item.
+
+## The item format (`crates/eclipse-cosmetics`)
+
+One JSON file per item. Coordinates are model pixels (1/16 block) in the player model's space:
+y points down, as in vanilla's `ModelPart`s and Blockbench's "Modded Entity" models.
+
+```json
+{
+  "format": 1,
+  "id": "example_hat",
+  "slot": "head",
+  "bone": "head",
+  "attach": { "offset": [0, -8, 0], "rotation": [0, 0, 0], "scale": 1 },
+  "texture": { "png": "<base64 PNG>" },
+  "parts": [
+    { "name": "brim", "pivot": [0, 0, 0], "rotation": [0, 0, 0],
+      "cubes": [{ "origin": [-4, -2, -4], "size": [8, 2, 8], "uv": [0, 0], "inflate": 0, "mirror": false }],
+      "children": [] }
+  ],
+  "animations": [
+    { "part": "brim", "motion": "swing", "axis": "z", "amplitude": 10, "period": 40, "phase": 0 }
+  ]
+}
+```
+
+- `slot`: `head`, `back`, `torso`, `shoulder`, `name_tag`, `emote`, `companion`, `trail` or
+  `aura` (the last four below); a player wears at most one item per slot, and plays emotes. A
+  `torso` item is hidden under a chestplate (not an elytra).
+- `bone`: the player model part the item follows (`head`, `body`, `left_arm`, `right_arm`,
+  `left_leg`, `right_leg`; `head` if left out). The item sits at the bone's matrix times `attach` (offset in pixels,
+  rotation in degrees, a uniform scale in (0, 2]).
+- `parts`: a tree of parts, each with a pivot, a rotation in degrees and boxes with Minecraft's box
+  UV (`ModelPart.Cube`'s faces and order), grown by `inflate`, mirrored in x on request. Names are
+  unique and never start with `cosmetic`.
+- A **top-level part's `bone`** (optional) makes it ride another bone than the item's, under the
+  same attachment: a shirt's sleeves (`"bone": "right_arm"`) follow the arms as they swing. Only
+  top-level parts take one; the reach limit counts from each part's own bone.
+- `animations`: loops on top of a part's rest pose, a sine of `period` ticks (4 to 1200) started
+  `phase` periods in. `swing` turns the part `amplitude` degrees (at most 45) about the axis, `bob`
+  moves it `amplitude` pixels (at most 4), `spin` turns it all the way round once per period.
+
+A **name tag style** (`"slot": "name_tag"`) has no model: its texture is a square badge of at most
+16×16 drawn after the player's name (before it sits Eclipse's own mark, for Eclipse players), and
+`"tag": {"line": "#rrggbb"}` the colour of a line under it. `parts` stays empty and there are no animations; no other slot has a `tag`.
+
+```json
+{ "format": 1, "id": "example_tag", "slot": "name_tag", "texture": { "png": "<base64 8×8 PNG>" },
+  "parts": [], "tag": { "line": "#a98fff" } }
+```
+
+Limits, checked when an item is read (`Item::parse`); an item past one is refused, never drawn:
+
+| Limit | Value | Why |
+|---|---|---|
+| Vertices | 512 (21 boxes) | the player's own model and outer layer are 288 |
+| Texture | 64×64 at most | it fits one of the atlas's skin slots |
+| Parts | 16 | |
+| Reach | 24 pixels from the bone's pivot, animations included | items stay near their wearer |
+
+Unknown fields are refused, so a file never carries anything the game would silently ignore.
+
+### Companions, trails and auras (`fx.rs`)
+
+Three kinds ride no bone (no `bone` for the item or a part), so each goes with any other item, a
+shoulder pet included. Like everything else they are worn (`PUT /v1/equipped`), reach other players
+through `/v1/worn`, and change nothing in the game: no entity, no collision, no packet.
+
+- **A companion** (`"slot": "companion"`): a small model floating beside the player. Its block says
+  where it floats at rest (`anchor`: pixels from the neck in the wearer's body space, y down, +x the
+  wearer's left, +z behind), how slowly it catches up when the player moves (`lag`, the follow's
+  time constant, 1 to 40 ticks; 6 if left out) and which part, if any, turns to look where the
+  wearer looks (`look`); `glow` draws it at full light. Idle motion is the usual `animations` (a
+  `bob`, a wing's `swing`).
+
+  ```json
+  "companion": { "anchor": [-14, -6, 8], "lag": 8, "look": "head", "glow": false }
+  ```
+
+- **A trail** (`"slot": "trail"`): particles left behind while the player moves, no model (`parts`
+  stays empty). The texture is a row of `sprites` square sprites of at most 16 texels; each
+  particle shows one. `rate` is particles per block moved, `lifetime` ticks each lives, `size` its
+  smallest and largest side in pixels, `gravity` blocks per tick² (negative rises, as embers),
+  `drift` how far it sways sideways (pixels), `spin` degrees a tick, `from` `feet` (the default) or
+  `body`, `fade` fades it over its last third, `glow` draws it at full light.
+
+  ```json
+  "trail": { "sprites": 4, "rate": 2, "lifetime": 30, "size": [1.5, 3], "gravity": 0.01,
+             "drift": 1.5, "spin": 8, "from": "feet", "fade": true, "glow": false }
+  ```
+
+- **An aura** (`"slot": "aura"`): a see-through model whose origin is the middle of the player's
+  feet (y down, so up is negative), `at` the `feet` or the `body`, drawn at `alpha`, at full
+  light with `glow`.
+
+  ```json
+  "aura": { "at": "feet", "alpha": 0.5, "glow": true }
+  ```
+
+Their limits, on top of the vertices, texture and parts above:
+
+| Limit | Value | Why |
+|---|---|---|
+| Companion size | 8 pixels from its origin, animations included | a small creature, not a second player |
+| Companion anchor | 28 pixels from the neck at most; from the head's centre, 11 plus its size at least | it floats near the player and never over their face |
+| Trail particles | `rate` ≤ 4 per block, `lifetime` ≤ 40 ticks, `size` ≤ 4 pixels, `gravity` within 0.04, `drift` ≤ 4, `spin` ≤ 20 | a short trail of small particles |
+| Aura reach | 14 pixels sideways from the feet's middle; 6 pixels up at the feet, 30 around the body; 1 below | it frames the player without hiding anyone near them |
+| Aura opacity | 0.6 at the feet, 0.35 around the body | a player inside one is as easy to see and hit |
+
+## Emotes (`eclipse_cosmetics::Emote`)
+
+An emote is an item of the `emote` slot: a short animation of the player model, owned like any
+item, never worn in a slot. Its `emote` block keyframes the bones; its `parts`, if any, are props
+(boxes on a bone, as any item's, with the item's texture; an emote without props needs no
+`texture`). Purely visual, nothing random, nothing sent to game servers.
+
+```json
+{
+  "format": 1, "id": "example_wave", "slot": "emote", "parts": [],
+  "emote": { "length": 40, "loop": false, "blend": 4, "tracks": [
+    { "part": "right_arm", "keys": [
+      { "t": 0 },
+      { "t": 8, "rotation": [0, 0, 150] },
+      { "t": 16, "rotation": [0, 0, 120], "ease": "linear" },
+      { "t": 40 } ] },
+    { "part": "root", "keys": [ { "t": 0 }, { "t": 6, "offset": [0, -2, 0] }, { "t": 12 } ] }
+  ] }
+}
+```
+
+- `length`: ticks; a one-shot ends there, a loop (`"loop": true`) repeats with that period and
+  wraps from its last key back to its first.
+- `blend`: ticks over which the emote fades in from the pose the player had (and a one-shot out
+  at its end; a cancelled emote fades out from where it was), at most half the length; 4 if left out.
+- `tracks`: one per thing moved. `part` is a bone (`head`, `body`, `right_arm`, `left_arm`,
+  `right_leg`, `left_leg`): the key's `rotation` (degrees) replaces the bone's own and its `offset`
+  (pixels) moves it from its rest; a bone no track names keeps vanilla's animation (the head
+  still looks around). `root` turns (`rotation`) and moves (`offset`) the whole body about the
+  feet. A prop's part name moves that part from its rest (in place of its own loop animations), and only a
+  prop's key may `scale` it (0 to 2: it may pop in from nothing). A missing value is the rest.
+- `ease`, from a key to the next: `smooth` (Catmull-Rom through the neighbouring keys: no corner
+  at a key; the default), `linear`, `in_out` (smoothstep) or `step` (held).
+
+Limits, checked by `Item::parse` with the item's own (vertices, parts, texture):
+
+| Limit | Value |
+|---|---|
+| Length | 4 to 200 ticks (10 s) |
+| Tracks | 16, one per part |
+| Keys | 32 a track, 192 in all, going forward in time within the length |
+| Turns | 360° about an axis (the root: 720°, two spins) |
+| Moves | 8 pixels from the rest (the root: 16, a block's hop) |
+| Props' reach | 24 pixels from their bone, through every key and 32 points of the length |
+
+`Emote::pose_body` poses the six bones at a time and weight (the blend), `Emote::pose_props` the
+props; `Playing` is an emote someone plays (its start, its cancel) and gives its time and weight.
+
+### Playing an emote (`game/emotes.rs`, `game/emote_wheel.rs`)
+
+- **The wheel**: *Emote Wheel* (`key.emote`, **B** by default: no vanilla key uses it; Controls
+  rebinds it, and so does the controller's page, with no button by default: the stick's cursor
+  picks a slice). Up to 8 emotes around the middle of the screen, the game running behind. Hold
+  the key, point at one and let go; or tap the key and click one, or press its number (1–8).
+  Escape or the key again closes it. The wheel lists the emotes the account owns: when it opens,
+  at most every 10 minutes, the game asks the service (`GET /v1/me`'s `emotes`: id, file hash
+  and names, signed in with the session `account::Kept` keeps) and reads the files it lacks
+  (`/v1/items`); `ECLIPSE_COSMETICS_LOCAL`: the folder's. An offline account has none.
+- **Cancelled** by moving more than a hundredth of a block, attacking or mining, using an item,
+  being hurt, riding, sleeping, gliding, sneaking, swimming or dying: it fades out over its blend.
+  Only a standing player starts one. A loop plays until cancelled.
+- **The camera**: from first person it turns to the front view (third person, facing you) for
+  the emote and eases out from close to its usual distance over a quarter second; when the emote
+  ends it goes back to first person, unless you changed the view meanwhile. From a third person
+  view it stays as it is.
+- **Visual only**: it changes nothing of the game; the game server receives nothing and sees a
+  player standing still. `eclipse-ctl emote [ID|stop]` plays one as the wheel does.
+
+### Others' emotes (`eclipse_cosmetics::Feed`)
+
+Vanilla servers stay untouched: emotes travel through the cosmetics service only.
+
+- **Mine**: while one plays, the game says so, signed in as for *Show me as Eclipse*
+  (`POST /v1/emote {"emote": id}`, `{"emote": null}` when it stops early), with a service
+  session kept for the hour it lives (`account::Kept`: one Mojang `join` an hour, not one per
+  emote). A loop is said again every 30 s (the service keeps one a minute). Only while *Show me
+  as Eclipse* is on: playing an emote tells anyone who asks that you play Eclipse, so with it off
+  nothing is sent. An offline account sends nothing. The service takes at most 6 at once, then
+  one every 2 s per account, owned emotes only.
+- **Theirs**: each tick the game names the Eclipse players in view (the `eclipse` list of the
+  `/v1/worn` answers, at most 64) to a thread of its own, which asks
+  `POST /v1/emotes {"players": [...]}` at most once a second, only while someone is named
+  (nobody in view who plays Eclipse: no request). The answer gives each player's emote, its
+  file's hash and how long ago it started (`{"playing": {uuid: {"id", "hash", "ms"}}}`), and the
+  game plays it on that player's model from that point; the item file comes once
+  (`/v1/items`). A player who moves ends theirs on this screen at once. A failure waits 15 s,
+  doubling to 10 minutes, and ends the emotes shown.
+- **Switches**: others' emotes follow *Other players' cosmetics*: shown only with *Shown*; with
+  *Name tags only* or *Hidden* nothing is asked and nothing is drawn. Vanilla clients see nothing.
+- **Cost**: per player in view, one cache look a tick (the same lock as what they wear) and,
+  while one plays, the six bones' sampling (a few keys each) after the vanilla animation in the
+  pass that draws them; props are boxes in the item's budget, drawn as cosmetics are (the GPU
+  skin path). Nobody emoting: one `Option` check per player model. Measured (2026-11-05, an
+  i7-7500U laptop, `Playing::at` + `pose_body` + `pose_props` over each emote's length): 0.26 to
+  0.41 µs per emoting player and frame, about 1 µs for one that turns its root (Victory Hop,
+  Harvest Jig); 30 players emoting at once stay under 35 µs a frame.
+
+## What other players wear (`eclipse_cosmetics::Cosmetics`)
+
+The game asks Eclipse's cosmetics service (HTTPS, JSON) what the players in view wear, and draws
+from its answers. The frame never waits on the network: it reads a cache, and a thread of its own
+does the asking.
+
+- **One request for the players in view**: `POST /v1/worn` with up to 64 UUIDs
+  (`{"players": ["<uuid hex>", …]}`) answers `{"ttl": seconds, "players": {"<uuid hex>": [{"id",
+  "hash"}, …]}, "eclipse": ["<uuid hex>", …]}`; a player who wears nothing is left out of
+  `players`, and `eclipse` lists the batch's Eclipse players (below). Only the UUIDs of players the
+  game draws or lists are sent, nothing else about them or the server.
+- **Cached for the service's TTL** (kept within 1 minute to 1 hour). Past it the last answer stays
+  drawn while the player is asked for again. The 4096 players seen most recently are remembered.
+- **Item files** come from `GET /v1/items/<id>?hash=<hash>` once and are kept on disk under their
+  hash (they never change for one); a file past the limits is left out and not asked for again.
+- **Offline**: a request that fails leaves every answer as it was, and the next one waits 15 s, then
+  30 s, doubling up to 10 minutes. A player whose item didn't arrive is asked for again after 15 s.
+- **Across restarts**: the last answers are kept beside the item files (`worn.json`: each player's item
+  ids and hashes, written only when an answer changes them). They are read only when the service doesn't
+  answer, so a game started while it is down still shows what players last wore, until it answers.
+
+## Eclipse players' mark
+
+Like Lunar Client's: Eclipse players see Eclipse's mark (two white bars over a violet line,
+`eclipse_cosmetics::mark`) before the names of other Eclipse players, above their heads (both
+views, and your own with *Own name tag*) and in the player list, after the head. Nothing changes on
+the wire to Minecraft servers: which players use Eclipse comes from the cosmetics service, in the
+same cached `/v1/worn` answers as what they wear (no request of its own, nothing per frame).
+
+- **Who is reported**: a player whose game said "I play Eclipse" lately. While *Show me as
+  Eclipse* is on, the game signs in (Mojang's `join`, as for *My cosmetics*) and sends
+  `POST /v1/presence {"listed": true}` at start, then every hour (`account::PRESENCE_EVERY`); the
+  service reports them for 3 hours after the last time (`COSMETICS_PRESENCE_WINDOW`). Off, the game
+  sends `{"listed": false}` and the service forgets them at once: it never reports them again until
+  they turn it back on. An offline account sends nothing and is never reported.
+- **Anyone can ask**: `/v1/worn` takes no sign-in (as for what players wear), so anyone, a server
+  included, can learn whether a UUID played Eclipse in the last 3 hours while that player shows
+  themselves. *Show me as Eclipse*'s tooltip says so.
+- **Settings** (Extras › Cosmetics, both on by default): *Eclipse logos* ("Show the Eclipse logo
+  next to Eclipse players"; off: the game draws no mark, and asks for nothing more than cosmetics
+  need) and *Show me as Eclipse* ("Show me as a Eclipse player").
+- **The player list** keeps a 9-pixel column for the mark once anyone listed has it, so names stay
+  aligned.
+- **Cost**: in a name tag, the mark is five filled rectangles beside the text, looked up under the
+  same lock as the name tag style; in the player list, one look per listed player while it shows.
+
+## In the game
+
+- **The flag**: `eclipse_cosmetics::ON_BY_DEFAULT` is `false`, and there is no service by default
+  (`eclipse_cosmetics::API` is empty): no thread, no request, no setting, no drawing.
+  `ECLIPSE_COSMETICS=1` turns them on for one run, `=0` off; `ECLIPSE_COSMETICS_API=<url>` names the service, and
+  `ECLIPSE_COSMETICS_LOCAL=<folder>` reads items from a folder instead: every player and every
+  mannequin wears its first item of each slot, and every mannequin plays the folder's first
+  emote over and over (the art and the bench, without the network).
+- **Settings** (Extras, under "Cosmetics", shown only with the flag on; `eclipse_cosmetics::prefs`,
+  lines of `eclipse-extras.txt`):
+  - *My cosmetics: Shown / Hidden* is the account's (`PUT /v1/visible`): hidden, every Eclipse
+    player sees you without them, you included. The game signs in for that one call the way the
+    launcher does (`eclipse_cosmetics::account`, Mojang's `join` with the player's session) and
+    notes what the service confirmed in `cosmetics-visible.txt`; offline it tries again after 15 s,
+    doubling to 10 minutes, until the service takes it. An unchanged switch sends nothing.
+  - *Other players' cosmetics: Shown → Name tags only → Hidden*. Hidden, the game asks for nothing
+    about them; name tags only, their name tag styles show and nothing on their bodies. Until the
+    player presses it there is no `cosmeticsOthers` line, and it follows ownership
+    (`prefs::Others::effective`): *Shown* if the signed-in account owns a cosmetic, else *Hidden*.
+    The button shows that value; pressing it writes the line, which then wins. Hidden, nothing of
+    theirs is drawn, yet with *Eclipse logos* on the game still asks the same `/v1/worn` batch who
+    plays Eclipse.
+  - **Ownership** (`eclipse_cosmetics::account::owns`): once a run, in a world, the game signs in
+    as for *My cosmetics* and reads `GET /v1/me`; an account whose `owned` list has anything owns
+    one. The answer is kept per account in `cosmetics-owned.txt` (beside `cosmetics-visible.txt`) and used at the next start until the service answers.
+    Not known yet, failed (retried after 15 s, doubling to 10 minutes) or offline: not owning. An
+    answer that says owns shows others' at once, without a restart. Only one of the sign-ins (this,
+    *My cosmetics*, *Show me as Eclipse*) runs at a time (Mojang keeps one joined server id per
+    account). `ECLIPSE_COSMETICS_LOCAL` counts as owning.
+  - *Hide other players' trails and auras*, off by default (`cosmeticsHideFx`): their trails
+    and auras stay hidden, their other cosmetics (companions included) still show.
+  - *In single player*, off by default, the game's only (`cosmeticsSolo`). The
+    window's own server names the player by their offline profile, which the service doesn't
+    know, so in single player (open to LAN too) the game draws and asks nothing for the player's
+    own model. On, it asks by the signed-in account's UUID: their cosmetics, their name tag style
+    (with *Own name tag*) and Eclipse's mark show in their own worlds. Offline accounts: nothing.
+- **Name tag styles** (`game/names.rs`): the badge, 8 text pixels square, after the name and a
+  one-pixel line in the style's colour under the name's background, in the name tag's own pass
+  (the badge is in the atlas like the other items' textures). Eclipse's mark goes before the name.
+- **Over tall items** (`names::cosmetic_lift`, Eclipse only): a player wearing an item whose
+  highest point (`Item::top`: pixels above the model's neck with the bones at rest, animations
+  included, found when the item is read) passes the tag's lowest pixel (2.05 blocks up, standing)
+  has the whole tag, mark and badge included, lifted to one text pixel over it. Everyone else's
+  tag stays at vanilla's height, as does the tag of anyone whose items aren't drawn (others'
+  cosmetics on *Name tags only* or *Hidden*, *My cosmetics* hidden, a helmet over a hat). Cost:
+  one max over the worn items per tag drawn, inside the look the mark already does.
+- **Drawing** (`game/cosmetics.rs`): an item's texture takes one of the skin atlas's 64×64 slots
+  and its boxes are posed on the wearer's bone each frame, through the same GPU skin path as the
+  player model (the CPU path where that is off), lit and culled with the player. A helmet hides a
+  head item, an elytra or cape a back item. The third person view and the
+  inventory's player preview show your own.
+- **Companions, trails and auras** (`game/cosmetics/fx.rs`), drawn only by the game, never sent to
+  a server, never an entity: nothing collides with them or can be hit through them.
+  - A *companion* is posed on no bone. Each frame its place moves toward the anchor (in the
+    wearer's model space, turned with the body) by `follow::Follow::step`, a lag of `lag` ticks
+    that doesn't depend on the frame rate; it jumps there when 8 blocks away (a teleport). It faces
+    the wearer's head yaw and its `look` part turns with their pitch (60 %, ±30°). It is drawn with
+    the wearer's items, lit where the wearer stands (`glow`: full bright). It never comes nearer
+    the head than 11 pixels plus its size, and the player's own companion, in first person, never
+    enters the 35° cone around the crosshair (`follow::out_of_view`); it is drawn after the
+    first-person body goes to the shadow pass only.
+  - A *trail*'s particles (`trail::Emitter`) are spawned only by distance walked (`rate` per
+    block, none standing, sneaking or asleep, none after a jump of 4 blocks or more), live their
+    `lifetime` exactly and are placed from their age alone (fall, sway, spin, fade): nothing is
+    stepped per tick. 24 per player and 512 in all (`trail::Budget`); past them none spawn until
+    some die. The player's own trail is never drawn in first person (their body isn't).
+  - An *aura* is a model at the feet or round the body, its texels' alpha times `alpha`, its
+    faces turned away from the camera dropped (`mesher::SHADED_CULL_W`) so nothing in it is drawn
+    twice: it never shows more than `alpha`. None while the wearer flies with an elytra, swims or
+    sleeps.
+  - None is drawn for a wearer farther than 48 blocks from the camera (a few pixels across), and
+    none for one outside the view (they are drawn with the wearer, after its frustum test).
+  - Trails and auras of every player go in one see-through span after the players (shader packs
+    see it as `minecraft:player`, translucent). Others' are hidden by *Hide other players' trails
+    and auras*, and with every other cosmetic by *Name tags only* and *Hidden*.
+- **Cost of companions, trails and auras**: the work of `eclipse-cosmetics` per frame
+  (`examples/fx_bench.rs`, items at the format's limits: a 504-vertex companion and aura and the
+  densest trail; release build on an i7-7500U) is 3.6 µs for 1 wearer in view, 58 µs for 16 and
+  189 µs for 64 (trails stop growing at the 512-particle budget). The game spends more: posing,
+  the aura's vertices built on the CPU and their copy into the frame. On that laptop (Intel HD 620,
+  `ECLIPSE_COSMETICS_LOCAL` mannequins wearing all three and walking in view), the frame's
+  `prepare` phase grows by about 0.6 ms with 16 wearers and 1 to 2.4 ms with 64, mostly the auras.
+  None in view: nothing.
+- **Cost**: a player with nothing to wear adds one cache lookup; with no cosmetic in view the frame
+  does no cosmetics work beyond that. The bench scene `stress_avatars` (300 mannequins, 20×15)
+  measures the cost with `ECLIPSE_COSMETICS=1 ECLIPSE_COSMETICS_LOCAL=…` against the same run off.
+

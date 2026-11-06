@@ -1,0 +1,129 @@
+{
+  "status_stopped": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": {
+      "phase": "stopped",
+      "version": "0.1.0",
+      "pid": "<dynamic>",
+      "uptime_seconds": "<dynamic>",
+      "engine_pid": null,
+      "engine_uptime_seconds": null,
+      "crashes": 2,
+      "last_crash": "exit status: 1",
+      "sample": {
+        "t": 200,
+        "rss_bytes": 536870912,
+        "cpu_percent": 12.5,
+        "game": {
+          "tps": 19.9,
+          "target_tps": 20.0,
+          "mspt": { "average": 8.25, "p50": 7.0, "p95": 12.5, "p99": 18.0 },
+          "players": [{ "name": "Alex" }, { "name": "Steve" }],
+          "max_players": 20,
+          "chunks": 321
+        }
+      },
+      "update": null
+    }
+  },
+  "logs_all": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": { "next": 2, "lines": ["first line", "second line"] }
+  },
+  "logs_since": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": { "next": 2, "lines": ["second line"] }
+  },
+  "logs_invalid_since": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": { "next": 2, "lines": ["first line", "second line"] }
+  },
+  "metrics_all": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": {
+      "samples": [
+        { "t": 100, "game": { "tps": 20.0 } },
+        {
+          "t": 200,
+          "rss_bytes": 536870912,
+          "cpu_percent": 12.5,
+          "game": {
+            "tps": 19.9,
+            "target_tps": 20.0,
+            "mspt": { "average": 8.25, "p50": 7.0, "p95": 12.5, "p99": 18.0 },
+            "players": [{ "name": "Alex" }, { "name": "Steve" }],
+            "max_players": 20,
+            "chunks": 321
+          }
+        }
+      ]
+    }
+  },
+  "metrics_since": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": {
+      "samples": [
+        {
+          "t": 200,
+          "rss_bytes": 536870912,
+          "cpu_percent": 12.5,
+          "game": {
+            "tps": 19.9,
+            "target_tps": 20.0,
+            "mspt": { "average": 8.25, "p50": 7.0, "p95": 12.5, "p99": 18.0 },
+            "players": [{ "name": "Alex" }, { "name": "Steve" }],
+            "max_players": 20,
+            "chunks": 321
+          }
+        }
+      ]
+    }
+  },
+  "metrics_invalid_since": {
+    "status": 200,
+    "content_type": "application/json",
+    "headers": [],
+    "body": {
+      "samples": [
+        { "t": 100, "game": { "tps": 20.0 } },
+        {
+          "t": 200,
+          "rss_bytes": 536870912,
+          "cpu_percent": 12.5,
+          "game": {
+            "tps": 19.9,
+            "target_tps": 20.0,
+            "mspt": { "average": 8.25, "p50": 7.0, "p95": 12.5, "p99": 18.0 },
+            "players": [{ "name": "Alex" }, { "name": "Steve" }],
+            "max_players": 20,
+            "chunks": 321
+          }
+        }
+      ]
+    }
+  },
+  "prometheus_stopped": {
+    "status": 200,
+    "content_type": "text/plain; version=0.0.4",
+    "headers": [],
+    "body": "# HELP eclipse_up 1 while the game runs and answers\n# TYPE eclipse_up gauge\neclipse_up 0\n# HELP eclipse_supervisor_uptime_seconds Seconds since eclipse-server started\n# TYPE eclipse_supervisor_uptime_seconds gauge\neclipse_supervisor_uptime_seconds <dynamic>\n# HELP eclipse_crashes Game crashes since eclipse-server started\n# TYPE eclipse_crashes gauge\neclipse_crashes 2\n# HELP eclipse_tps Ticks per second over the last 5 seconds\n# TYPE eclipse_tps gauge\neclipse_tps 19.9\n# HELP eclipse_tps_target The tick rate the game aims for (/tick rate)\n# TYPE eclipse_tps_target gauge\neclipse_tps_target 20\n# HELP eclipse_mspt Milliseconds per tick: the average and the percentiles /tick query reports\n# TYPE eclipse_mspt gauge\neclipse_mspt{stat=\"average\"} 8.25\neclipse_mspt{stat=\"p50\"} 7\neclipse_mspt{stat=\"p95\"} 12.5\neclipse_mspt{stat=\"p99\"} 18\n# HELP eclipse_players_online Players online\n# TYPE eclipse_players_online gauge\neclipse_players_online 2\n# HELP eclipse_players_max max-players\n# TYPE eclipse_players_max gauge\neclipse_players_max 20\n# HELP eclipse_chunks_loaded Chunks loaded\n# TYPE eclipse_chunks_loaded gauge\neclipse_chunks_loaded 321\n# HELP eclipse_memory_rss_bytes The game process's resident memory\n# TYPE eclipse_memory_rss_bytes gauge\neclipse_memory_rss_bytes 536870912\n# HELP eclipse_cpu_percent The game process's CPU use (100 = one core)\n# TYPE eclipse_cpu_percent gauge\neclipse_cpu_percent 12.5\n"
+  },
+  "prometheus_running": {
+    "status": 200,
+    "content_type": "text/plain; version=0.0.4",
+    "headers": [],
+    "body": "# HELP eclipse_up 1 while the game runs and answers\n# TYPE eclipse_up gauge\neclipse_up 1\n# HELP eclipse_supervisor_uptime_seconds Seconds since eclipse-server started\n# TYPE eclipse_supervisor_uptime_seconds gauge\neclipse_supervisor_uptime_seconds <dynamic>\n# HELP eclipse_crashes Game crashes since eclipse-server started\n# TYPE eclipse_crashes gauge\neclipse_crashes 2\n# HELP eclipse_tps Ticks per second over the last 5 seconds\n# TYPE eclipse_tps gauge\neclipse_tps 19.9\n# HELP eclipse_tps_target The tick rate the game aims for (/tick rate)\n# TYPE eclipse_tps_target gauge\neclipse_tps_target 20\n# HELP eclipse_mspt Milliseconds per tick: the average and the percentiles /tick query reports\n# TYPE eclipse_mspt gauge\neclipse_mspt{stat=\"average\"} 8.25\neclipse_mspt{stat=\"p50\"} 7\neclipse_mspt{stat=\"p95\"} 12.5\neclipse_mspt{stat=\"p99\"} 18\n# HELP eclipse_players_online Players online\n# TYPE eclipse_players_online gauge\neclipse_players_online 2\n# HELP eclipse_players_max max-players\n# TYPE eclipse_players_max gauge\neclipse_players_max 20\n# HELP eclipse_chunks_loaded Chunks loaded\n# TYPE eclipse_chunks_loaded gauge\neclipse_chunks_loaded 321\n# HELP eclipse_memory_rss_bytes The game process's resident memory\n# TYPE eclipse_memory_rss_bytes gauge\neclipse_memory_rss_bytes 536870912\n# HELP eclipse_cpu_percent The game process's CPU use (100 = one core)\n# TYPE eclipse_cpu_percent gauge\neclipse_cpu_percent 12.5\n"
+  }
+}

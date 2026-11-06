@@ -1,0 +1,145 @@
+{
+  "schema": 1,
+  "generated": "2026-10-24T18:00:00Z",
+  "projects": [
+    {
+      "id": "coords_hud",
+      "kind": "mod",
+      "name": "Coordinates HUD",
+      "summary": "Your coordinates, facing and the time of day in a corner of the screen.",
+      "description": "`/where` puts them in chat, `/coords` hides or shows the panel.",
+      "authors": [
+        "Eclipse"
+      ],
+      "owners": [
+        "ludovic111"
+      ],
+      "license": "MIT",
+      "source": "https://github.com/Moonistics/Eclipse/tree/main/crates/eclipse-mod-sdk/examples/coords-hud",
+      "icon": "https://horizon-rust.github.io/horizon-mods/icons/coords_hud.png",
+      "categories": ["utility"],
+      "key": "RWRueEUUhDZCFaJuLHXiJ43xBLTigwi5VrZK/sKTvvGV+gBiAVOzpnTv",
+      "versions": [
+        {
+          "version": "0.1.0",
+          "published": "2026-10-24",
+          "api": "0.1",
+          "side": "client",
+          "capabilities": [
+            "game-read",
+            "hud",
+            "chat"
+          ],
+          "api_level": 0,
+          "game": "26.3",
+          "file": {
+            "name": "coords_hud-0.1.0.emod",
+            "url": "https://github.com/horizon-rust/horizon-mods/releases/download/coords_hud-0.1.0/coords_hud-0.1.0.emod",
+            "size": 438,
+            "sha256": "1cb1fa9e8ed15bea1f8a08506939decdc622fc1ff8e12997fdae07ace3543730",
+            "signature": "untrusted comment: signature from minisign secret key\nRURueEUUhDZCFR8WisyyY3B/mcYwrC+nU9bdirZxmlgUXQU/+q6bAjj+XfDsGDd4dO4UrAD/HgVLRtFK7h3VKBl/6tfvCNQCOg0=\ntrusted comment: coords_hud 0.1.0\n3QRVTJTIjaS4Em1v5CccYS9WhzL2RTpNnyDEyb6ORIQfMNainy0L0QTB5bnuQmoI/aPgbpxqfOatkv8pZdESAw==\n"
+          }
+        }
+      ]
+    },
+    {
+      "id": "cozy",
+      "kind": "modpack",
+      "name": "Cozy",
+      "summary": "Coordinates and a calm render distance.",
+      "description": "Coordinates HUD with a calm render distance, played together as one profile.",
+      "authors": [
+        "Eclipse"
+      ],
+      "owners": [
+        "ludovic111"
+      ],
+      "license": "MIT",
+      "source": "https://github.com/horizon-rust/horizon-mods",
+      "icon": "https://horizon-rust.github.io/horizon-mods/icons/cozy.png",
+      "categories": ["lightweight"],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "published": "2026-10-24",
+          "api": "1",
+          "game": "26.3",
+          "requires": [
+            {
+              "id": "coords_hud",
+              "version": "0.1.0",
+              "sha256": "1cb1fa9e8ed15bea1f8a08506939decdc622fc1ff8e12997fdae07ace3543730"
+            }
+          ],
+          "file": {
+            "name": "cozy-1.0.0.epack",
+            "url": "https://github.com/horizon-rust/horizon-mods/releases/download/cozy-1.0.0/cozy-1.0.0.epack",
+            "size": 470,
+            "sha256": "95aca93b194355f52fc855485da7b325a5411265fdca14938962bc08ead52149"
+          }
+        }
+      ]
+    },
+    {
+      "id": "glow",
+      "kind": "shader",
+      "name": "Soft Glow",
+      "summary": "A post-processing pass over the world.",
+      "description": "A soft bloom drawn over the world after it renders, in Eclipse's own shader format.",
+      "authors": [
+        "Eclipse"
+      ],
+      "owners": [
+        "ludovic111"
+      ],
+      "license": "MIT",
+      "source": "https://github.com/horizon-rust/horizon-mods",
+      "icon": "https://horizon-rust.github.io/horizon-mods/icons/glow.png",
+      "categories": ["bloom"],
+      "versions": [
+        {
+          "version": "1.0.0",
+          "published": "2026-10-26",
+          "api": "0.1",
+          "game": "26.3",
+          "file": {
+            "name": "glow-1.0.0.eshader",
+            "url": "https://github.com/horizon-rust/horizon-mods/releases/download/glow-1.0.0/glow-1.0.0.eshader",
+            "size": 689,
+            "sha256": "dfcb4f941cd56800eb176cb6a259d5beb2ac930e0b2b6a21eb804dcf3e49fa62"
+          }
+        }
+      ]
+    },
+    {
+      "id": "skyblock_start",
+      "kind": "world",
+      "name": "Skyblock start",
+      "summary": "A kind this reader doesn't know yet: kept, not offered.",
+      "license": "CC0-1.0",
+      "source": "https://example.org/skyblock",
+      "future_field": true,
+      "versions": [
+        {
+          "version": "1",
+          "api": "1",
+          "game": "26.3",
+          "file": {
+            "name": "skyblock.hworld",
+            "url": "https://example.org/skyblock.hworld",
+            "size": 1,
+            "sha256": "0000000000000000000000000000000000000000000000000000000000000000"
+          }
+        }
+      ]
+    }
+  ],
+  "revoked": [
+    {
+      "id": "bad_mod",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111",
+      "reason": "Sent chat messages it didn't declare.",
+      "date": "2026-10-24"
+    }
+  ]
+}

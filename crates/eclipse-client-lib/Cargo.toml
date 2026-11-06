@@ -1,0 +1,238 @@
+[package]
+name = "eclipse-client-lib"
+autobins = false
+autoexamples = false
+autotests = false
+version = "0.1.0"
+edition.workspace = true
+license.workspace = true
+rust-version = "1.90"
+description = "Reusable client systems, control tool and parity probes"
+
+[lib]
+path = "../eclipse-client/src/client_lib.rs"
+
+[dependencies]
+eclipse-assets = { path = "../eclipse-assets" }
+eclipse-client-core = { path = "../eclipse-client-core" }
+eclipse-client-input = { path = "../eclipse-client-input" }
+eclipse-client-render = { path = "../eclipse-client-render" }
+eclipse-command = { path = "../eclipse-command" }
+# Emotes pose the player model (`Mob::emote`, `mobs::anim::setup`).
+eclipse-cosmetics = { path = "../eclipse-cosmetics" }
+eclipse-items = { path = "../eclipse-items" }
+eclipse-core = { path = "../eclipse-core" }
+# `eclipse-ctl mcp`: the Model Context Protocol, shared with the launcher and the server.
+eclipse-mcp = { path = "../eclipse-mcp" }
+# The server thread ahead of the workers (MinecraftServer.spin's Thread.setPriority).
+eclipse-optifine = { path = "../eclipse-optifine" }
+eclipse-threads = { path = "../eclipse-threads" }
+eclipse-hdr = { path = "../eclipse-hdr" }
+eclipse-world = { path = "../eclipse-world" }
+eclipse-protocol = { path = "../eclipse-protocol" }
+# server.properties, eula.txt and the user lists, shared with eclipse-server.
+eclipse-server-files = { path = "../eclipse-server-files" }
+# The control endpoint's token (control.rs), as eclipse-server's and the relay's.
+getrandom = "0.3"
+# The dedicated server's anticheat, off unless server.toml's [anticheat] turns it on (docs/anticheat.md).
+eclipse-anticheat = { path = "../eclipse-anticheat" }
+# The dedicated server's chat filter: [chat_filter], the slur list, mutes (docs/chat-filter.md).
+eclipse-chat-filter = { path = "../eclipse-chat-filter" }
+# Shader packs: reading them and turning their GLSL into naga modules.
+eclipse-shaders = { path = "../eclipse-shaders" }
+# Eclipse's own shader packs: the format, the stages and the check (docs/shaders.md).
+eclipse-shader-api = { path = "../eclipse-shader-api" }
+eclipse-friends = { path = "../eclipse-friends" }
+# The narrator (GameNarrator): text-to-speech of chat, system messages and screens.
+eclipse-narrator = { path = "../eclipse-narrator" }
+# Eclipse mods: sandboxed WebAssembly components, off unless installed and turned on (docs/mods.md).
+# Their runtime is the `mods` feature.
+eclipse-mods = { path = "../eclipse-mods", default-features = false, features = ["index"] }
+wgpu = { version = "30.0.1", default-features = false, features = ["std", "parking_lot", "vulkan", "metal", "wgsl", "naga-ir"] }
+winit = "0.30.13"
+pollster = "0.4"
+bytemuck = { version = "1.24", features = ["derive"] }
+glam = "0.30"
+png = "0.18"
+sha2 = "0.10.9"
+# Server resource packs are checked and cached by their SHA-1, as vanilla does.
+sha1 = "0.10"
+serde = { version = "1", features = ["derive"] }
+serde_json = { version = "1.0.151", features = ["raw_value"] }
+# hlsl-out: the gfx.rs tests translate every shader as wgpu's DirectX 12 backend does. A normal feature,
+# not a dev-dependency's, so builds, tests and examples share one build of naga, wgpu and this crate.
+naga = { version = "30.0.1", features = ["wgsl-in", "hlsl-out"] }
+miniz_oxide = "0.8"
+ab_glyph = "0.2.32"
+log = "0.4"
+chrono = { version = "0.4.42", default-features = false, features = ["clock", "std"] }
+flate2 = { version = "1.1.10", default-features = false, features = ["zlib-rs", "runtime_detection"] }
+# The network threads of a server's players: epoll, kqueue or Windows' AFD (lan/io_pool.rs).
+mio = { version = "1.2.4", features = ["os-poll", "net"] }
+# Shared chunk frames are found by one keyed 128-bit hash of their body (lan/conn.rs SharedFrames).
+xxhash-rust = { version = "0.8.19", features = ["xxh3"] }
+eclipse-theme = { path = "../eclipse-theme" }
+# Opt-in data collection: the game keeps, the launcher sends (docs/telemetry.md).
+eclipse-telemetry = { path = "../eclipse-telemetry", default-features = false }
+eclipse-bench = { path = "../eclipse-bench" }
+zip = { version = "9.1.3", default-features = false, features = ["deflate"] }
+# Controllers (evdev + libudev on Linux, IOKit on macOS, Windows.Gaming.Input); the `controllers` feature.
+gilrs = { version = "0.11", optional = true }
+# The DualSense's rumble, adaptive triggers and lights over HID (gilrs only reads it).
+eclipse-dualsense = { path = "../eclipse-dualsense", optional = true }
+# HTTPS to the Minecraft services (online-mode session join).
+ureq = { version = "2", default-features = false, features = ["tls"] }
+unicode-bidi = "0.3.18"
+# `LevelStorageAccess.estimateDiskSpace`: usable disk space, without unsafe code on Windows.
+fs4 = { version = "1.1.0", default-features = false, features = ["sync"] }
+
+[target.'cfg(unix)'.dependencies]
+# The server thread's CPU time per tick (`ECLIPSE_SPIKES`, spans.rs).
+rustix = { version = "1", default-features = false, features = ["std", "time", "process", "fs"] }
+
+[target.'cfg(windows)'.dependencies]
+# Use the registered URI handler without routing links through Explorer/cmd.
+open = { version = "5.4.5", features = ["shellexecute-on-windows"] }
+# DirectX 12, where Vulkan has no adapter or device, or by choice (`graphicsApi`, graphics.rs).
+# Shaders compile with FXC (d3dcompiler_47.dll, part of Windows), or DXC when dxcompiler.dll is
+# on the PATH.
+wgpu = { version = "30.0.1", default-features = false, features = ["dx12"] }
+
+[target.'cfg(target_os = "macos")'.dependencies]
+# Splitscreen: a window filling a monitor goes over its menu bar (game/split/windows.rs
+# `above_menu_bar`); all already in the tree through winit and wgpu.
+objc2 = "0.6"
+objc2-app-kit = { version = "0.3", default-features = false, features = ["std", "NSApplication", "NSResponder", "NSWindow", "NSScreen"] }
+objc2-foundation = { version = "0.3", default-features = false, features = ["std", "NSArray", "NSString"] }
+
+[target.'cfg(not(target_os = "macos"))'.dependencies]
+# OpenGL (WGL on Windows, EGL on Linux), the last fallback, for GPUs with no Vulkan or
+# DirectX 12 driver (`graphicsApi`, graphics.rs).
+wgpu = { version = "30.0.1", default-features = false, features = ["gles"] }
+
+[features]
+default = ["audio", "controllers"]
+# Sound output. Without it (and `controllers`) the program links neither libasound nor libudev on
+# Linux: the server build (`--no-default-features`, released as eclipse-engine; docs/server.md).
+audio = ["eclipse-client-render/audio"]
+# Controllers: gilrs, and the DualSense's own output. Without it only `eclipse-ctl pad`'s virtual pad.
+controllers = ["dep:gilrs", "dep:eclipse-dualsense", "eclipse-client-input/controllers"]
+# Records the call sites of mob random draws (`mob_ai_probe` traces).
+rng-trace = ["eclipse-core/rng-trace"]
+# Compatibility with earlier experiment commands: main already uses mimalloc.
+windows-mimalloc = []
+# Opt-in Windows heap experiment; see docs/windows-allocators.md.
+windows-segment-heap = []
+
+[lints]
+workspace = true
+
+[dev-dependencies]
+eclipse-client-render = { path = "../eclipse-client-render", features = ["test-support"] }
+eclipse-items = { path = "../eclipse-items", features = ["test-support"] }
+# Every WGSL shader translated as wgpu's DirectX 12 backend does (gfx.rs tests).
+naga = { version = "30.0.1", features = ["wgsl-in", "hlsl-out", "msl-out", "spv-out"] }
+
+[[bin]]
+name = "eclipse-ctl"
+path = "../eclipse-client/src/bin/eclipse-ctl/main.rs"
+
+[[example]]
+name = "chunk_load_bench"
+path = "../eclipse-client/examples/chunk_load_bench.rs"
+
+[[example]]
+name = "gen_light_bench"
+path = "../eclipse-client/examples/gen_light_bench.rs"
+
+[[example]]
+name = "gameplay_decode_profile"
+path = "../eclipse-client/examples/gameplay_decode_profile.rs"
+
+[[example]]
+name = "json_load_bench"
+path = "../eclipse-client/examples/json_load_bench.rs"
+
+[[example]]
+name = "mod_port_probe"
+path = "../eclipse-client/examples/mod_port_probe.rs"
+
+[[example]]
+name = "model_library_bench"
+path = "../eclipse-client/examples/model_library_bench.rs"
+
+[[example]]
+name = "model_states_bench"
+path = "../eclipse-client/examples/model_states_bench.rs"
+
+[[example]]
+name = "old_world_fixture"
+path = "../eclipse-client/examples/old_world_fixture.rs"
+
+[[example]]
+name = "portal_scan_bench"
+path = "../eclipse-client/examples/portal_scan_bench.rs"
+
+[[example]]
+name = "random_tick_eligibility_bench"
+path = "../eclipse-client/examples/random_tick_eligibility_bench.rs"
+
+[[example]]
+name = "resource_memory"
+path = "../eclipse-client/examples/resource_memory.rs"
+
+[[example]]
+name = "save_batch_bench"
+path = "../eclipse-client/examples/save_batch_bench.rs"
+
+[[example]]
+name = "shared_json_startup_profile"
+path = "../eclipse-client/examples/shared_json_startup_profile.rs"
+
+[[example]]
+name = "sprite_cache_parity"
+path = "../eclipse-client/examples/sprite_cache_parity.rs"
+
+[[example]]
+name = "client_probe"
+path = "../eclipse-client/examples/probe/main.rs"
+
+[[test]]
+name = "custom_component_api"
+path = "../eclipse-client/tests/custom_component_api.rs"
+
+[[test]]
+name = "custom_component_unregistered"
+path = "../eclipse-client/tests/custom_component_unregistered.rs"
+
+[[test]]
+name = "custom_component_wire"
+path = "../eclipse-client/tests/custom_component_wire.rs"
+
+[[test]]
+name = "forced_chunks"
+path = "../eclipse-client/tests/forced_chunks.rs"
+
+[[test]]
+name = "generation_saves"
+path = "../eclipse-client/tests/generation_saves.rs"
+
+[[test]]
+name = "lan_bot"
+path = "../eclipse-client/tests/lan_bot.rs"
+
+[[test]]
+name = "streaming_meshes"
+path = "../eclipse-client/tests/streaming_meshes.rs"
+
+[[test]]
+name = "tall_column"
+path = "../eclipse-client/tests/tall_column.rs"
+
+[[test]]
+name = "wide_states"
+path = "../eclipse-client/tests/wide_states.rs"
+
+[[example]]
+name = "chunk_encoding_bench"
+path = "../eclipse-client/examples/chunk_encoding_bench.rs"

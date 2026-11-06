@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Eclipse
+GenericName=Game launcher
+Comment=Install, prepare and play Eclipse, Minecraft: Java Edition 26.3 rewritten in Rust
+Exec=eclipse-launcher
+Icon=eclipse
+Terminal=false
+Categories=Game;
+StartupWMClass=eclipse-launcher
