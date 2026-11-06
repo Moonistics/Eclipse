@@ -18,13 +18,13 @@ fn project_type(kind: Kind) -> &'static str {
     }
 }
 
-/// The kind of a Modrinth project; its shader packs (the shaders/ format) are not offered. A
-/// data pack says it is a `mod` (most also ship a mod build): the search for data packs marks
-/// its hits, and an install into a world asks for its data pack files.
+/// The kind of a Modrinth project. A data pack says it is a `mod` (most also ship a mod build):
+/// the search for data packs marks its hits, and an install into a world asks for its data pack
+/// files.
 fn kind_of(project_type: &str) -> Option<Kind> {
     Kind::ALL
         .into_iter()
-        .filter(|k| !matches!(k, Kind::Shader | Kind::DataPack))
+        .filter(|k| *k != Kind::DataPack)
         .find(|k| self::project_type(*k) == project_type)
 }
 
@@ -202,9 +202,6 @@ impl Source for Modrinth {
     }
 
     fn search(&self, query: &Query) -> Result<Vec<Project>, String> {
-        if query.kind == Kind::Shader {
-            return Err(super::SHADERS_ON_ECLIPSE.into());
-        }
         let found = get(&search_url(query))?;
         Ok(found["hits"]
             .as_array()
@@ -276,7 +273,7 @@ fn get(url: &str) -> Result<Value, String> {
                 "Modrinth asks to slow down: try again in a minute.".into()
             }
             ureq::Error::Status(code, _) => format!("Modrinth answered {code}."),
-            ureq::Error::Transport(t) => format!("No connection to Modrinth: {t}"),
+            e => crate::backend::network_error(url, e),
         })?;
     response
         .into_json()

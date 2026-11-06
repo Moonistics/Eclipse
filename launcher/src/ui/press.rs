@@ -224,15 +224,18 @@ pub fn options(
         let spot: Rc<RefCell<Spot>> = Rc::default();
         let (seen, list) = (spot.clone(), id.clone());
         row.child(spot_measure(spot))
-            .child(canvas(
-                move |_, window, _| {
-                    if REVEAL_SOON.with_borrow_mut(|r| r.remove(&list)) {
-                        window.on_next_frame(move |window, _| reveal_spot(&seen, window));
-                        window.request_animation_frame();
-                    }
-                },
-                |_, _, _, _| {},
-            ))
+            .child(
+                canvas(
+                    move |_, window, _| {
+                        if REVEAL_SOON.with_borrow_mut(|r| r.remove(&list)) {
+                            window.on_next_frame(move |window, _| reveal_spot(&seen, window));
+                            window.request_animation_frame();
+                        }
+                    },
+                    |_, _, _, _| {},
+                )
+                .absolute(),
+            )
             .when(ringed, |r| {
                 r.shadow(inset_shadow()).aria_active_descendant()
             })

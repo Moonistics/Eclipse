@@ -67,25 +67,26 @@ impl Launcher {
             .mb(px(space::SM));
         let height = if ui::short_window() { LIST_SHORT } else { LIST };
         let list = match &self.instances.versions {
-            VersionList::NotAsked | VersionList::Loading => ui::list_box("mc-versions", height)
-                .child(ui::loading_state(
+            VersionList::NotAsked | VersionList::Loading => {
+                ui::with_scrollbar(ui::list_box("mc-versions", height).child(ui::loading_state(
                     "mc-versions-loading",
                     tr("Loading Minecraft versions…"),
-                )),
-            VersionList::Failed(e) => {
-                ui::list_box("mc-versions", height).child(ui::error_state_with(
-                    "mc-versions-failed",
-                    tr("Couldn't load Minecraft versions"),
-                    e,
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.instances.versions = VersionList::NotAsked;
-                        this.load_versions(cx);
-                        cx.notify();
-                    }),
-                    vec![Self::proxy_settings_button("mc-versions-failed", cx)],
-                    ButtonKind::Secondary,
-                ))
+                )))
+                .into_any_element()
             }
+            VersionList::Failed(e) => ui::error_state_with(
+                "mc-versions-failed",
+                tr("Couldn't load Minecraft versions"),
+                e,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.instances.versions = VersionList::NotAsked;
+                    this.load_versions(cx);
+                    cx.notify();
+                }),
+                vec![Self::proxy_settings_button("mc-versions-failed", cx)],
+                ButtonKind::Secondary,
+            )
+            .into_any_element(),
             VersionList::Ready(versions) => {
                 let shown: Vec<_> = versions
                     .of(choice.snapshots, choice.old)
@@ -142,16 +143,17 @@ impl Launcher {
                     }
                 }
                 if rows.is_empty() {
-                    ui::list_box("mc-versions", height).child(ui::empty_state(
+                    ui::empty_state(
                         "mc-versions-no-match",
                         "search-01",
                         trf("No version matches “{search}”", &[("search", &typed)]),
                         tr("Try another version number."),
                         vec![],
-                    ))
+                    )
+                    .into_any_element()
                 } else {
                     let this = cx.entity().downgrade();
-                    ui::options(
+                    let list = ui::options(
                         ui::list_box("mc-versions", height),
                         rows,
                         true,
@@ -162,7 +164,8 @@ impl Launcher {
                                 cx.notify();
                             });
                         },
-                    )
+                    );
+                    ui::with_scrollbar(list).into_any_element()
                 }
             }
         };
@@ -180,7 +183,7 @@ impl Launcher {
                 .flex_col()
                 .children(filters_above)
                 .child(field)
-                .child(ui::with_scrollbar(list)),
+                .child(list),
         )
     }
 
@@ -189,10 +192,16 @@ impl Launcher {
         let mut cards = Vec::new();
         let all = loaders();
         for &loader in &all {
-            let logo = match self.loader_logo(loader.id(), ui::MARK) {
-                Some(image) => ui::mark_tile(ui::image_tile(image, ui::MARK)),
-                None => ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG),
+            let logo = if instance_icons::has_plate(loader.id()) {
+                self.loader_logo(loader.id(), ui::TILE_LG)
+                    .map(|image| ui::image_tile(image, ui::TILE_LG))
+            } else {
+                self.loader_logo(loader.id(), ui::MARK)
+                    .map(|image| ui::mark_tile(ui::image_tile(image, ui::MARK)).into_any_element())
             };
+            let logo = logo.unwrap_or_else(|| {
+                ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG).into_any_element()
+            });
             let note = match loader.id() {
                 "fabric" => tr("Most mods for new versions"),
                 "quilt" => tr("Fabric mods run here too"),

@@ -386,6 +386,16 @@ impl Launcher {
                 }
                 _ => {
                     self.servers.create = None;
+                    let eclipse = self
+                        .instances
+                        .list
+                        .iter()
+                        .find(|i| i.kind == instances::Kind::Default)
+                        .cloned()
+                        .filter(|_| self.selected_instance().is_some_and(|i| i.java.is_some()));
+                    if let Some(eclipse) = eclipse {
+                        self.select_instance(&eclipse);
+                    }
                     self.go(Page::Home);
                     if !self.game.preparing {
                         self.prepare(backend::MinecraftFrom::Install);
@@ -436,6 +446,8 @@ impl Launcher {
                 (w.path, (w.name, line))
             })
             .collect();
+        let offline = plays_offline(&self.accounts);
+        let start = NewServer::for_owner(offline);
         self.servers.problem = None;
         self.servers.create_scroll = Scrollbar::default();
         self.servers.create = Some(Create {
@@ -444,9 +456,10 @@ impl Launcher {
             worlds,
             mode: "survival",
             difficulty: "normal",
-            max_players: 10,
-            friends_only: true,
-            check_accounts: true,
+            max_players: start.max_players,
+            friends_only: start.friends_only,
+            check_accounts: start.check_accounts,
+            offline,
             eula: false,
             eula_missing: false,
             friends,

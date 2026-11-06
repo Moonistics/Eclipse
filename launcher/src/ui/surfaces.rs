@@ -419,10 +419,6 @@ pub fn plain_error(error: &str) -> &str {
     error.lines().next().unwrap_or_default()
 }
 
-pub fn error_card(said: impl Into<SharedString>) -> Div {
-    card().p(px(PANEL_INSET)).child(super::error_note(said))
-}
-
 pub fn empty_card(state: Stateful<Div>) -> Div {
     card().p(px(PANEL_INSET)).child(state)
 }

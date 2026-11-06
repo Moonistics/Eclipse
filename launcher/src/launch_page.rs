@@ -341,19 +341,19 @@ impl Launcher {
             .gap(px(space::XS))
             .child(tr(about))
             .children(result);
-        Some(ui::setting_row(
+        let beside = layout::content_width(self.window_width) >= layout::INSTANCE_COMPACT_BELOW;
+        Some(ui::setting_row_fit(
+            beside,
             tr("Maximum memory"),
             Some(note.into_any_element()),
-            Some(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(space::MD))
-                    .child(track)
-                    .child(input)
-                    .child(unit)
-                    .into_any_element(),
-            ),
+            div()
+                .flex()
+                .items_center()
+                .gap(px(space::MD))
+                .child(track)
+                .child(input)
+                .child(unit)
+                .into_any_element(),
         ))
     }
 
@@ -439,7 +439,10 @@ impl Launcher {
                 .flex_col()
                 .gap(px(space::SM))
                 .child(ui::label(tr(label)))
-                .child(this.field(field, tr(placeholder), FIELD_WIDTH, ui::ButtonSize::Md, cx))
+                .child(
+                    this.field(field, tr(placeholder), FIELD_WIDTH, ui::ButtonSize::Md, cx)
+                        .max_w_full(),
+                )
                 .children(about.map(|about| ui::card_note(tr(about))))
         };
         let pre = row(

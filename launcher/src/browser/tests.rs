@@ -227,11 +227,17 @@ fn modrinth_answers() {
     assert_eq!(sodium.kind, Kind::Mod);
     assert_eq!(sodium.page, "https://modrinth.com/mod/sodium");
     assert!(matches!(sodium.support(), Support::Partial(_)));
-    // Data packs, plugins and shader packs are not.
-    for project_type in ["plugin", "shader"] {
-        let hit = json!({"project_id": "x", "project_type": project_type, "slug": "p"});
-        assert!(modrinth::parse_hit(&hit).is_none(), "{project_type}");
-    }
+    let hit = json!({"project_id": "x", "project_type": "plugin", "slug": "p"});
+    assert!(modrinth::parse_hit(&hit).is_none());
+    let hit = json!({"project_id": "HVnmMxH1", "project_type": "shader",
+        "slug": "complementary-reimagined", "categories": ["iris", "optifine", "pbr"]});
+    let shader = modrinth::parse_hit(&hit).unwrap();
+    assert_eq!(shader.kind, Kind::Shader);
+    assert_eq!(
+        shader.page,
+        "https://modrinth.com/shader/complementary-reimagined"
+    );
+    assert!(!shader.support().installable());
 
     let project = json!({
         "id": "HVnmMxH1", "project_type": "resourcepack", "slug": "fresh-animations",

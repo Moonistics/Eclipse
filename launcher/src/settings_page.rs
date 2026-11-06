@@ -12,30 +12,36 @@ pub(super) enum SettingsSection {
     Account,
     Updates,
     Appearance,
+    Language,
     Network,
     Game,
     Ai,
-    About,
+    Folders,
+    Developer,
     DataCollection,
 }
 
 impl SettingsSection {
-    const ALL: [SettingsSection; 8] = [
+    const ALL: [SettingsSection; 10] = [
         SettingsSection::Account,
         SettingsSection::Updates,
         SettingsSection::Appearance,
+        SettingsSection::Language,
         SettingsSection::Network,
         SettingsSection::Game,
         SettingsSection::Ai,
-        SettingsSection::About,
+        SettingsSection::Folders,
+        SettingsSection::Developer,
         SettingsSection::DataCollection,
     ];
 
-    fn shown() -> Vec<SettingsSection> {
+    fn shown(developer: bool) -> Vec<SettingsSection> {
         Self::ALL
             .into_iter()
-            .filter(|s| {
-                *s != SettingsSection::DataCollection || eclipse_telemetry::endpoint().is_some()
+            .filter(|s| match s {
+                SettingsSection::Developer => developer,
+                SettingsSection::DataCollection => eclipse_telemetry::endpoint().is_some(),
+                _ => true,
             })
             .collect()
     }
@@ -45,10 +51,12 @@ impl SettingsSection {
             SettingsSection::Account => "account",
             SettingsSection::Updates => "updates",
             SettingsSection::Appearance => "appearance",
+            SettingsSection::Language => "language",
             SettingsSection::Network => "network",
             SettingsSection::Game => "game",
             SettingsSection::Ai => "ai",
-            SettingsSection::About => "about",
+            SettingsSection::Folders => "folders",
+            SettingsSection::Developer => "developer",
             SettingsSection::DataCollection => "data-collection",
         }
     }
@@ -58,10 +66,12 @@ impl SettingsSection {
             SettingsSection::Account => "Account",
             SettingsSection::Updates => "Updates",
             SettingsSection::Appearance => "Appearance",
+            SettingsSection::Language => "Language",
             SettingsSection::Network => "Network",
             SettingsSection::Game => "Game",
             SettingsSection::Ai => "AI",
-            SettingsSection::About => "About",
+            SettingsSection::Folders => "Folders",
+            SettingsSection::Developer => "Developer",
             SettingsSection::DataCollection => "Data collection",
         }
     }
@@ -71,10 +81,12 @@ impl SettingsSection {
             SettingsSection::Account => "user",
             SettingsSection::Updates => "refresh",
             SettingsSection::Appearance => "color-picker",
+            SettingsSection::Language => "earth",
             SettingsSection::Network => "globe-02",
             SettingsSection::Game => "game-controller-01",
             SettingsSection::Ai => "ai-chat-02",
-            SettingsSection::About => "information-circle",
+            SettingsSection::Folders => "folder-01",
+            SettingsSection::Developer => "computer-terminal-01",
             SettingsSection::DataCollection => "view",
         }
     }
@@ -162,7 +174,7 @@ fn spy(tops: &[f32], height: f32, scrolled: f32, max: f32) -> usize {
 
 impl Launcher {
     pub(super) fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let shown = SettingsSection::shown();
+        let shown = SettingsSection::shown(self.dev_options_shown());
         let sections: Vec<Stateful<Div>> = shown
             .iter()
             .map(|&section| self.settings_card(section, cx))
@@ -209,11 +221,7 @@ impl Launcher {
             .flex_col()
             .gap(px(layout::CARD_GAP))
             .pb(px(space::SM))
-            .children(
-                sections
-                    .into_iter()
-                    .map(|s| s.max_w(px(layout::SETTINGS_COLUMN_MAX))),
-            );
+            .children(sections);
         let pane = div()
             .relative()
             .flex_1()
@@ -627,7 +635,12 @@ impl Launcher {
     }
 
     fn settings_card(&mut self, section: SettingsSection, cx: &mut Context<Self>) -> Stateful<Div> {
-        let card = card().id(format!("settings-{}", section.id()));
+        let id = section.id();
+        let card = card().id(format!("settings-{id}")).child(
+            ui::section_title(format!("settings-{id}-title"), tr(section.name()))
+                .px(px(ui::SETTING_ROW_PADDING))
+                .pt(px(ui::SETTING_ROW_PADDING)),
+        );
         match section {
             SettingsSection::Account => card.child(self.account_card(cx)),
             SettingsSection::Updates => card
@@ -648,19 +661,23 @@ impl Launcher {
                 .child(self.launcher_theme_row(cx))
                 .child(self.home_background_row(cx))
                 .child(self.reduce_motion_row(cx))
-                .child(self.language_row(cx))
                 .child(self.reset_look_row(cx)),
+            SettingsSection::Language => card.child(self.language_row(cx)),
             SettingsSection::Network => card.child(self.proxy_row(cx)),
             SettingsSection::Game => card
                 .child(self.while_playing_row(cx))
+                .when(cfg!(target_os = "linux"), |d| {
+                    d.child(self.menu_entry_row(cx))
+                })
                 .child(self.game_architecture_row(cx))
                 .child(self.game_args_row(cx)),
             SettingsSection::Ai => card
                 .child(self.ai_features_row(cx))
                 .children(self.agents_section(cx)),
-            SettingsSection::About => card
+            SettingsSection::Folders => card
+                .child(self.minecraft_folder_row(cx))
                 .child(folder_row(
-                    "about-open-data",
+                    "open-data",
                     "Data folder",
                     "Open data folder",
                     backend::data_dir(),
@@ -670,17 +687,38 @@ impl Launcher {
                     "Logs",
                     "Open logs folder",
                     backend::logs_dir(),
-                ))
-                .when(cfg!(target_os = "linux"), |d| {
-                    d.child(self.menu_entry_row(cx))
-                })
-                .children(self.dev_options_section(cx)),
+                )),
+            SettingsSection::Developer => card.child(self.dev_offline_row(cx)),
             SettingsSection::DataCollection => card.child(self.collection_section(cx)),
         }
     }
 }
 
 impl Launcher {
+    fn minecraft_folder_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let dir = self
+            .settings
+            .minecraft_dir
+            .clone()
+            .unwrap_or_else(|| eclipse_prepare::artifacts::minecraft_dir(None));
+        let path = ui::mono(step::CAPTION, ink::MUTED)
+            .child(short(&dir))
+            .into_any_element();
+        let choose = ui::button(
+            "minecraft-folder-choose",
+            Some("folder-01"),
+            tr("Choose folder…"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.choose_folder(cx);
+            cx.notify();
+        }))
+        .into_any_element();
+        ui::setting_row(tr("Minecraft folder"), Some(path), Some(choose))
+    }
+
     fn auto_install_row(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         ui::toggle_row(
             "auto-install",
@@ -858,7 +896,7 @@ impl Launcher {
 mod tests {
     use super::spy;
 
-    /// A 600 px pane over eight cards: tall ones, then About and Data collection, too short for
+    /// A 600 px pane over eight cards: tall ones, then Folders and Data collection, too short for
     /// their tops ever to reach 30 % of the pane.
     const TOPS: [f32; 8] = [0., 420., 700., 1000., 1300., 1600., 1900., 2100.];
     const HEIGHT: f32 = 600.;
@@ -896,9 +934,9 @@ mod tests {
         let mut order = seen.clone();
         order.dedup();
         assert_eq!(order, (0..8).collect::<Vec<_>>());
-        // About is marked for a stretch of scroll before the end, not for one step.
-        let about = seen.iter().filter(|&&s| s == 6).count();
-        assert!(about >= 8, "About marked for {about} steps of 10 px");
+        // Folders is marked for a stretch of scroll before the end, not for one step.
+        let folders = seen.iter().filter(|&&s| s == 6).count();
+        assert!(folders >= 8, "Folders marked for {folders} steps of 10 px");
         assert_eq!(at(MAX), 7);
     }
 

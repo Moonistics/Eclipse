@@ -59,8 +59,8 @@ pub(super) enum Event {
     AutoUpdated(Vec<String>, Vec<String>),
     /// A project page's part, an image or a filter's values (`mods_project`).
     Loaded(super::mods_project::Loaded),
-    /// The palette's registry mods for its search of that number.
-    Palette(u64, Vec<Project>),
+    /// The palette's mods for its search of that number, or why the search failed.
+    Palette(u64, Result<Vec<Project>, String>),
 }
 
 /// Where a Java mod's check is.
@@ -93,6 +93,8 @@ pub(super) struct Mods {
     /// The selected Java instance's version and loader: its mods and resource packs are the
     /// source's own files for them, put in as they are.
     pub(super) java: Option<Target>,
+    loads_shaders: bool,
+    palette_failed: Option<u64>,
     /// Its worlds (folder, name), the last played first, and the one data packs go into.
     worlds: Vec<(PathBuf, String)>,
     world: Option<PathBuf>,
@@ -138,6 +140,13 @@ impl Mods {
     /// The game folder installs go into: the selected instance's, once the page has read it.
     pub(super) fn home(&self) -> PathBuf {
         self.home.clone().unwrap_or_else(backend::game_home)
+    }
+
+    fn read_installed(&mut self) {
+        let home = self.home();
+        self.installed = installed::Installed::load(&home).entries;
+        self.installed_list.reset();
+        self.loads_shaders = java_instance::loads_shaders(&home);
     }
 
     /// Reads the instance's worlds again; the world picked for data packs stays when it is
@@ -189,6 +198,8 @@ impl Mods {
             asked: false,
             home: None,
             java: None,
+            loads_shaders: false,
+            palette_failed: None,
             worlds: Vec::new(),
             world: None,
             busy: None,
@@ -258,7 +269,16 @@ impl Mods {
     /// instance, whether it has the loader and version the result was made for.
     pub(super) fn support(&self, p: &Project) -> Support {
         if let Some(target) = self.java_for(p.kind) {
-            return target.support(p);
+            return match target.support(p) {
+                Support::Works if p.kind == PackKind::Shader && !self.loads_shaders => {
+                    let needs = tr("Needs a shader mod like Iris").to_string();
+                    match target.loader {
+                        Some(_) => Support::Partial(needs),
+                        None => Support::No(needs),
+                    }
+                }
+                support => support,
+            };
         }
         let metadata = p.support();
         if p.kind != PackKind::Mod || p.source == SourceId::Eclipse || !metadata.installable() {
@@ -337,7 +357,8 @@ impl Launcher {
             match event {
                 Event::Palette(search, found) => {
                     if let Some(p) = self.palette.as_mut().filter(|p| p.search == search) {
-                        p.mods = found;
+                        m.palette_failed = found.is_err().then_some(search);
+                        p.mods = found.unwrap_or_default();
                     }
                 }
                 Event::Found(search, offset, result) if search == m.search => {
@@ -378,8 +399,7 @@ impl Launcher {
                         crate::toast::say(said.clone());
                     }
                     m.message = Some(result);
-                    m.installed = installed::Installed::load(&m.home()).entries;
-                    m.installed_list.reset();
+                    m.read_installed();
                     if modpack {
                         // The Modpacks page reads its list again.
                         self.modpacks.loaded = None;
@@ -403,14 +423,12 @@ impl Launcher {
                     m.rebuild.extend(rebuild);
                     if !lines.is_empty() {
                         m.message = Some(Ok(lines.join("\n")));
-                        m.installed = installed::Installed::load(&m.home()).entries;
-                        m.installed_list.reset();
+                        m.read_installed();
                     }
                 }
                 Event::TakenDown(lines) => {
                     m.message = Some(Ok(lines.join("\n")));
-                    m.installed = installed::Installed::load(&m.home()).entries;
-                    m.installed_list.reset();
+                    m.read_installed();
                 }
             }
         }
@@ -575,6 +593,7 @@ impl Launcher {
                     if on { "on" } else { "off" }
                 )
             }));
+            self.mods.read_installed();
             return;
         }
         let Some(id) = eclipse::mod_id(e) else {
@@ -918,14 +937,14 @@ impl Launcher {
             self.mods.asked = false;
         }
         let to_eclipse = java.is_none() && (!self.mods.loaded || self.mods.java.is_some());
-        if to_eclipse && self.mods.use_source(source_for(self.mods.kind, true)) {
+        let to_java = java.is_some() && self.mods.java.is_none();
+        if (to_eclipse || to_java) && self.mods.use_source(source_for(self.mods.kind, to_eclipse)) {
             self.mods.asked = false;
         }
         self.mods.java = java;
         if !self.mods.loaded || (home.is_some() && self.mods.home != home) {
             self.mods.home = home;
-            self.mods.installed = installed::Installed::load(&self.mods.home()).entries;
-            self.mods.installed_list.reset();
+            self.mods.read_installed();
             self.mods.updates.clear();
             self.stop_asking(|a| matches!(a, Asking::Mod(_)));
             self.mods.read_worlds();
@@ -1002,31 +1021,34 @@ impl Launcher {
             crate::toast::say(said.clone());
         }
         self.mods.message = removed.clone().err().map(Err);
-        self.mods.installed = installed::Installed::load(&home).entries;
-        self.mods.installed_list.reset();
+        self.mods.read_installed();
         self.stop_asking(|a| matches!(a, Asking::Mod(_)));
         removed
     }
 
-    /// The palette's search (`palette`): up to four of Eclipse's registry mods for `text`,
-    /// answered as [`Event::Palette`]. None for a Java instance, which takes Modrinth's files.
+    /// The palette's search (`palette`): up to four mods for `text` that go in the selected
+    /// instance (Eclipse's registry's, or Modrinth's for a Java instance's loader and version),
+    /// answered as [`Event::Palette`].
     pub(super) fn palette_mods(&mut self, text: &str, search: u64) {
         self.mods_load();
-        if self.mods.java.is_some() {
-            return;
-        }
-        let tx = self.mods.tx.clone();
-        let query = Query {
-            limit: 4,
-            ..Query::new(text, PackKind::Mod)
+        let (source, query) = match &self.mods.java {
+            Some(target) if target.folder(PackKind::Mod).is_err() => return,
+            Some(target) => (SourceId::Modrinth, target.query(text, PackKind::Mod)),
+            None => (SourceId::Eclipse, Query::new(text, PackKind::Mod)),
         };
+        let query = Query { limit: 4, ..query };
+        self.mods.palette_failed = None;
+        let tx = self.mods.tx.clone();
         std::thread::spawn(move || {
-            let found = browser::source(SourceId::Eclipse)
-                .ok_or_else(|| "not set up".to_string())
-                .and_then(|s| s.search(&query))
-                .unwrap_or_default();
+            let found = browser::source(source)
+                .ok_or_else(|| format!("{} isn't set up.", source.label()))
+                .and_then(|s| s.search(&query));
             let _ = tx.send(Event::Palette(search, found));
         });
+    }
+
+    pub(super) fn palette_search_failed(&self, search: u64) -> bool {
+        self.mods.palette_failed == Some(search)
     }
 
     pub(super) fn mods_status(
@@ -1069,8 +1091,17 @@ impl Launcher {
     pub(super) fn mods_vanilla_target(&self) -> Option<String> {
         self.mods
             .java_for(self.mods.kind)
-            .filter(|t| t.loader.is_none() && self.mods.kind == PackKind::Mod)
+            .filter(|t| {
+                t.loader.is_none() && matches!(self.mods.kind, PackKind::Mod | PackKind::Shader)
+            })
             .map(|t| t.minecraft.clone())
+    }
+
+    pub(super) fn mods_missing_shader_mod(&self) -> Option<(&'static str, &'static str)> {
+        let target = self.mods.java_for(PackKind::Shader)?;
+        (self.mods.kind == PackKind::Shader && !self.mods.loads_shaders)
+            .then(|| target.shader_mod())
+            .flatten()
     }
 
     /// Whether the selected instance has `p` (the palette's Install or Remove).
@@ -1691,11 +1722,12 @@ pub(super) fn auto_update(targets: &[AutoTarget]) -> (Vec<String>, Vec<String>) 
 
 fn source_for(kind: PackKind, eclipse: bool) -> SourceId {
     match kind {
-        PackKind::Shader => SourceId::Eclipse,
-        PackKind::Mod if eclipse => SourceId::Eclipse,
-        PackKind::Mod | PackKind::ResourcePack | PackKind::Modpack | PackKind::DataPack => {
-            SourceId::Modrinth
-        }
+        PackKind::Mod | PackKind::Shader if eclipse => SourceId::Eclipse,
+        PackKind::Mod
+        | PackKind::Shader
+        | PackKind::ResourcePack
+        | PackKind::Modpack
+        | PackKind::DataPack => SourceId::Modrinth,
     }
 }
 

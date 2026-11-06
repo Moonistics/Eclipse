@@ -38,6 +38,14 @@ impl GameRun {
             None => self.log_for.as_deref() == Some(&instance.id),
         }
     }
+
+    pub(super) fn busy(&self) -> bool {
+        self.preparing || self.client.is_some() || self.starting.is_some()
+    }
+
+    pub(super) fn failed_to_start(&self) -> bool {
+        self.started.is_some() && self.client.is_none() && self.starting.is_none()
+    }
 }
 
 #[derive(Clone, Copy, Debug, PartialEq)]
@@ -127,6 +135,35 @@ impl Launcher {
             .crash
             .as_ref()
             .filter(|_| self.game.belongs_to(self.selected_instance()))
+    }
+
+    pub(super) fn busy_reason(&self) -> Option<String> {
+        if !self.game.busy() {
+            return None;
+        }
+        let id = self.game.run.as_ref().map(|(id, _)| id);
+        let name = id
+            .or(self.game.log_for.as_ref())
+            .and_then(|id| self.instances.list.iter().find(|i| i.id == *id))
+            .map_or("Eclipse", |i| i.name.as_str());
+        Some(if self.game.client.is_some() {
+            trf("{name} is still running: close it first", &[("name", name)])
+        } else if self.game.starting.is_some() {
+            trf(
+                "{name} is still starting: wait for it to open",
+                &[("name", name)],
+            )
+        } else {
+            trf(
+                "{name} is still preparing: wait for it to finish",
+                &[("name", name)],
+            )
+        })
+    }
+
+    pub(super) fn why_not_start(&self) -> String {
+        self.busy_reason()
+            .unwrap_or_else(|| tr("Press Play once first to set up the game").into())
     }
 }
 

@@ -33,7 +33,7 @@ impl Launcher {
                     "notes-empty",
                     "information-circle",
                     tr("No patch notes yet"),
-                    tr("Patch notes come with each Eclipse release."),
+                    tr("Eclipse hasn't published a version yet."),
                     vec![],
                 )));
             }
@@ -46,16 +46,7 @@ impl Launcher {
             |_| false,
             |i| {
                 let release = &releases[i];
-                let title = release
-                    .name
-                    .split_once(": ")
-                    .map(|(_, rest)| rest.to_string())
-                    .unwrap_or_else(|| release.name.clone());
-                let title = if title.is_empty() {
-                    release.tag.clone()
-                } else {
-                    title
-                };
+                let title = versions_page::release_title(release);
                 let day = dates::published(&release.date, "");
                 ui::card()
                     .flex()

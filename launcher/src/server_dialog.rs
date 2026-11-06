@@ -212,6 +212,7 @@ impl Launcher {
         let details = c.details.clone();
         let (mode, difficulty, max) = (c.mode, c.difficulty, c.max_players);
         let (friends_only, check, friends) = (c.friends_only, c.check_accounts, c.friends.clone());
+        let locked_out = check && c.offline;
         let creating = self.servers.creating;
         let head = div()
             .flex()
@@ -451,16 +452,24 @@ impl Launcher {
                 .child(ui::card_note(tr("The first name becomes an operator.")).mt(px(space::MD)));
         }
 
+        let locked_out_line = tr("You play offline, so you couldn't join it.");
         let accounts = ui::toggle_row(
             "create-accounts",
             tr("Require Microsoft sign-in"),
             Some(
                 div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::XS))
                     .child(tr("Stops anyone joining under someone else's name."))
+                    .when(locked_out, |d| {
+                        d.child(ui::state_note(ui::Tone::Warn, locked_out_line))
+                    })
                     .into_any_element(),
             ),
             check,
         )
+        .when(locked_out, |row| row.aria_description(locked_out_line))
         .bg(ui::inset())
         .on_press(set(cx, |c| c.check_accounts = !c.check_accounts));
 

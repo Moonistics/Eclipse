@@ -4,8 +4,8 @@ use crate::ui::{self, white};
 use eclipse_theme::glass::{fill, ink, radius, space};
 
 impl Launcher {
-    /// Home's Screenshots tab: how many, then the pictures in a grid, 4 across on wide windows,
-    /// else 2, each 16:9, its file name under it. A click opens the viewer.
+    /// Home's Screenshots tab: the pictures in a grid, 4 across on wide windows, else 2, each
+    /// 16:9, its file name under it. A click opens the viewer.
     pub(super) fn screenshots_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.selected_instance()?.home.clone();
         self.load_screenshots(home.clone());
@@ -19,13 +19,9 @@ impl Launcher {
                 vec![],
             )));
         }
-        let count = match list.len() {
-            1 => tr("1 screenshot").to_string(),
-            n => trf("{count} screenshots", &[("count", &n.to_string())]),
-        };
         let folder = eclipse_launcher::screenshots::folder(&home);
         let privacy = self.shots_privacy(cx);
-        let head = ui::list_head(count).child(
+        let head = ui::list_head(SharedString::default()).child(
             div()
                 .flex()
                 .items_center()

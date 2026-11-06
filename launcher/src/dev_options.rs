@@ -4,7 +4,6 @@
 //! (`backend::Settings::dev_offline`). The game still comes from the player's own install: the
 //! launcher downloads Mojang's files only for an owner (`backend::download_for_owner`).
 use super::*;
-use eclipse_theme::glass::space;
 
 /// Clicks on the launcher's version that reveal the section.
 const CLICKS: u8 = 7;
@@ -18,16 +17,17 @@ impl Launcher {
         self.dev_clicks += 1;
         if self.dev_clicks >= CLICKS {
             self.dev_options = true;
-            self.go(Page::Settings);
+            self.show_settings(settings_page::SettingsSection::Developer);
         }
     }
 
     /// The section, when revealed or when one of its options is on.
-    pub(super) fn dev_options_section(&self, cx: &mut Context<Self>) -> Option<Div> {
-        if !self.dev_options && !self.settings.dev_offline {
-            return None;
-        }
-        let toggle = crate::ui::toggle_row(
+    pub(super) fn dev_options_shown(&self) -> bool {
+        self.dev_options || self.settings.dev_offline
+    }
+
+    pub(super) fn dev_offline_row(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        crate::ui::toggle_row(
             "dev-offline",
             tr("Offline names without an account"),
             Some(
@@ -44,18 +44,6 @@ impl Launcher {
             this.settings.dev_offline = !this.settings.dev_offline;
             this.save_settings();
             cx.notify();
-        }));
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .child(
-                    crate::ui::label(tr("Developer options"))
-                        .px(px(crate::ui::SETTING_ROW_PADDING))
-                        .mt(px(space::XL))
-                        .mb(px(space::MD)),
-                )
-                .child(toggle),
-        )
+        }))
     }
 }

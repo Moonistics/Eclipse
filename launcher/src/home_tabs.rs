@@ -37,18 +37,21 @@ impl HomeTab {
 
 impl Launcher {
     /// The tabs the selected instance has now, with how many things each holds (None: not known
-    /// yet, or nothing to count). Patch notes only for Eclipse, Console only once there
-    /// is something to show.
+    /// yet, or nothing to count). Patch notes only for Eclipse and once there are some, Console
+    /// only once there is something to show.
     pub(super) fn home_tab_list(
         &mut self,
         cx: &mut Context<Self>,
     ) -> Vec<(HomeTab, Option<usize>)> {
+        let notes = self
+            .has_patch_notes()
+            .then_some((HomeTab::PatchNotes, None));
         let Some(eclipse) = self.selected_instance().map(|i| i.java.is_none()) else {
-            return vec![(HomeTab::PatchNotes, None)];
+            return notes.into_iter().collect();
         };
         let mut tabs = Vec::new();
         if eclipse {
-            tabs.push((HomeTab::PatchNotes, None));
+            tabs.extend(notes);
         }
         if self.has_mods_tab() {
             tabs.push((HomeTab::Mods, self.instance_mods_count(cx)));
@@ -69,6 +72,9 @@ const NOTES_WIDTH: f32 = layout::MEASURE_TEXT;
 impl Launcher {
     pub(super) fn home_tab_card(&mut self, cx: &mut Context<Self>) -> Div {
         let tabs = self.home_tab_list(cx);
+        if tabs.is_empty() {
+            return div();
+        }
         let open = tabs
             .iter()
             .map(|(tab, _)| *tab)
@@ -102,7 +108,7 @@ impl Launcher {
             cx,
         );
         let body: Option<AnyElement> = match open {
-            HomeTab::PatchNotes => Some(self.patch_notes(cx).into_any_element()),
+            HomeTab::PatchNotes => self.patch_notes(cx).map(IntoElement::into_any_element),
             HomeTab::Mods => Some(self.mods_tab(cx).into_any_element()),
             HomeTab::Worlds => self.worlds_tab(cx).map(IntoElement::into_any_element),
             HomeTab::Multiplayer => self.multiplayer_tab(cx).map(IntoElement::into_any_element),
@@ -119,19 +125,27 @@ impl Launcher {
         )
     }
 
+    fn has_patch_notes(&self) -> bool {
+        match &self.releases {
+            Load::Ready(list) => patch_source(list, self.selected().map(String::as_str))
+                .is_some_and(|(_, sections)| !sections.is_empty()),
+            Load::Loading | Load::Failed(_) => true,
+        }
+    }
+
     /// Patch notes: the changes in the Eclipse version played, by section (the newest Nightly's
     /// when that version lists none), else the newest launcher release's; All patch notes opens
     /// Patch notes.
-    fn patch_notes(&self, cx: &mut Context<Self>) -> Div {
+    fn patch_notes(&self, cx: &mut Context<Self>) -> Option<Div> {
         let source = match &self.releases {
             Load::Loading => {
-                return div().child(ui::loading_state(
+                return Some(div().child(ui::loading_state(
                     "patch-notes-loading",
                     tr("Loading patch notes…"),
-                ))
+                )))
             }
             Load::Failed(e) => {
-                return div().child(ui::error_state_with(
+                return Some(div().child(ui::error_state_with(
                     "patch-notes-failed",
                     tr("Couldn't load patch notes"),
                     e,
@@ -141,19 +155,11 @@ impl Launcher {
                     }),
                     vec![Self::proxy_settings_button("patch-notes-failed", cx)],
                     ButtonKind::Secondary,
-                ));
+                )));
             }
             Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),
         };
-        let Some((note, sections)) = source.filter(|(_, sections)| !sections.is_empty()) else {
-            return div().child(ui::empty_state(
-                "patch-notes-empty",
-                "information-circle",
-                tr("No patch notes yet"),
-                tr("Patch notes come with each Eclipse release."),
-                vec![],
-            ));
-        };
+        let (note, sections) = source.filter(|(_, sections)| !sections.is_empty())?;
         let many = sections.len() > 1;
         let bullet = |item: String| {
             div().flex().gap(px(space::MD)).child(ui::bullet()).child(
@@ -176,18 +182,20 @@ impl Launcher {
                     .children(many.then(|| ui::label(section)))
                     .children(items.into_iter().map(bullet))
             }));
-        div()
-            .flex()
-            .flex_col()
-            .child(ui::list_head(note).child(
-                ui::link("patch-notes-all", tr("All patch notes")).on_press(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.go(Page::Notes);
-                        cx.notify();
-                    },
-                )),
-            ))
-            .child(list.pb(px(space::MD)))
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .child(ui::list_head(note).child(
+                    ui::link("patch-notes-all", tr("All patch notes")).on_press(cx.listener(
+                        |this, _: &ClickEvent, _, cx| {
+                            this.go(Page::Notes);
+                            cx.notify();
+                        },
+                    )),
+                ))
+                .child(list.pb(px(space::MD))),
+        )
     }
 }
 

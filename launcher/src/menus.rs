@@ -12,6 +12,7 @@ pub(super) enum Menu {
     ListRow(SharedString),
     ModsTarget,
     ModsSort,
+    AgentClient,
 }
 
 #[derive(Clone, PartialEq, Debug)]

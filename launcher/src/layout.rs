@@ -13,7 +13,6 @@ pub const PAGE_MAX: f32 = 1120.;
 pub const PAGE_FOOT: f32 = 48.;
 pub const CONTENT_INSET: f32 = space::MD + space::XXS;
 pub const CARD_GAP: f32 = space::LG;
-pub const SETTINGS_COLUMN_MAX: f32 = 720.;
 
 pub const SHORT_WINDOW: f32 = 720.;
 pub const HOME_HEAD_WIDE: f32 = 1280.;

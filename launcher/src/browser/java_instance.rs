@@ -1,6 +1,7 @@
-//! Mods and resource packs for a Java Edition instance: the source's own files, for the
-//! instance's Minecraft version and loader, put in its `mods/` and `resourcepacks/` as they are
-//! (nothing is ported). The instance's `mod-browser.json` lists them, as for Eclipse's folder.
+//! Mods, resource packs and shader packs for a Java Edition instance: the source's own files,
+//! for the instance's Minecraft version and loader, put in its `mods/`, `resourcepacks/` and
+//! `shaderpacks/` as they are (nothing is ported). The instance's `mod-browser.json` lists them,
+//! as for Eclipse's folder.
 use super::installed::{self, Entry, Installed, Step};
 use super::{details, Kind, Project, Query, Source, Support, Version};
 use std::fs;
@@ -8,6 +9,10 @@ use std::path::Path;
 
 /// How deep required dependencies are followed.
 const MAX_DEPTH: usize = 4;
+
+const SHADER_PACK_LOADERS: [&str; 3] = ["iris", "optifine", "canvas"];
+
+const SHADER_MOD_JARS: [&str; 3] = ["iris", "oculus", "optifine"];
 
 /// What an instance runs: its Minecraft version and its loader (`fabric`, `quilt`, `neoforge`,
 /// `forge`), none for vanilla.
@@ -39,7 +44,7 @@ impl Target {
             Kind::ResourcePack => Ok("resourcepacks"),
             Kind::Modpack => Err("A modpack is imported as its own instance.".into()),
             Kind::DataPack => Err("A data pack goes in a world.".into()),
-            Kind::Shader => Err("Shader packs for Java instances aren't supported yet.".into()),
+            Kind::Shader => Ok("shaderpacks"),
         }
     }
 
@@ -70,13 +75,23 @@ impl Target {
         query
     }
 
-    /// Whether this instance takes files of `kind` from the browser as they are: mods and
-    /// resource packs.
+    /// Whether this instance takes files of `kind` from the browser as they are: mods, resource
+    /// packs and shader packs.
     pub fn takes(&self, kind: Kind) -> bool {
-        matches!(kind, Kind::Mod | Kind::ResourcePack)
+        matches!(kind, Kind::Mod | Kind::ResourcePack | Kind::Shader)
+    }
+
+    pub fn shader_mod(&self) -> Option<(&'static str, &'static str)> {
+        match self.loader.as_deref()? {
+            "forge" => Some(("oculus", "Oculus")),
+            _ => Some(("iris", "Iris")),
+        }
     }
 
     pub fn support(&self, project: &Project) -> Support {
+        if project.kind == Kind::Shader && !made_for(&project.loaders, &SHADER_PACK_LOADERS) {
+            return Support::No("Not an Iris or OptiFine shader pack".into());
+        }
         if project.kind == Kind::Mod && !project.loaders.iter().any(|l| self.accepts(l)) {
             let needed = crate::loaders::Kind::ALL
                 .into_iter()
@@ -104,6 +119,9 @@ impl Target {
         let mut usable = versions.iter().filter(|v| {
             v.blocked.is_none() && v.file().is_some() && v.game_versions.contains(&self.minecraft)
         });
+        if kind == Kind::Shader {
+            return usable.find(|v| made_for(&v.loaders, &SHADER_PACK_LOADERS));
+        }
         if kind != Kind::Mod {
             return usable.find(|v| v.loaders.iter().any(|l| l == "minecraft"));
         }
@@ -113,6 +131,21 @@ impl Target {
             .find(|v| v.loaders.iter().any(|l| l == own))
             .or_else(|| usable.find(|v| v.loaders.iter().any(|l| self.accepts(l))))
     }
+}
+
+fn made_for(loaders: &[String], wanted: &[&str]) -> bool {
+    loaders.iter().any(|l| wanted.contains(&l.as_str()))
+}
+
+pub fn loads_shaders(home: &Path) -> bool {
+    fs::read_dir(home.join("mods"))
+        .into_iter()
+        .flatten()
+        .flatten()
+        .any(|f| {
+            let name = f.file_name().to_string_lossy().to_lowercase();
+            name.ends_with(".jar") && SHADER_MOD_JARS.iter().any(|m| name.starts_with(m))
+        })
 }
 
 /// What installing `project` into the instance takes, its required dependencies first, each

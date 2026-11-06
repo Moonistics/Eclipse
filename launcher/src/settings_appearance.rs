@@ -171,11 +171,7 @@ impl Launcher {
     pub(super) fn reset_look_row(&mut self, cx: &mut Context<Self>) -> Div {
         ui::setting_row(
             tr("Reset appearance"),
-            Some(
-                div()
-                    .child(tr("Also resets the language."))
-                    .into_any_element(),
-            ),
+            None,
             Some(
                 ui::button(
                     "look-reset",
@@ -190,10 +186,8 @@ impl Launcher {
                     s.accent = Accent::AMBER;
                     s.theme = None;
                     s.background = None;
-                    s.language = None;
                     s.reduce_motion = None;
                     this.save_settings();
-                    i18n::set(this.settings.language());
                     crate::motion::set_reduce_motion(None);
                     titlebar::apply_appearance(window, this.settings.appearance);
                     this.accent_strip = false;

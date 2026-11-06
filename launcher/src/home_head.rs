@@ -84,7 +84,7 @@ impl Launcher {
                 &[("time", &instances::play_time(since.elapsed()))],
             ),
             (None, Some(i)) if i.java.is_none() && !prepared => trf(
-                "Eclipse needs your copy of Minecraft {version} first.",
+                "Play first sets up Minecraft {version} from your Minecraft launcher.",
                 &[("version", &backend::game_version(tag))],
             ),
             (None, Some(i)) => {
@@ -230,7 +230,7 @@ impl Launcher {
             items.push((
                 "play-minecraft-folder",
                 "folder-01",
-                tr("Choose the Minecraft folder"),
+                tr("Choose Minecraft folder…"),
                 false,
                 PlayItem::MinecraftFolder,
             ));
@@ -259,22 +259,17 @@ impl Launcher {
     pub(super) fn press_play(&mut self) {
         let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
             || self.selected().is_some_and(|tag| backend::is_prepared(tag));
-        let busy =
-            self.game.preparing || self.game.client.is_some() || self.game.starting.is_some();
-        match play_press(ready, busy) {
+        match play_press(ready, self.game.busy()) {
             PlayPress::Play => self.play(),
             PlayPress::PrepareThenPlay => {
                 self.game.play_when_prepared = self.selected().cloned();
                 self.prepare(backend::MinecraftFrom::Install);
             }
-            PlayPress::Nothing if self.selected_play_state() == PlayState::Idle => {
-                crate::toast::say(tr(if self.game.client.is_some() {
-                    "Close the game first"
-                } else {
-                    "Wait for the current operation to finish."
-                }));
+            PlayPress::Nothing => {
+                if let Some(why) = self.busy_reason() {
+                    crate::toast::say(why);
+                }
             }
-            PlayPress::Nothing => {}
         }
     }
 
@@ -382,7 +377,7 @@ impl Launcher {
         } else if !valid {
             ui::unavailable(join, tr("Paste a friend's invite code first"))
         } else {
-            ui::unavailable(join, tr("Prepare the game files to play"))
+            ui::unavailable(join, self.why_not_start())
         };
         let wide = self.window_width >= layout::HOME_HEAD_WIDE;
         let field = self

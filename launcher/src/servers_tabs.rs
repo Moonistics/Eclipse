@@ -456,7 +456,13 @@ impl Launcher {
         let accounts = self.server_switch_row(
             "online-mode",
             "Require Microsoft sign-in",
-            if accounts {
+            if accounts && plays_offline(&self.accounts) {
+                format!(
+                    "{} {later} {}",
+                    tr("On: players must own Minecraft and sign in with Microsoft."),
+                    tr("You play offline, so you couldn't join it.")
+                )
+            } else if accounts {
                 format!(
                     "{} {later}",
                     tr("On: players must own Minecraft and sign in with Microsoft.")

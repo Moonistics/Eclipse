@@ -144,7 +144,7 @@ impl Launcher {
         let look = ui::look();
         let installed = self.installed.iter().any(|v| v == tag);
         let in_use = self.selected().map(String::as_str) == Some(tag);
-        let players: Vec<&str> = self
+        let used_by: Vec<&str> = self
             .instances
             .list
             .iter()
@@ -157,8 +157,8 @@ impl Launcher {
             }
             line.push_str(&part);
         };
-        if !players.is_empty() {
-            add(trf("played by {names}", &[("names", &players.join(", "))]));
+        if !used_by.is_empty() {
+            add(trf("used by {names}", &[("names", &used_by.join(", "))]));
         } else if installed {
             add(tr("installed").to_string());
         }
@@ -392,7 +392,7 @@ impl Launcher {
     }
 }
 
-fn release_title(release: &Release) -> String {
+pub(super) fn release_title(release: &Release) -> String {
     let title = release
         .name
         .split_once(": ")

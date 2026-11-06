@@ -50,7 +50,7 @@ impl Launcher {
     pub(super) fn language_row(&self, cx: &mut Context<Self>) -> Div {
         let picker = ui::dropdown(
             "language-picker",
-            tr("Language"),
+            tr("Launcher language"),
             None,
             choice_name(self.settings.language),
             self.menu_is(&Menu::Language),
@@ -62,7 +62,7 @@ impl Launcher {
         if self.menu_is(&Menu::Language) {
             wrap = wrap.child(self.language_list(cx));
         }
-        ui::setting_row(tr("Language"), None, Some(wrap.into_any_element()))
+        ui::setting_row(tr("Launcher language"), None, Some(wrap.into_any_element()))
     }
 }
 

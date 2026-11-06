@@ -86,8 +86,8 @@ fn group_label(text: impl Into<SharedString>, labels: &Rc<RefCell<Vec<Bounds<Pix
 impl Launcher {
     /// An instance's icon on a `size` tile: Eclipse's mark for Eclipse's own instance; else its
     /// picture or the block chosen for it; else its loader's or Minecraft's mark, each two thirds
-    /// of the tile on the 8 px grid; else its initial on its colour (the accent when none was
-    /// chosen).
+    /// of the tile on the 8 px grid (a loader logo with its own plate fills the tile); else its
+    /// initial on its colour (the accent when none was chosen).
     pub(super) fn instance_icon(&mut self, i: &Instance, size: f32) -> AnyElement {
         let inner = (size * 2. / 3. / 8.).round() * 8.;
         let tile = ui::tile(size);
@@ -112,6 +112,15 @@ impl Launcher {
                 }
             }
             None => {
+                let plated = i
+                    .java
+                    .as_ref()
+                    .and_then(|j| j.loader.as_ref())
+                    .map(|l| l.kind.id())
+                    .filter(|loader| instance_icons::has_plate(loader));
+                if let Some(logo) = plated.and_then(|loader| self.loader_logo(loader, size)) {
+                    return ui::image_tile(logo, size);
+                }
                 if let Some(mark) = self.instance_mark(i, inner) {
                     return tile
                         .child(instance_icons::centred(mark, inner, self.scale))
@@ -140,17 +149,13 @@ impl Launcher {
                 let prepared = tag.as_deref().is_some_and(backend::is_prepared);
                 match (&i.java, &tag, &i.version) {
                     (Some(java), _, _) => (Tone::Live, java.line()),
-                    (None, None, Some(own)) => (
-                        Tone::Warn,
-                        trf("{version} is not installed", &[("version", own)]),
-                    ),
-                    (None, None, None) => (Tone::Off, tr("Not installed").into()),
+                    (None, None, _) => (Tone::Off, tr("Not installed").into()),
                     // Following the launcher's version, which has a newer one waiting.
                     (None, Some(_), None) if self.updates.eclipse.is_some() => (
                         Tone::Accent(ui::look().accent_soft),
                         tr("Update available").into(),
                     ),
-                    (None, Some(_), _) if !prepared => (Tone::Warn, tr("Not prepared").into()),
+                    (None, Some(_), _) if !prepared => (Tone::Off, tr("Not set up").into()),
                     (None, Some(tag), _) if self.native_build_of(tag).is_some() => {
                         let build = self.native_build_of(tag).unwrap_or_default();
                         (
@@ -419,9 +424,9 @@ impl Launcher {
                 .aria_description(how)
                 .flex()
                 .items_center()
-                .gap(px(space::MD))
+                .gap(px(space::SM))
                 .h(px(account_chip(compact)))
-                .pl(px(ui::SIDEBAR_INSET - ui::SIDEBAR_PAD))
+                .pl(px(NAV_INSET))
                 .pr(px(MORE_INSET
                     + (ui::ButtonSize::Sm.height() - ui::IconSize::Px16.px())
                         / 2.))
@@ -431,7 +436,7 @@ impl Launcher {
                         .draw(face.as_deref(), ACCOUNT_HEAD, self.scale),
                     ACCOUNT_HEAD,
                 ))
-                .child(ui::item_text(name, how))
+                .child(ui::item_text(name, how).ml(px(space::XS)))
                 .child(ui::chevron(open).relative()),
             open,
         );
@@ -777,10 +782,8 @@ impl Launcher {
                 }),
             ));
         }
-        let sign_in = !matches!(now, Player::Microsoft(_))
-            && eclipse_launcher::account::client_id().is_some();
         let mut more = div().mt(px(space::XS)).flex().flex_col();
-        if sign_in {
+        if self.can_sign_in() {
             more = more.child(
                 ui::menu_row(
                     "account-sign-in",
@@ -790,7 +793,7 @@ impl Launcher {
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.close_menu();
-                    this.start_sign_in();
+                    this.open_sign_in();
                     cx.notify();
                 })),
             );

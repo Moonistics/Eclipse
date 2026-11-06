@@ -49,8 +49,6 @@ pub(super) struct InstanceDraft {
     pub(super) editing: Option<String>,
     pub(super) back: Page,
     pub(super) scroll: Scrollbar,
-    /// A new instance copies the selected one's worlds, options and packs.
-    pub(super) copy: bool,
     pub(super) duplicate: bool,
     pub(super) icon: Option<Icon>,
     /// A picture chosen since it opened (None in it: the instance's is removed on Save).
@@ -70,12 +68,11 @@ pub(super) struct InstanceDraft {
 impl InstanceDraft {
     pub(super) fn shape(&self, name: &str, group: &str) -> String {
         format!(
-            "{name}|{group}|{:?}|{:?}|{:?}|{}|{}",
+            "{name}|{group}|{:?}|{:?}|{:?}|{}",
             self.icon,
             self.pin,
             self.java,
-            self.picture.is_some(),
-            self.copy
+            self.picture.is_some()
         )
     }
 }
@@ -175,7 +172,6 @@ impl Launcher {
             .unwrap_or_default();
         self.fields.text(Field::InstanceName).set(name);
         self.fields.text(Field::InstanceGroup).set(group);
-        self.fields.focus_soon = Some(Field::InstanceName);
         // What it plays now: Edit can switch it (`instances::switch`).
         let java = editing
             .as_ref()
@@ -188,7 +184,6 @@ impl Launcher {
             editing: editing.map(|i| i.id),
             back,
             scroll: Scrollbar::default(),
-            copy: false,
             duplicate: false,
             error: None,
             busy: false,
@@ -197,16 +192,10 @@ impl Launcher {
             opened: String::new(),
         });
         self.fields.text(Field::VersionSearch).set(String::new());
+        self.stop_asking(|a| *a == menus::Asking::DiscardDraft);
         // A new one starts with the name it would get ("My Eclipse"), until the player types one.
         if !editing_one {
             self.change(|_| {});
-        }
-        let (name, group) = (
-            self.fields.value(Field::InstanceName).to_string(),
-            self.fields.value(Field::InstanceGroup).to_string(),
-        );
-        if let Some(d) = &mut self.instances.draft {
-            d.opened = d.shape(&name, &group);
         }
         if self.page == Page::InstanceEditor {
             self.switches += 1;
@@ -227,7 +216,6 @@ impl Launcher {
             .text(Field::InstanceGroup)
             .set(source.group.clone().unwrap_or_default());
         if let Some(d) = &mut self.instances.draft {
-            d.copy = true;
             d.duplicate = true;
             d.java = java_choice_of(&source);
             d.reveal_version = d.java.version.is_some();
@@ -256,14 +244,35 @@ impl Launcher {
     }
 
     pub(super) fn draft_changed(&self) -> bool {
-        let (name, group) = (
-            self.fields.value(Field::InstanceName),
-            self.fields.value(Field::InstanceGroup),
-        );
         self.instances
             .draft
             .as_ref()
-            .is_some_and(|d| d.shape(name, group) != d.opened)
+            .is_some_and(|d| Some(&d.opened) != self.draft_shape().as_ref())
+    }
+
+    pub(super) fn remember_draft(&mut self) {
+        if self
+            .instances
+            .draft
+            .as_ref()
+            .is_some_and(|d| d.opened.is_empty())
+        {
+            let shape = self.draft_shape().unwrap_or_default();
+            if let Some(d) = &mut self.instances.draft {
+                d.opened = shape;
+            }
+        }
+    }
+
+    fn draft_shape(&self) -> Option<String> {
+        let d = self.instances.draft.as_ref()?;
+        let typed = self.fields.value(Field::InstanceName).trim();
+        let name = if self.default_name().as_deref() == Some(typed) {
+            ""
+        } else {
+            typed
+        };
+        Some(d.shape(name, self.fields.value(Field::InstanceGroup)))
     }
 
     /// Creates or changes the instance as the page says. A copy can be gigabytes of worlds, so
@@ -292,7 +301,7 @@ impl Launcher {
             .instances
             .draft
             .as_ref()
-            .filter(|d| d.editing.is_none() && d.copy)
+            .filter(|d| d.editing.is_none() && d.duplicate)
             .and(self.selected_instance())
             .and_then(|i| {
                 self.draft_plays(i)
@@ -309,7 +318,7 @@ impl Launcher {
             .map(|p| p.as_ref().map(|c| c.png.clone()));
         let editing = d.editing.clone();
         let edited = editing.is_some();
-        let copy = selected.filter(|_| d.copy);
+        let copy = selected.filter(|_| d.duplicate);
         // The Eclipse version is Eclipse's instances' alone: a Java one plays its own game.
         let plays_eclipse = d.java.kind == instance_state::NewKind::Eclipse;
         // A new Java instance: what it plays, and its name when none is typed.
@@ -400,7 +409,9 @@ impl Launcher {
                         }
                         if this.page == Page::InstanceEditor {
                             this.go(match instance.kind {
-                                InstanceKind::Default | InstanceKind::Own => Page::Home,
+                                InstanceKind::Default | InstanceKind::Own if back != Page::Mods => {
+                                    Page::Home
+                                }
                                 _ => back,
                             });
                         }
@@ -542,10 +553,6 @@ pub(super) enum VersionList {
 }
 
 impl Launcher {
-    fn java_choice(&mut self) -> Option<&mut JavaChoice> {
-        self.instances.draft.as_mut().map(|d| &mut d.java)
-    }
-
     /// The name a new instance gets for what it plays now: "My Eclipse", "Vanilla 1.21.4",
     /// "Fabric 1.21.4", numbered past the ones already taken.
     fn default_name(&self) -> Option<String> {
@@ -571,11 +578,14 @@ impl Launcher {
     /// (or none), never one the player typed.
     pub(super) fn change(&mut self, f: impl FnOnce(&mut JavaChoice)) {
         let before = self.default_name();
-        if let Some(j) = self.java_choice() {
-            let was = (j.loader, j.version.clone());
-            f(j);
-            if was != (j.loader, j.version.clone()) {
-                j.loader_version = None;
+        if let Some(d) = self.instances.draft.as_mut() {
+            let was = (d.java.loader, d.java.version.clone());
+            f(&mut d.java);
+            if was.1 != d.java.version {
+                d.reveal_version = true;
+            }
+            if was != (d.java.loader, d.java.version.clone()) {
+                d.java.loader_version = None;
             }
         }
         // An instance being edited keeps its name.

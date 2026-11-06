@@ -148,10 +148,10 @@ impl Launcher {
     pub(super) fn home_page(&mut self, cx: &mut Context<Self>) -> Div {
         // A Java instance plays Mojang's game: no Eclipse version, nothing of Eclipse's to prepare.
         let java = self.selected_instance().and_then(|i| i.java.clone());
-        let Some(tag) = self
-            .selected()
-            .cloned()
-            .or_else(|| java.is_some().then(String::new))
+        let Some(tag) = java
+            .is_some()
+            .then(String::new)
+            .or_else(|| self.selected().cloned())
         else {
             let state = self.first_version_state(cx);
             return div()
@@ -185,19 +185,137 @@ impl Launcher {
             .children(steps);
         let mut page = div().flex().flex_col().gap(px(space::XL)).child(banner);
         if let Some(e) = self.shown_prepare_error().cloned() {
-            page = page.child(ui::error_card(e));
+            page = page.child(ui::empty_card(self.prepare_failed(&e, &version, cx)));
+        }
+        if let Some(e) = self.shown_game_error().cloned() {
+            page = page.child(self.game_problem(&e, cx));
         }
         page = page
             .children(self.export_panel(cx))
             .children(self.launch_panel(cx))
             .child(self.home_tab_card(cx));
-        if let Some(e) = self.shown_game_error().cloned() {
-            page = page.child(ui::error_card(e));
-        }
         if let Some(crash) = self.shown_crash().cloned() {
             page = page.child(self.crash_notice(crash, cx));
         }
         page
+    }
+
+    fn prepare_failed(&self, error: &str, version: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let again = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.press_play();
+            cx.notify();
+        });
+        if !error.starts_with(&eclipse_launcher::sources::not_found_line(version)) {
+            return ui::error_state_with(
+                "prepare-failed",
+                tr("Couldn't set up the game"),
+                error,
+                again,
+                Vec::new(),
+                ButtonKind::Secondary,
+            );
+        }
+        let folder = ui::button(
+            "prepare-failed-folder",
+            Some("folder-01"),
+            tr("Choose Minecraft folder…"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.choose_folder(cx);
+            cx.notify();
+        }));
+        let sign_in = self.can_sign_in().then(|| {
+            ui::button(
+                "prepare-failed-sign-in",
+                None,
+                tr("Sign in with Microsoft"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.open_sign_in();
+                cx.notify();
+            }))
+        });
+        ui::error_state_told(
+            "prepare-failed",
+            trf("Minecraft {version} not found", &[("version", version)]),
+            trf(
+                "Play {version} once in your Minecraft launcher, then try again.",
+                &[("version", version)],
+            ),
+            error,
+            again,
+            std::iter::once(folder).chain(sign_in).collect(),
+            ButtonKind::Secondary,
+        )
+    }
+
+    fn game_problem(&self, error: &str, cx: &mut Context<Self>) -> AnyElement {
+        let again = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.press_play();
+            cx.notify();
+        });
+        if error == account::NoOwner::in_window() {
+            let cause = match account::client_id() {
+                Some(_) => format!("{}.", tr(account::NEEDS_OWNER)),
+                None => tr(account::NOT_CONFIGURED).into(),
+            };
+            let sign_in = self.can_sign_in().then(|| {
+                ui::button(
+                    "game-failed-sign-in",
+                    None,
+                    tr("Sign in with Microsoft"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.open_sign_in();
+                    cx.notify();
+                }))
+            });
+            return ui::empty_card(ui::error_state_told(
+                "game-failed",
+                tr("Sign in to play"),
+                cause,
+                error,
+                again,
+                sign_in.into_iter().collect(),
+                ButtonKind::Secondary,
+            ))
+            .into_any_element();
+        }
+        if self.game.failed_to_start() {
+            return ui::empty_card(ui::error_state_with(
+                "game-failed",
+                tr("Couldn't start the game"),
+                error,
+                again,
+                Vec::new(),
+                ButtonKind::Secondary,
+            ))
+            .into_any_element();
+        }
+        let dismiss = ui::button(
+            "game-warning-dismiss",
+            None,
+            tr("Dismiss"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.game.error = None;
+            cx.notify();
+        }));
+        ui::notice(
+            ui::Notice::Warn,
+            "alert-circle",
+            ui::said("game-warning", error.to_string()),
+            vec![dismiss.into_any_element()],
+        )
+        .into_any_element()
     }
 
     fn first_version_state(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -397,7 +515,13 @@ impl Launcher {
                     .gap(px(space::MD))
                     .child(ui::icon("alert-circle", ui::IconSize::Px16, ui::danger()))
                     .child(ui::entity_title(
-                        tr("Eclipse crashed"),
+                        tr(
+                            if self.selected_instance().is_some_and(|i| i.java.is_some()) {
+                                "Minecraft crashed"
+                            } else {
+                                "Eclipse crashed"
+                            },
+                        ),
                         pixel_text::CARD_TITLE,
                     )),
             );

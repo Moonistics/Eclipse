@@ -18,8 +18,7 @@ const SERVER_FIELD_MIN: f32 = 140.;
 impl Launcher {
     /// Home's Worlds tab: the selected instance's worlds, the last played first.
     pub(super) fn worlds_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let instance = self.selected_instance()?;
-        let (home, name) = (instance.home.clone(), instance.name.clone());
+        let home = self.selected_instance()?.home.clone();
         self.load_worlds(home.clone(), cx);
         let list = self.worlds.list.clone();
         // What the last back up, copy or delete did.
@@ -64,16 +63,9 @@ impl Launcher {
                 vec![open],
             )));
         }
-        let note = match list.len() {
-            1 => trf("1 world in {name}", &[("name", &name)]),
-            n => trf(
-                "{count} worlds in {name}",
-                &[("count", &n.to_string()), ("name", &name)],
-            ),
-        };
         body = body
             .child(
-                ui::list_head(note).child(
+                ui::list_head(SharedString::default()).child(
                     ui::icon_button(
                         "worlds-folder",
                         "folder-01",
@@ -270,8 +262,7 @@ impl Launcher {
     /// Home's Multiplayer tab: the selected instance's saved servers (the game's own list), and
     /// a line to add one.
     pub(super) fn multiplayer_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let instance = self.selected_instance()?;
-        let (home, name) = (instance.home.clone(), instance.name.clone());
+        let home = self.selected_instance()?.home.clone();
         self.load_servers(home);
         self.ping_servers(cx);
         let list = self.multiplayer.list.clone();
@@ -294,16 +285,6 @@ impl Launcher {
                 vec![add],
             )));
         }
-        let count = list.len().to_string();
-        let note = match list.len() {
-            0 if adding => tr("New server").into(),
-            0 => tr("No servers saved").into(),
-            1 => trf("1 server in {name}", &[("name", &name)]),
-            _ => trf(
-                "{count} servers in {name}",
-                &[("count", &count), ("name", &name)],
-            ),
-        };
         let toggle = if adding {
             ui::button(
                 "server-add",
@@ -321,7 +302,8 @@ impl Launcher {
                 ui::ButtonSize::Md,
             )
         };
-        body = body.child(ui::list_head(note).child(toggle.on_press(toggle_add(cx))));
+        body = body
+            .child(ui::list_head(SharedString::default()).child(toggle.on_press(toggle_add(cx))));
         if let Some(e) = self.multiplayer.error.clone() {
             body = body.child(ui::error_note(e).px(px(space::MD)).pb(px(space::SM)));
         }
@@ -421,13 +403,15 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        let join = if self.can_join_selected() && !offline {
+        let join = if offline {
+            ui::unavailable(join, tr("The server is offline"))
+        } else if self.can_join_selected() {
             join.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.quick_play("--server", ip.clone());
                 cx.notify();
             }))
         } else {
-            ui::disabled(join)
+            ui::unavailable(join, self.why_not_start())
         };
         let remove = SharedString::from(format!("{key}-remove"));
         let gone = server.ip.clone();

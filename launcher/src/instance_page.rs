@@ -52,10 +52,11 @@ fn icon_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
 
 impl Launcher {
     pub(super) fn instance_page(&mut self, cx: &mut Context<Self>) -> Div {
+        self.remember_draft();
         let Some(d) = self.instances.draft.as_ref() else {
             return div();
         };
-        let (busy, copy, duplicate) = (d.busy, d.copy, d.duplicate);
+        let (busy, duplicate) = (d.busy, d.duplicate);
         let (error, scroll) = (d.error.clone(), d.scroll.clone());
         let editing = d
             .editing
@@ -66,12 +67,15 @@ impl Launcher {
         let running = editing.as_ref().is_some_and(|i| {
             self.game.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id)
         });
-        let (title, note): (SharedString, _) = match editing {
-            Some(_) if running => (
-                tr("Edit instance").into(),
-                tr("Changes apply the next time it starts."),
+        let (title, note): (SharedString, _) = match &editing {
+            Some(i) => (
+                trf("Edit {name}", &[("name", &i.name)]).into(),
+                if running {
+                    tr("Changes apply the next time it starts.")
+                } else {
+                    ""
+                },
             ),
-            Some(_) => (tr("Edit instance").into(), ""),
             None if duplicate => {
                 let from = self.selected_instance().map_or("", |i| i.name.as_str());
                 (trf("Duplicate {name}", &[("name", from)]).into(), "")
@@ -83,22 +87,19 @@ impl Launcher {
             cards.extend(self.switch_notice(i).map(IntoElement::into_any_element));
         }
         cards.push(
-            self.kind_choice(editing.as_ref(), kind, busy, cx)
+            self.kind_choice(editing.as_ref(), kind, !busy && !duplicate, cx)
                 .into_any_element(),
         );
         if kind == NewKind::Modded {
             cards.push(self.loader_choice(cx).into_any_element());
         }
-        cards.push(self.name_and_group(editing.as_ref(), cx).into_any_element());
         if kind == NewKind::Eclipse {
             cards.push(self.eclipse_versions(cx).into_any_element());
-            if editing.is_none() && !duplicate {
-                cards.push(self.start_from(copy, cx).into_any_element());
-            }
         } else {
             self.load_versions(cx);
             cards.push(self.minecraft_versions(cx).into_any_element());
         }
+        cards.push(self.name_and_group(editing.as_ref(), cx).into_any_element());
         cards.push(
             self.icon_choice(editing.as_ref(), kind, cx)
                 .into_any_element(),
@@ -113,7 +114,7 @@ impl Launcher {
                     .into_any_element()
             }));
         }
-        let foot = self.instance_foot(editing.as_ref(), kind, copy, busy, error, cx);
+        let foot = self.instance_foot(editing.as_ref(), kind, duplicate, busy, error, cx);
         let pane = ui::scroll_pane("instance-pane", &scroll.handle)
             .flex()
             .flex_col()
@@ -304,7 +305,7 @@ impl Launcher {
         &mut self,
         editing: Option<&Instance>,
         kind: NewKind,
-        busy: bool,
+        offers_import: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let loader = self.draft_loader();
@@ -342,7 +343,7 @@ impl Launcher {
             ));
         }
         let importing = self.modpacks.busy;
-        let import = (!busy && editing.is_none()).then(|| {
+        let import = (offers_import && editing.is_none()).then(|| {
             let import = ui::button(
                 "instance-import",
                 None,
@@ -465,7 +466,7 @@ impl Launcher {
         &mut self,
         editing: Option<&Instance>,
         kind: NewKind,
-        copy: bool,
+        duplicate: bool,
         busy: bool,
         error: Option<String>,
         cx: &mut Context<Self>,
@@ -496,12 +497,10 @@ impl Launcher {
             ButtonKind::Ghost,
             button,
         );
-        let duplicate = self.instances.draft.as_ref().is_some_and(|d| d.duplicate);
         let label = match (editing.is_some(), busy) {
             (true, _) => tr("Save changes"),
             (false, true) if duplicate => tr("Duplicating…"),
             (false, false) if duplicate => tr("Duplicate"),
-            (false, true) if copy => tr("Copying…"),
             (false, _) => tr("Create instance"),
         };
         let save = ui::primary("instance-save", label, button);
@@ -609,26 +608,31 @@ impl Launcher {
                 (row, SharedString::from(label), on)
             })
             .collect();
-        let list = ui::list_box("eclipse-versions", ECLIPSE_LIST);
         let list = match (&self.releases, rows.is_empty()) {
             (_, false) => {
                 let this = cx.entity().downgrade();
-                ui::options(list, rows, true, move |i, _, cx| {
-                    let pick = tags[i].clone();
-                    let _ = this.update(cx, |this, cx| {
-                        let latest = follows.as_ref() == Some(&pick);
-                        if let Some(d) = &mut this.instances.draft {
-                            d.pin = (!latest).then(|| pick.clone());
-                        }
-                        cx.notify();
-                    });
-                })
+                let list = ui::options(
+                    ui::list_box("eclipse-versions", ECLIPSE_LIST),
+                    rows,
+                    true,
+                    move |i, _, cx| {
+                        let pick = tags[i].clone();
+                        let _ = this.update(cx, |this, cx| {
+                            let latest = follows.as_ref() == Some(&pick);
+                            if let Some(d) = &mut this.instances.draft {
+                                d.pin = (!latest).then(|| pick.clone());
+                            }
+                            cx.notify();
+                        });
+                    },
+                );
+                ui::with_scrollbar(list).into_any_element()
             }
-            (Load::Loading, true) => list.child(ui::loading_state(
-                "eclipse-versions-loading",
-                tr("Loading versions…"),
-            )),
-            (Load::Failed(e), true) => list.child(ui::error_state_with(
+            (Load::Loading, true) => {
+                ui::loading_state("eclipse-versions-loading", tr("Loading versions…"))
+                    .into_any_element()
+            }
+            (Load::Failed(e), true) => ui::error_state_with(
                 "eclipse-versions-failed",
                 tr("Couldn't load versions"),
                 e,
@@ -638,73 +642,23 @@ impl Launcher {
                 }),
                 vec![Self::proxy_settings_button("eclipse-versions-failed", cx)],
                 ButtonKind::Secondary,
-            )),
-            (_, true) => list.child(ui::empty_state(
+            )
+            .into_any_element(),
+            (_, true) => ui::empty_state(
                 "eclipse-versions-empty",
                 "package-01",
                 tr("No version installed"),
                 tr("Install one on the Versions page first."),
                 vec![],
-            )),
+            )
+            .into_any_element(),
         };
         ui::section_card(
             "instance-eclipse-version",
             tr("Eclipse version"),
             None,
-            ui::with_scrollbar(list),
+            list,
         )
-    }
-
-    /// Empty, or a copy of the selected instance.
-    fn start_from(&mut self, copy: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let selected = self.selected_instance().cloned();
-        let from = selected
-            .as_ref()
-            .map_or_else(|| "Eclipse".into(), |i| i.name.clone());
-        let icon = match &selected {
-            Some(i) => self.instance_icon(i, ui::MARK),
-            None => self.eclipse_mark(ui::MARK),
-        };
-        let card = |on: bool, id: &'static str| {
-            ui::choice_card(id, on)
-                .flex_1()
-                .min_w_0()
-                .items_center()
-                .gap(px(space::LG))
-                .p(px(space::MD))
-        };
-        let copy_title = trf("A copy of {name}", &[("name", &from)]);
-        let empty = card(!copy, "instance-from-empty")
-            .child(ui::mark_tile(ui::icon(
-                "plus-sign",
-                ui::IconSize::Px32,
-                ui::icon_tone(!copy),
-            )))
-            .child(ui::item_text(tr("Empty"), tr("A fresh game folder")));
-        let copied = card(copy, "instance-from-copy")
-            .child(ui::mark_tile(icon))
-            .child(ui::item_text(
-                copy_title.clone(),
-                tr("Its mods, worlds and options"),
-            ));
-        let this = cx.entity().downgrade();
-        let choices = ui::options(
-            div().id("instance-start-choices").flex().gap(px(space::MD)),
-            vec![
-                (empty, tr("Empty").into(), !copy),
-                (copied, copy_title.into(), copy),
-            ],
-            true,
-            move |i, _, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    if let Some(d) = &mut this.instances.draft {
-                        d.copy = i == 1;
-                    }
-                    cx.notify();
-                });
-            },
-        );
-        ui::section_card("instance-start-from", tr("Start from"), None, choices)
     }
 
     /// The icons: the instance's own mark, the loaders' logos and the prepared files' blocks and
@@ -870,7 +824,7 @@ impl Launcher {
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.choose_instance_picture(cx);
         }));
-        let mut body = div().flex().flex_col().child(first).child(
+        let body = div().flex().flex_col().child(first).child(
             div()
                 .flex()
                 .flex_wrap()
@@ -880,12 +834,6 @@ impl Launcher {
                 .child(colours)
                 .child(choose),
         );
-        if self.selected().is_none_or(|t| !backend::is_prepared(t)) {
-            body = body.child(
-                ui::card_note(tr("Prepare a version to use block and item icons."))
-                    .mt(px(space::MD)),
-            );
-        }
         ui::section_card("instance-icon", tr("Icon"), None, body)
     }
 }

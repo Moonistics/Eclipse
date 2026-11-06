@@ -525,9 +525,7 @@ pub struct NewServer {
     pub max_players: u32,
     /// Only listed players (and operators) may join.
     pub friends_only: bool,
-    /// Check players' Minecraft accounts: they must sign in with Microsoft. On by default; an offline
-    /// server is a security risk, so it is turned off only per server (`--offline`, or the server's
-    /// settings page).
+    /// Check players' Minecraft accounts: they must sign in with Microsoft.
     pub check_accounts: bool,
     /// Who may join first (whitelisted), and the first of them becomes an operator.
     pub players: Vec<String>,
@@ -548,6 +546,15 @@ impl Default for NewServer {
             check_accounts: true,
             players: Vec::new(),
             eula: false,
+        }
+    }
+}
+
+impl NewServer {
+    pub fn for_owner(offline: bool) -> Self {
+        Self {
+            check_accounts: !offline,
+            ..Self::default()
         }
     }
 }

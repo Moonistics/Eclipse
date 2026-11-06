@@ -227,7 +227,7 @@ impl Launcher {
             .flex_col()
             .child(header)
             .when(show_names, |d| {
-                d.child(ui::section_title("offline-names-title", tr("Offline names")).mt(px(space::XXL)))
+                d.child(ui::label(tr("Offline names")).mt(px(space::XXL)))
             })
             .when(show_names || has_chips, |d| {
                 d.child(
@@ -410,6 +410,8 @@ impl Launcher {
             );
             actions = actions.child(if busy {
                 ui::disabled(refresh)
+            } else if needs_sign_in && account::client_id().is_none() {
+                ui::unavailable(refresh, tr(account::NOT_CONFIGURED))
             } else {
                 refresh.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if needs_sign_in {

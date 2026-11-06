@@ -36,6 +36,10 @@ const MODDED_GAP: f32 = 2.;
 const PIXEL_ART_MAX: u32 = 256;
 const SHARP_FILL: f32 = 0.75;
 
+pub(super) fn has_plate(loader: &str) -> bool {
+    matches!(loader, "quilt" | "neoforge" | "forge")
+}
+
 impl Launcher {
     /// The instance's own picture, `size` points square. Whether there is one is asked once:
     /// `reload_instances` forgets the answer.

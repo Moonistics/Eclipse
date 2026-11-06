@@ -117,7 +117,7 @@ fn holes(s: &str) -> BTreeSet<&str> {
 #[test]
 fn every_language_has_every_string_the_code_asks_for() {
     let (mut asked, all) = strings();
-    assert!(asked.contains("Language"), "the scan finds tr(\"…\")");
+    assert!(asked.contains("Cancel"), "the scan finds tr(\"…\")");
     let tables: Vec<_> = Language::ALL
         .into_iter()
         .filter(|language| *language != Language::English)

@@ -1,6 +1,5 @@
-//! Home's Mods tab: "N mods in {instance}" and Find mods over one row per mod, its icon, name and
-//! "version · source". The filter and Update all sit in the head, a mod's update and its on/off
-//! switch at the row's end.
+//! Home's Mods tab: one row per mod, its icon, name and "version · source". The filter, Update
+//! all and Find mods sit in the head, a mod's update and its on/off switch at the row's end.
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::Kind as PackKind;
@@ -13,10 +12,10 @@ impl Launcher {
     pub(super) fn mods_tab(&mut self, cx: &mut Context<Self>) -> Div {
         let busy = self.mods.busy.is_some();
         let updates = self.mods.updates.len();
-        let name = self
+        let game = self
             .selected_instance()
-            .map(|i| i.name.clone())
-            .unwrap_or_default();
+            .and_then(|i| i.java.as_ref())
+            .map(|j| j.line());
         let m = &self.instance_mods;
         let (fresh, count) = (m.fresh, m.list.len());
         let mut body = div().flex().flex_col();
@@ -40,17 +39,16 @@ impl Launcher {
                 "instance-mods-empty",
                 "puzzle",
                 tr("No mods yet"),
-                tr("Find mods that run on this instance."),
+                match &game {
+                    Some(game) => trf(
+                        "Mods made for {game} run in this instance.",
+                        &[("game", game)],
+                    ),
+                    None => tr("Mods made for Eclipse run in this instance.").into(),
+                },
                 vec![find],
             ));
         }
-        let note = match count {
-            1 => trf("1 mod in {name}", &[("name", &name)]),
-            _ => trf(
-                "{count} mods in {name}",
-                &[("count", &count.to_string()), ("name", &name)],
-            ),
-        };
         let filter = self
             .fields
             .value(Field::InstanceModsFilter)
@@ -77,7 +75,7 @@ impl Launcher {
             }))
         });
         body = body.child(
-            ui::list_head(note).child(
+            ui::list_head(SharedString::default()).child(
                 div()
                     .flex()
                     .items_center()

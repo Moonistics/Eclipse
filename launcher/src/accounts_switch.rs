@@ -43,6 +43,15 @@ impl Launcher {
         }
     }
 
+    pub(super) fn can_sign_in(&self) -> bool {
+        !matches!(self.accounts.player(), Player::Microsoft(_)) && account::client_id().is_some()
+    }
+
+    pub(super) fn open_sign_in(&mut self) {
+        self.start_sign_in();
+        self.show_settings(settings_page::SettingsSection::Account);
+    }
+
     pub(super) fn play_as(&mut self, who: Player) {
         let mut accounts = Accounts::load();
         let done = accounts

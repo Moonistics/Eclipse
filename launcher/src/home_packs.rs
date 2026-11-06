@@ -11,8 +11,7 @@ use gpui::ExternalPaths;
 impl Launcher {
     /// Home's Packs tab: the selected instance's resource packs, then its shader packs.
     pub(super) fn packs_tab(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let instance = self.selected_instance()?;
-        let (home, name) = (instance.home.clone(), instance.name.clone());
+        let home = self.selected_instance()?.home.clone();
         self.load_packs_list(home.clone());
         let resource = self.game_packs.resource.clone();
         let shader = self.game_packs.shader.clone();
@@ -65,16 +64,9 @@ impl Launcher {
                 vec![find(), add()],
             )));
         }
-        let note = match count {
-            1 => trf("1 pack in {name}", &[("name", &name)]),
-            _ => trf(
-                "{count} packs in {name}",
-                &[("count", &count.to_string()), ("name", &name)],
-            ),
-        };
         let folder = home.join(PackKind::Resource.folder());
         body = body.child(
-            ui::list_head(note).child(
+            ui::list_head(SharedString::default()).child(
                 div()
                     .flex()
                     .gap(px(space::SM))

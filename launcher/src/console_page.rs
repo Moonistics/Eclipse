@@ -110,15 +110,15 @@ impl Launcher {
     pub(super) fn console_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let log = self.console_log()?;
         let count = log.len();
-        let note = match self.game.client {
-            Some(_) if self.selected_play_state() == PlayState::Running => trf(
-                "{count} lines, the game is running",
-                &[("count", &count.to_string())],
-            ),
-            _ => trf(
-                "{count} lines from the last run",
-                &[("count", &count.to_string())],
-            ),
+        let running =
+            self.game.client.is_some() && self.selected_play_state() == PlayState::Running;
+        let shown = count.to_string();
+        let counted = [("count", shown.as_str())];
+        let note = match (running, count) {
+            (true, 1) => tr("1 line, the game is running").to_string(),
+            (true, _) => trf("{count} lines, the game is running", &counted),
+            (false, 1) => tr("1 line from the last run").to_string(),
+            (false, _) => trf("{count} lines from the last run", &counted),
         };
         let search = self.fields.value(Field::ConsoleSearch).trim().to_string();
         let lines: Vec<String> = log

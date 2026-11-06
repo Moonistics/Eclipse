@@ -251,6 +251,7 @@ impl Launcher {
         more.extend(self.mods_installed_list(cx).map(card));
         let advice = self
             .mods_vanilla_notice(cx)
+            .or_else(|| self.mods_shader_notice(cx))
             .or_else(|| self.mods_modrinth_notice(cx))
             .map(|advice| {
                 ui::card()
@@ -319,7 +320,7 @@ impl Launcher {
             .child(s)
         };
         if self.mods.kind == PackKind::Modpack {
-            return Some(row.child(note(tr("Imports as a new instance").into())));
+            return Some(row.child(note(tr("Installs as a new instance").into())));
         }
         let current = self.selected_instance()?.clone();
         let choices = self.mods_targets(&current);
@@ -411,10 +412,17 @@ impl Launcher {
             }))
             .into_any_element()
         });
-        let said = trf(
-            "{instance} is vanilla. Mods need Fabric, Quilt, NeoForge or Forge.",
-            &[("instance", &current.name)],
-        );
+        let name = [("instance", current.name.as_str())];
+        let said = match self.mods.kind {
+            PackKind::Shader => trf(
+                "{instance} is vanilla. Shader packs need Iris, which runs on Fabric.",
+                &name,
+            ),
+            _ => trf(
+                "{instance} is vanilla. Mods need Fabric, Quilt, NeoForge or Forge.",
+                &name,
+            ),
+        };
         let actions = std::iter::once(create.into_any_element())
             .chain(choose)
             .collect();
@@ -423,6 +431,38 @@ impl Launcher {
             "information-circle",
             said,
             actions,
+        )))
+    }
+
+    fn mods_shader_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let (slug, name) = self.mods_missing_shader_mod()?;
+        let current = self.selected_instance()?.name.clone();
+        let installing = self.mods.busy.as_ref().is_some_and(|b| b.0 == slug);
+        let install = ui::button(
+            "mods-install-shader-mod",
+            None,
+            match installing {
+                true => tr("Installing…").to_string(),
+                false => trf("Install {name}", &[("name", name)]),
+            },
+            ButtonKind::Secondary,
+            VANILLA_ACTION,
+        );
+        let install = match self.mods.busy {
+            Some(_) => ui::disabled(install),
+            None => install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.mods_install(SourceId::Modrinth, slug.to_string(), None);
+                cx.notify();
+            })),
+        };
+        Some(div().id("mods-shader-mod").child(ui::notice(
+            ui::Notice::InCard,
+            "information-circle",
+            trf(
+                "Shader packs need a shader mod like Iris, and {instance} has none.",
+                &[("instance", &current)],
+            ),
+            vec![install.into_any_element()],
         )))
     }
 
@@ -539,15 +579,23 @@ impl Launcher {
                 Some(_) => ButtonKind::Secondary,
                 None => ButtonKind::Primary,
             };
-            return div().child(ui::error_state_with(
+            let told = told_cause(&error);
+            let fixes = match told {
+                Some(_) => vec![Self::proxy_settings_button("mods-failed", cx)],
+                None => Vec::new(),
+            };
+            return div().child(ui::error_state_told(
                 "mods-failed",
                 title,
+                told.unwrap_or_else(|| {
+                    tr("Try again later, or copy the details to report it.").to_string()
+                }),
                 &error,
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.mods_search(0);
                     cx.notify();
                 }),
-                vec![Self::proxy_settings_button("mods-failed", cx)],
+                fixes,
                 retry,
             ));
         }
@@ -641,7 +689,8 @@ impl Launcher {
         } else {
             None
         };
-        let vanilla = self.mods_vanilla_target().is_some();
+        let advised =
+            self.mods_vanilla_target().is_some() || self.mods_missing_shader_mod().is_some();
         let cursor = ui::options_cursor("mods-results");
         let mut rows = Vec::new();
         let mut ids = Vec::new();
@@ -664,8 +713,6 @@ impl Launcher {
                     tr("Checking…")
                 } else if busy {
                     tr("Installing…")
-                } else if p.kind == PackKind::Modpack {
-                    tr("Import")
                 } else {
                     tr("Install")
                 };
@@ -713,8 +760,8 @@ impl Launcher {
                     )),
                     _ => None,
                 };
-                let said = said.filter(|_| !vanilla && support != Support::Works && !checking);
-                let quiet = vanilla || !support.installable();
+                let said = said.filter(|_| !advised && support != Support::Works && !checking);
+                let quiet = advised || !support.installable();
                 said.map(|said| {
                     ui::card_note(ui::state_line(
                         if quiet { ui::Tone::Off } else { ui::Tone::Warn },
@@ -911,7 +958,7 @@ impl Launcher {
             .into()
         } else if support.installable() {
             let label = if p.kind == PackKind::Modpack {
-                tr("Import as an instance").to_string()
+                tr("Install as an instance").to_string()
             } else {
                 trf("Install in {instance}", &[("instance", instance)])
             };
@@ -1020,6 +1067,16 @@ impl Launcher {
                 ),
         )
     }
+}
+
+fn told_cause(error: &str) -> Option<String> {
+    let line = ui::plain_error(error);
+    if line.ends_with('.') {
+        return Some(line.to_string());
+    }
+    let (said, _) = line.split_once(": ")?;
+    said.starts_with(char::is_uppercase)
+        .then(|| format!("{said}."))
 }
 
 fn page_label(kind: PackKind) -> &'static str {

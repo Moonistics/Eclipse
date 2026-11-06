@@ -1,9 +1,9 @@
 //! Settings' AI rows: the Show AI features switch (`eclipse_core::no_ai`, shared with the game)
-//! and "Connect an AI agent", the ready-made MCP config of each common client with Copy buttons,
-//! a one-click add where the client has a CLI (run only on that click, its command shown first),
-//! and a test that starts the MCP server and lists its tools. With AI features hidden, only the
-//! switch shows.
+//! and "Connect an AI agent": a one-click add where the client has a CLI (run only on that click),
+//! else its ready-made MCP config with a Copy button, and a test that starts the MCP server and
+//! lists its tools. With AI features hidden, only the switch shows.
 use super::*;
+use crate::menus::Menu;
 use crate::ui;
 use eclipse_launcher::agents;
 use eclipse_theme::glass::{ink, space, step};
@@ -17,6 +17,7 @@ pub(crate) struct AgentsUi {
     running: Option<&'static str>,
     /// What the last add or test said, and whether it went well.
     status: Option<(bool, String)>,
+    add_failed: bool,
 }
 
 impl Launcher {
@@ -43,22 +44,40 @@ impl Launcher {
             .find(|c| Some(c.id) == self.agents.client)
             .unwrap_or(&clients[0]);
         let running = self.agents.running;
-        let this = cx.entity().downgrade();
-        let options: Vec<(&'static str, &'static str)> =
-            clients.iter().map(|c| (c.id, c.name)).collect();
-        let picker = ui::segments(
+        let open = self.menu_is(&Menu::AgentClient);
+        let picker = ui::dropdown(
             "agent-client",
-            &ui::translated(&options),
-            client.id,
-            move |id, _, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    this.agents.client = Some(id);
-                    this.agents.copied = None;
-                    this.agents.status = None;
-                    cx.notify();
-                });
-            },
+            tr("Connect an AI agent"),
+            None,
+            tr(client.name),
+            open,
+            ui::ButtonSize::Md,
         );
+        let mut picker = div()
+            .relative()
+            .child(self.menu_opener(picker, Menu::AgentClient, cx));
+        if open {
+            let mut menu = self.menu_popover("agent-client-menu", cx);
+            for c in &clients {
+                let id = c.id;
+                menu = menu.child(
+                    ui::pick_row(format!("agent-client-{id}"), tr(c.name), id == client.id)
+                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.agents.client = Some(id);
+                            this.agents.copied = None;
+                            this.agents.status = None;
+                            this.agents.add_failed = false;
+                            this.close_menu();
+                            cx.notify();
+                        })),
+                );
+            }
+            picker = picker.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::Start,
+                menu,
+            ));
+        }
         let copy = |id: &'static str, label: &'static str, text: String, cx: &mut Context<Self>| {
             let copied = self.agents.copied == Some(id);
             ui::button(
@@ -74,16 +93,14 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        let say = |s: String| ui::card_note(s);
-        let code = |s: &str| ui::code_well(s.to_owned());
         let mut steps = div()
             .flex()
             .flex_col()
             .items_start()
             .gap(px(space::MD))
             .child(picker);
+        let mut actions = div().flex().flex_wrap().gap(px(space::SM));
         if let Some((program, args)) = client.add.clone() {
-            let line = client.add_line().unwrap_or_default();
             let label = trf("Add to {client}", &[("client", client.name)]);
             let add = ui::button(
                 "agent-add",
@@ -110,6 +127,7 @@ impl Launcher {
                         let result = task.await;
                         let _ = this.update(cx, |this, cx| {
                             this.agents.running = None;
+                            this.agents.add_failed = !result.0;
                             this.agents.status = Some(result);
                             cx.notify();
                         });
@@ -118,18 +136,21 @@ impl Launcher {
                     cx.notify();
                 }))
             };
+            actions = actions.child(add);
+        }
+        if client.add.is_none() || self.agents.add_failed {
             steps = steps
-                .child(say(trf(
-                    "{client} adds it with this command:",
-                    &[("client", client.name)],
+                .child(ui::card_note(trf(
+                    "Put this in {file}:",
+                    &[("file", tr(client.file))],
                 )))
-                .child(code(&line).w_full())
-                .child(div().flex().gap(px(space::SM)).child(add).child(copy(
-                    "agent-copy-command",
-                    "Copy command",
-                    line.clone(),
-                    cx,
-                )));
+                .child(ui::code_well(client.config.clone()).w_full());
+            actions = actions.child(copy(
+                "agent-copy-config",
+                "Copy config",
+                client.config.clone(),
+                cx,
+            ));
         }
         let test = ui::button(
             "agent-test",
@@ -167,28 +188,7 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        steps = steps
-            .child(say(trf(
-                if client.add.is_some() {
-                    "Or put this in {file}:"
-                } else {
-                    "Put this in {file}:"
-                },
-                &[("file", tr(client.file))],
-            )))
-            .child(code(&client.config).w_full())
-            .child(
-                div()
-                    .flex()
-                    .gap(px(space::SM))
-                    .child(copy(
-                        "agent-copy-config",
-                        "Copy config",
-                        client.config.clone(),
-                        cx,
-                    ))
-                    .child(test),
-            );
+        steps = steps.child(actions.child(test));
         if let Some((ok, message)) = &self.agents.status {
             steps = steps.child(if *ok {
                 ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL).child(message.clone())
@@ -197,7 +197,7 @@ impl Launcher {
             });
         }
         steps = steps.child(
-            ui::link("agent-docs", tr("Agent commands (docs)"))
+            ui::link("agent-docs", tr("What agents can do"))
                 .on_press(|_, _, cx| cx.open_url(backend::AGENT_DOCS_URL)),
         );
         Some(ui::setting_row_stacked(

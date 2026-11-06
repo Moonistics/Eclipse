@@ -4,6 +4,7 @@
 use super::*;
 use crate::menus::Asking;
 use crate::ui;
+use eclipse_launcher::account::Player;
 use eclipse_launcher::servers::{
     self, Applied, Backup, Entry, Fix, NewServer, Problem, Status, World,
 };
@@ -97,6 +98,7 @@ pub(super) struct Create {
     max_players: u32,
     friends_only: bool,
     check_accounts: bool,
+    offline: bool,
     eula: bool,
     /// Create was pressed without the EULA ticked.
     eula_missing: bool,
@@ -263,13 +265,20 @@ pub(super) fn keep_running_through_update() {
     STARTED_HERE.lock().unwrap().clear();
 }
 
-/// The player's own name, to let them in on a friends-only server: the Microsoft account that plays,
-/// else the name the game made up for them (`eclipse-player.txt`).
+/// The player's own name, to let them in on a friends-only server: the Microsoft account or the
+/// offline name that plays, else the name the game made up for them (`eclipse-player.txt`).
 fn own_name(accounts: &Accounts) -> Option<String> {
-    accounts
-        .selected()
-        .map(|a| a.name.clone())
-        .or_else(crate::offline_name)
+    match accounts.player() {
+        Player::Offline(name) => Some(name),
+        _ => accounts
+            .selected()
+            .map(|a| a.name.clone())
+            .or_else(crate::offline_name),
+    }
+}
+
+fn plays_offline(accounts: &Accounts) -> bool {
+    !matches!(accounts.player(), Player::Microsoft(_))
 }
 
 fn bytes(n: u64) -> String {

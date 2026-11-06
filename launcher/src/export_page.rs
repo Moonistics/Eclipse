@@ -109,10 +109,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let pick = ui::segments(
             "export-format",
-            &ui::translated(&[
-                (Format::Mrpack, "Modrinth pack (.mrpack)"),
-                (Format::Zip, "Zip file (.zip)"),
-            ]),
+            &ui::translated(&[(Format::Mrpack, "Modrinth pack"), (Format::Zip, "Zip file")]),
             panel.format,
             move |format, _, cx| {
                 let _ = this.update(cx, |this, cx| {

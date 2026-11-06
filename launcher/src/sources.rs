@@ -320,7 +320,7 @@ pub fn find(dir: &Path, pins: &Pins) -> Result<Found, String> {
 /// launcher Eclipse knows, the advice names it: a Prism or MultiMC instance downloads the game
 /// only when it is launched once.
 pub fn not_found(version: &str, checked: &[(PathBuf, String)], chosen: &Path) -> String {
-    let mut text = format!("Minecraft {version} was not found. Eclipse looked in:");
+    let mut text = format!("{} Eclipse looked in:", not_found_line(version));
     for (dir, missing) in checked {
         text += &format!("\n  {} ({missing})", dir.display());
     }
@@ -328,18 +328,22 @@ pub fn not_found(version: &str, checked: &[(PathBuf, String)], chosen: &Path) ->
     text += &match launcher_of(chosen) {
         Some(launcher) => format!(
             "\n  • Launch the {version} instance once in {launcher} so it downloads the game, \
-             then prepare again.\n  \
-             • Or choose the folder {launcher} keeps Minecraft {version} in (Minecraft folder › \
-             Choose… in the launcher, --minecraft on the command line)."
+             then try again.\n  \
+             • Or choose the folder {launcher} keeps Minecraft {version} in (Play ⋯ › Choose \
+             Minecraft folder… in the launcher, --minecraft on the command line)."
         ),
         None => format!(
             "\n  • Play {version} once in the official Minecraft launcher, or in Prism Launcher, \
-             MultiMC, the Modrinth App, ATLauncher, GDLauncher or Dawn Client, then prepare again.\n  \
-             • Or choose the folder where your launcher keeps Minecraft {version} (Minecraft \
-             folder › Choose… in the launcher, --minecraft on the command line)."
+             MultiMC, the Modrinth App, ATLauncher, GDLauncher or Dawn Client, then try again.\n  \
+             • Or choose the folder where your launcher keeps Minecraft {version} (Play ⋯ › \
+             Choose Minecraft folder… in the launcher, --minecraft on the command line)."
         ),
     };
     text
+}
+
+pub fn not_found_line(version: &str) -> String {
+    format!("Minecraft {version} was not found.")
 }
 
 /// Fetches a URL's body (from several threads for a download).

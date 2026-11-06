@@ -348,25 +348,22 @@ impl Launcher {
     pub(super) fn mods_filters_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let shown = self.mods.browse.show_filters;
         let active = active_filters(&self.mods.browse.filters);
-        let label = if active > 0 {
-            trf("Filters ({count})", &[("count", &active.to_string())])
-        } else {
-            tr("Filters").to_string()
+        let value = match active {
+            0 => tr("None").to_string(),
+            n => n.to_string(),
         };
-        let button = ui::button(
+        ui::labelled_dropdown(
             "mods-filters",
-            Some("sliders-horizontal"),
-            label,
-            ButtonKind::Secondary,
+            tr("Filters"),
+            None,
+            value,
+            shown,
             ui::ButtonSize::Md,
-        );
-        ui::selected(button, shown)
-            .rounded(px(eclipse_theme::glass::radius::CONTROL))
-            .aria_expanded(shown)
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.mods.browse.show_filters = !this.mods.browse.show_filters;
-                cx.notify();
-            }))
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods.browse.show_filters = !this.mods.browse.show_filters;
+            cx.notify();
+        }))
     }
 
     /// The filter panel: loader, version, environment and categories when shown, only categories
@@ -374,8 +371,8 @@ impl Launcher {
     /// that each remove theirs.
     pub(super) fn mods_filters(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let f = self.mods.browse.filters.clone();
-        let registry =
-            self.mods.source == SourceId::Eclipse && self.mods.java_for(self.mods.kind).is_none();
+        let java = self.mods.java_for(self.mods.kind).is_some();
+        let registry = self.mods.source == SourceId::Eclipse && !java;
         let shown = self.mods.browse.show_filters;
         let active = active_filters(&f);
         if !shown && active == 0 {
@@ -516,8 +513,10 @@ impl Launcher {
             this.mods_filter(|f| *f = Filters::default());
             cx.notify();
         }));
-        if !registry {
+        if !registry && !java {
             bar = bar.child(loaders).child(versions).child(environment);
+        } else if java && self.mods.kind == PackKind::Mod {
+            bar = bar.child(environment);
         }
         bar = bar.child(categories);
         if registry && !tags.tags.is_empty() {
@@ -730,7 +729,7 @@ impl Launcher {
             ));
         } else if self.mods.support(&p).installable() && !checking {
             let label = if p.kind == PackKind::Modpack {
-                tr("Import as an instance").to_string()
+                tr("Install as an instance").to_string()
             } else {
                 trf("Install in {instance}", &[("instance", &instance)])
             };

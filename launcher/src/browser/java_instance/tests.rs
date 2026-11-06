@@ -316,10 +316,81 @@ fn the_page_search_keeps_the_players_filters_but_not_their_version() {
             ..picked
         }
     );
-    assert!(t.takes(Kind::Mod) && t.takes(Kind::ResourcePack));
-    assert!(!t.takes(Kind::Modpack) && !t.takes(Kind::Shader) && !t.takes(Kind::DataPack));
+    assert!(t.takes(Kind::Mod) && t.takes(Kind::ResourcePack) && t.takes(Kind::Shader));
+    assert!(!t.takes(Kind::Modpack) && !t.takes(Kind::DataPack));
     assert_eq!(t.describe(Kind::Mod), "Minecraft 1.21.1 with fabric");
     assert_eq!(t.describe(Kind::ResourcePack), "Minecraft 1.21.1");
+}
+
+#[test]
+fn shader_packs_go_in_shaderpacks_for_a_shader_mod() {
+    let home = home("shaders");
+    let t = target("1.21.4", Some("fabric"));
+    let mut fake = Fake::default();
+    fake.release(
+        "complementary",
+        Kind::Shader,
+        "1",
+        &["1.21.4"],
+        &["iris", "optifine"],
+        &[],
+    );
+    fake.release(
+        "complementary",
+        Kind::Shader,
+        "2",
+        &["26.3"],
+        &["iris"],
+        &[],
+    );
+    fake.release("core", Kind::Shader, "1", &["1.21.4"], &["vanilla"], &[]);
+    let versions = &fake.versions["complementary"];
+    assert_eq!(t.pick(Kind::Shader, versions).unwrap().number, "1");
+    assert!(t.pick(Kind::Shader, &fake.versions["core"]).is_none());
+    assert_eq!(
+        modrinth::facets(&t.query("", Kind::Shader)),
+        r#"[["project_type:shader"],["versions:1.21.4"]]"#
+    );
+
+    let mut pack = fake.project("complementary").unwrap();
+    pack.loaders = vec!["iris".into(), "optifine".into()];
+    pack.game_versions = vec!["1.21.4".into()];
+    assert_eq!(t.support(&pack), Support::Works);
+    let mut core = fake.project("core").unwrap();
+    core.loaders = vec!["vanilla".into()];
+    assert!(!t.support(&core).installable());
+
+    let done = install(&fake, &t, &pack, &home, NONE).unwrap();
+    assert_eq!(done[0].file, "shaderpacks/complementary-1.jar");
+    assert_eq!(done[0].kind, Kind::Shader);
+    assert!(home.join("shaderpacks/complementary-1.jar").is_file());
+    assert!(Installed::load(&home)
+        .find(SourceId::Modrinth, "complementary")
+        .is_some());
+    let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn knows_when_an_instance_loads_shaders() {
+    let home = home("shader-mod");
+    assert!(!loads_shaders(&home));
+    fs::create_dir_all(home.join("mods")).unwrap();
+    fs::write(home.join("mods/sodium-fabric-0.6.jar"), b"jar").unwrap();
+    fs::write(home.join("mods/iris-fabric-1.8.jar.disabled"), b"jar").unwrap();
+    assert!(!loads_shaders(&home));
+    fs::write(home.join("mods/OptiFine_1.21.4_HD_U_J3.jar"), b"jar").unwrap();
+    assert!(loads_shaders(&home));
+    let _ = fs::remove_dir_all(&home);
+
+    assert_eq!(
+        target("1.21.4", Some("fabric")).shader_mod(),
+        Some(("iris", "Iris"))
+    );
+    assert_eq!(
+        target("1.20.1", Some("forge")).shader_mod(),
+        Some(("oculus", "Oculus"))
+    );
+    assert_eq!(target("1.21.4", None).shader_mod(), None);
 }
 
 #[test]

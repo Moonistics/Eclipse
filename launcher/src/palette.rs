@@ -4,7 +4,7 @@
 //!
 //! The commands: Play each instance, Open each page and Settings, New instance, Open the game
 //! folder, and from two letters on, Install or Remove the registry's mods that match, in the
-//! selected instance.
+//! selected instance when it plays Eclipse.
 
 use super::line_edit::{self, Key};
 use super::*;
@@ -210,12 +210,19 @@ impl Launcher {
         let q = raw.trim().to_lowercase();
         let focused = self.fields.has_focus(Field::PaletteSearch);
         let focus = self.fields.handle(Field::PaletteSearch, cx);
+        let finds_mods = self
+            .selected_instance()
+            .is_none_or(|i| i.java.as_ref().is_none_or(|j| j.loader.is_some()));
         let input = line_edit::content(
             self.fields.text(Field::PaletteSearch),
             focused,
             false,
             false,
-            "Search instances, mods and pages",
+            if finds_mods {
+                "Search instances, mods and pages"
+            } else {
+                "Search instances and pages"
+            },
         );
         let list = self.palette_commands(&q);
         let index = self
@@ -364,6 +371,10 @@ impl Launcher {
             );
         }
         if empty {
+            let failed = self
+                .palette
+                .as_ref()
+                .is_some_and(|p| self.palette_search_failed(p.search));
             rows = rows.child(
                 ui::text(
                     eclipse_theme::glass::step::BODY,
@@ -372,7 +383,11 @@ impl Launcher {
                 )
                 .px(px(space::MD))
                 .py(px(space::LG))
-                .child(trf("Nothing matches “{query}”.", &[("query", raw.trim())])),
+                .child(if failed {
+                    tr("Couldn't search mods").to_string()
+                } else {
+                    trf("Nothing matches “{query}”.", &[("query", raw.trim())])
+                }),
             );
         }
 

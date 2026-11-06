@@ -1345,14 +1345,21 @@ impl Launcher {
             files: false,
             directories: true,
             multiple: false,
-            prompt: Some("Choose".into()),
+            prompt: Some(tr("Choose").into()),
         });
         cx.spawn(async move |this, cx| {
             if let Ok(Ok(Some(mut paths))) = paths.await {
                 if let Some(path) = paths.pop() {
                     let _ = this.update(cx, |this, cx| {
+                        crate::toast::say(trf(
+                            "Eclipse looks for Minecraft in {path}",
+                            &[("path", &crate::toast::tilde(&path))],
+                        ));
                         this.settings.minecraft_dir = Some(path);
                         this.save_settings();
+                        if this.page == Page::Home && this.shown_prepare_error().is_some() {
+                            this.press_play();
+                        }
                         cx.notify();
                     });
                 }

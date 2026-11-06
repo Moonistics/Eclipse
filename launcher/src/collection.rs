@@ -261,6 +261,7 @@ impl Launcher {
         } else {
             div()
                 .flex()
+                .flex_wrap()
                 .gap(px(space::SM))
                 .child(
                     ui::button(
@@ -293,14 +294,14 @@ impl Launcher {
                     })),
                 )
         };
-        list = list.child(ui::setting_row(
+        list = list.child(ui::setting_row_stacked(
             tr("Your data"),
             Some(
                 ui::mono(step::NOTE, ink::MUTED)
                     .child(format!("{id}  ·  {server}"))
                     .into_any_element(),
             ),
-            Some(actions.into_any_element()),
+            actions.into_any_element(),
         ));
         let inset = |d: Div| d.px(px(ui::SETTING_ROW_PADDING));
         list.child(inset(ui::card_note(tr(telemetry::NEVER))))
