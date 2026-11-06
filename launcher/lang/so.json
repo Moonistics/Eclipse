@@ -86,7 +86,6 @@
   "Newest": "Ugu cusub",
   "Page": "Bogga",
   "Delete everything?": "Wax walba tirtir?",
-  "Online now": "Online hadda",
   "{name} holds {count} mods. Install which?": "{name} waxay haysaa {count} mods. Ku rakib tee?",
   "Open the source": "Fur isha",
   "with {count} variables": "oo leh {count} doorsoomayaal",
@@ -615,7 +614,6 @@
   "On this network": "Shabakaddan",
   "Open the logs": "Fur logyada",
   "Over the internet": "Intarneedka",
-  "Prepare the game files": "Diyaari galalka ciyaarta",
   "Send": "Dir",
   "Use port {port}": "Isticmaal dekedda {port}",
   "up to {max} players": "ilaa {max} ciyaartoy",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

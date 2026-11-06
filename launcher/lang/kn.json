@@ -86,7 +86,6 @@
   "Newest": "ಹೊಸತು",
   "Page": "ಪುಟ",
   "Delete everything?": "ಎಲ್ಲವನ್ನೂ ಅಳಿಸುವುದೇ?",
-  "Online now": "ಈಗ ಆನ್‌ಲೈನ್",
   "{name} holds {count} mods. Install which?": "{name} {count} ಮೋಡ್‌ಗಳನ್ನು ಹೊಂದಿದೆ. ಯಾವುದನ್ನು ಸ್ಥಾಪಿಸಿ?",
   "Open the source": "ಮೂಲವನ್ನು ತೆರೆಯಿರಿ",
   "with {count} variables": "{count} ವೇರಿಯೇಬಲ್‌ಗಳೊಂದಿಗೆ",
@@ -615,7 +614,6 @@
   "On this network": "ಈ ನೆಟ್ವರ್ಕ್ನಲ್ಲಿ",
   "Open the logs": "ದಾಖಲೆಗಳನ್ನು ತೆರೆಯಿರಿ",
   "Over the internet": "ಇಂಟರ್ನೆಟ್ ಮೂಲಕ",
-  "Prepare the game files": "ಆಟದ ಫೈಲ್‌ಗಳನ್ನು ತಯಾರಿಸಿ",
   "Send": "ಕಳುಹಿಸು",
   "Use port {port}": "ಪೋರ್ಟ್ {port} ಬಳಸಿ",
   "up to {max} players": "{max} ಆಟಗಾರರು",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

@@ -86,7 +86,6 @@
   "Newest": "Pì novo",
   "Page": "Pagina",
   "Delete everything?": "Cancella tutto?",
-  "Online now": "Deso online",
   "{name} holds {count} mods. Install which?": "{name} tiene {count} mods. Instałare cuałe?",
   "Open the source": "Apri la fonte",
   "with {count} variables": "co variàbiłi {count}",
@@ -617,7 +616,6 @@
   "On this network": "Su sta rete",
   "Open the logs": "Apri i registri",
   "Over the internet": "So internet",
-  "Prepare the game files": "Prepara i file del zogo",
   "Send": "Manda",
   "Use port {port}": "Dopara ła porta {port}",
   "up to {max} players": "fin a {max} xogadori",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

@@ -86,7 +86,6 @@
   "Newest": "El més nou",
   "Page": "Pàgina",
   "Delete everything?": "Suprimir-ho tot?",
-  "Online now": "En línia ara",
   "{name} holds {count} mods. Install which?": "{name} conté {count} modificacions. Instal·lar quina?",
   "Open the source": "Obriu la font",
   "with {count} variables": "amb {count} variables",
@@ -615,7 +614,6 @@
   "On this network": "En aquesta xarxa",
   "Open the logs": "Obriu els registres",
   "Over the internet": "Per internet",
-  "Prepare the game files": "Prepara els fitxers del joc",
   "Send": "Enviar",
   "Use port {port}": "Utilitza el port {port}",
   "up to {max} players": "fins a {max} jugadors",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

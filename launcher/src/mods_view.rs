@@ -701,8 +701,11 @@ impl Launcher {
             let installed = m.entry(&p).is_some();
             let busy = m.busy.as_ref().is_some_and(|b| b.0 == p.id);
             let checking = m.checking(&p);
-            let can_install =
-                !installed && !checking && m.busy.is_none() && m.support(&p).installable();
+            let can_install = !installed
+                && !checking
+                && m.busy.is_none()
+                && m.support(&p).installable()
+                && !m.needs_world(&p);
             let row_id = SharedString::from(format!("mods-row-{}", p.id));
             let current = picked.as_deref() == Some(p.id.as_str());
             let action: AnyElement = if installed || busy || checking || m.support(&p).installable()
@@ -753,7 +756,7 @@ impl Launcher {
             } else {
                 let support = m.support(&p);
                 let said = match (m.java_for(p.kind), support.reason()) {
-                    (Some(_), Some(reason)) => Some(reason.to_string()),
+                    (Some(_), Some(reason)) => Some(tr(reason).to_string()),
                     (None, _) if m.java.is_none() && p.kind != PackKind::Modpack => Some(trf(
                         "{support} in Eclipse",
                         &[("support", tr(support.label()))],
@@ -963,14 +966,15 @@ impl Launcher {
                 trf("Install in {instance}", &[("instance", instance)])
             };
             let known = p.clone();
+            let waits = busy.is_some() || self.mods.needs_world(&p);
             ui::primary(
                 SharedString::from(format!("mods-detail-install-{}", p.id)),
                 label,
                 ui::ButtonSize::Lg,
             )
             .w_full()
-            .when(busy.is_some(), ui::disabled)
-            .when(busy.is_none(), |d| {
+            .when(waits, ui::disabled)
+            .when(!waits, |d| {
                 d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(known.source, known.id.clone(), Some(known.clone()));
                     cx.notify();

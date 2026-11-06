@@ -86,7 +86,6 @@
   "Newest": "جدیدترین",
   "Page": "صفحه",
   "Delete everything?": "همه چیز حذف شود؟",
-  "Online now": "هم اکنون آنلاین",
   "{name} holds {count} mods. Install which?": "{name} حالت های {count} را دارد. کدام را نصب کنیم؟",
   "Open the source": "منبع را باز کنید",
   "with {count} variables": "با متغیرهای {count}",
@@ -617,7 +616,6 @@
   "On this network": "در این شبکه",
   "Open the logs": "لاگ ها را باز کنید",
   "Over the internet": "از طریق اینترنت",
-  "Prepare the game files": "فایل های بازی را آماده کنید",
   "Send": "ارسال کنید",
   "Use port {port}": "استفاده از پورت {port}",
   "up to {max} players": "حداکثر {max} بازیکن",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

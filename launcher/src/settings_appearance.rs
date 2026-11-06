@@ -175,7 +175,7 @@ impl Launcher {
             Some(
                 ui::button(
                     "look-reset",
-                    Some("refresh"),
+                    None,
                     tr("Reset to defaults"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,

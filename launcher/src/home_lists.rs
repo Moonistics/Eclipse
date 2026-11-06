@@ -46,15 +46,15 @@ impl Launcher {
             crate::toast::open(cx, &saves);
         };
         let mut body = div().flex().flex_col();
+        let open = ui::button(
+            "worlds-folder",
+            Some("folder-01"),
+            tr("Open saves folder"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(open_saves);
         if list.is_empty() {
-            let open = ui::button(
-                "worlds-folder",
-                Some("folder-01"),
-                tr("Open saves folder"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
-            )
-            .on_press(open_saves);
             return Some(body.children(done).child(ui::empty_state(
                 "worlds-empty",
                 "earth",
@@ -64,19 +64,7 @@ impl Launcher {
             )));
         }
         body = body
-            .child(
-                ui::list_head(SharedString::default()).child(
-                    ui::icon_button(
-                        "worlds-folder",
-                        "folder-01",
-                        tr("Open saves folder"),
-                        ButtonKind::Ghost,
-                        ui::ButtonSize::Md,
-                        false,
-                    )
-                    .on_press(open_saves),
-                ),
-            )
+            .child(ui::list_head(SharedString::default()).child(open))
             .children(done);
         for w in list {
             let row = self.world_row(&w, cx);

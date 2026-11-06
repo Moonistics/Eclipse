@@ -215,7 +215,11 @@ impl Launcher {
                 .p(px(space::MD))
                 .min_w_0()
                 .child(logo)
-                .child(ui::item_text(loader.name(), note));
+                .child(ui::item_text_wrapped(
+                    loader.name(),
+                    note,
+                    instance_page::CHOICE_NOTE_LINES,
+                ));
             cards.push((card, SharedString::from(loader.name()), loader == now));
         }
         let this = cx.entity().downgrade();

@@ -233,6 +233,10 @@ impl Mods {
         self.java.as_ref().filter(|t| t.takes(kind))
     }
 
+    pub(super) fn needs_world(&self, p: &Project) -> bool {
+        p.kind == PackKind::DataPack && self.world.is_none()
+    }
+
     /// Whether a Java mod's check is still to come before it can be installed.
     pub(super) fn checking(&self, p: &Project) -> bool {
         self.java_for(p.kind).is_none()
@@ -819,21 +823,22 @@ impl Launcher {
                         Some(p) => p,
                         None => source.project(&id)?,
                     };
-                    if let Some(target) = java.as_ref().filter(|t| t.takes(p.kind)) {
-                        let done = java_instance::install(&*source, target, &p, &home, &progress)?;
-                        let names: Vec<String> = done
-                            .iter()
-                            .map(|e| format!("{} {}", e.title, e.number))
-                            .collect();
-                        return Ok(format!("Installed {}.", names.join(", ")));
-                    }
                     if p.kind == PackKind::DataPack {
                         let (world, name) =
                             world.ok_or("Pick the world the data pack goes into first.")?;
+                        let into = |f| progress(&p.title, f);
+                        if let Some(target) = &java {
+                            let (_, number) = java_instance::install_datapack(
+                                &*source, target, &p, &world, &into,
+                            )?;
+                            return Ok(format!(
+                                "Put {} {number} in {name}'s data packs, checksum checked: the \
+                                 game turns it on when the world opens.",
+                                p.title
+                            ));
+                        }
                         let done =
-                            installed::install_datapack(&*source, &p, everything, &world, &|f| {
-                                progress(&p.title, f)
-                            })?;
+                            installed::install_datapack(&*source, &p, everything, &world, &into)?;
                         return Ok(format!(
                             "Put {} {} in {name}'s data packs, checksum checked: the game turns \
                              it on when the world opens. {}",
@@ -841,6 +846,14 @@ impl Launcher {
                             done.number,
                             done.coverage.summary()
                         ));
+                    }
+                    if let Some(target) = java.as_ref().filter(|t| t.takes(p.kind)) {
+                        let done = java_instance::install(&*source, target, &p, &home, &progress)?;
+                        let names: Vec<String> = done
+                            .iter()
+                            .map(|e| format!("{} {}", e.title, e.number))
+                            .collect();
+                        return Ok(format!("Installed {}.", names.join(", ")));
                     }
                     modpack = p.kind == PackKind::Modpack;
                     if modpack && p.source == SourceId::Eclipse {
@@ -1057,7 +1070,7 @@ impl Launcher {
         instance: &str,
     ) -> Option<(ui::Tone, String, Option<String>)> {
         let support = self.mods.support(p);
-        let reason = support.reason().map(str::to_owned);
+        let reason = support.reason().map(|r| tr(r).to_owned());
         if self.mods.java_for(p.kind).is_some() {
             return Some(match support {
                 Support::Works => (

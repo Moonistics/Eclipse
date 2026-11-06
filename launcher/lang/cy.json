@@ -86,7 +86,6 @@
   "Newest": "mwyaf newydd",
   "Page": "Tudalen",
   "Delete everything?": "Dileu popeth?",
-  "Online now": "Ar-lein nawr",
   "{name} holds {count} mods. Install which?": "Mae {name} yn dal {count} mods. Gosod pa un?",
   "Open the source": "Agorwch y ffynhonnell",
   "with {count} variables": "gyda {count} newidynnau",
@@ -615,7 +614,6 @@
   "On this network": "Ar y rhwydwaith hwn",
   "Open the logs": "Agorwch y logiau",
   "Over the internet": "Dros y rhyngrwyd",
-  "Prepare the game files": "Paratowch y ffeiliau gêm",
   "Send": "Anfon",
   "Use port {port}": "Defnyddio porth {port}",
   "up to {max} players": "hyd at {max} chwaraewr",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

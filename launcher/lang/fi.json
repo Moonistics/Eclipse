@@ -86,7 +86,6 @@
   "Newest": "Uusin",
   "Page": "Sivu",
   "Delete everything?": "Poistetaanko kaikki?",
-  "Online now": "Online nyt",
   "{name} holds {count} mods. Install which?": "{name} sisältää {count} modia. Asenna kumpi?",
   "Open the source": "Avaa lähde",
   "with {count} variables": "{count} muuttujalla",
@@ -617,7 +616,6 @@
   "On this network": "Tässä verkossa",
   "Open the logs": "Avaa lokit",
   "Over the internet": "Internetin kautta",
-  "Prepare the game files": "Valmistele pelitiedostot",
   "Send": "Lähetä",
   "Use port {port}": "Käytä porttia {port}",
   "up to {max} players": "enintään {max} pelaajaa",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

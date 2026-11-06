@@ -289,7 +289,6 @@
   "Restart now": "Şimdi yeniden başlat",
   "Players": "Oyuncular",
   "Backups": "Yedekler",
-  "Online now": "Şimdi çevrimiçi",
   "Waiting for the server's log…": "Sunucu günlüğü bekleniyor…",
   "Updating: {step}": "Güncelleniyor: {step}",
   "Running · restarted after a crash": "Çalışıyor · çökmüş ve yeniden başlatılmış",
@@ -617,7 +616,6 @@
   "On this network": "Bu ağda",
   "Open the logs": "Günlükleri aç",
   "Over the internet": "İnternet üzerinden",
-  "Prepare the game files": "Oyun dosyalarını hazırla",
   "Send": "Gönder",
   "Use port {port}": "{port} bağlantı noktasını kullan",
   "up to {max} players": "en fazla {max} oyuncu",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

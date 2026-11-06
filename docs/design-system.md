@@ -147,7 +147,8 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   headers. *Ghost*, text only, is for Cancel, Close, Dismiss and Not now; icon-only buttons (⋯,
   the bin, a folder, Close) are Ghost too, their label the tooltip and the accessible name (the
   one exception is Home's folder beside Play: a filled Secondary, Hero size like Play). An icon
-  button that is open or current is selected (the plate and the icon in the mark). Work under way
+  button that is open or current is selected (the plate and the icon in the mark); a ⋯ shows no
+  tooltip while its menu is open. Work under way
   keeps its button and disables it with the label in progress ("Checking…", "Importing…",
   "Loading…"); Play
   fills its block instead (`ui::primary_busy`), its ⋯ on the same track (`ui::more_busy`). A
@@ -215,7 +216,7 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   player); in a card `ui::error_line_for(id, title, error, retry, extra)`. Never a raw multi-line
   error on screen.
 - **Notices** (`ui::notice(Notice::Info | Warn | InCard, ..)`, `ui::notice_line(tone, ..)`,
-  `ui::error_note`, `ui::error_line`, `ui::error_card`): an icon or the state dot and a line on a
+  `ui::error_note`, `ui::error_line`): an icon or the state dot and a line on a
   faint (or warn) fill, one padding (`NOTICE_PAD`), its actions with Cancel first; a notice that is
   a card's whole content is drawn flat in it (`InCard`); an error is never red text alone. A toast says what just happened for
   6 s (`toast::say`), an error until it is dismissed (`toast::say_error`).

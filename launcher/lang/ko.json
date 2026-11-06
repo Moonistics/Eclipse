@@ -86,7 +86,6 @@
   "Newest": "최신순",
   "Page": "페이지",
   "Delete everything?": "모두 삭제하시겠습니까?",
-  "Online now": "현재 온라인",
   "{name} holds {count} mods. Install which?": "{name}에 모드 {count}개가 포함되어 있습니다. 어떤 것을 설치하시겠습니까?",
   "Open the source": "소스 열기",
   "with {count} variables": "변수 {count}개 포함",
@@ -617,7 +616,6 @@
   "On this network": "이 네트워크에서",
   "Open the logs": "로그 열기",
   "Over the internet": "인터넷으로",
-  "Prepare the game files": "게임 파일 준비",
   "Send": "보내기",
   "Use port {port}": "포트 {port} 사용",
   "up to {max} players": "최대 {max}명",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

@@ -16,7 +16,7 @@ mods, `.hnmod`) aren't on Modrinth or CurseForge yet (Modrinth has no `eclipse` 
 | Java mods (Fabric, NeoForge, Forge, Quilt) | ported into `eclipse-mods/<mod id>/` and turned on | Checked from its jar before install: **Works**, **Partly** or **Doesn't run** ([below](#java-mods)) |
 | Resource packs | `resourcepacks/` beside `options.txt` | **Works** when made for 26.3 ([resource-packs.md](resource-packs.md) lists what Eclipse reads). Older packs are **Partly**: they load with vanilla's compatibility warning |
 | Modpacks (`.mrpack`, CurseForge zip) | the Modpacks page's import | **Partly**: Eclipse runs the mods it can port, from the player's own downloads ([modpacks.md](modpacks.md)) |
-| Shader packs (`.eshader` and `shaders/`-format zips, Eclipse's registry only) | `shaderpacks/` beside `options.txt` | **Works** when made for 26.3: checked against the registry's index before install (a `.eshader` by the game's own check, [shaders.md](shaders.md)). The `shaders/`-format packs on Modrinth and CurseForge are not offered |
+| Shader packs (`.eshader` and `shaders/`-format zips from Eclipse's registry; Iris and OptiFine packs from Modrinth for a Java instance) | `shaderpacks/` beside `options.txt` | **Works** when made for 26.3: checked against the registry's index before install (a `.eshader` by the game's own check, [shaders.md](shaders.md)). A Java instance takes Modrinth's Iris and OptiFine packs for its Minecraft version once it has a shader mod (Iris, or Oculus on Forge) |
 | Data packs (Eclipse's registry, Modrinth) | `datapacks/` of the world picked on the **Data packs** tab (`mods install <pack> --world <world>`); not in the Installed list: each world's list on Home has them | **Partly**: Eclipse runs a data pack's functions, function tags, predicates and item modifiers, not yet its recipes, loot tables, advancements, other tags or worldgen. The install reads the zip and says what of it runs; a pack with none of those (worldgen only, such as Tectonic) is refused |
 
 Mods, resource packs and shader packs go into the game folder of the instance selected in the sidebar, and the
@@ -87,7 +87,7 @@ start); the hedge places and its recipe crafts 4.
 The launcher's **Mods** page has the five kinds as tabs: **Mods**, **Modpacks**, **Resource packs**, **Shader packs**
 and **Data packs**, each with a search field (Enter searches). Mods, Modpacks, Resource packs and Data packs pick their
 source: Eclipse's registry or Modrinth, with **CurseForge (coming soon)** beside them, disabled. Mods start on
-Eclipse's registry; **Shader packs** search it only (Eclipse's own packs); data packs install into the world picked
+Eclipse's registry; **Shader packs** search it only for an Eclipse instance (Eclipse's own packs); data packs install into the world picked
 under the search. On Eclipse's registry, **Filters** lists the kind's categories (`eclipse_mods::index::page::categories`,
 named and ordered as the registry's website named them) and the tags its projects carry (the 30 most used, `#tag`): a result has
 every category and tag picked, and the search words, which also match a project's tags, narrow them further. While
@@ -97,7 +97,7 @@ loader, with the version and loader filters. A Eclipse instance searching Modrin
 marked **Works**, **Partly** or **Doesn't run in Eclipse** once its jar is checked; **Show everything** adds what was
 made for other Minecraft versions. Each result is an index row: its summary, author,
 downloads, source and licence, how well it runs (and why), **Page** (the project's page on its source) and
-**Install** (**Import** for a modpack). A registry result says **from Eclipse** only when Eclipse made it (author
+**Install**. A registry result says **from Eclipse** only when Eclipse made it (author
 Eclipse, source under github.com/Moonistics: the site's "Official"); a contributor's reads **by <author>** alone. The Modpacks tab lists the imported packs first, with their coverage
 report, **Port** and **Play** ([modpacks.md](modpacks.md)). Installed packs are listed above the results with their version, source,
 file and the checksum they were checked against, with **Update to …** when a newer version runs and **Remove**

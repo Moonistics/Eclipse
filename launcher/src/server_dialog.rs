@@ -676,7 +676,7 @@ impl Launcher {
                     ui::button(
                         "create-fix",
                         None,
-                        tr("Prepare the game files"),
+                        tr("Prepare game files"),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Lg,
                     )

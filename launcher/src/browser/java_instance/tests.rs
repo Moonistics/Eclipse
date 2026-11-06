@@ -317,7 +317,7 @@ fn the_page_search_keeps_the_players_filters_but_not_their_version() {
         }
     );
     assert!(t.takes(Kind::Mod) && t.takes(Kind::ResourcePack) && t.takes(Kind::Shader));
-    assert!(!t.takes(Kind::Modpack) && !t.takes(Kind::DataPack));
+    assert!(t.takes(Kind::DataPack) && !t.takes(Kind::Modpack));
     assert_eq!(t.describe(Kind::Mod), "Minecraft 1.21.1 with fabric");
     assert_eq!(t.describe(Kind::ResourcePack), "Minecraft 1.21.1");
 }
@@ -368,6 +368,58 @@ fn shader_packs_go_in_shaderpacks_for_a_shader_mod() {
         .find(SourceId::Modrinth, "complementary")
         .is_some());
     let _ = fs::remove_dir_all(&home);
+}
+
+#[test]
+fn data_packs_are_the_ones_made_for_the_instance() {
+    let t = target("1.21.4", None);
+    let mut fake = Fake::default();
+    fake.release(
+        "terralith",
+        Kind::DataPack,
+        "1",
+        &["1.21.4"],
+        &["datapack"],
+        &[],
+    );
+    fake.release(
+        "terralith",
+        Kind::DataPack,
+        "2",
+        &["1.21.4"],
+        &["fabric"],
+        &[],
+    );
+    fake.release(
+        "terralith",
+        Kind::DataPack,
+        "3",
+        &["26.3"],
+        &["datapack"],
+        &[],
+    );
+    assert_eq!(
+        t.pick(Kind::DataPack, &fake.versions["terralith"])
+            .unwrap()
+            .number,
+        "1"
+    );
+    assert_eq!(
+        modrinth::facets(&t.query("", Kind::DataPack)),
+        r#"[["project_type:datapack"],["versions:1.21.4"]]"#
+    );
+
+    let mut pack = fake.project("terralith").unwrap();
+    pack.game_versions = vec!["1.21.4".into(), "26.3".into()];
+    assert_eq!(t.support(&pack), Support::Works);
+    let old = target("1.20.1", None);
+    assert!(!old.support(&pack).installable());
+
+    let world = home("datapack-world");
+    let err = install_datapack(&fake, &old, &pack, &world, &|_| {}).unwrap_err();
+    assert_eq!(err, "terralith has no data pack for Minecraft 1.20.1.");
+    assert!(!world.join("datapacks").exists());
+    let _ = fs::remove_dir_all(&world);
 }
 
 #[test]

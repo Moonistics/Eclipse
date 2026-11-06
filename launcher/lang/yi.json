@@ -86,7 +86,6 @@
   "Newest": "נואַסט",
   "Page": "בלאַט",
   "Delete everything?": "ויסמעקן אַלץ?",
-  "Online now": "איצט אָנליין",
   "{name} holds {count} mods. Install which?": "{name} האלט {count} מאָדס. ינסטאַלירן וואָס?",
   "Open the source": "עפענען די מקור",
   "with {count} variables": "מיט {count} וועריאַבאַלז",
@@ -615,7 +614,6 @@
   "On this network": "אויף דעם נעץ",
   "Open the logs": "עפענען די לאָגס",
   "Over the internet": "איבער די אינטערנעט",
-  "Prepare the game files": "צוגרייטן די שפּיל טעקעס",
   "Send": "שיקן",
   "Use port {port}": "ניצן פּאָרט {port}",
   "up to {max} players": "אַרויף צו {max} פּלייַערס",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

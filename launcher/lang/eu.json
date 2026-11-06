@@ -86,7 +86,6 @@
   "Newest": "Berriena",
   "Page": "Orria",
   "Delete everything?": "Dena ezabatu?",
-  "Online now": "Sarean orain",
   "{name} holds {count} mods. Install which?": "{name} {count} mod dauka. Zein instalatu?",
   "Open the source": "Ireki iturria",
   "with {count} variables": "{count} aldagaiekin",
@@ -615,7 +614,6 @@
   "On this network": "Sare honetan",
   "Open the logs": "Ireki erregistroak",
   "Over the internet": "Internet bidez",
-  "Prepare the game files": "Prestatu jokoaren fitxategiak",
   "Send": "Bidali",
   "Use port {port}": "Erabili {port} ataka",
   "up to {max} players": "{max} jokalari gehienez",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

@@ -23,7 +23,7 @@ const CHOICE_ICON: f32 = ui::TILE_MD;
 const NAME_FIELD_WIDTH: f32 = 340.;
 const ECLIPSE_LIST: f32 = 248.;
 const ECLIPSE_COLUMN: f32 = 240.;
-const GAME_NOTE_LINES: usize = 2;
+pub(super) const CHOICE_NOTE_LINES: usize = 2;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
@@ -331,7 +331,7 @@ impl Launcher {
                 .p(px(space::MD))
                 .min_w_0()
                 .children(mark.map(ui::mark_tile))
-                .child(ui::item_text_wrapped(title, note, GAME_NOTE_LINES));
+                .child(ui::item_text_wrapped(title, note, CHOICE_NOTE_LINES));
             cards.push((
                 if switches {
                     card

@@ -425,7 +425,7 @@ pub fn empty_card(state: Stateful<Div>) -> Div {
 
 /// An empty state inside an area that is already a card; the message goes in as a child.
 pub fn empty() -> Div {
-    empty_style().p(px(space::XL))
+    empty_style().py(px(space::XL))
 }
 
 fn empty_style() -> Div {

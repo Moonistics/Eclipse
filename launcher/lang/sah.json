@@ -86,7 +86,6 @@
   "Newest": "Саамай саҥа",
   "Page": "Страница",
   "Delete everything?": "Барытын суох гыныаххын да?",
-  "Online now": "Билигин онлайн",
   "{name} holds {count} mods. Install which?": "{name} {count} модтары тутар. Хайаларын туруораҕын?",
   "Open the source": "Источник арый",
   "with {count} variables": "{count} уларыйааччылардаах",
@@ -617,7 +616,6 @@
   "On this network": "Бу ситимҥэ",
   "Open the logs": "Логтары арый",
   "Over the internet": "Интэриниэт нөҥүө",
-  "Prepare the game files": "Оонньуу файлларын бэлэмнээ",
   "Send": "Ыыт",
   "Use port {port}": "Порт {port} туттуҥ",
   "up to {max} players": "{max} оонньооччуларга диэри",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

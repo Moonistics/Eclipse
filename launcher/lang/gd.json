@@ -86,7 +86,6 @@
   "Newest": "As ùire",
   "Page": "Duilleag",
   "Delete everything?": "Sguab às a h-uile càil?",
-  "Online now": "Air-loidhne a-nis",
   "{name} holds {count} mods. Install which?": "Tha {name} a’ cumail mòdan {count}. Stàlaich dè?",
   "Open the source": "Fosgail an tùs",
   "with {count} variables": "le caochladairean {count}",
@@ -615,7 +614,6 @@
   "On this network": "Air an lìonra seo",
   "Open the logs": "Fosgail na clàran",
   "Over the internet": "Thairis air an eadar-lìon",
-  "Prepare the game files": "Ullaich na faidhlichean geamannan",
   "Send": "Seol",
   "Use port {port}": "Cleachd port {port}",
   "up to {max} players": "suas ri {max} cluicheadair",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

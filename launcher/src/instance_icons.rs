@@ -53,13 +53,8 @@ impl Launcher {
         self.icon_image(key, size, true, || std::fs::read(file).ok())
     }
 
-    /// What an instance shows when nothing was chosen for it.
-    pub(super) fn instance_mark(
-        &mut self,
-        instance: &Instance,
-        size: f32,
-    ) -> Option<Arc<RenderImage>> {
-        let loader = match instance.kind {
+    pub(super) fn instance_loader(&self, instance: &Instance) -> Option<String> {
+        match instance.kind {
             InstanceKind::Port => {
                 let slug = &instance.id["port:".len()..];
                 let pack = self.packs.iter().find(|p| p.slug == slug);
@@ -70,7 +65,16 @@ impl Launcher {
                 .as_ref()
                 .and_then(|j| j.loader.as_ref())
                 .map(|l| l.kind.id().to_string()),
-        };
+        }
+    }
+
+    /// What an instance shows when nothing was chosen for it.
+    pub(super) fn instance_mark(
+        &mut self,
+        instance: &Instance,
+        size: f32,
+    ) -> Option<Arc<RenderImage>> {
+        let loader = self.instance_loader(instance);
         if let Some(loader) = loader.filter(|l| LOADERS.contains(&l.as_str())) {
             return self.loader_logo(&loader, size);
         }

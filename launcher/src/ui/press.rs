@@ -435,7 +435,8 @@ fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
     if bounds.top() < view.top() + margin {
         offset.y += view.top() + margin - bounds.top();
     } else if bounds.bottom() > view.bottom() - margin {
-        offset.y -= bounds.bottom() - (view.bottom() - margin);
+        offset.y -=
+            (bounds.bottom() - (view.bottom() - margin)).min(bounds.top() - view.top() - margin);
     }
     offset.y = offset.y.min(px(0.)).max(-pane.max_offset().y);
     if offset != pane.offset() {

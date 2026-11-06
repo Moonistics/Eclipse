@@ -11,7 +11,7 @@ impl Launcher {
         let idle = self.servers.busy.is_none();
         let ops = servers::names(dir, "ops.json");
         let whitelist = servers::entries(dir, "whitelist.json");
-        let banned = servers::names(dir, "banned-players.json");
+        let banned = servers::entries(dir, "banned-players.json");
         let is_op = |n: &str| ops.iter().any(|o| o.eq_ignore_ascii_case(n));
         let mut tab = div().flex().flex_col().gap(px(space::XL));
 
@@ -241,7 +241,7 @@ impl Launcher {
         // Banned.
         if !banned.is_empty() {
             let mut list = div().flex().flex_col();
-            for name in banned {
+            for (name, uuid) in banned {
                 let n = name.clone();
                 let unban = self.player_action(
                     format!("unban-{name}"),
@@ -250,8 +250,17 @@ impl Launcher {
                     cx,
                     move |this| this.api_command(format!("pardon {n}")),
                 );
-                list =
-                    list.child(self.static_row(None, name, None, Some(unban.into_any_element())));
+                let face = if uuid.is_empty() {
+                    div().size(px(FACE)).flex_none()
+                } else {
+                    self.player_face(&uuid, FACE)
+                };
+                list = list.child(self.static_row(
+                    Some(face),
+                    name,
+                    None,
+                    Some(unban.into_any_element()),
+                ));
             }
             tab = tab.child(
                 div()

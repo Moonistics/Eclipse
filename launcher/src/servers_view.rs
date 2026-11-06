@@ -60,7 +60,7 @@ impl Launcher {
         let content = layout::content_width(self.window_width);
         let beside = content >= layout::SERVER_CARD_MIN + layout::CARD_GAP + SIDE;
         let list = self.server_list(cx);
-        let addresses = self.server_addresses(&status, cx);
+        let addresses = self.server_addresses(cx);
         let side = if beside {
             div()
                 .flex()
@@ -334,7 +334,7 @@ impl Launcher {
             if let Some(fix) = p.fix {
                 let label = match &fix {
                     Fix::UsePort(port) => trf("Use port {port}", &[("port", &port.to_string())]),
-                    Fix::Prepare => tr("Prepare the game files").into(),
+                    Fix::Prepare => tr("Prepare game files").into(),
                     Fix::AgreeEula => tr("I agree to the EULA").into(),
                     Fix::ShowLog => tr("Open the logs").into(),
                 };
@@ -598,9 +598,8 @@ impl Launcher {
         })
     }
 
-    /// How friends reach the open server: on this network, over the internet (Tailscale), and who
-    /// is online now.
-    fn server_addresses(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
+    /// How friends reach the open server: on this network and over the internet (Tailscale).
+    fn server_addresses(&mut self, cx: &mut Context<Self>) -> Div {
         let port = port_of(self);
         let lan = match servers::lan_address() {
             Some(ip) if port == 25565 => ip.to_string(),
@@ -649,53 +648,13 @@ impl Launcher {
                     .mt(px(space::XS)),
             );
         let internet = self.internet_card(port, cx);
-        let mut card = ui::card()
+        ui::card()
             .flex()
             .flex_col()
             .gap(px(space::XL))
             .p(px(ui::CARD_PADDING))
             .child(here.relative())
-            .child(internet.relative());
-        if status.running() && !status.players.is_empty() {
-            let ops = self
-                .servers
-                .open
-                .as_deref()
-                .map(|d| servers::names(d, "ops.json"))
-                .unwrap_or_default();
-            let mut people = div().mt(px(space::MD)).flex().flex_col().gap(px(space::MD));
-            for p in status.players.clone() {
-                let op = ops.iter().any(|o| o.eq_ignore_ascii_case(&p.name));
-                people = people.child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(space::MD))
-                        .child(self.player_face(&p.uuid, ui::TILE_SM))
-                        .child(
-                            ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .child(p.name.clone()),
-                        )
-                        .child(ui::card_note(if op {
-                            tr("Operator")
-                        } else {
-                            tr("Player")
-                        })),
-                );
-            }
-            card = card.child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .child(ui::label(tr("Online now")))
-                    .child(people),
-            );
-        }
-        card
+            .child(internet.relative())
     }
 
     /// The server's Players, Settings and Backups, on a card under it.

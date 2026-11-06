@@ -112,13 +112,10 @@ impl Launcher {
                 }
             }
             None => {
-                let plated = i
-                    .java
-                    .as_ref()
-                    .and_then(|j| j.loader.as_ref())
-                    .map(|l| l.kind.id())
+                let plated = self
+                    .instance_loader(i)
                     .filter(|loader| instance_icons::has_plate(loader));
-                if let Some(logo) = plated.and_then(|loader| self.loader_logo(loader, size)) {
+                if let Some(logo) = plated.and_then(|loader| self.loader_logo(&loader, size)) {
                     return ui::image_tile(logo, size);
                 }
                 if let Some(mark) = self.instance_mark(i, inner) {
@@ -853,7 +850,7 @@ impl Launcher {
         let mut menu = self
             .menu_popover("row-menu", cx)
             .child(
-                item("edit", "pencil-edit-02", tr("Edit instance").into()).on_press(cx.listener(
+                item("edit", "pencil-edit-02", tr("Edit…").into()).on_press(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         this.open_instance_page(Some(edit.clone()));

@@ -86,7 +86,6 @@
   "Newest": "ใหม่ล่าสุด",
   "Page": "หน้า",
   "Delete everything?": "ลบทุกอย่างใช่ไหม",
-  "Online now": "ออนไลน์ได้แล้ว",
   "{name} holds {count} mods. Install which?": "{name} มี {count} mods ติดตั้งอันไหน?",
   "Open the source": "เปิดแหล่งที่มา",
   "with {count} variables": "ด้วยตัวแปร {count}",
@@ -617,7 +616,6 @@
   "On this network": "บนเครือข่ายนี้",
   "Open the logs": "เปิดบันทึก",
   "Over the internet": "ผ่านทางอินเทอร์เน็ต",
-  "Prepare the game files": "เตรียมไฟล์เกม",
   "Send": "ส่ง",
   "Use port {port}": "ใช้พอร์ต {port}",
   "up to {max} players": "ผู้เล่นมากถึง {max} คน",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

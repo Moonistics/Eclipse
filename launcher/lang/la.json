@@ -86,7 +86,6 @@
   "Newest": "Novissima",
   "Page": "Page",
   "Delete everything?": "Delere omnia?",
-  "Online now": "Online nunc",
   "{name} holds {count} mods. Install which?": "{name}tenet{count}mods. Quas inaugurare?",
   "Open the source": "Aperi fontem",
   "with {count} variables": "cum{count}variables \"",
@@ -615,7 +614,6 @@
   "On this network": "De hoc network",
   "Open the logs": "Aperi omnia",
   "Over the internet": "Per interrete",
-  "Prepare the game files": "Ludum parare files",
   "Send": "Mitte",
   "Use port {port}": "Portus usus{port}",
   "up to {max} players": "usque ad *{max}histriones",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

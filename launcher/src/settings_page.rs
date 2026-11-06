@@ -583,11 +583,14 @@ impl Launcher {
 
     fn check_updates_row(&mut self, cx: &mut Context<Self>) -> Div {
         let checking = self.checking_updates;
+        let failed = self.update_error.clone().filter(|_| !checking);
         let check = ui::button(
             "check-updates",
-            None,
+            failed.is_some().then_some("refresh"),
             tr(if checking {
                 "Checking…"
+            } else if failed.is_some() {
+                "Try again"
             } else {
                 "Check for updates"
             }),
@@ -602,7 +605,7 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        if let Some(e) = self.update_error.clone().filter(|_| !checking) {
+        if let Some(e) = failed {
             return div()
                 .p(px(ui::SETTING_ROW_PADDING))
                 .child(ui::error_line_for(

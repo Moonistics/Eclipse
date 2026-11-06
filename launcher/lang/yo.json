@@ -86,7 +86,6 @@
   "Newest": "Titun julọ",
   "Page": "Oju-iwe",
   "Delete everything?": "Pa ohun gbogbo rẹ bi?",
-  "Online now": "Online bayi",
   "{name} holds {count} mods. Install which?": "{name} di awọn mods {count}. Fi sori ẹrọ ewo?",
   "Open the source": "Ṣii orisun",
   "with {count} variables": "pẹlu awọn oniyipada {count}",
@@ -615,7 +614,6 @@
   "On this network": "Lori nẹtiwọki yii",
   "Open the logs": "Ṣii awọn akọọlẹ",
   "Over the internet": "Lori intanẹẹti",
-  "Prepare the game files": "Mura awọn faili ere",
   "Send": "Firanṣẹ",
   "Use port {port}": "Lo ibudo {port}",
   "up to {max} players": "soke si {max} awọn ẹrọ orin",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

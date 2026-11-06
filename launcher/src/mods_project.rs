@@ -734,7 +734,7 @@ impl Launcher {
                 trf("Install in {instance}", &[("instance", &instance)])
             };
             let mut install = ui::primary("mods-page-install", label, ui::ButtonSize::Md);
-            if busy.is_some() {
+            if busy.is_some() || self.mods.needs_world(&p) {
                 install = ui::disabled(install);
             } else {
                 let p = p.clone();

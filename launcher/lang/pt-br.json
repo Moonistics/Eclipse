@@ -272,7 +272,6 @@
   "Make an invitation": "Criar um convite",
   "Not needed": "Não necessário",
   "Not yet": "Ainda não",
-  "Online now": "Online agora",
   "Open Tailscale": "Abrir o Tailscale",
   "Open the admin console": "Abrir o console de administração",
   "Partial": "Parcial",
@@ -617,7 +616,6 @@
   "On this network": "Nesta rede",
   "Open the logs": "Abrir os logs",
   "Over the internet": "Pela internet",
-  "Prepare the game files": "Preparar os arquivos do jogo",
   "Send": "Enviar",
   "Use port {port}": "Usar a porta {port}",
   "up to {max} players": "até {max} jogadores",
@@ -1083,5 +1081,16 @@
   "Search instances and pages": "Search instances and pages",
   "Folders": "Folders",
   "Developer": "Developer",
-  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack"
+  "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
+  "Edit…": "Edit…",
+  "Needs Fabric": "Needs Fabric",
+  "Needs Quilt": "Needs Quilt",
+  "Needs Forge": "Needs Forge",
+  "Needs NeoForge": "Needs NeoForge",
+  "Needs a mod loader": "Needs a mod loader",
+  "Lists no Minecraft version.": "Lists no Minecraft version.",
+  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
+  "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
+  "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
+  "Not checked yet.": "Not checked yet."
 }

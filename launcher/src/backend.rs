@@ -2178,9 +2178,13 @@ fn download_for(
             "\n  • No signed-in account owns Minecraft: Java Edition, so Eclipse can't download it."
                 .into(),
         ),
-        Err(_) => Err(format!(
+        Err(_) if account::client_id().is_some() => Err(format!(
             "\n  • Or sign in with the Microsoft account that owns Minecraft: Eclipse then \
              downloads {v} from Mojang itself."
+        )),
+        Err(_) => Err(format!(
+            "\n  • Downloading {v} from Mojang needs a Microsoft account. {}",
+            account::NOT_CONFIGURED
         )),
     }
 }

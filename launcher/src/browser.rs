@@ -33,8 +33,8 @@ pub enum Kind {
     Modpack,
     /// A Java mod: its content is ported ([`java`]).
     Mod,
-    /// One of Eclipse's own shader packs (`.eshader`, docs/shaders.md), from Eclipse's registry
-    /// only.
+    /// A shader pack: Eclipse's own (`.eshader`, docs/shaders.md) from Eclipse's registry, or an
+    /// Iris or OptiFine pack from Modrinth for a Java instance.
     Shader,
     /// A data pack: it goes into one world's `datapacks/` (`crate::datapacks`).
     DataPack,

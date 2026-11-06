@@ -216,6 +216,18 @@ pub fn icon_button(
     size: ButtonSize,
     active: bool,
 ) -> Stateful<Div> {
+    icon_button_tipped(id, name, label, kind, size, active, true)
+}
+
+fn icon_button_tipped(
+    id: impl Into<SharedString>,
+    name: &'static str,
+    label: impl Into<SharedString>,
+    kind: ButtonKind,
+    size: ButtonSize,
+    active: bool,
+    tipped: bool,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
     let label: SharedString = label.into();
     let look = look();
@@ -245,7 +257,7 @@ pub fn icon_button(
             d.child(div().absolute().size_full().bg(white(fill::ACTIVE)))
         })
         .child(icon(name, size.icon(), tone).relative())
-        .tooltip(tip(label.clone()));
+        .when(tipped, |d| d.tooltip(tip(label.clone())));
     let d = match kind {
         ButtonKind::Primary => bevel(d.bg(color(look.accent))),
         ButtonKind::Secondary => secondary(d),
@@ -269,7 +281,7 @@ pub fn more_button(
     size: ButtonSize,
     open: bool,
 ) -> Stateful<Div> {
-    icon_button(id, "more-horizontal", label, kind, size, open).aria_expanded(open)
+    icon_button_tipped(id, "more-horizontal", label, kind, size, open, !open).aria_expanded(open)
 }
 
 pub fn more_busy(

@@ -1,7 +1,7 @@
-//! Mods, resource packs and shader packs for a Java Edition instance: the source's own files,
-//! for the instance's Minecraft version and loader, put in its `mods/`, `resourcepacks/` and
-//! `shaderpacks/` as they are (nothing is ported). The instance's `mod-browser.json` lists them,
-//! as for Eclipse's folder.
+//! Mods, resource packs, shader packs and data packs for a Java Edition instance: the source's
+//! own files, for the instance's Minecraft version and loader, put in its `mods/`,
+//! `resourcepacks/`, `shaderpacks/` and a world's `datapacks/` as they are (nothing is ported).
+//! The instance's `mod-browser.json` lists all but the data packs, as for Eclipse's folder.
 use super::installed::{self, Entry, Installed, Step};
 use super::{details, Kind, Project, Query, Source, Support, Version};
 use std::fs;
@@ -76,9 +76,12 @@ impl Target {
     }
 
     /// Whether this instance takes files of `kind` from the browser as they are: mods, resource
-    /// packs and shader packs.
+    /// packs, shader packs and data packs.
     pub fn takes(&self, kind: Kind) -> bool {
-        matches!(kind, Kind::Mod | Kind::ResourcePack | Kind::Shader)
+        matches!(
+            kind,
+            Kind::Mod | Kind::ResourcePack | Kind::Shader | Kind::DataPack
+        )
     }
 
     pub fn shader_mod(&self) -> Option<(&'static str, &'static str)> {
@@ -121,6 +124,9 @@ impl Target {
         });
         if kind == Kind::Shader {
             return usable.find(|v| made_for(&v.loaders, &SHADER_PACK_LOADERS));
+        }
+        if kind == Kind::DataPack {
+            return usable.find(|v| made_for(&v.loaders, &["datapack"]));
         }
         if kind != Kind::Mod {
             return usable.find(|v| v.loaders.iter().any(|l| l == "minecraft"));
@@ -228,6 +234,33 @@ pub fn install(
         set_on(home, e, false)?;
     }
     Ok(done)
+}
+
+pub fn install_datapack(
+    source: &dyn Source,
+    target: &Target,
+    project: &Project,
+    world: &Path,
+    progress: &dyn Fn(f32),
+) -> Result<(crate::datapacks::DataPack, String), String> {
+    let versions = source.versions(project)?;
+    let version = target.pick(Kind::DataPack, &versions).ok_or_else(|| {
+        format!(
+            "{} has no data pack for Minecraft {}.",
+            project.title, target.minecraft
+        )
+    })?;
+    let file = version.file().expect("pick keeps versions with a file");
+    let folder = std::env::temp_dir().join(format!(
+        "eclipse-launcher-datapack-{}-{}",
+        std::process::id(),
+        project.id
+    ));
+    let added = source
+        .fetch(file, &folder, progress)
+        .and_then(|zip| crate::datapacks::add(world, &zip));
+    let _ = fs::remove_dir_all(&folder);
+    Ok((added?, version.number.clone()))
 }
 
 /// A mod turned off keeps its file under this suffix, which the loaders don't read: they load

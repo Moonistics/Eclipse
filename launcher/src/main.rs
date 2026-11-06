@@ -451,9 +451,10 @@ impl Launcher {
         // Pin the window's chrome (macOS title bar) to the choice before the theme reads
         // `window.appearance()`, so both draw the same look.
         titlebar::apply_appearance(window, settings.appearance);
+        let page = Page::from_env();
         let mut this = Self {
             theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
-            page: Page::from_env(),
+            page,
             switches: 0,
             content_scroll: Scrollbar::default(),
             settings_pane: Scrollbar::default(),
@@ -510,7 +511,7 @@ impl Launcher {
             content_focus: cx.focus_handle().tab_index(0).tab_stop(false),
             play_focus: cx.focus_handle().tab_index(0).tab_stop(true),
             focus_play: true,
-            focus_page: false,
+            focus_page: page != Page::Home,
             ring_pending: None,
             palette: None,
             toast_seen: None,
