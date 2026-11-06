@@ -162,21 +162,9 @@ impl Launcher {
         self.fields.text(Field::InstanceGroup).set(group);
         self.fields.focus_soon = Some(Field::InstanceName);
         // What it plays now: Edit can switch it (`instances::switch`).
-        let java = match editing.as_ref().and_then(|i| i.java.as_ref()) {
-            None => Default::default(),
-            Some(j) => instance_state::JavaChoice {
-                kind: match &j.loader {
-                    Some(_) => instance_state::NewKind::Modded,
-                    None => instance_state::NewKind::Vanilla,
-                },
-                loader: j
-                    .loader
-                    .as_ref()
-                    .map_or(eclipse_launcher::loaders::Kind::Fabric, |l| l.kind),
-                version: Some(j.minecraft.clone()),
-                ..Default::default()
-            },
-        };
+        let java = editing
+            .as_ref()
+            .map_or_else(Default::default, java_choice_of);
         self.instances.draft = Some(InstanceDraft {
             icon: editing.as_ref().and_then(|i| i.icon.clone()),
             pin: editing.as_ref().and_then(|i| i.version.clone()),
@@ -204,15 +192,22 @@ impl Launcher {
 
     /// Opens the page for a copy of the selected instance, named after it.
     pub(super) fn start_copy(&mut self) {
-        let Some(name) = self.selected_instance().map(|i| i.name.clone()) else {
+        let Some(source) = self.selected_instance().cloned() else {
             return;
         };
         self.open_instance_page(None);
         self.fields
             .text(Field::InstanceName)
-            .set(format!("{name} copy"));
+            .set(format!("{} copy", source.name));
+        self.fields
+            .text(Field::InstanceGroup)
+            .set(source.group.clone().unwrap_or_default());
         if let Some(d) = &mut self.instances.draft {
             d.copy = true;
+            d.java = java_choice_of(&source);
+            d.reveal_version = d.java.version.is_some();
+            d.pin = source.version.clone();
+            d.icon = source.icon.clone();
         }
     }
 
@@ -255,6 +250,16 @@ impl Launcher {
                 self.draft_plays(i)
                     .filter(|to| *to != instances::Plays::of(i))
             });
+        let copy_plays = self
+            .instances
+            .draft
+            .as_ref()
+            .filter(|d| d.editing.is_none() && d.copy)
+            .and(self.selected_instance())
+            .and_then(|i| {
+                self.draft_plays(i)
+                    .filter(|to| *to != instances::Plays::of(i))
+            });
         let Some(d) = self.instances.draft.as_mut().filter(|d| !d.busy) else {
             return;
         };
@@ -284,7 +289,8 @@ impl Launcher {
         let download = download.filter(|_| plays_eclipse);
         let (java, name) = match (java, minecraft) {
             (Some(_), Some(None)) => {
-                d.error = Some(tr("Mojang's version list isn't here yet.").into());
+                d.error =
+                    Some(tr("Minecraft versions are still loading. Try again in a moment.").into());
                 return;
             }
             (Some(j), Some(Some(mc))) => {
@@ -307,8 +313,17 @@ impl Launcher {
                     }
                     id
                 }
-                (None, Some((j, mc))) => instance_state::create_java(&j, &name, &mc)?.id,
-                (None, None) => instances::create(&name, copy.as_deref())?.id,
+                (None, Some((j, mc))) if copy.is_none() => {
+                    instance_state::create_java(&j, &name, &mc)?.id
+                }
+                (None, _) => {
+                    let to = copy_plays.map(instance_state::with_loader).transpose()?;
+                    let made = instances::create(&name, copy.as_deref())?.id;
+                    if let Some(to) = to {
+                        instances::switch(&made, to)?;
+                    }
+                    made
+                }
             };
             let instance = instances::edit(&id, |m| {
                 m.name = Some(name);
@@ -399,6 +414,21 @@ impl Launcher {
     }
 }
 
+fn java_choice_of(instance: &Instance) -> JavaChoice {
+    match &instance.java {
+        None => JavaChoice::default(),
+        Some(j) => JavaChoice {
+            kind: match &j.loader {
+                Some(_) => NewKind::Modded,
+                None => NewKind::Vanilla,
+            },
+            loader: j.loader.as_ref().map_or(Loader::Fabric, |l| l.kind),
+            version: Some(j.minecraft.clone()),
+            ..Default::default()
+        },
+    }
+}
+
 /// The first letter or digit of a name, for an icon without a picture.
 pub(super) fn initial(name: &str) -> String {
     name.chars()
@@ -426,30 +456,6 @@ pub(super) struct JavaChoice {
     pub(super) old: bool,
     /// The loader's version; None: its newest stable one.
     pub(super) loader_version: Option<String>,
-    /// The loader's versions for the chosen Minecraft version, asked of its service once.
-    pub(super) loader_versions: LoaderVersions,
-}
-
-/// A loader's versions for one Minecraft version, as the page has them.
-#[derive(Clone, Debug, Default)]
-pub(super) enum LoaderVersions {
-    #[default]
-    NotAsked,
-    Loading(Loader, String),
-    Ready(Loader, String, Arc<Vec<loaders::Listed>>),
-    Failed(Loader, String),
-}
-
-impl LoaderVersions {
-    /// The loader and Minecraft version they are for.
-    fn of(&self) -> Option<(Loader, &str)> {
-        match self {
-            LoaderVersions::NotAsked => None,
-            LoaderVersions::Loading(l, mc)
-            | LoaderVersions::Ready(l, mc, _)
-            | LoaderVersions::Failed(l, mc) => Some((*l, mc)),
-        }
-    }
 }
 
 impl Default for JavaChoice {
@@ -461,7 +467,6 @@ impl Default for JavaChoice {
             snapshots: false,
             old: false,
             loader_version: None,
-            loader_versions: LoaderVersions::NotAsked,
         }
     }
 }
@@ -588,42 +593,6 @@ impl Launcher {
                 if before {
                     this.change(|_| {});
                 }
-                cx.notify();
-            });
-        })
-        .detach();
-    }
-
-    /// Asks the chosen loader's service for its versions for `minecraft`, unless the page has
-    /// them or is asking already.
-    pub(super) fn ask_loader_versions(&mut self, minecraft: &str, cx: &mut Context<Self>) {
-        let Some(j) = self.java_choice() else {
-            return;
-        };
-        let loader = j.loader;
-        if j.kind != NewKind::Modded || j.loader_versions.of() == Some((loader, minecraft)) {
-            return;
-        }
-        j.loader_versions = LoaderVersions::Loading(loader, minecraft.to_string());
-        let mc = minecraft.to_string();
-        let task = cx.background_executor().spawn(async move {
-            loaders::versions(loader, &mc, &eclipse_launcher::backend::get_bytes)
-        });
-        let mc = minecraft.to_string();
-        cx.spawn(async move |this, cx| {
-            let listed = task.await;
-            let _ = this.update(cx, |this, cx| {
-                let Some(j) = this.java_choice() else {
-                    return;
-                };
-                // A list for what is no longer chosen is dropped.
-                if j.loader_versions.of() != Some((loader, mc.as_str())) {
-                    return;
-                }
-                j.loader_versions = match listed {
-                    Ok(l) => LoaderVersions::Ready(loader, mc, Arc::new(l)),
-                    Err(_) => LoaderVersions::Failed(loader, mc),
-                };
                 cx.notify();
             });
         })

@@ -87,7 +87,7 @@ impl Launcher {
                     .child(
                         ui::button(
                             "instance-mods-add",
-                            Some("plus-sign"),
+                            Some("search-01"),
                             tr("Find mods"),
                             ButtonKind::Secondary,
                             ui::ButtonSize::Md,

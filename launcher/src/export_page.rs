@@ -109,7 +109,10 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let pick = ui::segments(
             "export-format",
-            &ui::translated(&[(Format::Mrpack, ".mrpack"), (Format::Zip, ".zip")]),
+            &ui::translated(&[
+                (Format::Mrpack, "Modrinth pack (.mrpack)"),
+                (Format::Zip, "Zip file (.zip)"),
+            ]),
             panel.format,
             move |format, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -127,7 +130,8 @@ impl Launcher {
                     .child(tr("No worlds to put in.")),
             );
         }
-        for (n, (folder, name, on)) in panel.worlds.iter().enumerate() {
+        for (folder, name, on) in &panel.worlds {
+            let key = folder.clone();
             worlds = worlds.child(
                 ui::toggle_label(
                     SharedString::from(format!("export-world-{folder}")),
@@ -135,7 +139,11 @@ impl Launcher {
                     *on,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if let Some(w) = this.export.as_mut().and_then(|p| p.worlds.get_mut(n)) {
+                    let picked = this
+                        .export
+                        .as_mut()
+                        .and_then(|p| p.worlds.iter_mut().find(|(folder, _, _)| *folder == key));
+                    if let Some(w) = picked {
                         w.2 = !w.2;
                     }
                     cx.notify();
@@ -145,7 +153,11 @@ impl Launcher {
         let go = ui::button(
             "export-run",
             None,
-            tr("Export"),
+            if panel.busy {
+                tr("Exporting…")
+            } else {
+                tr("Export")
+            },
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
@@ -206,34 +218,15 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(ui::card_title(tr("Export to share")))
+                        .child(ui::section_title(tr("Export to share")))
                         .child(close),
                 )
-                .child(div().flex().child(pick))
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(space::MD))
-                        .child(ui::label(tr("Worlds")))
-                        .child(worlds),
-                )
-                .child(ui::card_note(tr(
-                    "Logs, screenshots, backups and your account stay out.",
-                )))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(space::MD))
-                        .child(go)
-                        .when(panel.busy, |d| {
-                            d.child(
-                                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                                    .child(tr("Exporting…")),
-                            )
-                        }),
-                )
+                .child(ui::labelled_field(
+                    tr("File type"),
+                    div().flex().child(pick),
+                ))
+                .child(ui::labelled_field(tr("Worlds"), worlds))
+                .child(div().flex().child(go))
                 .children(result),
         )
     }

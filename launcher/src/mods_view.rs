@@ -6,8 +6,7 @@
 //! serve (`switches`); shader packs are Eclipse's registry's only, and a Java instance's files
 //! always Modrinth's. Modrinth's Java mods are offered to an Eclipse instance too, each marked
 //! Works, Partly or Doesn't run in Eclipse. Under the two cards: adding a native mod from GitHub,
-//! the instance's installed list and its native build, imported modpacks and the install's
-//! progress.
+//! the instance's installed list and its native build, and the install's progress.
 
 use super::*;
 use crate::menus::Asking;
@@ -19,6 +18,7 @@ use eclipse_theme::glass::{ink, radius, space};
 const DETAIL: f32 = 360.;
 const VANILLA_ACTION: ui::ButtonSize = ui::ButtonSize::Md;
 const FLOAT_MIN_HEIGHT: f32 = 240.;
+const SEARCH_FIELD_MIN: f32 = 200.;
 
 impl Launcher {
     /// The search's placeholder: the registry's count when it is listed whole.
@@ -28,6 +28,10 @@ impl Launcher {
         if registry
             && m.kind == PackKind::Mod
             && m.searched
+            && !m.searching
+            && m.error.is_none()
+            && !m.results.is_empty()
+            && mods_project::active_filters(&m.browse.filters) == 0
             && self.fields.value(Field::ModsSearch).is_empty()
         {
             // Results come in pages: only a last page gives the real count.
@@ -81,7 +85,7 @@ impl Launcher {
         // the project or results, rather than below a potentially long detail card.
         let notice = self
             .native_notice(cx)
-            .map(|notice| notice.mb(px(space::XL)));
+            .map(|notice| notice.mb(px(layout::CARD_GAP)));
         // A project's own page replaces the two cards.
         if let Some(project) = self.mods_project_page(cx) {
             return div()
@@ -107,6 +111,9 @@ impl Launcher {
             .gap(px(space::MD))
             .px(px(space::XS))
             .pb(px(space::SM))
+            .when(switches(self.mods.kind) && !java, |d| {
+                d.child(self.source_switch(cx))
+            })
             .when(other_versions, |d| {
                 d.child(
                     ui::toggle_label(
@@ -121,18 +128,21 @@ impl Launcher {
                     })),
                 )
             })
-            .when(switches(self.mods.kind) && !java, |d| {
-                d.child(self.source_switch(cx))
-            })
             .children(self.mods_filters(cx))
             .children(self.mods_target_line(cx));
         let search = div()
             .m(px(space::XS))
             .mb(px(space::SM))
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(space::SM))
-            .child(div().flex_1().min_w(px(200.)).child(self.mods_field(cx)))
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(SEARCH_FIELD_MIN))
+                    .child(self.mods_field(cx)),
+            )
             .child(self.mods_sort(cx))
             .child(self.mods_filters_button(cx));
         let list = ui::card(radius::PANEL)
@@ -142,9 +152,8 @@ impl Launcher {
             .min_w_0()
             .p(px(ui::LIST_INSET))
             .child(search)
-            .child(extras)
-            .children(self.mods_vanilla_notice(cx))
-            .child(self.mods_list(cx));
+            .child(extras);
+        let rows = self.mods_list(cx);
         // The card stays in view as the list scrolls (`sticky.rs`).
         let wide = self.window_width >= crate::layout::MODS_DETAIL_BESIDE;
         let detail = if wide || self.mods.picked.is_some() {
@@ -198,30 +207,56 @@ impl Launcher {
                 .child(self.mods_float_top(cx))
                 .child(close)
         });
-        let cards = div()
-            .relative()
-            .flex()
-            .items_start()
-            .gap(px(if wide { layout::CARD_GAP } else { 0. }))
-            .child(self.mods_sticky.row(&self.content_scroll.handle))
-            .child(list)
-            .children(detail);
+        let sticky = self.mods_sticky.row(&self.content_scroll.handle);
+        let cards = if wide {
+            div()
+                .relative()
+                .flex()
+                .items_start()
+                .gap(px(layout::CARD_GAP))
+                .child(sticky)
+                .child(list.child(rows))
+                .children(detail)
+        } else {
+            list.child(
+                div()
+                    .relative()
+                    .flex()
+                    .items_start()
+                    .child(sticky)
+                    .child(rows.flex_1().min_w_0())
+                    .children(detail),
+            )
+        };
 
         let card = |inner: Div| ui::card(radius::PANEL).p(px(ui::CARD_PADDING)).child(inner);
         let mut more: Vec<Div> = Vec::new();
         more.extend(self.mods_busy_plate().into_iter().map(card));
-        if self.mods.kind == PackKind::Modpack {
-            more.push(card(self.imported_packs(cx)));
-        }
+        let packs = (self.mods.kind == PackKind::Modpack).then(|| {
+            card(self.imported_packs(cx))
+                .id("mods-imported-packs")
+                .mb(px(layout::CARD_GAP))
+        });
         if self.mods.kind == PackKind::Mod && self.mods.java.is_none() {
             more.push(card(self.github_panel(cx)));
         }
         more.extend(self.mods_installed_list(cx).map(card));
+        let advice = self
+            .mods_vanilla_notice(cx)
+            .or_else(|| self.mods_modrinth_notice(cx))
+            .map(|advice| {
+                ui::card(radius::PANEL)
+                    .p(px(ui::LIST_INSET))
+                    .mb(px(layout::CARD_GAP))
+                    .child(advice)
+            });
         div()
             .flex()
             .flex_col()
             .child(header)
             .children(notice)
+            .children(advice)
+            .children(packs)
             .child(cards)
             .child(
                 div()
@@ -373,18 +408,36 @@ impl Launcher {
         let actions = std::iter::once(create.into_any_element())
             .chain(choose)
             .collect();
-        Some(
-            div()
-                .id("mods-vanilla")
-                .mx(px(space::XS))
-                .mb(px(space::SM))
-                .child(ui::notice(
-                    ui::Notice::Info,
-                    "information-circle",
-                    said,
-                    actions,
-                )),
+        Some(div().id("mods-vanilla").child(ui::notice(
+            ui::Notice::Info,
+            "information-circle",
+            said,
+            actions,
+        )))
+    }
+
+    fn mods_modrinth_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let m = &self.mods;
+        if m.kind != PackKind::Mod || m.java.is_some() || m.source != SourceId::Modrinth {
+            return None;
+        }
+        let show = ui::button(
+            "mods-show-eclipse",
+            None,
+            tr("Show Eclipse mods"),
+            ButtonKind::Secondary,
+            VANILLA_ACTION,
         )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods_set_source(SourceId::Eclipse);
+            cx.notify();
+        }));
+        Some(div().id("mods-modrinth-eclipse").child(ui::notice(
+            ui::Notice::Info,
+            "information-circle",
+            tr("Most Modrinth mods are made for Fabric or Forge and don't run in Eclipse."),
+            vec![show.into_any_element()],
+        )))
     }
 
     /// The source switch (`switches`): Eclipse's registry or Modrinth.
@@ -461,14 +514,37 @@ impl Launcher {
     fn mods_list(&mut self, cx: &mut Context<Self>) -> Div {
         let m = &self.mods;
         if let Some(e) = &m.error {
-            return div().child(ui::error_state(
+            let title = match (m.java_for(m.kind), m.source) {
+                (None, SourceId::Eclipse) => tr(match m.kind {
+                    PackKind::Mod => "Couldn't load Eclipse mods",
+                    PackKind::Modpack => "Couldn't load Eclipse modpacks",
+                    PackKind::ResourcePack => "Couldn't load Eclipse resource packs",
+                    PackKind::Shader => "Couldn't load Eclipse shader packs",
+                    PackKind::DataPack => "Couldn't load Eclipse data packs",
+                }),
+                _ => tr("Couldn't search Modrinth"),
+            };
+            let error = match e.contains('\n') {
+                true => e.clone(),
+                false => format!(
+                    "{}\n{e}",
+                    tr("Try again later, or copy the details to report it.")
+                ),
+            };
+            let retry = match self.mods_vanilla_target() {
+                Some(_) => ButtonKind::Secondary,
+                None => ButtonKind::Primary,
+            };
+            return div().child(ui::error_state_with(
                 "mods-failed",
-                tr("Couldn't search"),
-                e,
+                title,
+                &error,
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.mods_search(0);
                     cx.notify();
                 }),
+                Some(Self::proxy_settings_button("mods-failed", cx)),
+                retry,
             ));
         }
         if m.results.is_empty() {
@@ -502,10 +578,7 @@ impl Launcher {
                     PackKind::DataPack => "No Eclipse data packs yet",
                 });
                 if !switches(m.kind) {
-                    (
-                        title.to_string(),
-                        tr("They show here once their authors publish them."),
-                    )
+                    (title.to_string(), tr("None have been published yet."))
                 } else {
                     actions.push(
                         ui::button(
@@ -763,17 +836,17 @@ impl Launcher {
             .filter(|_| p.source == SourceId::Eclipse)
             .map(|lines| lines.join(" · "));
 
-        // The action: Remove (then asked to confirm), Install or Import, or a Fabric instance
-        // for a mod a vanilla one can't take.
         let button: Option<AnyElement> = if let Some(e) = &entry {
             let confirming = self.is_asking(&Asking::Mod(e.project.clone()));
             let remove_id = SharedString::from(format!("mods-detail-remove-{}", p.id));
             let id = e.project.clone();
+            let trash = goes_to_trash(e.kind);
             if confirming {
+                let (question, verb) = removal(e.kind, &e.title);
                 ui::confirm(
                     remove_id,
-                    trf("Remove {name}?", &[("name", &e.title)]),
-                    tr("Remove"),
+                    question,
+                    verb,
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
@@ -786,10 +859,14 @@ impl Launcher {
                 .into_any_element()
                 .into()
             } else {
+                let ask = match trash {
+                    true => trf("Delete from {instance}…", &[("instance", instance)]),
+                    false => trf("Remove from {instance}…", &[("instance", instance)]),
+                };
                 ui::button(
                     remove_id,
                     None,
-                    trf("Remove from {instance}…", &[("instance", instance)]),
+                    ask,
                     ButtonKind::Secondary,
                     ui::ButtonSize::Lg,
                 )
@@ -840,21 +917,7 @@ impl Launcher {
             .into_any_element()
             .into()
         } else {
-            vanilla.map(|minecraft| {
-                ui::button(
-                    "mods-detail-new-fabric",
-                    None,
-                    tr("Create a Fabric instance"),
-                    ButtonKind::Secondary,
-                    VANILLA_ACTION,
-                )
-                .w_full()
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.mods_new_fabric(minecraft.clone(), cx);
-                    cx.notify();
-                }))
-                .into_any_element()
-            })
+            None
         };
         let open = p.clone();
         Some(

@@ -25,40 +25,27 @@ impl Launcher {
         };
         let folder = eclipse_launcher::screenshots::folder(&home);
         let privacy = self.shots_privacy(cx);
-        let head = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .h(px(ui::ButtonSize::Sm.height()))
-            .child(
-                ui::text(
-                    eclipse_theme::glass::step::NOTE,
-                    FontWeight::NORMAL,
-                    ink::MUTED,
-                )
-                .child(count),
-            )
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(space::XS))
-                    .child(privacy)
-                    .child(
-                        ui::icon_button(
-                            "screenshots-folder",
-                            "folder-01",
-                            tr("Open screenshots folder"),
-                            ButtonKind::Ghost,
-                            ui::ButtonSize::Sm,
-                            false,
-                        )
-                        .on_press(move |_, _, cx| {
-                            let _ = std::fs::create_dir_all(&folder);
-                            crate::toast::open(cx, &folder);
-                        }),
-                    ),
-            );
+        let head = ui::list_head(count).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(space::XS))
+                .child(privacy)
+                .child(
+                    ui::icon_button(
+                        "screenshots-folder",
+                        "folder-01",
+                        tr("Open screenshots folder"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                        false,
+                    )
+                    .on_press(move |_, _, cx| {
+                        let _ = std::fs::create_dir_all(&folder);
+                        crate::toast::open(cx, &folder);
+                    }),
+                ),
+        );
         let shown = if self.screenshots.all {
             list.len()
         } else {
@@ -80,7 +67,7 @@ impl Launcher {
             })
             .gap_x(px(space::MD))
             .gap_y(px(space::LG))
-            .mt(px(space::MD))
+            .mt(px(space::XS))
             .children(list.into_iter().take(shown).map(|shot| {
                 let picture = pictures.next();
                 let path = shot.path.clone();
@@ -141,12 +128,13 @@ impl Launcher {
             _ => None,
         };
         Some(
-            div()
-                .px(px(space::MD))
-                .child(head)
-                .children(error)
-                .child(grid)
-                .children(toggle_all),
+            div().child(head).child(
+                div()
+                    .px(px(space::MD))
+                    .children(error)
+                    .child(grid)
+                    .children(toggle_all),
+            ),
         )
     }
 }

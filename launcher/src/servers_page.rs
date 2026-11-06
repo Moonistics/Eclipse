@@ -171,7 +171,6 @@ pub(super) struct Servers {
     /// `update --check` is under way.
     checking: bool,
     pvp: Option<bool>,
-    copied: Option<Instant>,
     faces: HashMap<String, Option<Vec<[u8; 4]>>>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
@@ -209,7 +208,6 @@ impl Servers {
             update: None,
             checking: false,
             pvp: None,
-            copied: None,
             faces: HashMap::new(),
             tx,
             rx,
@@ -1187,19 +1185,35 @@ impl Launcher {
                             );
                         },
                     ));
-            if listed {
-                actions = actions.child(self.player_action(
-                    format!("allowed-remove-{name}"),
-                    "Remove",
-                    idle,
-                    cx,
-                    move |this| {
+            let asking = Asking::AllowedPlayer(name.clone());
+            let remove_id = SharedString::from(format!("allowed-remove-{name}"));
+            if listed && self.is_asking(&asking) {
+                actions = div().flex_none().child(ui::confirm(
+                    remove_id,
+                    trf("Remove {name}?", &[("name", &name)]),
+                    tr("Remove"),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.asking = None;
+                        cx.notify();
+                    }),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.asking = None;
                         this.server_command(
                             "Updating the list",
                             vec!["whitelist".into(), "remove".into(), n2.clone()],
                         );
-                    },
+                        cx.notify();
+                    }),
                 ));
+            } else if listed {
+                let remove = ui::remove_button(remove_id, tr("Remove…"), ui::ButtonSize::Sm);
+                actions = actions.child(match idle {
+                    true => remove.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.asking = Some(asking.clone());
+                        cx.notify();
+                    })),
+                    false => ui::disabled(remove),
+                });
             }
             let face = if uuid.is_empty() {
                 div().size(px(FACE)).flex_none()

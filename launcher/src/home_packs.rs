@@ -85,7 +85,7 @@ impl Launcher {
                             "packs-folder",
                             "folder-01",
                             tr("Open packs folder"),
-                            ButtonKind::Secondary,
+                            ButtonKind::Ghost,
                             ui::ButtonSize::Md,
                             false,
                         )

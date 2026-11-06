@@ -8,12 +8,12 @@ use eclipse_launcher::minecraft_versions::Kind as VersionKind;
 use eclipse_theme::glass::{fill, ink, space};
 use fields::Field;
 use instance_page::loaders;
-use instance_state::{JavaChoice, LoaderVersions, NewKind, VersionList};
+use instance_state::{JavaChoice, NewKind, VersionList};
 
 /// Mojang versions listed at most: the search finds the others.
 const ROWS: usize = 60;
 const LIST: f32 = 206.;
-const LIST_SHORT: f32 = 154.;
+const LIST_SHORT: f32 = 180.;
 const SEARCH_FIELD_WIDTH: f32 = 600.;
 const VERSION_COLUMN: f32 = 160.;
 const DATE_COLUMN: f32 = 220.;
@@ -176,13 +176,19 @@ impl Launcher {
                 }
             }
         };
+        let (aside, filters_above) = if self.instance_page_compact() {
+            (None, Some(filters.mb(px(space::MD))))
+        } else {
+            (Some(filters.into_any_element()), None)
+        };
         ui::section_card(
             "instance-minecraft-version",
             tr("Minecraft version"),
-            Some(filters.into_any_element()),
+            aside,
             div()
                 .flex()
                 .flex_col()
+                .children(filters_above)
                 .child(field)
                 .child(ui::with_scrollbar(list)),
         )
@@ -190,17 +196,12 @@ impl Launcher {
 
     pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let now = self.draft_loader();
-        let version = self.loader_version_shown(cx);
         let mut cards = Vec::new();
         let all = loaders();
         for &loader in &all {
             let logo = match self.loader_logo(loader.id(), ui::MARK) {
                 Some(image) => ui::mark_tile(ui::image_tile(image, ui::MARK)),
                 None => ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG),
-            };
-            let title = match &version {
-                Some(v) if loader == now => format!("{} {v}", loader.name()),
-                _ => loader.name().to_string(),
             };
             let note = match loader.id() {
                 "fabric" => tr("Most mods for new versions"),
@@ -215,7 +216,7 @@ impl Launcher {
                 .p(px(space::MD))
                 .min_w_0()
                 .child(logo)
-                .child(ui::item_text(title, note));
+                .child(ui::item_text(loader.name(), note));
             cards.push((card, SharedString::from(loader.name()), loader == now));
         }
         let this = cx.entity().downgrade();
@@ -236,34 +237,6 @@ impl Launcher {
             },
         );
         ui::section_card("instance-loader", tr("Mod loader"), None, grid)
-    }
-
-    fn loader_version_shown(&mut self, cx: &mut Context<Self>) -> Option<String> {
-        let minecraft = self.draft_minecraft()?;
-        self.ask_loader_versions(&minecraft, cx);
-        let d = self.instances.draft.as_ref()?;
-        let editing = d
-            .editing
-            .as_ref()
-            .and_then(|id| self.instances.list.iter().find(|i| &i.id == id));
-        if let Some(Plays::Java {
-            loader: Some(l), ..
-        }) = editing.and_then(|i| self.draft_plays(i))
-        {
-            if !l.version.is_empty() {
-                return Some(l.version);
-            }
-        }
-        match &d.java.loader_versions {
-            LoaderVersions::Ready(_, _, listed) => d.java.loader_version.clone().or_else(|| {
-                listed
-                    .iter()
-                    .find(|l| l.stable)
-                    .or(listed.first())
-                    .map(|l| l.version.clone())
-            }),
-            _ => None,
-        }
     }
 
     /// What the page has `editing` play: Eclipse, or a Java game with its loader. The loader

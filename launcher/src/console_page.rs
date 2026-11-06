@@ -187,7 +187,7 @@ impl Launcher {
                 ui::button(
                     "console-copy",
                     None,
-                    tr("Copy"),
+                    tr("Copy log"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
@@ -202,7 +202,7 @@ impl Launcher {
                 ui::icon_button(
                     "console-folder",
                     "folder-01",
-                    tr("Open folder"),
+                    tr("Open logs folder"),
                     ButtonKind::Ghost,
                     ui::ButtonSize::Md,
                     false,
@@ -267,7 +267,7 @@ impl Launcher {
             );
         }
         let status = match &self.console.shared {
-            _ if self.console.sharing => Some(ui::list_head(tr("Sending…"))),
+            _ if self.console.sharing => Some(ui::list_head(tr("Uploading…"))),
             Some(Ok(shared)) => {
                 let (url, open_url) = (shared.url.clone(), shared.url.clone());
                 Some(
@@ -294,7 +294,7 @@ impl Launcher {
                                 ui::button(
                                     "console-link-open",
                                     None,
-                                    tr("Open"),
+                                    tr("Open link"),
                                     ButtonKind::Secondary,
                                     ui::ButtonSize::Md,
                                 )

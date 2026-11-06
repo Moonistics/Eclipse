@@ -40,7 +40,6 @@ pub(super) struct Internet {
     /// The invitation just made, its link shown to copy.
     fresh: Option<Invite>,
     confirm_limit: bool,
-    copied: Option<(String, Instant)>,
     tx: Sender<Event>,
     rx: Receiver<Event>,
 }
@@ -61,7 +60,6 @@ impl Internet {
             message: None,
             fresh: None,
             confirm_limit: false,
-            copied: None,
             tx,
             rx,
         }
@@ -247,32 +245,6 @@ impl Launcher {
         });
     }
 
-    fn copy_button(
-        &self,
-        id: &'static str,
-        text: String,
-        kind: ButtonKind,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let copied = self
-            .internet
-            .copied
-            .as_ref()
-            .is_some_and(|(what, at)| what == &text && at.elapsed() < Duration::from_secs(2));
-        ui::button(
-            id,
-            None,
-            tr(if copied { "Copied" } else { "Copy" }),
-            kind,
-            ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
-            this.internet.copied = Some((text.clone(), Instant::now()));
-            cx.notify();
-        }))
-    }
-
     /// The Servers page's "Over the internet": the Tailscale address once it runs, else what
     /// to do about it.
     pub(super) fn internet_card(&mut self, port: u16, cx: &mut Context<Self>) -> Div {
@@ -348,16 +320,11 @@ impl Launcher {
             Some(State::Running(_)) => {
                 let node = self.internet.node().cloned().unwrap_or_default();
                 let address = node.address(port);
-                let copied = self.internet.copied.as_ref().is_some_and(|(what, at)| {
-                    *what == address && at.elapsed() < Duration::from_secs(2)
-                });
                 let text = address.clone();
-                let copy = ui::icon_button("ts-copy", if copied { "tick-02" } else { "copy-01" }, tr("Copy the address"), ButtonKind::Ghost, ui::ButtonSize::Md, false)
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
-                    this.internet.copied = Some((text.clone(), Instant::now()));
-                    cx.notify();
-                }));
+                let copy = ui::icon_button("ts-copy", "copy-01", tr("Copy the address"), ButtonKind::Ghost, ui::ButtonSize::Md, false)
+                .on_press(move |_, _, cx| {
+                    clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()))
+                });
                 d.child(
                     div()
                         .mt(px(space::XS))
@@ -545,7 +512,7 @@ impl Launcher {
                             .truncate()
                             .child(fresh.url.clone()),
                     )
-                    .child(self.copy_button("ts-fresh-copy", fresh.url, ButtonKind::Secondary, cx)),
+                    .child(copy_button("ts-fresh-copy", tr("Copy link"), fresh.url)),
             );
         }
         match self.internet.invites.clone() {
@@ -732,12 +699,7 @@ impl Launcher {
                                 .flex()
                                 .flex_wrap()
                                 .gap(px(space::SM))
-                                .child(self.copy_button(
-                                    "ts-snippet-copy",
-                                    snippet,
-                                    ButtonKind::Secondary,
-                                    cx,
-                                ))
+                                .child(copy_button("ts-snippet-copy", tr("Copy the rule"), snippet))
                                 .child(link("ts-acls", "Open access controls", tailscale::ACCESS)),
                         );
                 }
@@ -760,4 +722,12 @@ impl Launcher {
             ),
         )
     }
+}
+
+fn copy_button(id: &'static str, label: &'static str, text: String) -> Stateful<Div> {
+    ui::button(id, None, label, ButtonKind::Secondary, ui::ButtonSize::Md).on_press(
+        move |_, _, cx| {
+            clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()))
+        },
+    )
 }

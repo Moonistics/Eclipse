@@ -1,8 +1,9 @@
 //! The Settings page: the sections as cards in a pane that scrolls on its own under the title,
-//! and a list of the sections beside them (a row of tabs under the title in a narrow window);
-//! the list follows the scroll and takes the pane to a section.
+//! and a list of the sections beside them (a row of tabs under the title in a narrow window, a
+//! dropdown when the tabs don't fit); the list follows the scroll and takes the pane to a section.
 
 use super::*;
+use crate::menus::Menu;
 use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, space, step};
 
@@ -110,9 +111,7 @@ fn update_tile(
         .flex_col()
         .flex_1()
         .min_w_0()
-        .rounded(px(radius::ROW))
-        .bg(ui::inset())
-        .p(px(space::XL))
+        .p(px(ui::SETTING_ROW_PADDING))
         .child(div().child(lead))
         .child(ui::card_title(name).mt(px(space::LG)))
         .child(ui::card_note(version).mt(px(space::XXS)).truncate())
@@ -120,7 +119,12 @@ fn update_tile(
         .children(action.map(|a| div().mt(px(space::LG)).flex().child(a)))
 }
 
-fn folder_row(id: &'static str, name: &'static str, dir: std::path::PathBuf) -> Div {
+fn folder_row(
+    id: &'static str,
+    name: &'static str,
+    open: &'static str,
+    dir: std::path::PathBuf,
+) -> Div {
     let path = div()
         .font_family(theme::MONO)
         .text_size(px(step::CAPTION.size))
@@ -128,8 +132,8 @@ fn folder_row(id: &'static str, name: &'static str, dir: std::path::PathBuf) -> 
         .into_any_element();
     let open = ui::button(
         id,
-        None,
-        tr("Open"),
+        Some("folder-01"),
+        tr(open),
         ButtonKind::Secondary,
         ui::ButtonSize::Md,
     )
@@ -192,6 +196,11 @@ impl Launcher {
         };
         self.settings_marked = active;
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
+        let tabs_fit = shown
+            .iter()
+            .map(|s| ui::tab_width(tr(s.name()), None, ui::TAB_PAD))
+            .sum::<f32>()
+            <= layout::content_width(self.window_width) + 2. * ui::TAB_PAD;
         let entries = shown.iter().enumerate().map(|(i, &section)| {
             let id = format!("settings-section-{}", section.id());
             let entry = if tabs {
@@ -242,12 +251,18 @@ impl Launcher {
             .mr(px(-Scrollbar::ROOM))
             .child(self.settings_pane.wrap(pane).size_full());
         let body = if tabs {
+            let head = if tabs_fit {
+                ui::tab_strip("settings-sections", entries).into_any_element()
+            } else {
+                self.settings_section_picker(&shown, active, cx)
+                    .into_any_element()
+            };
             div()
                 .flex()
                 .flex_col()
                 .flex_1()
                 .min_h_0()
-                .child(ui::tab_strip("settings-sections", entries))
+                .child(head)
                 .child(pane)
         } else {
             div()
@@ -273,6 +288,57 @@ impl Launcher {
             .h_full()
             .child(ui::page_head(tr("Settings"), ""))
             .child(body)
+    }
+
+    fn settings_section_picker(
+        &self,
+        shown: &[SettingsSection],
+        active: usize,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let open = self.menu_is(&Menu::SettingsSections);
+        let picker = ui::dropdown(
+            "settings-sections",
+            tr("Settings section"),
+            None,
+            tr(shown[active].name()),
+            open,
+            ui::ButtonSize::Md,
+        )
+        .w(px(SECTION_LIST_WIDTH));
+        let mut wrap = div()
+            .relative()
+            .flex_none()
+            .mb(px(ui::TAB_STRIP_GAP))
+            .child(self.menu_opener(picker, Menu::SettingsSections, cx));
+        if open {
+            let mut menu = self.menu_popover("settings-sections-menu", cx);
+            for (i, &section) in shown.iter().enumerate() {
+                menu = menu.child(
+                    ui::pick_row(
+                        format!("settings-section-{}", section.id()),
+                        tr(section.name()),
+                        i == active,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.close_menu();
+                            this.settings_jump = Some(Jump {
+                                to: section,
+                                landed: false,
+                            });
+                            cx.notify();
+                        },
+                    )),
+                );
+            }
+            wrap = wrap.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::Start,
+                menu,
+            ));
+        }
+        wrap
     }
 
     pub(super) fn show_settings(&mut self, section: SettingsSection) {
@@ -355,22 +421,6 @@ impl Launcher {
         }))
     }
 
-    /// The Game card's Native mods row: native mods are always on, so the row picks the profile
-    /// they build with, as the Mods page does.
-    fn native_mods_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let (picker, said) = self.native_profile_picker("settings-native-profile", cx);
-        ui::setting_row_fit(
-            self.wide_controls_beside(),
-            tr("Native mod build"),
-            Some(
-                div()
-                    .child(format!("{} {said}.", tr("Experimental.")))
-                    .into_any_element(),
-            ),
-            picker.into_any_element(),
-        )
-    }
-
     pub(super) fn native_profile_picker(
         &self,
         id: &'static str,
@@ -434,14 +484,7 @@ impl Launcher {
     fn eclipse_update_tile(&mut self, cx: &mut Context<Self>) -> Div {
         let installed = self
             .launcher_version()
-            .cloned()
-            .map(|tag| match &self.releases {
-                Load::Ready(list) => list
-                    .iter()
-                    .find(|r| r.tag == tag)
-                    .map_or(tag.clone(), |r| update_name(r).to_owned()),
-                _ => tag,
-            });
+            .map(|tag| instance_page::version_label(tag));
         let state = match (&self.installing, &self.updates.eclipse) {
             (Some((_, done)), _) => Some(ui::state_note(
                 ui::Tone::Busy,
@@ -449,7 +492,10 @@ impl Launcher {
             )),
             (None, Some(r)) => Some(ui::state_note(
                 ui::Tone::Accent(ui::look().accent_soft),
-                trf("{version} available", &[("version", update_name(r))]),
+                trf(
+                    "{version} available",
+                    &[("version", &instance_page::version_label(&r.tag))],
+                ),
             )),
             (None, None)
                 if installed.is_some()
@@ -634,11 +680,11 @@ impl Launcher {
             SettingsSection::Account => card.child(self.account_card(cx)),
             SettingsSection::Updates => card
                 .child(
-                    div()
-                        .flex()
-                        .gap(px(space::SM))
-                        .child(self.eclipse_update_tile(cx))
-                        .child(self.launcher_update_tile(cx)),
+                    div().flex().child(self.eclipse_update_tile(cx)).child(
+                        self.launcher_update_tile(cx)
+                            .border_l_1()
+                            .border_color(ui::edge()),
+                    ),
                 )
                 .child(self.check_updates_row(cx))
                 .child(self.auto_install_row(cx))
@@ -656,8 +702,7 @@ impl Launcher {
             SettingsSection::Game => card
                 .child(self.while_playing_row(cx))
                 .child(self.game_architecture_row(cx))
-                .child(self.game_args_row(cx))
-                .child(self.native_mods_row(cx)),
+                .child(self.game_args_row(cx)),
             SettingsSection::Ai => card
                 .child(self.ai_features_row(cx))
                 .children(self.agents_section(cx)),
@@ -665,9 +710,15 @@ impl Launcher {
                 .child(folder_row(
                     "about-open-data",
                     "Data folder",
+                    "Open data folder",
                     backend::data_dir(),
                 ))
-                .child(folder_row("open-logs", "Logs", backend::logs_dir()))
+                .child(folder_row(
+                    "open-logs",
+                    "Logs",
+                    "Open logs folder",
+                    backend::logs_dir(),
+                ))
                 .when(cfg!(target_os = "linux"), |d| {
                     d.child(self.menu_entry_row(cx))
                 })
@@ -848,15 +899,6 @@ impl Launcher {
         self.settings.proxy = (!value.is_empty()).then_some(value);
         self.save_settings();
         eclipse_launcher::proxy::announce(self.settings.proxy.clone());
-    }
-}
-
-/// How an available update is named: a Nightly by its title ("Nightly 2026-10-28 · 0c02067"), a
-/// release by its tag.
-pub(super) fn update_name(release: &Release) -> &str {
-    match release.nightly {
-        Some(_) => &release.name,
-        None => &release.tag,
     }
 }
 

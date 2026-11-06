@@ -1,7 +1,6 @@
 use super::{
     color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected,
-    setting_text, surface_colour, tip, tip_on_focus, white, Hover, IconSize, Press, Surface,
-    LIST_INSET, PANEL_INSET,
+    setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, LIST_INSET, PANEL_INSET,
 };
 use eclipse_theme::glass::{
     fill, ink,
@@ -200,10 +199,6 @@ fn secondary(d: Stateful<Div>) -> Stateful<Div> {
         .when(super::light(), |d| d.border_1().border_color(edge()))
 }
 
-pub fn solid_secondary() -> Hsla {
-    surface_colour(Surface::Card).blend(secondary_fill())
-}
-
 pub fn primary(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
@@ -292,33 +287,6 @@ pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div 
                 .border_color(rule)
                 .focus_visible(gap_ring),
         )
-}
-
-pub fn split_unavailable(
-    id: impl Into<SharedString>,
-    icon_name: Option<&'static str>,
-    label: impl Into<SharedString>,
-    size: ButtonSize,
-    more: Stateful<Div>,
-    why: impl Into<SharedString>,
-) -> Div {
-    let why: SharedString = why.into();
-    let main = super::focus_stop(button_face(
-        super::unhovered(div().id(id.into())),
-        icon_name,
-        label,
-        size,
-        white(ink::DIM),
-    ))
-    .cursor_default()
-    .bg(solid_secondary())
-    .aria_description(why.clone())
-    .tooltip(tip(why.clone()));
-    split(
-        tip_on_focus(main, why),
-        more.bg(solid_secondary()),
-        ButtonKind::Secondary,
-    )
 }
 
 pub fn confirm(

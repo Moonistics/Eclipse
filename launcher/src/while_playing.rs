@@ -76,7 +76,7 @@ impl Launcher {
         });
         ui::setting_row_fit(
             self.wide_controls_beside(),
-            tr("When the game starts"),
+            tr("Launcher window while playing"),
             None,
             picker.into_any_element(),
         )

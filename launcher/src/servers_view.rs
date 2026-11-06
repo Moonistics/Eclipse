@@ -182,7 +182,7 @@ impl Launcher {
         let folder = ui::icon_button(
             "server-folder",
             "folder-01",
-            tr("Open folder"),
+            tr("Open server folder"),
             ButtonKind::Ghost,
             ui::ButtonSize::Sm,
             false,
@@ -608,24 +608,18 @@ impl Launcher {
             Some(ip) => format!("{ip}:{port}"),
             None => format!("localhost:{port}"),
         };
-        let copied = self
-            .servers
-            .copied
-            .is_some_and(|at| at.elapsed() < Duration::from_secs(2));
-        let copy = |id: &'static str, text: String, cx: &mut Context<Self>| {
+        let copy = |id: &'static str, text: String| {
             ui::icon_button(
                 id,
-                if copied { "tick-02" } else { "copy-01" },
+                "copy-01",
                 tr("Copy the address"),
                 ButtonKind::Ghost,
                 ui::ButtonSize::Md,
                 false,
             )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
-                this.servers.copied = Some(Instant::now());
-                cx.notify();
-            }))
+            .on_press(move |_, _, cx| {
+                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()))
+            })
         };
         let address = |value: String, size: TextStep, button: Stateful<Div>| {
             div()
@@ -649,7 +643,7 @@ impl Launcher {
             .child(address(
                 lan.clone(),
                 step::FIGURE,
-                copy("address-copy", lan, cx),
+                copy("address-copy", lan),
             ))
             .child(
                 ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))

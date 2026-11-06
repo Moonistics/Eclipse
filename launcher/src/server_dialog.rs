@@ -528,13 +528,10 @@ impl Launcher {
             if i > 0 {
                 let gone = name.clone();
                 chip = chip.pr(px(space::XS)).child(
-                    ui::icon_button(
+                    ui::remove_button(
                         SharedString::from(format!("create-friend-remove-{name}")),
-                        "cancel-01",
-                        tr("Remove"),
-                        ButtonKind::Ghost,
+                        trf("Remove {name}", &[("name", name)]),
                         ui::ButtonSize::Sm,
-                        false,
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {

@@ -30,7 +30,7 @@ impl Launcher {
             (None, Some(_)) => self.client_since = None,
             _ => {}
         }
-        let (play, blocked) = self.play_group(tag, prepared || java.is_some(), cx);
+        let play = self.play_group(tag, cx);
         let actions = div()
             .mt(px(ui::page_gap()))
             .flex()
@@ -47,7 +47,7 @@ impl Launcher {
             .min_w_0()
             .pt(px(ui::page_top()))
             .child(self.home_title(cx))
-            .child(self.played_text(blocked))
+            .child(self.played_text(tag, prepared))
             .child(actions)
     }
 
@@ -81,11 +81,15 @@ impl Launcher {
 
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
-    fn played_text(&self, blocked: bool) -> Div {
+    fn played_text(&self, tag: &str, prepared: bool) -> Div {
         let line = match (self.client_since, self.selected_instance()) {
             (Some(since), _) => trf(
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
+            ),
+            (None, Some(i)) if i.java.is_none() && !prepared => trf(
+                "Eclipse needs your copy of Minecraft {version} first.",
+                &[("version", &backend::game_version(tag))],
             ),
             (None, Some(i)) => {
                 let played = match i.last_played {
@@ -96,7 +100,6 @@ impl Launcher {
                             ("when", &last_played(when)),
                         ],
                     ),
-                    None if blocked => tr("Prepare the game files to play").into(),
                     None => tr("Not played yet").into(),
                 };
                 match &i.java {
@@ -117,7 +120,7 @@ impl Launcher {
 
     /// Play and its ⋯ menu: Stop while the game runs, Update when the launcher's version has a
     /// newer one, the progress while preparing, updating or starting.
-    fn play_group(&mut self, tag: &str, ready: bool, cx: &mut Context<Self>) -> (Div, bool) {
+    fn play_group(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
         let running = self.client.is_some();
         let follows = self
             .selected_instance()
@@ -151,24 +154,12 @@ impl Launcher {
             (_, _, Some(_)) => Some((tr("Starting"), None)),
             _ => None,
         };
-        let open = self.menu_is(&Menu::Play);
-        let blocked = busy.is_none()
-            && !running
-            && update.is_none()
-            && play_press(ready, self.owner, false) == PlayPress::Nothing;
-        let kind = if (running && busy.is_none()) || blocked {
+        let open = self.menu_is(&Menu::Play) && !tag.is_empty();
+        let kind = if running && busy.is_none() {
             ButtonKind::Secondary
         } else {
             ButtonKind::Primary
         };
-        let more = ui::more_button(
-            "play-more",
-            tr("Play options"),
-            kind,
-            ui::ButtonSize::Hero,
-            open,
-        );
-        let more = self.menu_opener(more, Menu::Play, cx);
         let focus = self.play_focus.clone();
         let main = match busy {
             Some((label, progress)) => {
@@ -193,58 +184,46 @@ impl Launcher {
                     Some(_) => (tr("Update"), "download-04"),
                     None => (tr("Play"), "play"),
                 };
-                let press = play_press(ready, self.owner, false);
                 let main = ui::button(
                     "play",
                     Some(icon),
                     label,
                     ButtonKind::Primary,
                     ui::ButtonSize::Hero,
-                );
-                let main = match (&update, press) {
-                    (None, PlayPress::Nothing) => main,
-                    _ => main.track_focus(&focus),
-                };
-                match (&update, press) {
-                    (Some(_), _) => main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                )
+                .track_focus(&focus);
+                match &update {
+                    Some(_) => main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.install_update();
                         cx.notify();
                     })),
-                    (None, PlayPress::Play) => {
-                        main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.close_menu();
-                            this.play();
-                            cx.notify();
-                        }))
-                    }
-                    (None, PlayPress::PrepareThenPlay) => {
-                        main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.close_menu();
-                            this.play_when_prepared = this.selected().cloned();
-                            this.prepare(backend::MinecraftFrom::Install);
-                            cx.notify();
-                        }))
-                    }
-                    (None, PlayPress::Nothing) => ui::disabled(main),
+                    None => main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.close_menu();
+                        this.press_play();
+                        cx.notify();
+                    })),
                 }
             }
         };
-        let wide = self.window_width >= layout::HOME_HEAD_WIDE;
-        let split = if blocked {
-            ui::split_unavailable(
-                "play",
-                Some("play"),
-                tr("Play"),
-                ui::ButtonSize::Hero,
-                more,
-                tr("Prepare the game files to play"),
-            )
+        let width = px(if self.window_width >= layout::HOME_HEAD_WIDE {
+            PLAY_WIDE
         } else {
-            ui::split(main, more, kind)
+            PLAY
+        });
+        let play = if tag.is_empty() {
+            main.min_w(width).into_any_element()
+        } else {
+            let more = ui::more_button(
+                "play-more",
+                tr("Play options"),
+                kind,
+                ui::ButtonSize::Hero,
+                open,
+            );
+            let more = self.menu_opener(more, Menu::Play, cx);
+            ui::split(main, more, kind).min_w(width).into_any_element()
         };
-        let mut wrap = div()
-            .relative()
-            .child(split.min_w(px(if wide { PLAY_WIDE } else { PLAY })));
+        let mut wrap = div().relative().child(play);
         if open {
             let locked = running || busy.is_some();
             let mut items: Vec<(&'static str, &'static str, &'static str, bool, PlayItem)> =
@@ -254,43 +233,30 @@ impl Launcher {
                     "play-skip",
                     "play",
                     tr("Play without updating"),
-                    locked || !ready,
+                    locked,
                     PlayItem::Play,
                 ));
             }
-            if !tag.is_empty() {
-                items.push((
-                    "play-prepare",
-                    "package-01",
-                    tr(if backend::is_prepared(tag) {
-                        "Prepare game files again"
-                    } else {
-                        "Prepare game files"
-                    }),
-                    locked,
-                    PlayItem::Prepare,
-                ));
-                items.push((
-                    "play-minecraft-folder",
-                    "folder-01",
-                    tr("Choose the Minecraft folder"),
-                    false,
-                    PlayItem::MinecraftFolder,
-                ));
-            }
-            let id = self.selected_instance().map(|i| i.id.clone());
-            if id.is_some() {
-                items.push((
-                    "play-command",
-                    "computer-terminal-01",
-                    tr("Copy the launch command"),
-                    false,
-                    PlayItem::Command,
-                ));
-            }
+            items.push((
+                "play-prepare",
+                "package-01",
+                tr(if backend::is_prepared(tag) {
+                    "Prepare game files again"
+                } else {
+                    "Prepare game files"
+                }),
+                locked,
+                PlayItem::Prepare,
+            ));
+            items.push((
+                "play-minecraft-folder",
+                "folder-01",
+                tr("Choose the Minecraft folder"),
+                false,
+                PlayItem::MinecraftFolder,
+            ));
             let mut menu = self.menu_popover("play-menu", cx);
             for (key, icon, label, locked, what) in items {
-                let id = id.clone();
                 let row = ui::menu_row(key, icon, label, false);
                 menu = menu.child(if locked {
                     ui::disabled(row)
@@ -299,16 +265,8 @@ impl Launcher {
                         this.close_menu();
                         match what {
                             PlayItem::Prepare => this.prepare(backend::MinecraftFrom::Install),
-                            PlayItem::Play => this.play(),
+                            PlayItem::Play => this.press_play(),
                             PlayItem::MinecraftFolder => this.choose_folder(cx),
-                            PlayItem::Command => {
-                                if let Some(id) = &id {
-                                    clipboard::copy_to_clipboard(
-                                        cx,
-                                        gpui::ClipboardItem::new_string(launch_command(id)),
-                                    );
-                                }
-                            }
                         }
                         cx.notify();
                     }))
@@ -316,7 +274,21 @@ impl Launcher {
             }
             wrap = wrap.child(ui::menu_under(tall(), ui::Align::Start, menu));
         }
-        (wrap, blocked)
+        wrap
+    }
+
+    fn press_play(&mut self) {
+        let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
+            || self.selected().is_some_and(|tag| backend::is_prepared(tag));
+        let busy = self.preparing || self.client.is_some() || self.starting_client.is_some();
+        match play_press(ready, busy) {
+            PlayPress::Play => self.play(),
+            PlayPress::PrepareThenPlay => {
+                self.play_when_prepared = self.selected().cloned();
+                self.prepare(backend::MinecraftFrom::Install);
+            }
+            PlayPress::Nothing => {}
+        }
     }
 
     /// The version: "Version" over the one played, a chevron that turns while its list is open;
@@ -525,12 +497,6 @@ enum PlayItem {
     Prepare,
     Play,
     MinecraftFolder,
-    Command,
-}
-
-/// The command that plays instance `id` without the window, as its desktop shortcut runs it.
-fn launch_command(id: &str) -> String {
-    format!("eclipse-launcher play --instance {id}")
 }
 
 #[cfg(test)]

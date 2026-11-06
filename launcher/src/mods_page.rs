@@ -174,7 +174,7 @@ impl Mods {
         };
         Self {
             kind,
-            source: source_for(kind),
+            source: source_for(kind, false),
             everything: false,
             search: 0,
             searching: false,
@@ -233,6 +233,17 @@ impl Mods {
                 None | Some(Checking::Running)
             )
             && p.support().installable()
+    }
+
+    fn use_source(&mut self, source: SourceId) -> bool {
+        if self.source == source {
+            return false;
+        }
+        self.source = source;
+        self.browse.filters = Default::default();
+        self.browse.open = None;
+        self.picked = None;
+        true
     }
 
     fn runnable_first(&mut self) {
@@ -308,19 +319,10 @@ impl Launcher {
     /// Opens the Mods page on its Modpacks tab, with the pack `slug` open when given (the
     /// sidebar's packs and its + button).
     pub(super) fn show_modpack(&mut self, slug: Option<String>) {
-        self.go(Page::Mods);
+        self.show_mods(PackKind::Modpack);
         if slug.is_some() {
             self.pack_open = slug;
             self.mods.report_list.reset();
-        }
-        if self.mods.kind != PackKind::Modpack {
-            self.mods.kind = PackKind::Modpack;
-            self.mods.source = source_for(PackKind::Modpack);
-            self.mods.browse.filters = Default::default();
-            self.mods.browse.open = None;
-            if self.mods.loaded {
-                self.mods_search(0);
-            }
         }
     }
 
@@ -454,6 +456,7 @@ impl Launcher {
         let m = &mut self.mods;
         m.search += 1;
         m.searching = true;
+        m.asked = true;
         if offset == 0 {
             if !keep {
                 m.results.clear();
@@ -915,6 +918,10 @@ impl Launcher {
         if java != self.mods.java {
             self.mods.asked = false;
         }
+        let to_eclipse = java.is_none() && (!self.mods.loaded || self.mods.java.is_some());
+        if to_eclipse && self.mods.use_source(source_for(self.mods.kind, true)) {
+            self.mods.asked = false;
+        }
         self.mods.java = java;
         if !self.mods.loaded || (home.is_some() && self.mods.home != home) {
             self.mods.home = home;
@@ -929,11 +936,22 @@ impl Launcher {
         }
     }
 
+    pub(super) fn show_mods(&mut self, kind: PackKind) {
+        self.go(Page::Mods);
+        self.mods_load();
+        self.mods.browse.open = None;
+        if self.mods.kind != kind {
+            self.mods_set_kind(kind);
+        } else {
+            self.mods_set_source(source_for(kind, self.mods.java.is_none()));
+        }
+    }
+
     /// Opens a kind's tab: its first source, its own filters, a new search.
     pub(super) fn mods_set_kind(&mut self, kind: PackKind) {
         if self.mods.kind != kind {
             self.mods.kind = kind;
-            self.mods.source = source_for(kind);
+            self.mods.source = source_for(kind, self.mods.java.is_none());
             // A data pack goes into a world: one may have been made since.
             if kind == PackKind::DataPack {
                 self.mods.read_worlds();
@@ -947,16 +965,12 @@ impl Launcher {
     }
 
     pub(super) fn mods_set_source(&mut self, source: SourceId) {
-        if self.mods.source != source {
-            self.mods.source = source;
-            self.mods.browse.filters = Default::default();
-            self.mods.browse.open = None;
-            self.mods.picked = None;
+        if self.mods.use_source(source) {
             self.mods_search(0);
         }
     }
 
-    /// The project `id` leaves the selected instance now; what happened, for the page's notice.
+    /// The project `id` leaves the selected instance now; what happened.
     pub(super) fn mods_remove(&mut self, id: &str) -> Result<String, String> {
         let home = self.mods.home();
         let Some(_lock) = browser::try_lock_home(&home) else {
@@ -965,15 +979,30 @@ impl Launcher {
             self.mods.message = Some(busy.clone());
             return busy;
         };
-        let removed = match self.mods.java {
-            Some(_) => java_instance::remove(&home, id),
-            None => installed::remove(&home, id),
-        }
-        .map(|e| trf("Removed {name}.", &[("name", &e.title)]));
+        let trashed = self
+            .mods
+            .installed
+            .iter()
+            .find(|e| e.project == id && goes_to_trash(e.kind))
+            .and_then(|e| e.path(&home))
+            .filter(|path| path.exists())
+            .map_or(Ok(()), |path| {
+                eclipse_launcher::desktop_seams::to_trash(&path)
+                    .map_err(|e| format!("{}: {e}", path.display()))
+            });
+        let removed = trashed
+            .and_then(|()| match self.mods.java {
+                Some(_) => java_instance::remove(&home, id),
+                None => installed::remove(&home, id),
+            })
+            .map(|e| match goes_to_trash(e.kind) {
+                true => trf("{name} moved to the trash.", &[("name", &e.title)]),
+                false => trf("Removed {name}.", &[("name", &e.title)]),
+            });
         if let Ok(said) = &removed {
             crate::toast::say(said.clone());
         }
-        self.mods.message = Some(removed.clone());
+        self.mods.message = removed.clone().err().map(Err);
         self.mods.installed = installed::Installed::load(&home).entries;
         self.mods.installed_list.reset();
         self.stop_asking(|a| matches!(a, Asking::Mod(_)));
@@ -1053,7 +1082,6 @@ impl Launcher {
     pub(super) fn mods_page(&mut self, cx: &mut Context<Self>) -> Div {
         self.mods_load();
         if !self.mods.asked {
-            self.mods.asked = true;
             self.mods_search(0);
         }
         self.mods_view(cx)
@@ -1262,11 +1290,18 @@ impl Launcher {
             let confirming = self.is_asking(&Asking::Mod(e.project.clone()));
             let remove_id = SharedString::from(format!("mods-remove-{}", e.project));
             let id = e.project.clone();
-            let remove = ui::remove_button(remove_id.clone(), tr("Remove…"), ui::ButtonSize::Md)
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let trash = goes_to_trash(e.kind);
+            let ask = if trash {
+                tr("Delete…")
+            } else {
+                tr("Remove…")
+            };
+            let remove = ui::remove_button(remove_id.clone(), ask, ui::ButtonSize::Md).on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.asking = Some(Asking::Mod(id.clone()));
                     cx.notify();
-                }));
+                }),
+            );
             let on = match &self.mods.java {
                 _ if e.kind != PackKind::Mod => None,
                 Some(_) => Some(java_instance::is_on(&self.mods.home(), e)),
@@ -1297,9 +1332,9 @@ impl Launcher {
                     ui::icon_button(
                         SharedString::from(format!("mods-folder-{}", e.project)),
                         "folder-01",
-                        tr("Open folder"),
+                        tr("Open native mods folder"),
                         ButtonKind::Ghost,
-                        ui::ButtonSize::Sm,
+                        ui::ButtonSize::Md,
                         false,
                     )
                     .on_press(move |_, _, cx| {
@@ -1311,10 +1346,11 @@ impl Launcher {
             right = right.child(remove);
             if confirming {
                 let id = e.project.clone();
+                let (question, verb) = removal(e.kind, &e.title);
                 right = div().flex_none().child(ui::confirm(
                     remove_id,
-                    trf("Remove {name}?", &[("name", &e.title)]),
-                    tr("Remove"),
+                    question,
+                    verb,
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
@@ -1392,23 +1428,16 @@ impl Launcher {
             },
             row,
         );
-        Some(
+        Some(ui::field_group(
+            tr("Installed"),
+            update_all.map(IntoElement::into_any_element),
             div()
                 .flex()
                 .flex_col()
                 .gap(px(space::MD))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .gap(px(space::MD))
-                        .child(ui::card_title(tr("Installed")))
-                        .children(update_all),
-                )
                 .children(native.then(|| self.native_build(cx)).flatten())
                 .child(list),
-        )
+        ))
     }
 
     /// The selected instance's native build (docs/native-mods.md): which build it plays, the
@@ -1670,13 +1699,24 @@ pub(super) fn auto_update(targets: &[AutoTarget]) -> (Vec<String>, Vec<String>) 
     (lines, rebuild)
 }
 
-/// Where a kind's tab searches first: Eclipse's registry for shader packs, Modrinth for the rest.
-fn source_for(kind: PackKind) -> SourceId {
+fn source_for(kind: PackKind, eclipse: bool) -> SourceId {
     match kind {
         PackKind::Shader => SourceId::Eclipse,
+        PackKind::Mod if eclipse => SourceId::Eclipse,
         PackKind::Mod | PackKind::ResourcePack | PackKind::Modpack | PackKind::DataPack => {
             SourceId::Modrinth
         }
+    }
+}
+
+fn goes_to_trash(kind: PackKind) -> bool {
+    kind != PackKind::Mod
+}
+
+fn removal(kind: PackKind, name: &str) -> (String, &'static str) {
+    match goes_to_trash(kind) {
+        true => (trf("Delete {name}?", &[("name", name)]), tr("Delete")),
+        false => (trf("Remove {name}?", &[("name", name)]), tr("Remove")),
     }
 }
 

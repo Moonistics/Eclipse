@@ -3,6 +3,7 @@
 //! console. One at a time, instead of one long page. The strip, and under it one card with the
 //! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
 use super::*;
+use crate::menus::Menu;
 use crate::ui;
 use eclipse_theme::glass::{ink, radius, space, step};
 
@@ -103,10 +104,21 @@ impl Launcher {
         } else {
             ui::TAB_PAD_TIGHT
         };
-        let strip = ui::tab_strip_padded(
-            "home-tabs",
-            pad,
-            named.into_iter().map(|(tab, name, count)| {
+        let widths: Vec<f32> = named
+            .iter()
+            .map(|(_, name, n)| ui::tab_width(name, n.filter(|_| counts), pad))
+            .collect();
+        let shown = shown_tabs(
+            &widths,
+            named.iter().position(|(tab, ..)| *tab == open).unwrap_or(0),
+            content + 2. * pad,
+            ui::ButtonSize::Md.height(),
+        );
+        let (named, hidden): (Vec<_>, Vec<_>) =
+            named.into_iter().zip(shown).partition(|(_, shown)| *shown);
+        let mut tabs: Vec<Stateful<Div>> = named
+            .into_iter()
+            .map(|((tab, name, count), _)| {
                 ui::count_tab(
                     format!("home-tab-{tab:?}"),
                     name,
@@ -118,8 +130,13 @@ impl Launcher {
                     this.home_tab = tab;
                     cx.notify();
                 }))
-            }),
-        );
+            })
+            .collect();
+        if !hidden.is_empty() {
+            let hidden = hidden.into_iter().map(|(tab, _)| tab).collect();
+            tabs.push(self.more_tabs(hidden, cx));
+        }
+        let strip = ui::tab_strip_padded("home-tabs", pad, tabs);
         let body: Option<AnyElement> = match open {
             HomeTab::PatchNotes => Some(self.patch_notes(cx).into_any_element()),
             HomeTab::Mods => Some(self.mods_tab(cx).into_any_element()),
@@ -136,6 +153,49 @@ impl Launcher {
                 .p(px(ui::PANEL_INSET))
                 .children(body),
         )
+    }
+
+    fn more_tabs(
+        &mut self,
+        hidden: Vec<(HomeTab, &'static str, Option<usize>)>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let open = self.menu_is(&Menu::HomeTabs);
+        let more = ui::more_button(
+            "home-tabs-more",
+            tr("More tabs"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+            open,
+        );
+        let mut wrap = div()
+            .id("home-tabs-overflow")
+            .relative()
+            .flex_none()
+            .child(self.menu_opener(more, Menu::HomeTabs, cx));
+        if open {
+            let mut menu = self.menu_popover("home-tabs-menu", cx);
+            for (i, (tab, name, count)) in hidden.into_iter().enumerate() {
+                let row = ui::menu_item(
+                    format!("home-tabs-menu-{tab:?}"),
+                    name.into(),
+                    count.map(|n| n.to_string()).unwrap_or_default(),
+                    false,
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.close_menu();
+                    this.home_tab = tab;
+                    cx.notify();
+                }));
+                menu = menu.child(if i == 0 { ui::starts_menu(row) } else { row });
+            }
+            wrap = wrap.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::End,
+                menu,
+            ));
+        }
+        wrap
     }
 
     /// Patch notes: the changes in the Eclipse version played, by section (the newest Nightly's
@@ -208,6 +268,26 @@ impl Launcher {
             ))
             .child(list.pb(px(space::MD)))
     }
+}
+
+fn shown_tabs(widths: &[f32], open: usize, room: f32, more: f32) -> Vec<bool> {
+    if widths.iter().sum::<f32>() <= room {
+        return vec![true; widths.len()];
+    }
+    let mut shown = vec![false; widths.len()];
+    shown[open] = true;
+    let mut used = more + widths[open];
+    for (i, width) in widths.iter().enumerate() {
+        if i == open {
+            continue;
+        }
+        if used + width > room {
+            break;
+        }
+        shown[i] = true;
+        used += width;
+    }
+    shown
 }
 
 /// A release's changes: each section's name and its lines.
@@ -285,6 +365,20 @@ fn strip_refs(item: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn tabs_that_do_not_fit_go_under_more_keeping_the_open_one() {
+        let widths = [100., 60., 80., 120., 70., 120.];
+        assert_eq!(shown_tabs(&widths, 0, 600., 36.), vec![true; 6]);
+        assert_eq!(
+            shown_tabs(&widths, 0, 500., 36.),
+            vec![true, true, true, true, true, false]
+        );
+        assert_eq!(
+            shown_tabs(&widths, 5, 500., 36.),
+            vec![true, true, true, false, false, true]
+        );
+    }
 
     #[test]
     fn a_release_body_becomes_its_sections_without_refs_or_thanks() {

@@ -118,7 +118,7 @@ impl Launcher {
             ui::button(
                 "world-packs-folder",
                 None,
-                tr("Open folder"),
+                tr("Open data packs folder"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )

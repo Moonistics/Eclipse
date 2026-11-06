@@ -4,7 +4,7 @@ use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{fill, ink, radius, space};
+use eclipse_theme::glass::{fill, ink, pixel_text, radius, space};
 use fields::Field;
 use instance_state::{NewKind, VersionList};
 
@@ -23,6 +23,8 @@ const CHOICE_ICON: f32 = ui::TILE_MD;
 const NAME_FIELD_WIDTH: f32 = 340.;
 const ECLIPSE_LIST: f32 = 248.;
 const ECLIPSE_COLUMN: f32 = 240.;
+const COMPACT_BELOW: f32 = 600.;
+const GAME_NOTE_LINES: usize = 2;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
@@ -131,6 +133,10 @@ impl Launcher {
             .h_full()
             .child(ui::page_head(title, note))
             .child(pane)
+    }
+
+    pub(super) fn instance_page_compact(&self) -> bool {
+        layout::content_width(self.window_width) < COMPACT_BELOW
     }
 
     /// The loader a modded instance plays (or will).
@@ -297,37 +303,25 @@ impl Launcher {
         // One made in the launcher can switch what it plays; the game's home and modpacks
         // play what they were made with.
         let switches = editing.is_none_or(|i| i.kind == instances::Kind::Own);
-        let names: Vec<&str> = loaders().iter().map(|l| l.name()).collect();
-        let modded = match names.split_last() {
-            Some((last, [])) => last.to_string(),
-            Some((last, rest)) => trf(
-                "{first} or {last}",
-                &[("first", &rest.join(", ")), ("last", last)],
-            ),
-            None => String::new(),
-        };
+        let marks = !self.instance_page_compact();
         let mut cards = Vec::new();
         let kinds = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
         for k in kinds {
             let (id, title, note) = match k {
-                NewKind::Eclipse => ("eclipse", tr("Eclipse"), tr("Faster Minecraft").to_string()),
-                NewKind::Vanilla => (
-                    "vanilla",
-                    tr("Vanilla"),
-                    tr("Minecraft as Mojang ships it").to_string(),
-                ),
-                NewKind::Modded => ("modded", tr("Modded"), modded.clone()),
+                NewKind::Eclipse => ("eclipse", tr("Eclipse"), tr("Faster Minecraft")),
+                NewKind::Vanilla => ("vanilla", tr("Vanilla"), tr("The original Minecraft")),
+                NewKind::Modded => ("modded", tr("Modded"), tr("Fabric, Forge and more")),
             };
-            let mark = match k {
+            let mark = marks.then(|| match k {
                 NewKind::Modded => self.modded_mark(ui::MARK),
                 _ => self.auto_mark(k, loader, ui::MARK),
-            };
+            });
             let card = ui::choice(format!("new-kind-{id}"), k == kind)
-                .items_center()
+                .items_start()
                 .gap(px(space::LG))
                 .p(px(space::MD))
                 .min_w_0()
-                .child(ui::mark_tile(mark))
+                .children(mark.map(ui::mark_tile))
                 .child(
                     div()
                         .relative()
@@ -343,7 +337,7 @@ impl Launcher {
                             )
                             .child(title),
                         )
-                        .child(ui::card_note(note)),
+                        .child(ui::card_note(note).line_clamp(GAME_NOTE_LINES)),
                 );
             cards.push((
                 if switches {
@@ -355,20 +349,26 @@ impl Launcher {
                 k == kind,
             ));
         }
-        // A modpack becomes an instance by being imported, on the Mods page. Edit offers it too.
-        let import = (!busy).then(|| {
-            ui::button(
+        let importing = self.pack_busy;
+        let import = (!busy && editing.is_none()).then(|| {
+            let import = ui::button(
                 "instance-import",
                 None,
                 tr("Import a modpack…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.show_modpack(None);
-                cx.notify();
-            }))
-            .into_any_element()
+            );
+            if importing {
+                return ui::unavailable(import, tr("Wait for the current operation to finish."))
+                    .into_any_element();
+            }
+            import
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.show_modpack(None);
+                    this.choose_pack(false, cx);
+                    cx.notify();
+                }))
+                .into_any_element()
         });
         let grid = div()
             .id("instance-game-choices")
@@ -406,7 +406,7 @@ impl Launcher {
         let group = self
             .field(
                 Field::InstanceGroup,
-                tr("For example Modpacks"),
+                tr("For example Survival"),
                 NAME_FIELD_WIDTH,
                 ui::ButtonSize::Lg,
                 cx,
@@ -465,7 +465,7 @@ pub(super) fn eclipse_choices(releases: &[Release], installed: &[String]) -> Vec
 }
 
 /// "Nightly · c9d474d", "Imported · 2026-10-30", or the tag.
-fn version_label(tag: &str) -> String {
+pub(super) fn version_label(tag: &str) -> String {
     eclipse_launcher::nightly::label(tag)
         .or_else(|| build_import::label(tag))
         .unwrap_or_else(|| tag.to_string())
@@ -494,20 +494,26 @@ impl Launcher {
         } else {
             PREVIEW_ICON
         };
-        let icon = self.draft_icon(editing, kind, &name, size);
+        let compact = self.instance_page_compact();
+        let icon = (!compact).then(|| self.draft_icon(editing, kind, &name, size));
+        let (button, title) = if compact {
+            (ui::ButtonSize::Md, pixel_text::PRESS)
+        } else {
+            (ui::ButtonSize::Lg, pixel_text::CARD_TITLE)
+        };
         let cancel = ui::button(
             "instance-cancel",
             None,
             tr("Cancel"),
             ButtonKind::Ghost,
-            ui::ButtonSize::Lg,
+            button,
         );
         let label = match (editing.is_some(), busy) {
             (true, _) => tr("Save changes"),
             (false, true) if copy => tr("Copying…"),
             (false, _) => tr("Create instance"),
         };
-        let save = ui::primary("instance-save", label, ui::ButtonSize::Lg);
+        let save = ui::primary("instance-save", label, button);
         let buttons = if busy {
             div()
                 .flex()
@@ -539,13 +545,13 @@ impl Launcher {
             .items_center()
             .gap(px(space::LG))
             .p(px(ui::PANEL_INSET))
-            .child(
+            .children(icon.map(|icon| {
                 ui::picture_button("instance-preview-icon", icon, tr("Choose image…")).on_press(
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.choose_instance_picture(cx);
                     }),
-                ),
-            )
+                )
+            }))
             .child(
                 div()
                     .relative()
@@ -554,10 +560,7 @@ impl Launcher {
                     .flex_1()
                     .min_w_0()
                     .gap(px(space::XS))
-                    .child(
-                        ui::entity_title(name, eclipse_theme::glass::pixel_text::CARD_TITLE)
-                            .truncate(),
-                    )
+                    .child(ui::entity_title(name, title).truncate())
                     // Why Create failed takes the summary's place, by the buttons.
                     .children(match error {
                         Some(e) => Some(ui::error_note(e)),

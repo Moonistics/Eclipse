@@ -68,7 +68,7 @@ impl Launcher {
         }
     }
 
-    fn choose_pack(&mut self, folder: bool, cx: &mut Context<Self>) {
+    pub(super) fn choose_pack(&mut self, folder: bool, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
             files: !folder,
             directories: folder,
@@ -189,8 +189,8 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(space::XS))
-                    .child(ui::card_title(tr("Your modpacks")))
+                    .gap(px(ui::TITLE_NOTE_GAP))
+                    .child(ui::section_title(tr("Your modpacks")))
                     .child(ui::card_note(tr(
                         "A .mrpack, a CurseForge .zip, or a Prism, MultiMC or CurseForge instance.",
                     ))),
@@ -239,26 +239,23 @@ impl Launcher {
     fn registry_pack_rows(&self, cx: &mut Context<Self>) -> Div {
         let mut list = div().flex().flex_col();
         for p in self.registry_packs.iter() {
-            let (play, remove) = (p.work.clone(), p.work.clone());
+            let play = p.work.clone();
             let id = p.id.clone();
             let key = Asking::RegistryPack(id.clone());
             let confirming = self.is_asking(&key);
             let remove_id = SharedString::from(format!("remove-pack-{id}"));
             let right = if confirming {
+                let gone = format!("pack:{id}");
                 div().flex_none().child(ui::confirm(
                     remove_id,
-                    trf("Remove {name}?", &[("name", &p.name)]),
-                    tr("Remove"),
+                    trf("Delete {name}?", &[("name", &p.name)]),
+                    tr("Delete"),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
                     }),
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        match eclipse_pack::remove(&remove) {
-                            Ok(()) => this.packs_loaded = None,
-                            Err(e) => this.pack_error = Some(e),
-                        }
-                        this.asking = None;
+                        this.delete_pack(&gone);
                         cx.notify();
                     }),
                 ))
@@ -282,14 +279,11 @@ impl Launcher {
                             },
                         )),
                     )
-                    .child(
-                        ui::remove_button(remove_id, tr("Remove…"), ui::ButtonSize::Md).on_press(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.asking = Some(key.clone());
-                                cx.notify();
-                            }),
-                        ),
-                    )
+                    .child(self.pack_delete_opener(
+                        ui::remove_button(remove_id, tr("Delete…"), ui::ButtonSize::Md),
+                        key,
+                        cx,
+                    ))
             };
             let detail = trf(
                 "{version} from Eclipse's registry, its own profile: {mods}",
@@ -305,6 +299,29 @@ impl Launcher {
             );
         }
         list
+    }
+
+    fn pack_delete_opener(
+        &self,
+        opener: Stateful<Div>,
+        key: Asking,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        if self.client.is_some() || self.starting_client.is_some() {
+            return ui::unavailable(opener, tr("Close the game first"));
+        }
+        opener.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.asking = Some(key.clone());
+            cx.notify();
+        }))
+    }
+
+    fn delete_pack(&mut self, instance: &str) {
+        self.asking = None;
+        self.delete_instance(instance);
+        self.pack_open = None;
+        self.packs_loaded = None;
+        self.mods.report_list.reset();
     }
 
     fn pack_log_plate(&self) -> Div {
@@ -436,45 +453,32 @@ impl Launcher {
                 }));
             }
         }
-        let confirming = self.is_asking(&Asking::PortedPack(p.slug.clone()));
-        let slug = p.slug.clone();
-        let remove = if confirming {
-            let work = p.work.clone();
+        let key = Asking::PortedPack(p.slug.clone());
+        let remove = if self.is_asking(&key) {
+            let gone = format!("port:{}", p.slug);
             ui::confirm(
                 "pack-remove",
-                trf("Remove {name}?", &[("name", &p.pack.name)]),
-                tr("Remove"),
+                trf("Delete {name}?", &[("name", &p.pack.name)]),
+                tr("Delete"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();
                 }),
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    match modpacks::remove(&work) {
-                        Ok(()) => {
-                            this.packs.retain(|p| p.slug != slug);
-                            this.pack_open = this.packs.first().map(|p| p.slug.clone());
-                            this.mods.report_list.reset();
-                        }
-                        Err(e) => this.pack_error = Some(e),
-                    }
-                    this.asking = None;
+                    this.delete_pack(&gone);
                     cx.notify();
                 }),
             )
             .into_any_element()
         } else {
-            ui::button(
+            let opener = ui::button(
                 "pack-remove",
                 None,
-                tr("Remove…"),
+                tr("Delete…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.asking = Some(Asking::PortedPack(slug.clone()));
-                cx.notify();
-            }))
-            .into_any_element()
+            );
+            self.pack_delete_opener(opener, key, cx).into_any_element()
         };
         buttons = buttons.child(play).child(port).child(from).child(remove);
         let mut notes = vec![trf(

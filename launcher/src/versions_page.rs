@@ -91,17 +91,26 @@ impl Launcher {
                 )))
             }
             Load::Failed(e) => {
-                return page.child(ui::empty_card(ui::error_state_with(
-                    "releases-failed",
-                    tr("Couldn't load versions"),
-                    e,
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.fetch_releases();
-                        cx.notify();
-                    }),
-                    Some(Self::proxy_settings_button("releases-failed", cx)),
-                    ButtonKind::Primary,
-                )));
+                let offline = self.local_builds(
+                    "Installed versions",
+                    |tag| !native_mods::is_native(tag) && !build_import::is_imported(tag),
+                    None,
+                    on_disk,
+                    cx,
+                );
+                return page
+                    .children(offline)
+                    .child(ui::empty_card(ui::error_state_with(
+                        "releases-failed",
+                        tr("Couldn't load versions"),
+                        e,
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.fetch_releases();
+                            cx.notify();
+                        }),
+                        Some(Self::proxy_settings_button("releases-failed", cx)),
+                        ButtonKind::Primary,
+                    )));
             }
             Load::Ready(r) if r.is_empty() => {
                 return page.child(ui::empty_card(ui::empty_state(
@@ -128,16 +137,7 @@ impl Launcher {
             keep,
             |i| {
                 let release = releases[i].clone();
-                let title = release
-                    .name
-                    .split_once(": ")
-                    .map(|(_, rest)| rest.to_string())
-                    .unwrap_or_else(|| release.name.clone());
-                let title = if title.is_empty() {
-                    release.tag.clone()
-                } else {
-                    title
-                };
+                let title = release_title(&release);
                 let mut line = dates::published(&release.date, &release.time);
                 let right = self.release_action(&release, cx);
                 self.version_card(&release.tag, title, &mut line, i == 0, on_disk, right)
@@ -261,7 +261,9 @@ impl Launcher {
                     }))
                     .into_any_element();
             }
-            return self.version_actions(&tag, cx).into_any_element();
+            return self
+                .version_actions(&tag, &release_title(release), cx)
+                .into_any_element();
         }
         if release.asset.is_none() {
             return ui::card_note(tr("No build for this platform")).into_any_element();
@@ -302,7 +304,7 @@ impl Launcher {
 
     /// An installed version's actions: Use (when it isn't the one in use) and the bin, which asks
     /// again before it removes.
-    fn version_actions(&self, tag: &str, cx: &mut Context<Self>) -> Div {
+    fn version_actions(&self, tag: &str, name: &str, cx: &mut Context<Self>) -> Div {
         let selected = self.selected().map(String::as_str) == Some(tag);
         let confirming = self.is_asking(&Asking::Version(tag.to_string()));
         let bin = SharedString::from(format!("bin-{tag}"));
@@ -311,7 +313,7 @@ impl Launcher {
         if confirming {
             return d.child(ui::confirm(
                 bin,
-                trf("Remove {name}?", &[("name", tag)]),
+                trf("Remove {name}?", &[("name", name)]),
                 tr("Remove"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
@@ -385,19 +387,30 @@ impl Launcher {
                     line.push(about.file);
                 }
                 let mut line = line.join(" · ");
+                let title = eclipse_launcher::nightly::label(&tag)
+                    .or_else(|| build_import::label(&tag))
+                    .unwrap_or_else(|| tag.trim_start_matches('v').to_string());
                 let right = if self.removing.contains(&tag) {
                     self.install_progress(None, tr("Removing…"))
                         .into_any_element()
                 } else {
-                    self.version_actions(&tag, cx).into_any_element()
+                    self.version_actions(&tag, &title, cx).into_any_element()
                 };
-                let title = eclipse_launcher::nightly::label(&tag)
-                    .or_else(|| build_import::label(&tag))
-                    .unwrap_or_else(|| tag.trim_start_matches('v').to_string());
                 d = d.child(self.version_card(&tag, title, &mut line, false, on_disk, right));
             }
             d
         })
+    }
+}
+
+fn release_title(release: &Release) -> String {
+    let title = release
+        .name
+        .split_once(": ")
+        .map_or(release.name.as_str(), |(_, rest)| rest);
+    match title.is_empty() {
+        true => release.tag.clone(),
+        false => title.to_string(),
     }
 }
 

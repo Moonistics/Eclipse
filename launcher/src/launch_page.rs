@@ -513,7 +513,7 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(ui::card_title(tr("When it starts")))
+                        .child(ui::section_title(tr("Launch options")))
                         .child(close),
                 )
                 .child(pre)

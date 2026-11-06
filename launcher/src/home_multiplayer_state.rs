@@ -117,7 +117,7 @@ impl Launcher {
         self.multiplayer.stale();
     }
 
-    /// Enter in the address field, or Add.
+    /// Enter in the address field, or Save server.
     pub(super) fn add_server(&mut self) {
         let name = self.fields.value(Field::MultiplayerName).to_string();
         let address = self.fields.value(Field::MultiplayerAddress).to_string();

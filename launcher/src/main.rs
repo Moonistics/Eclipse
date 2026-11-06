@@ -1436,10 +1436,10 @@ impl Launcher {
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlayPress {
     Play,
-    /// Not prepared, for an account that owns the game: prepare it (from the player's install,
-    /// else downloaded from Mojang for that account), then play, as the official launcher does.
+    /// Not prepared: prepare it (from the player's install, else downloaded from Mojang for an
+    /// account that owns the game), then play, as the official launcher does.
     PrepareThenPlay,
-    /// Not prepared and no owner (signing in comes first), or busy preparing or playing.
+    /// Busy preparing or playing.
     Nothing,
 }
 
@@ -1453,13 +1453,11 @@ fn sign_in_change(shown: &mut Option<SignInState>, next: SignInState) -> Option<
     Some(next)
 }
 
-/// `owner`: whether an account here owns the game, by the keychain (`Launcher::owner`).
-fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> PlayPress {
-    match (prepared, owner) {
+fn play_press(prepared: bool, busy: bool) -> PlayPress {
+    match prepared {
         _ if busy => PlayPress::Nothing,
-        (true, _) => PlayPress::Play,
-        (false, Some(true)) => PlayPress::PrepareThenPlay,
-        (false, _) => PlayPress::Nothing,
+        true => PlayPress::Play,
+        false => PlayPress::PrepareThenPlay,
     }
 }
 
@@ -1467,7 +1465,7 @@ fn play_press(prepared: bool, owner: Option<bool>, busy: bool) -> PlayPress {
 /// code, a pack's Play) starts it now: only when Play would play. Never while a preparation runs:
 /// the game would open on half-written files.
 fn starts_now(prepared: bool, preparing: bool, running: bool) -> bool {
-    play_press(prepared, None, preparing || running) == PlayPress::Play
+    play_press(prepared, preparing || running) == PlayPress::Play
 }
 
 /// Whether `tag` can start being deleted now: it is installed, no install is writing it, and it
@@ -1940,22 +1938,15 @@ mod tests {
         );
     }
 
-    /// An owner's Play works on a version not prepared yet: it prepares it (downloading
-    /// Minecraft from Mojang when this computer has no install), then plays. Without an owner
-    /// it stays off: signing in comes first.
+    /// Play works on a version not prepared yet: it prepares it (downloading Minecraft from
+    /// Mojang for an owner when this computer has no install), then plays.
     #[test]
-    fn play_prepares_first_for_an_owner() {
+    fn play_prepares_first() {
         use super::{play_press, PlayPress};
-        assert_eq!(play_press(true, Some(true), false), PlayPress::Play);
-        assert_eq!(play_press(true, None, false), PlayPress::Play);
-        assert_eq!(
-            play_press(false, Some(true), false),
-            PlayPress::PrepareThenPlay
-        );
-        assert_eq!(play_press(false, Some(false), false), PlayPress::Nothing);
-        assert_eq!(play_press(false, None, false), PlayPress::Nothing);
-        assert_eq!(play_press(false, Some(true), true), PlayPress::Nothing);
-        assert_eq!(play_press(true, Some(true), true), PlayPress::Nothing);
+        assert_eq!(play_press(true, false), PlayPress::Play);
+        assert_eq!(play_press(false, false), PlayPress::PrepareThenPlay);
+        assert_eq!(play_press(false, true), PlayPress::Nothing);
+        assert_eq!(play_press(true, true), PlayPress::Nothing);
     }
 
     /// A server's Join (and every other shortcut) waits like Play: not while the version's

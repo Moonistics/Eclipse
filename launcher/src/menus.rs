@@ -7,7 +7,9 @@ pub(super) enum Menu {
     InstanceRow(String),
     Play,
     Version,
+    HomeTabs,
     Language,
+    SettingsSections,
     ListRow(SharedString),
     ModsTarget,
     ModsSort,
@@ -28,6 +30,7 @@ pub(super) enum Asking {
     Collection,
     ServerRestore(String),
     ServerDelete,
+    AllowedPlayer(String),
     InstanceDelete(String),
     WorldDelete(SharedString),
 }

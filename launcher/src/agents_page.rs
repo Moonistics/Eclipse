@@ -13,8 +13,8 @@ pub(crate) struct AgentsUi {
     client: Option<&'static str>,
     /// Which Copy button just copied.
     copied: Option<&'static str>,
-    /// A command or test running.
-    busy: bool,
+    /// The add or test under way, by its button.
+    running: Option<&'static str>,
     /// What the last add or test said, and whether it went well.
     status: Option<(bool, String)>,
 }
@@ -42,6 +42,7 @@ impl Launcher {
             .iter()
             .find(|c| Some(c.id) == self.agents.client)
             .unwrap_or(&clients[0]);
+        let running = self.agents.running;
         let this = cx.entity().downgrade();
         let options: Vec<(&'static str, &'static str)> =
             clients.iter().map(|c| (c.id, c.name)).collect();
@@ -94,37 +95,39 @@ impl Launcher {
         if let Some((program, args)) = client.add.clone() {
             let line = client.add_line().unwrap_or_default();
             let label = trf("Add to {client}", &[("client", client.name)]);
-            let busy = self.agents.busy;
-            let add = ui::primary(
+            let add = ui::button(
                 "agent-add",
-                if busy {
+                None,
+                if running == Some("agent-add") {
                     tr("Running…").to_owned()
                 } else {
                     label
                 },
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                if this.agents.busy {
-                    return;
-                }
-                this.agents.busy = true;
-                this.agents.status = None;
-                let (program, args) = (program, args.clone());
-                let task = cx
-                    .background_executor()
-                    .spawn(async move { run_add(program, &args) });
-                cx.spawn(async move |this, cx| {
-                    let result = task.await;
-                    let _ = this.update(cx, |this, cx| {
-                        this.agents.busy = false;
-                        this.agents.status = Some(result);
-                        cx.notify();
-                    });
-                })
-                .detach();
-                cx.notify();
-            }));
+            );
+            let add = if running.is_some() {
+                ui::disabled(add)
+            } else {
+                add.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.agents.running = Some("agent-add");
+                    this.agents.status = None;
+                    let (program, args) = (program, args.clone());
+                    let task = cx
+                        .background_executor()
+                        .spawn(async move { run_add(program, &args) });
+                    cx.spawn(async move |this, cx| {
+                        let result = task.await;
+                        let _ = this.update(cx, |this, cx| {
+                            this.agents.running = None;
+                            this.agents.status = Some(result);
+                            cx.notify();
+                        });
+                    })
+                    .detach();
+                    cx.notify();
+                }))
+            };
             steps = steps
                 .child(say(trf(
                     "{client} adds it with this command:",
@@ -141,34 +144,39 @@ impl Launcher {
         let test = ui::button(
             "agent-test",
             None,
-            tr("Test the connection"),
+            tr(if running == Some("agent-test") {
+                "Testing…"
+            } else {
+                "Test the connection"
+            }),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            if this.agents.busy {
-                return;
-            }
-            this.agents.busy = true;
-            this.agents.status = None;
-            let exe = backend::update_target();
-            let task = cx.background_executor().spawn(async move {
-                match agents::self_test(&exe) {
-                    Ok(n) => (true, trf("The MCP server answered with {count} tools. Now ask your agent: \"Say hello from Eclipse\".", &[("count", &n.to_string())])),
-                    Err(e) => (false, trf("The MCP server did not answer: {error}", &[("error", &e)])),
-                }
-            });
-            cx.spawn(async move |this, cx| {
-                let result = task.await;
-                let _ = this.update(cx, |this, cx| {
-                    this.agents.busy = false;
-                    this.agents.status = Some(result);
-                    cx.notify();
+        );
+        let test = if running.is_some() {
+            ui::disabled(test)
+        } else {
+            test.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.agents.running = Some("agent-test");
+                this.agents.status = None;
+                let exe = backend::update_target();
+                let task = cx.background_executor().spawn(async move {
+                    match agents::self_test(&exe) {
+                        Ok(n) => (true, trf("The MCP server answered with {count} tools. Now ask your agent: \"Say hello from Eclipse\".", &[("count", &n.to_string())])),
+                        Err(e) => (false, trf("The MCP server did not answer: {error}", &[("error", &e)])),
+                    }
                 });
-            })
-            .detach();
-            cx.notify();
-        }));
+                cx.spawn(async move |this, cx| {
+                    let result = task.await;
+                    let _ = this.update(cx, |this, cx| {
+                        this.agents.running = None;
+                        this.agents.status = Some(result);
+                        cx.notify();
+                    });
+                })
+                .detach();
+                cx.notify();
+            }))
+        };
         steps = steps
             .child(say(trf(
                 if client.add.is_some() {

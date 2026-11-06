@@ -873,13 +873,13 @@ impl Launcher {
                     .on_press(move |_, _, cx| cx.open_url(&page_url)),
                 );
             }
-            for l in &d.links {
+            for l in d.links.iter().filter(|l| l.url != p.page) {
                 let url = l.url.clone();
                 links = links.child(
                     ui::button(
                         format!("mods-link-{url}"),
                         None,
-                        tr(&l.label.clone()),
+                        link_label(&l.label),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
@@ -888,28 +888,28 @@ impl Launcher {
             }
             page = page.child(links);
         }
-        let this = cx.entity().downgrade();
         // No Gallery tab for a project without images.
         let no_gallery = matches!(&details, Some(Ok(d)) if d.gallery.is_empty());
-        let tabs: Vec<(Tab, &str)> = TABS
-            .into_iter()
-            .filter(|(tab, _)| !(no_gallery && *tab == Tab::Gallery))
-            .collect();
-        page = page.child(div().flex().child(ui::segments(
-            "mods-tab",
-            &ui::translated(&tabs),
-            tab,
-            {
-                move |value, _, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        if let Some(o) = &mut this.mods.browse.open {
-                            o.tab = value;
-                        }
-                        cx.notify();
-                    });
-                }
-            },
-        )));
+        let tabs = ui::tab_strip(
+            "mods-project-tabs",
+            TABS.into_iter()
+                .filter(|(shown, _)| !(no_gallery && *shown == Tab::Gallery))
+                .map(|(shown, label)| {
+                    ui::tab(
+                        SharedString::from(format!("mods-project-tab-{shown:?}")),
+                        tr(label),
+                        shown == tab,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            if let Some(o) = &mut this.mods.browse.open {
+                                o.tab = shown;
+                            }
+                            cx.notify();
+                        },
+                    ))
+                }),
+        );
         let failed = |e: &str, cx: &mut Context<Self>| {
             let again = p.clone();
             ui::error_state(
@@ -984,7 +984,16 @@ impl Launcher {
                     .into_any_element(),
             },
         };
-        Some(page.child(body))
+        Some(page.child(div().flex().flex_col().child(tabs).child(body)))
+    }
+}
+
+fn link_label(label: &str) -> SharedString {
+    match label {
+        "Source" => tr("Source code").into(),
+        "Issues" => tr("Report a bug").into(),
+        "Report" => tr("Report to Eclipse").into(),
+        other => tr(other).to_string().into(),
     }
 }
 

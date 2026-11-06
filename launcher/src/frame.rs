@@ -805,8 +805,8 @@ impl Launcher {
     }
 
     /// The ⋯ menu of a sidebar row, beside it: Edit instance, Duplicate…, Open instance folder,
-    /// Export…, launch settings, the desktop shortcut, then Delete… (then asked to confirm). Each
-    /// acts on that instance.
+    /// Export…, launch settings, the desktop shortcut and its command, then Delete… (then asked
+    /// to confirm). Each acts on that instance.
     pub(super) fn row_menu(&mut self, cx: &mut Context<Self>) -> Option<AnyElement> {
         let Some(Menu::InstanceRow(id)) = self.open_menu.clone() else {
             return None;
@@ -834,6 +834,7 @@ impl Launcher {
             instance.clone(),
         );
         let home = instance.home.clone();
+        let command = instance.id.clone();
         let shortcut_label = if self.has_shortcut(&instance.id) {
             tr("Remove the desktop shortcut")
         } else {
@@ -899,6 +900,21 @@ impl Launcher {
                         cx.notify();
                     },
                 )),
+            )
+            .child(
+                item(
+                    "command",
+                    "computer-terminal-01",
+                    tr("Copy the launch command").into(),
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.close_menu();
+                    clipboard::copy_to_clipboard(
+                        cx,
+                        gpui::ClipboardItem::new_string(launch_command(&command)),
+                    );
+                    cx.notify();
+                })),
             );
         // Eclipse's own instance can't be deleted, nor one while a game runs.
         let can_delete = instance.kind != InstanceKind::Default
@@ -943,4 +959,9 @@ impl Launcher {
         menu = menu.child(delete);
         Some(ui::menu_beside(at, menu).into_any_element())
     }
+}
+
+/// The command that plays instance `id` without the window, as its desktop shortcut runs it.
+fn launch_command(id: &str) -> String {
+    format!("eclipse-launcher play --instance {id}")
 }

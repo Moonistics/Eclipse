@@ -222,7 +222,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(space::MD))
-            .child(ui::card_title(tr("Add a native mod from GitHub")))
+            .child(ui::section_title(tr("Add a native mod from GitHub")))
             .child(
                 div()
                     .flex()
@@ -426,7 +426,7 @@ impl Launcher {
             ui::button(
                 SharedString::from(format!("github-src-{id}")),
                 None,
-                tr("Source"),
+                tr("Source code"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
@@ -450,24 +450,26 @@ impl Launcher {
         let on = eclipse_launcher::browser::java::is_enabled(&home, &row.id);
         let id = row.id.clone();
         right = right.child(
-            crate::ui::toggle(format!("native-switch-{id}"), on).on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    let home = this.mods.home();
-                    // An update holds the folder: the window doesn't wait for it.
-                    let Some(_lock) = eclipse_launcher::browser::try_lock_home(&home) else {
-                        this.mods.message =
-                            Some(Err(tr("Wait for the current operation to finish.").into()));
-                        cx.notify();
-                        return;
-                    };
+            ui::toggle_label(
+                format!("native-switch-{id}"),
+                if on { tr("On") } else { tr("Off") },
+                on,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let home = this.mods.home();
+                // An update holds the folder: the window doesn't wait for it.
+                let Some(_lock) = eclipse_launcher::browser::try_lock_home(&home) else {
                     this.mods.message =
-                        eclipse_launcher::browser::java::set_enabled(&home, &id, !on)
-                            .err()
-                            .map(Err);
-                    this.instance_mods_changed();
+                        Some(Err(tr("Wait for the current operation to finish.").into()));
                     cx.notify();
-                },
-            )),
+                    return;
+                };
+                this.mods.message = eclipse_launcher::browser::java::set_enabled(&home, &id, !on)
+                    .err()
+                    .map(Err);
+                this.instance_mods_changed();
+                cx.notify();
+            })),
         );
         let confirming = self.is_asking(&Asking::GithubMod(row.file.clone()));
         let remove_id = SharedString::from(format!("native-remove-{}", row.file));
