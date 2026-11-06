@@ -246,8 +246,8 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   all at radius 8. Every pressable picture (gallery, screenshots, icons) is a picture button, its
   tooltip beside it. Faces are drawn by one renderer (`profile_heads`).
 - **Wells** (`ui::well`, `ui::code_well`, `ui::log_well`): the inset well, a code block, a log.
-- **Progress** (`ui::bar`, `ui::progress_bar`): a 4 px track; unknown progress shuttles, and both
-  stand still under reduced motion.
+- **Progress** (`ui::progress_line`, `ui::progress_bar`): a 4 px track under a label and percent;
+  unknown progress shuttles, and it stands still under reduced motion.
 - **Keyboard**: anything pressable is a Tab stop with Enter and Space (`.on_press`); the focus ring
   shows for the keyboard only; F6 and Shift+F6 move between the page and the sidebar; Home opens
   with Play focused and another page with its first control focused, and the first Tab after that
