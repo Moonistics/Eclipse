@@ -109,7 +109,11 @@ fn fetch_index() -> Result<(Index, String), String> {
     } else {
         fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?
     };
-    Ok((parse(&text)?, text))
+    Ok((read_index(&text)?, text))
+}
+
+fn read_index(text: &str) -> Result<Index, String> {
+    parse(text).map_err(|e| format!("Eclipse's mod registry wasn't readable: {e}"))
 }
 
 fn parse(text: &str) -> Result<Index, String> {

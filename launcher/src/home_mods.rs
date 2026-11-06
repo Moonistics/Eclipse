@@ -40,11 +40,8 @@ impl Launcher {
                 "puzzle",
                 tr("No mods yet"),
                 match &game {
-                    Some(game) => trf(
-                        "Mods made for {game} run in this instance.",
-                        &[("game", game)],
-                    ),
-                    None => tr("Mods made for Eclipse run in this instance.").into(),
+                    Some(game) => trf("Find mods made for {game}.", &[("game", game)]),
+                    None => tr("Find mods made for Eclipse.").into(),
                 },
                 vec![find],
             ));
@@ -175,6 +172,7 @@ impl Launcher {
             true => source,
             false => format!("{} · {source}", row.version),
         };
+        let wait = self.mods_wait();
         let update = row.entry.as_ref().and_then(|e| {
             let key = (e.source, e.project.clone());
             let number = self.mods.updates.get(&key)?.clone();
@@ -186,9 +184,9 @@ impl Launcher {
                 ButtonKind::Secondary,
                 ui::ButtonSize::Sm,
             );
-            Some(match busy {
-                true => ui::disabled(chip),
-                false => chip.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            Some(match wait {
+                Some(why) => ui::unavailable(chip, why),
+                None => chip.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(source, id.clone(), None);
                     cx.notify();
                 })),

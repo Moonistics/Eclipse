@@ -73,11 +73,7 @@ fn category_name(slug: &str) -> String {
     if said == words {
         return details::category_label(slug);
     }
-    let mut chars = said.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
+    i18n::capitalised(said)
 }
 
 /// One of the registry's tags as a chip shows it.
@@ -741,8 +737,10 @@ impl Launcher {
                 trf("Install in {instance}", &[("instance", &instance)])
             };
             let mut install = ui::primary("mods-page-install", label, ui::ButtonSize::Md);
-            if busy.is_some() || self.mods.needs_world(&p) {
-                install = ui::disabled(install);
+            if let Some(why) = self.mods_wait() {
+                install = ui::unavailable(install, why);
+            } else if self.mods.needs_world(&p) {
+                install = ui::unavailable(install, tr("Create a world in the game first"));
             } else {
                 let p = p.clone();
                 install = install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -755,7 +753,7 @@ impl Launcher {
             action = action.child(
                 ui::primary(
                     "mods-page-new-fabric",
-                    tr("Create a Fabric instance"),
+                    tr("Create a Fabric instance…"),
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {

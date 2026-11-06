@@ -161,7 +161,11 @@ pub struct Settings {
     pub accent: crate::themes::Accent,
     /// The launcher theme (`themes::theme`): its sky behind the light appearance. Unset is
     /// Eclipse's own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        default,
+        skip_serializing_if = "Option::is_none",
+        deserialize_with = "crate::themes::stored_theme"
+    )]
     pub theme: Option<String>,
     /// Home's background: a picture the player picked, kept in the data folder under this name
     /// (`themes::keep_background`). Unset shows Eclipse's landscape.

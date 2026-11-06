@@ -89,6 +89,7 @@ impl Session {
                     extra.extend(more.iter().filter_map(Value::as_str).map(String::from));
                 }
                 let text = |key| arg_str(args, key).map(String::from);
+                let played = instance.clone();
                 let launched = backend::launch(
                     backend::Play {
                         version: Some(tag.clone()),
@@ -105,7 +106,13 @@ impl Session {
                 for notice in launched.notices() {
                     eprintln!("{notice}");
                 }
-                let client = Logged::start(Job::Client, launched.cmd)?;
+                let (started, vars) = (std::time::Instant::now(), launched.vars);
+                let client = Logged::start_then(Job::Client, launched.cmd, move |_| {
+                    if let Err(e) = instances::record_play(&played.id, started.elapsed()) {
+                        eprintln!("Play time not saved: {e}");
+                    }
+                    eclipse_launcher::launch::run_after_exit(&played.launch, &played.home, &vars);
+                })?;
                 // Started once its control socket answers, as eclipse-ctl launch waits.
                 let deadline = std::time::Instant::now() + Duration::from_secs(120);
                 while !game_tools::listening() {

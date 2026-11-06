@@ -24,7 +24,7 @@ const FOLDERS: [&str; 5] = [
 ];
 /// A mod turned off keeps its file under this suffix, which the loaders don't read: they load
 /// the `.jar` files in `mods/`.
-const OFF: &str = ".disabled";
+pub(super) const OFF: &str = ".disabled";
 /// How deep required dependencies are followed.
 const MAX_DEPTH: usize = 4;
 

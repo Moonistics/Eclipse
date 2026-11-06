@@ -127,7 +127,7 @@ impl Page {
     /// `settings`) opens on that page, for screenshots; Home otherwise (`getting-ready`: Home
     /// preparing, `home::getting_ready_preview`; `sign-in`: the owner gate's sheet with a
     /// made-up code, `owner_page::sign_in_preview`; `new-instance`: the New instance page on
-    /// Modded; `edit-instance`: the selected one's Edit page; `worlds`, `packs`...: Home on that tab, `HomeTab::from_env`).
+    /// Modded; `edit-instance`, `duplicate-instance`: the selected one's Edit or Duplicate page; `worlds`, `packs`...: Home on that tab, `HomeTab::from_env`).
     fn from_env() -> Page {
         let page = match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
             Ok("mods" | "modpacks" | "resourcepacks" | "shaders" | "datapacks") => Page::Mods,
@@ -177,8 +177,8 @@ impl Page {
         match self {
             Page::Home => "dashboard-square-01",
             Page::Mods => "puzzle",
-            Page::Servers => "computer",
-            Page::Versions => "package-01",
+            Page::Servers => crate::icons::SERVER,
+            Page::Versions => crate::icons::VERSION,
             Page::Notes => "information-circle",
             Page::Settings => "sliders-horizontal",
             Page::InstanceEditor => "plus-sign",
@@ -602,8 +602,10 @@ impl Launcher {
             this.open_instance_page(None);
             this.pick_kind(kind, cx);
         }
-        if std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("edit-instance") {
-            this.open_instance_page(this.selected_instance().cloned());
+        match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
+            Ok("edit-instance") => this.open_instance_page(this.selected_instance().cloned()),
+            Ok("duplicate-instance") => this.start_copy(),
+            _ => {}
         }
         // What the game and the launcher kept, if the player allows it and there is a server.
         telemetry::send_in_background();

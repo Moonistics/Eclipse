@@ -82,12 +82,12 @@ impl SettingsSection {
             SettingsSection::Account => "user",
             SettingsSection::Updates => "refresh",
             SettingsSection::Appearance => "color-picker",
-            SettingsSection::Language => "earth",
-            SettingsSection::Network => "globe-02",
+            SettingsSection::Language => crate::icons::LANGUAGE,
+            SettingsSection::Network => crate::icons::NETWORK,
             SettingsSection::Game => "game-controller-01",
             SettingsSection::Ai => "ai-chat-02",
             SettingsSection::Folders => "folder-01",
-            SettingsSection::Developer => "computer-terminal-01",
+            SettingsSection::Developer => crate::icons::DEVELOPER,
             SettingsSection::DataCollection => "view",
         }
     }
@@ -208,6 +208,7 @@ impl Launcher {
         };
         self.settings_ui.marked = active;
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
+        let scrolled = ui::scrolled(&self.settings_ui.pane.handle);
         let pane = ui::scroll_pane("settings-pane", &self.settings_ui.pane.handle)
             .size_full()
             // A scroll redraws the pane from its layer without rendering the page again, so the
@@ -216,7 +217,8 @@ impl Launcher {
             .on_scroll(cx.listener(move |this, _: &gpui::ScrollEvent, window, cx| {
                 this.settings_ui.jump = None;
                 cx.on_next_frame(window, move |this, _, cx| {
-                    if this.settings_section(count) != this.settings_ui.marked {
+                    let faded = ui::scrolled(&this.settings_ui.pane.handle) != scrolled;
+                    if faded || this.settings_section(count) != this.settings_ui.marked {
                         cx.notify();
                     }
                 });
@@ -227,8 +229,7 @@ impl Launcher {
             .gap(px(layout::CARD_GAP))
             .pb(px(space::SM))
             .children(sections);
-        let sky = self.theme.night.sky;
-        let clip_line = ui::color(eclipse_theme::night::over(sky[1], 0.5, sky[0]));
+        let clip_line = self.sky_under_title();
         let pane = div()
             .relative()
             .flex_1()
@@ -334,6 +335,11 @@ impl Launcher {
             .child(body)
     }
 
+    pub(super) fn sky_under_title(&self) -> Hsla {
+        let sky = self.theme.night.sky;
+        ui::color(eclipse_theme::night::over(sky[1], 0.5, sky[0]))
+    }
+
     pub(super) fn show_settings(&mut self, section: SettingsSection) {
         self.go(Page::Settings);
         self.settings_ui.jump = Some(Jump {
@@ -346,7 +352,7 @@ impl Launcher {
     pub(super) fn proxy_settings_button(id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         ui::button(
             format!("{id}-proxy"),
-            Some("globe-02"),
+            Some(crate::icons::NETWORK),
             tr("Proxy settings"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -722,7 +728,7 @@ impl Launcher {
                 ))
                 .child(folder_row(
                     "open-logs",
-                    tr("Logs").into(),
+                    tr("Logs folder").into(),
                     tr("Open logs folder").into(),
                     backend::logs_dir(),
                 )),
@@ -796,7 +802,7 @@ impl Launcher {
         // Linux: the launcher's entry in the applications menu (`eclipse_launcher::desktop`).
         ui::toggle_row(
             "desktop-entry",
-            tr("Show in applications menu"),
+            tr("Show the launcher in the applications menu"),
             None,
             self.settings.desktop_entry(),
         )
@@ -893,8 +899,9 @@ impl Launcher {
                 cx,
             )
             .w_full()
-            .max_w(px(layout::FIELD_XL));
-        ui::setting_row_stacked(tr("Game arguments"), None, field.into_any_element())
+            .max_w(px(layout::FIELD_XL))
+            .aria_label(tr("Eclipse game arguments"));
+        ui::setting_row_stacked(tr("Eclipse game arguments"), None, field.into_any_element())
     }
 
     /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in

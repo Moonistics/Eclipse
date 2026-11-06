@@ -123,11 +123,7 @@ pub fn category_label(slug: &str) -> String {
         "core-shaders" => return "Core shaders".into(),
         _ => slug.replace('-', " "),
     };
-    let mut chars = words.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
+    crate::i18n::capitalised(&words)
 }
 
 /// A gallery image.

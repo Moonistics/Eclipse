@@ -1,6 +1,6 @@
-//! The selected instance's tabs under Home's head: the patch notes of the Eclipse version it
-//! plays, then its mods, worlds, servers, packs, screenshots and, once the game has said something, its
-//! console. One at a time, instead of one long page. The strip, and under it one card with the
+//! The selected instance's tabs under Home's head: its mods, worlds, servers, packs, screenshots,
+//! once the game has said something its console, and last the patch notes of the Eclipse version
+//! it plays. One at a time, instead of one long page. The strip, and under it one card with the
 //! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
 use super::*;
 use crate::tab_strip::StripTab;
@@ -9,19 +9,19 @@ use eclipse_theme::glass::{ink, space, step};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum HomeTab {
-    #[default]
-    PatchNotes,
     Mods,
+    #[default]
     Worlds,
     Multiplayer,
     Packs,
     Screenshots,
     Console,
+    PatchNotes,
 }
 
 impl HomeTab {
     /// `ECLIPSE_LAUNCHER_PAGE=worlds` (or `instance-mods`, `multiplayer`, `packs`, `screenshots`,
-    /// `console`) opens Home on that tab, for screenshots.
+    /// `console`, `patch-notes`) opens Home on that tab, for screenshots.
     pub(super) fn from_env() -> Self {
         match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
             Ok("instance-mods") => HomeTab::Mods,
@@ -30,15 +30,16 @@ impl HomeTab {
             Ok("packs") => HomeTab::Packs,
             Ok("screenshots") => HomeTab::Screenshots,
             Ok("console") => HomeTab::Console,
-            _ => HomeTab::PatchNotes,
+            Ok("patch-notes") => HomeTab::PatchNotes,
+            _ => HomeTab::default(),
         }
     }
 }
 
 impl Launcher {
     /// The tabs the selected instance has now, with how many things each holds (None: not known
-    /// yet, or nothing to count). Patch notes only for Eclipse and once there are some, Console
-    /// only once there is something to show.
+    /// yet, or nothing to count). Console only once there is something to show, Patch notes last,
+    /// only for Eclipse and once there are some.
     pub(super) fn home_tab_list(
         &mut self,
         cx: &mut Context<Self>,
@@ -50,9 +51,6 @@ impl Launcher {
             return notes.into_iter().collect();
         };
         let mut tabs = Vec::new();
-        if eclipse {
-            tabs.extend(notes);
-        }
         if self.has_mods_tab() {
             tabs.push((HomeTab::Mods, self.instance_mods_count(cx)));
         }
@@ -62,6 +60,9 @@ impl Launcher {
         tabs.push((HomeTab::Screenshots, Some(self.screenshots_count())));
         if self.console_log().is_some() {
             tabs.push((HomeTab::Console, None));
+        }
+        if eclipse {
+            tabs.extend(notes);
         }
         tabs
     }
@@ -129,7 +130,8 @@ impl Launcher {
         match &self.releases {
             Load::Ready(list) => patch_source(list, self.selected().map(String::as_str))
                 .is_some_and(|(_, sections)| !sections.is_empty()),
-            Load::Loading | Load::Failed(_) => true,
+            Load::Loading => true,
+            Load::Failed(_) => false,
         }
     }
 
@@ -144,19 +146,7 @@ impl Launcher {
                     tr("Loading patch notes…"),
                 )))
             }
-            Load::Failed(e) => {
-                return Some(div().child(ui::error_state_with(
-                    "patch-notes-failed",
-                    tr("Couldn't load patch notes"),
-                    e,
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.fetch_releases();
-                        cx.notify();
-                    }),
-                    vec![Self::proxy_settings_button("patch-notes-failed", cx)],
-                    ButtonKind::Secondary,
-                )));
-            }
+            Load::Failed(_) => return None,
             Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),
         };
         let (note, sections) = source.filter(|(_, sections)| !sections.is_empty())?;

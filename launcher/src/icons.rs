@@ -5,6 +5,18 @@ use gpui::{img, prelude::*, px, Div, ImageSource, ObjectFit, SharedString};
 use std::borrow::Cow;
 
 const LARGE_DIR: &str = "icons/24/";
+const CELLS: f32 = 8.;
+const LARGE_CELLS: f32 = 12.;
+
+pub const PACK: &str = "cube";
+pub const WORLD: &str = "earth";
+pub const SERVER: &str = "computer";
+pub const MULTIPLAYER: &str = "user-multiple-02";
+pub const VERSION: &str = "package-01";
+pub const LANGUAGE: &str = "language-square";
+pub const NETWORK: &str = "globe-02";
+pub const CONSOLE: &str = "computer-terminal-01";
+pub const DEVELOPER: &str = "source-code";
 
 macro_rules! large_icons {
     ($($name:literal),* $(,)?) => {
@@ -19,6 +31,7 @@ large_icons!(
     "clock",
     "computer",
     "computer-terminal-01",
+    "cube",
     "download-04",
     "earth",
     "folder-01",
@@ -31,12 +44,20 @@ large_icons!(
     "puzzle",
     "search-01",
     "stop",
+    "user-multiple-02",
 );
 
 pub fn path(name: &str, size: IconSize) -> String {
     match size {
         IconSize::Px24 => format!("{LARGE_DIR}{name}.svg"),
         IconSize::Px16 | IconSize::Px32 => format!("icons/{name}.svg"),
+    }
+}
+
+pub fn cells(name: &str, size: IconSize) -> f32 {
+    match size {
+        IconSize::Px24 if large(name).is_some() => LARGE_CELLS,
+        _ => CELLS,
     }
 }
 
@@ -167,12 +188,47 @@ mod tests {
     }
 
     #[test]
+    fn every_icon_snaps_on_the_grid_it_is_drawn_on() {
+        let grid = |svg: &[u8]| drawing(svg).map(|d| (d.side / CELL) as f32);
+        for (name, svg) in eclipse_theme::glass_icons::ALL {
+            let Some(small) = grid(svg) else { continue };
+            let large = large(name).and_then(grid);
+            assert_eq!(cells(name, IconSize::Px16), small, "{name}");
+            assert_eq!(cells(name, IconSize::Px32), small, "{name}");
+            assert_eq!(
+                cells(name, IconSize::Px24),
+                large.unwrap_or(small),
+                "{name}"
+            );
+        }
+    }
+
+    #[test]
     fn a_large_icon_has_a_small_one_of_the_same_name() {
         for (name, _) in LARGE {
             assert!(
                 eclipse_theme::glass_icons::get(name).is_some(),
                 "{name} is drawn only at 24 px"
             );
+        }
+    }
+
+    #[test]
+    fn each_meaning_has_a_drawing_of_its_own() {
+        let meanings = [
+            PACK,
+            WORLD,
+            SERVER,
+            MULTIPLAYER,
+            VERSION,
+            LANGUAGE,
+            NETWORK,
+            CONSOLE,
+            DEVELOPER,
+        ];
+        for (i, name) in meanings.iter().enumerate() {
+            assert!(eclipse_theme::glass_icons::get(name).is_some(), "{name}");
+            assert!(!meanings[..i].contains(name), "{name} means two things");
         }
     }
 

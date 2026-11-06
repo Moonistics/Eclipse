@@ -58,7 +58,7 @@ impl Launcher {
         if count == 0 {
             return Some(body.child(ui::empty_state(
                 "packs-empty",
-                "package-01",
+                crate::icons::PACK,
                 tr("No resource packs or shader packs yet"),
                 tr("Resource packs change textures and sounds; shader packs change the lighting."),
                 vec![find(), add()],
@@ -190,7 +190,7 @@ impl Launcher {
                 .child(toggle)
         };
         ui::list_row(key, hovered || confirming)
-            .child(ui::row_picture(icon, "package-01"))
+            .child(ui::row_picture(icon, crate::icons::PACK))
             .child(ui::item_text(pack.title.clone(), note.join(" · ")))
             .child(end.relative().flex_none())
     }

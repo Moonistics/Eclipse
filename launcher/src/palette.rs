@@ -2,9 +2,9 @@
 //! to eight commands, each its name and a hint. Arrows move, Enter runs, Esc or a click outside
 //! closes.
 //!
-//! The commands: Play each instance, Open each page and Settings, New instance, Open the game
-//! folder, and from two letters on, Install or Remove the registry's mods that match, in the
-//! selected instance when it plays Eclipse.
+//! The commands: Play each instance, Open each page and Settings, New instance, Open instance
+//! folder, and from two letters on the registry's mods that match: Install one, or Open one
+//! installed in the selected instance, its Remove… last (asked on the Mods page).
 
 use super::line_edit::{self, Key};
 use super::*;
@@ -18,6 +18,8 @@ use std::path::PathBuf;
 const SHOWN: usize = 8;
 
 const CARD_WIDTH: f32 = 560.;
+
+const CARD_EDGE: f32 = space::LG;
 
 const CARD_TOP: f32 = 0.14;
 
@@ -407,7 +409,7 @@ impl Launcher {
         let card = ui::dialog_plate()
             .id("palette")
             .occlude()
-            .w(px(CARD_WIDTH.min(w - 32.)))
+            .w(px(CARD_WIDTH.min(w - 2. * CARD_EDGE)))
             .p(px(space::SM))
             .child(div().relative().child(field).child(rows))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());

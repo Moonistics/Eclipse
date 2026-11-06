@@ -121,6 +121,21 @@ impl ServerJob {
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum Needs {
+    Eclipse,
+    GameFiles,
+}
+
+impl Needs {
+    pub(super) fn line(self) -> &'static str {
+        match self {
+            Needs::Eclipse => tr("Servers run Eclipse, which isn't installed yet."),
+            Needs::GameFiles => tr("Servers need game files prepared from your own Minecraft."),
+        }
+    }
+}
+
 /// The Create dialog's answers.
 pub(super) struct Create {
     new_world: bool,
@@ -370,6 +385,17 @@ impl Launcher {
             }
         }
         self.servers_view(cx)
+    }
+
+    fn server_needs(&self) -> Option<Needs> {
+        if servers::program().is_some() && servers::game_files_ready() {
+            return None;
+        }
+        match self.selected() {
+            None => Some(Needs::Eclipse),
+            Some(tag) if !backend::is_prepared(tag) => Some(Needs::GameFiles),
+            Some(_) => None,
+        }
     }
 
     fn add_server_folder(&mut self, cx: &mut Context<Self>) {

@@ -114,6 +114,13 @@ fn problems_say_what_to_do() {
         &dir,
     );
     assert_eq!(reports.fix, Some(Fix::Prepare));
+    let stopped = Problem::explain_with("eclipse-server: the server stopped (exit 1)", "", &dir);
+    assert_eq!(stopped.fix, Some(Fix::ShowLog));
+    assert!(
+        stopped.message.starts_with("The server"),
+        "{}",
+        stopped.message
+    );
     let other = Problem::explain_with("eclipse-server: a server is already running in x", "", &dir);
     assert_eq!(other, Problem::plain("A server is already running in x"));
     fs::remove_dir_all(&dir).unwrap();

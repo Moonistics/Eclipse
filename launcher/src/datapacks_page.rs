@@ -54,12 +54,7 @@ impl Launcher {
             .collect();
         self.world_packs = WorldPacks {
             list: datapacks::list(&world),
-            note: Some(added.map(|names| {
-                trf(
-                    "Added {names}: the game turns it on when the world opens.",
-                    &[("names", &names.join(", "))],
-                )
-            })),
+            note: Some(added.map(|names| trf("Added {names}.", &[("names", &names.join(", "))]))),
             open: Some(world),
         };
     }
@@ -144,7 +139,7 @@ impl Launcher {
         if empty {
             head = head.child(ui::empty_state(
                 "world-packs-empty",
-                "package-01",
+                crate::icons::PACK,
                 tr("No data packs yet"),
                 tr("Add one from a file to change this world's rules or recipes."),
                 empty_actions,
@@ -199,7 +194,9 @@ impl Launcher {
                     SharedString::from(format!("world-pack-{}", pack.file)),
                     confirming,
                 )
-                .child(ui::icon("package-01", ui::IconSize::Px16, white(ink::MUTED)).relative())
+                .child(
+                    ui::icon(crate::icons::PACK, ui::IconSize::Px16, white(ink::MUTED)).relative(),
+                )
                 .child(ui::item_text(pack.file.clone(), pack.description.clone()))
                 .child(actions.flex_none().relative()),
             );

@@ -25,7 +25,10 @@ numbers `launcher/src/layout.rs`.
 - **The scene is the background**: a pixel eclipse (an eclipsed sun with an amber corona) over
   ridges, blocky terrain, trees and torches, night in the dark appearance and dawn in the light one
   (`launcher/src/scene.rs`, colours in `eclipse_theme::night`). It is drawn at device pixels on a
-  whole texel and sits in the gutter beside the page on wide windows.
+  whole texel and sits in the gutter beside the page on wide windows. Narrower, it sets behind the
+  hills under Home: the hills stay below Home's head and a short tab (Home reports its head's
+  height, `scene::track_home_head`), the sun's disc stays below that line and its corona and
+  streamers fade out before reaching it; once a page runs past it the sun has set.
 - **Opaque cards, one level only.** A card is `look.plate` (`#15171e` for amber) with a hairline
   edge (`ui::edge()`: `EDGE`, white at 7 %; `EDGE_LIGHT`, 12 % of the ink, in light), paper white in
   light. Menus and floats sit on `FLOAT` with a shadow (`ui::float_card`); dialogs are a card plate over
@@ -92,8 +95,12 @@ numbers `launcher/src/layout.rs`.
 - **Icons**: Eclipse's pixel set, filled in the text colour: 16 px icons on an 8x8 grid
   (`crates/eclipse-theme/icons/glass/`); icons at 24 px have their own drawings on a 12x12 grid
   (`icons/glass/24/`, served as `icons/24/<name>.svg`, falling back to the 16 px drawing); both
-  2 px a pixel (`ui::icon` asks `icons::path` for the size). 16 in controls, 24 in the Hero
-  buttons (Play and its icon buttons alike) and the empty, loading and error states. A text button
+  2 px a pixel (`ui::icon` asks `icons::path` for the size and snaps the drawing to whole device
+  pixels on the grid `icons::cells` says it is drawn on). 16 in controls, 24 in the Hero
+  buttons (Play and its icon buttons alike) and the empty, loading and error states. One icon per
+  meaning, named in `launcher/src/icons.rs` (`SERVER`, `WORLD`, `MULTIPLAYER`, `PACK`, `VERSION`,
+  `LANGUAGE`, `NETWORK`, `CONSOLE`, `DEVELOPER`): a page or a section that means one of these takes its
+  icon from there, and no two meanings share a drawing. A text button
   carries an icon when it names what the button acts on or does: refresh (Try again), copy
   (Copy code, Copy link, Copy log), globe (Proxy settings), folder (every folder opener and file
   picker: `ui::open_folder_button`, imports, Choose image…), download, plus (add, create), search
@@ -283,9 +290,10 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
 The colours of the scene behind the launcher's pages (§ Corona): `eclipse_theme::night`, `NIGHT`
 for the dark appearance and `DAWN` for the light one. `launcher/src/scene.rs` paints the sky from
 its six bands (`sky`, top to horizon), and in light the page and the sidebar take `DAWN`'s `page`
-and `side`. `tokens.css` carries every value as `--night-*` for website pages that wear the scene.
-A test holds the module's text colours to AA over every band
-(`night_text_meets_wcag_aa_over_the_sky`). The values are in `crates/eclipse-theme/src/night.rs`.
+and `side`. Text sits on the top `UNCARDED_STOPS` bands without a card; Corona's ink levels are
+held to AA there (`every_ink_level_reads_on_every_surface`). `tokens.css` carries the bands, the
+page and the sidebar as `--night-sky-0` to `--night-sky-5`, `--night-page` and `--night-side` for
+website pages that wear the scene. The values are in `crates/eclipse-theme/src/night.rs`.
 
 ## Blocks
 

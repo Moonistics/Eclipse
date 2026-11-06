@@ -32,6 +32,9 @@ impl Launcher {
     fn close_owner_screen(&mut self) {
         self.cancel_sign_in();
         self.owner_screen_open = false;
+        if self.game.error.as_deref() == Some(account::NoOwner::in_window().as_str()) {
+            self.game.error = None;
+        }
         if !self.settings.owner_notice_seen {
             self.settings.owner_notice_seen = true;
             self.save_settings();

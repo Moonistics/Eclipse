@@ -1,11 +1,11 @@
 //! A Java instance's part of the New instance page (`instance_page.rs`): Mojang's versions to
 //! pick from, and for Modded the loaders, each with its logo, as many as `loaders::Kind` knows.
 use super::*;
-use crate::ui::{self, white};
+use crate::ui;
 use eclipse_launcher::instances::{self, Instance, Plays, Unkept};
 use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
-use eclipse_theme::glass::{fill, ink, space};
+use eclipse_theme::glass::{ink, space};
 use fields::Field;
 use instance_page::loaders;
 use instance_state::{JavaChoice, NewKind, VersionList};
@@ -14,8 +14,8 @@ use instance_state::{JavaChoice, NewKind, VersionList};
 const ROWS: usize = 60;
 const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 180.;
-const SEARCH_FIELD_WIDTH: f32 = 600.;
 const VERSION_COLUMN: f32 = 160.;
+const LOADER_COLUMNS: u16 = 2;
 
 fn released(time: &str) -> String {
     dates::published(time.get(..10).unwrap_or_default(), "")
@@ -58,7 +58,7 @@ impl Launcher {
                 Field::VersionSearch,
                 Some(ui::field_icon("search-01")),
                 tr("Search versions"),
-                SEARCH_FIELD_WIDTH,
+                layout::FIELD_XL,
                 ui::ButtonSize::Lg,
                 None,
                 cx,
@@ -189,25 +189,13 @@ impl Launcher {
 
     pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let now = self.draft_loader();
-        let marks = self.choice_marks();
         let mut cards = Vec::new();
         let all = loaders();
         for &loader in &all {
-            let logo = if !marks {
-                None
-            } else if instance_icons::has_plate(loader.id()) {
-                self.loader_logo(loader.id(), ui::TILE_LG)
-                    .map(|image| ui::image_tile(image, ui::TILE_LG))
-            } else {
-                self.loader_logo(loader.id(), ui::MARK)
-                    .map(|image| ui::mark_tile(ui::image_tile(image, ui::MARK)).into_any_element())
-            };
-            let logo = logo.or_else(|| {
-                marks.then(|| {
-                    ui::letter_tile(white(fill::BUTTON), loader.name(), ui::TILE_LG)
-                        .into_any_element()
-                })
-            });
+            let logo = self.choice_icon(
+                instance_icons::Mark::Loader(loader.id().to_string()),
+                loader.name(),
+            );
             let note = match loader.id() {
                 "fabric" => tr("Most mods for new versions"),
                 "quilt" => tr("Fabric mods run here too"),
@@ -215,26 +203,18 @@ impl Launcher {
                 "forge" => tr("Mods and packs for older versions"),
                 _ => "",
             };
-            let card = ui::choice_card(format!("loader-{}", loader.id()), loader == now)
-                .items_start()
-                .gap(px(space::LG))
-                .p(px(space::MD))
-                .min_w_0()
-                .children(logo)
-                .child(ui::item_text_wrapped(
-                    loader.name(),
-                    note,
-                    instance_page::CHOICE_NOTE_LINES,
-                ));
+            let card = self.choice_row(
+                format!("loader-{}", loader.id()),
+                loader == now,
+                logo,
+                loader.name().into(),
+                note.into(),
+            );
             cards.push((card, SharedString::from(loader.name()), loader == now));
         }
         let this = cx.entity().downgrade();
         let grid = ui::options(
-            div()
-                .id("instance-loader-choices")
-                .grid()
-                .grid_cols(2)
-                .gap(px(space::MD)),
+            self.choices("instance-loader-choices", LOADER_COLUMNS),
             cards,
             true,
             move |i, _, cx| {
@@ -272,29 +252,49 @@ impl Launcher {
         Some(Plays::Java { minecraft, loader })
     }
 
-    /// Before Save switches what `editing` plays: what can't keep working. Nothing in its folder
+    /// Before Save switches what `instance` plays: what can't keep working. Nothing in its folder
     /// is deleted or changed.
-    pub(super) fn switch_notice(&self, editing: &Instance) -> Option<Div> {
-        let to = self.draft_plays(editing)?;
-        if to == Plays::of(editing) {
+    pub(super) fn switch_notice(&self, instance: &Instance) -> Option<Div> {
+        let to = self.draft_plays(instance)?;
+        if to == Plays::of(instance) {
             return None;
         }
         let eclipse = backend::game_version(&self.draft_eclipse().unwrap_or_default());
-        let lines: Vec<String> = instances::unkept(editing, &to, &eclipse)
+        let lines: Vec<(&str, String)> = instances::unkept(instance, &to, &eclipse)
             .into_iter()
             .map(|u| match u {
-                Unkept::Mods { made_for, .. } => trf(
-                    "Its mods made for {loader} stay in its folder but won't load.",
-                    &[("loader", &made_for)],
+                Unkept::Mods { made_for, .. } => (
+                    "instance-switch-mods",
+                    trf(
+                        "Its mods made for {loader} stay in its folder but won't load.",
+                        &[("loader", &made_for)],
+                    ),
                 ),
-                Unkept::ModsVersion { from, to, .. } => trf(
-                    "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.",
-                    &[("from", &from), ("to", &to)],
+                Unkept::ModsVersion { from, to, .. } => (
+                    "instance-switch-mods-version",
+                    trf(
+                        "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.",
+                        &[("from", &from), ("to", &to)],
+                    ),
                 ),
-                Unkept::Worlds { from, to, .. } => trf(
-                    "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.",
-                    &[("from", &from), ("to", &to)],
-                ),
+                Unkept::Worlds { from, to, .. } => {
+                    let names = [("from", from.as_str()), ("to", to.as_str())];
+                    let said = match self.older(&to, &from) {
+                        Some(true) => trf(
+                            "Minecraft {to} can't open its worlds: they were saved by {from}.",
+                            &names,
+                        ),
+                        Some(false) => trf(
+                            "Minecraft {to} upgrades its worlds for good: {from} can't open them again.",
+                            &names,
+                        ),
+                        None => trf(
+                            "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.",
+                            &names,
+                        ),
+                    };
+                    ("instance-switch-worlds", said)
+                }
             })
             .collect();
         if lines.is_empty() {
@@ -303,17 +303,17 @@ impl Launcher {
         let said = div()
             .flex()
             .flex_col()
-            .gap(px(space::SM))
+            .gap(px(space::XS))
             .min_w_0()
-            .child(ui::card_title(tr("Before you switch")))
-            .children(lines.into_iter().map(|l| {
-                ui::text(
-                    eclipse_theme::glass::step::NOTE,
-                    FontWeight::NORMAL,
-                    ink::BODY,
-                )
-                .child(l)
-            }));
-        Some(ui::notice(ui::Notice::Warn, "information-circle", said, vec![]).flex_none())
+            .children(lines.into_iter().map(|(id, line)| ui::said(id, line)));
+        Some(ui::notice(ui::Notice::Warn, "alert-circle", said, vec![]))
+    }
+
+    fn older(&self, version: &str, than: &str) -> Option<bool> {
+        let VersionList::Ready(versions) = &self.instances.versions else {
+            return None;
+        };
+        let at = |id: &str| versions.all.iter().position(|v| v.id == id);
+        Some(at(version)? > at(than)?)
     }
 }

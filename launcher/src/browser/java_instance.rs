@@ -6,7 +6,7 @@ use super::installed::{self, Entry, Installed, Step};
 use super::{details, Kind, Project, Query, Source, Support, Version};
 use crate::game_folder;
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// How deep required dependencies are followed.
 const MAX_DEPTH: usize = 4;
@@ -271,16 +271,47 @@ pub fn is_on(home: &Path, entry: &Entry) -> bool {
 
 /// Turns the mod `entry` on or off by renaming its file; it stays installed.
 pub fn set_on(home: &Path, entry: &Entry, on: bool) -> Result<(), String> {
-    let _lock = super::lock_home(home);
     if entry.kind != Kind::Mod {
         return Err(format!(
             "{} isn't a mod: only mods turn on and off.",
             entry.title
         ));
     }
-    let (Some(jar), Some(off)) = (entry.path(home), entry.off(home)) else {
-        return Err(format!("{:?} isn't a plain file name.", entry.file));
+    set_file_on(home, &entry.file, on)
+}
+
+pub struct Jar {
+    pub file: String,
+    pub path: PathBuf,
+    pub on: bool,
+}
+
+pub fn jars(home: &Path) -> Vec<Jar> {
+    let Ok(dir) = fs::read_dir(home.join(game_folder::JAVA_MODS)) else {
+        return Vec::new();
     };
+    dir.flatten()
+        .filter_map(|f| {
+            let name = f.file_name().to_string_lossy().into_owned();
+            let jar = name.strip_suffix(installed::OFF).unwrap_or(&name);
+            (jar.ends_with(".jar") && f.path().is_file()).then(|| Jar {
+                file: format!("{}/{jar}", game_folder::JAVA_MODS),
+                on: jar.len() == name.len(),
+                path: f.path(),
+            })
+        })
+        .collect()
+}
+
+pub fn set_file_on(home: &Path, file: &str, on: bool) -> Result<(), String> {
+    let _lock = super::lock_home(home);
+    if !installed::in_folders(file) {
+        return Err(format!("{file:?} isn't a plain file name."));
+    }
+    let (jar, off) = (
+        home.join(file),
+        home.join(format!("{file}{}", installed::OFF)),
+    );
     let (from, to) = if on { (off, jar) } else { (jar, off) };
     if !from.exists() && to.is_file() {
         return Ok(());

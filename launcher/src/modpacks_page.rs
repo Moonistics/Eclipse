@@ -197,6 +197,7 @@ impl Launcher {
                 tr("Import an instance folder…"),
                 true,
             ));
+        let none = self.modpacks.imported.is_empty() && self.modpacks.registry.is_empty();
         let mut page = div()
             .flex()
             .flex_col()
@@ -207,9 +208,12 @@ impl Launcher {
                     .flex_col()
                     .gap(px(ui::TITLE_NOTE_GAP))
                     .child(ui::section_title("modpacks-title", tr("Your modpacks")))
-                    .child(ui::card_note(tr(
-                        "A .mrpack, a CurseForge .zip, or a Prism, MultiMC or CurseForge instance.",
-                    ))),
+                    .when(none, |d| {
+                        d.child(ui::card_note(ui::said(
+                            "modpacks-none",
+                            tr("No modpacks yet."),
+                        )))
+                    }),
             )
             .child(actions);
         if busy || !self.modpacks.log.is_empty() {
@@ -221,35 +225,41 @@ impl Launcher {
         if !self.modpacks.registry.is_empty() {
             page = page.child(self.registry_pack_rows(cx));
         }
-        if self.modpacks.imported.is_empty() && !self.modpacks.registry.is_empty() {
+        if self.modpacks.imported.is_empty() {
             return page;
         }
-        if self.modpacks.imported.is_empty() {
-            return page.child(ui::empty().child(tr("No modpacks yet.")));
-        }
         if self.modpacks.imported.len() > 1 {
-            let mut list = div().flex().flex_col();
-            for p in self.modpacks.imported.iter() {
-                let open = self.modpacks.open.as_ref() == Some(&p.slug);
-                let slug = p.slug.clone();
-                list = list.child(
-                    ui::row(
-                        SharedString::from(format!("open-{slug}")),
-                        p.title().to_string(),
-                        open,
-                    )
-                    .pr(px(space::MD))
-                    .child(ui::item_text(p.title().to_string(), p.summary()))
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.modpacks.open = Some(slug.clone());
-                            this.mods.report_list.reset();
-                            cx.notify();
-                        },
-                    )),
-                );
-            }
-            page = page.child(list);
+            let rows = self
+                .modpacks
+                .imported
+                .iter()
+                .map(|p| {
+                    let open = self.modpacks.open.as_ref() == Some(&p.slug);
+                    let row = ui::row(format!("open-{}", p.slug), p.title().to_string(), open)
+                        .pr(px(space::MD))
+                        .child(ui::item_text(p.title().to_string(), p.summary()));
+                    (row, SharedString::from(p.title().to_string()), open)
+                })
+                .collect();
+            let slugs: Vec<String> = self
+                .modpacks
+                .imported
+                .iter()
+                .map(|p| p.slug.clone())
+                .collect();
+            let this = cx.entity().downgrade();
+            page = page.child(ui::options(
+                div().id("modpacks-imported").flex().flex_col(),
+                rows,
+                true,
+                move |i, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.modpacks.open = slugs.get(i).cloned();
+                        this.mods.report_list.reset();
+                        cx.notify();
+                    });
+                },
+            ));
         }
         match self.pack_detail(cx) {
             Some(detail) => page.child(detail),
@@ -507,9 +517,9 @@ impl Launcher {
                 ("folder", &short(&p.work)),
             ],
         )];
-        notes.push(format!(
-            "{} resource packs available. Enable them in the game's Resource Packs screen.",
-            p.resourcepacks
+        notes.push(trf(
+            "{count} resource packs available. Enable them in the game's Resource Packs screen.",
+            &[("count", &p.resourcepacks.to_string())],
         ));
         if let Some(jars) = p.jars() {
             notes.push(jars);

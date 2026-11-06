@@ -565,3 +565,12 @@ fn a_project_is_starred_on_the_repository_its_source_is_in() {
         assert_eq!(repo(source), None, "{source:?}");
     }
 }
+
+#[test]
+fn a_registry_the_launcher_cant_read_says_so_first() {
+    let error = read_index(r#"{"projects": 3}"#).unwrap_err();
+    assert!(
+        error.starts_with("Eclipse's mod registry wasn't readable: "),
+        "{error}"
+    );
+}

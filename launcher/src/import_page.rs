@@ -20,8 +20,6 @@ pub(super) struct Importing {
     note: Option<Result<String, String>>,
 }
 
-impl Importing {}
-
 impl Launcher {
     pub(super) fn import_dropped(&mut self, files: Vec<PathBuf>, cx: &mut Context<Self>) {
         for file in files {

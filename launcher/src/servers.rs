@@ -439,7 +439,7 @@ impl Problem {
         }
         if has("isn't up after") || has("the server stopped") {
             return Self {
-                message: "The game didn't start. Its log below says why.".into(),
+                message: "The server didn't start.".into(),
                 fix: Some(Fix::ShowLog),
             };
         }
@@ -456,15 +456,7 @@ impl Problem {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "The server stopped without saying why".into());
-        Self::plain(capitalised(&said))
-    }
-}
-
-fn capitalised(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().chain(c).collect(),
-        None => String::new(),
+        Self::plain(crate::i18n::capitalised(&said))
     }
 }
 

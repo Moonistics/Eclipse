@@ -78,8 +78,6 @@ const SHUTTLE_SHARE: f32 = 0.3;
 
 const STILL_SHUTTLE: f32 = 0.4;
 
-const ICON_CELLS: f32 = 8.;
-
 pub const TILE_SM: f32 = 24.;
 
 pub const TILE_MD: f32 = 36.;
@@ -209,9 +207,9 @@ fn on_device_grid(size: f32, scale: f32) -> f32 {
     device / scale * MONOCRAFT_PIXEL
 }
 
-fn icon_px(size: IconSize, scale: f32) -> f32 {
-    let cell = (size.px() / ICON_CELLS * scale).round().max(1.);
-    cell / scale * ICON_CELLS
+fn icon_px(size: IconSize, cells: f32, scale: f32) -> f32 {
+    let cell = (size.px() / cells * scale).round().max(1.);
+    cell / scale * cells
 }
 
 pub fn pixel_text(size: f32) -> Div {
@@ -341,10 +339,7 @@ impl IconSize {
 }
 
 pub fn icon(name: &'static str, size: IconSize, color: Hsla) -> Svg {
-    let drawn = match size {
-        IconSize::Px24 => size.px(),
-        _ => icon_px(size, SCALE.get()),
-    };
+    let drawn = icon_px(size, crate::icons::cells(name, size), SCALE.get());
     svg()
         .path(crate::icons::path(name, size))
         .flex_none()
@@ -378,14 +373,6 @@ pub fn dot(tone: Tone) -> Div {
         .size(px(DOT))
         .rounded_full()
         .bg(tone_colour(tone))
-}
-
-/// The progress bar: a thin round track filled in the accent's soft shade.
-pub fn bar(value: f32) -> Stateful<Div> {
-    bar_track()
-        .aria_numeric_value(f64::from(value.clamp(0., 1.)))
-        .w_full()
-        .child(bar_fill().left_0().w(gpui::relative(value.clamp(0., 1.))))
 }
 
 /// A thin bar. A known fraction eases from its previous value; an unknown one shuttles slowly.
@@ -652,9 +639,15 @@ mod tests {
                     "{size} at {scale}x: {per_pixel} device px a font pixel"
                 );
             }
-            for size in [IconSize::Px16, IconSize::Px32] {
-                let cell = icon_px(size, scale) / ICON_CELLS * scale;
-                assert!((cell - cell.round()).abs() < 1e-4, "{size:?} at {scale}x");
+            for size in [IconSize::Px16, IconSize::Px24, IconSize::Px32] {
+                for name in ["play", "cancel-01"] {
+                    let cells = crate::icons::cells(name, size);
+                    let cell = icon_px(size, cells, scale) / cells * scale;
+                    assert!(
+                        (cell - cell.round()).abs() < 1e-4,
+                        "{name} at {size:?}, {scale}x"
+                    );
+                }
             }
         }
         for scale in [1., 1.5, 2.] {

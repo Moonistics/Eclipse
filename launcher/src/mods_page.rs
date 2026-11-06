@@ -48,7 +48,7 @@ pub(super) enum Event {
     /// A search's answer, for the search it was (stale answers are dropped) at that offset.
     Found(u64, usize, Result<Vec<Project>, String>),
     Progress(String, f32),
-    Done(Result<String, String>, bool),
+    Done(Result<String, String>, Option<PathBuf>),
     Updates(HashMap<(SourceId, String), String>),
     /// A Java mod's check: its jar read, or why it couldn't be.
     Checked((SourceId, String), Result<Box<Check>, String>),
@@ -76,6 +76,7 @@ pub(super) enum Checking {
 pub(super) enum ModsBusy {
     Install {
         id: String,
+        name: String,
         line: String,
         bar: (f32, f32),
     },
@@ -101,6 +102,7 @@ pub(super) struct Mods {
     pub(super) kind: PackKind,
     pub(super) source: SourceId,
     everything: bool,
+    show_unrunnable: bool,
     /// Which search is the current one; answers for older ones are dropped.
     search: u64,
     searching: bool,
@@ -213,6 +215,7 @@ impl Mods {
             kind,
             source: source_for(kind, false),
             everything: false,
+            show_unrunnable: false,
             search: 0,
             searching: false,
             searched: false,
@@ -290,6 +293,14 @@ impl Mods {
         true
     }
 
+    fn may_hide_unrunnable(&self) -> bool {
+        self.java.is_none() && self.kind == PackKind::Mod && self.source == SourceId::Modrinth
+    }
+
+    fn listed(&self, p: &Project) -> bool {
+        self.show_unrunnable || !self.may_hide_unrunnable() || self.support(p).installable()
+    }
+
     fn runnable_first(&mut self) {
         if self.results.iter().any(|p| self.checking(p)) {
             return;
@@ -326,6 +337,29 @@ impl Mods {
             _ => Support::Partial(tr("Checking its jar…").into()),
         }
     }
+}
+
+fn titles(done: &[installed::Entry]) -> String {
+    let names: Vec<&str> = done.iter().map(|e| e.title.as_str()).collect();
+    names.join(", ")
+}
+
+fn switched_line(name: &str, on: bool) -> String {
+    let args = [("name", name)];
+    match on {
+        true => trf(
+            "{name} is on. Applies the next time the game starts.",
+            &args,
+        ),
+        false => trf(
+            "{name} is off. Applies the next time the game starts.",
+            &args,
+        ),
+    }
+}
+
+fn installed_line(done: &[installed::Entry]) -> String {
+    trf("Installed {names}.", &[("names", &titles(done))])
 }
 
 /// `51404735` → `51.4M`.
@@ -385,6 +419,7 @@ impl Launcher {
         let mut to_check = Vec::new();
         let mut loaded = Vec::new();
         let mut done = false;
+        let mut new_pack = None;
         while let Ok(event) = self.mods.rx.try_recv() {
             changed = true;
             let m = &mut self.mods;
@@ -425,7 +460,7 @@ impl Launcher {
                         busy.moved(line, f);
                     }
                 }
-                Event::Done(result, modpack) => {
+                Event::Done(result, pack) => {
                     done = true;
                     m.busy = None;
                     if let Ok(said) = &result {
@@ -433,9 +468,10 @@ impl Launcher {
                     }
                     m.message = Some(result);
                     m.read_installed();
-                    if modpack {
+                    if pack.is_some() {
                         // The Modpacks page reads its list again.
                         self.modpacks.loaded = None;
+                        new_pack = pack;
                     }
                 }
                 Event::Updates(found) => m.updates = found,
@@ -488,6 +524,13 @@ impl Launcher {
         if done {
             // A data pack put into a world shows in its list on Home.
             self.world_packs.reread();
+        }
+        if let Some(work) = new_pack {
+            self.load_packs();
+            let made = self.instances.list.iter().find(|i| i.work == work).cloned();
+            if let Some(instance) = made {
+                self.select_instance(&instance);
+            }
         }
         for l in loaded {
             self.mods_loaded(l);
@@ -619,13 +662,8 @@ impl Launcher {
         };
         if self.mods.java.is_some() {
             let on = !java_instance::is_on(&home, e);
-            self.mods.message = Some(java_instance::set_on(&home, e, on).map(|()| {
-                format!(
-                    "{} is {}. Applies the next time the game starts.",
-                    e.title,
-                    if on { "on" } else { "off" }
-                )
-            }));
+            self.mods.message =
+                Some(java_instance::set_on(&home, e, on).map(|()| switched_line(&e.title, on)));
             self.mods.read_installed();
             return;
         }
@@ -638,14 +676,11 @@ impl Launcher {
             index.revoked(&e.project, hash).map(|r| r.reason.clone())
         });
         self.mods.message = Some(match revoked.filter(|_| on) {
-            Some(reason) => Err(format!("{} was taken down: {reason}", e.title)),
-            None => java::set_enabled(&home, id, on).map(|()| {
-                format!(
-                    "{} is {}. Applies the next time the game starts.",
-                    e.title,
-                    if on { "on" } else { "off" }
-                )
-            }),
+            Some(reason) => Err(trf(
+                "{name} was taken down: {reason}",
+                &[("name", &e.title), ("reason", &reason)],
+            )),
+            None => java::set_enabled(&home, id, on).map(|()| switched_line(&e.title, on)),
         });
         self.mods.read_installed();
     }
@@ -776,22 +811,25 @@ impl Launcher {
                         entries
                             .into_iter()
                             .filter(|e| e.project == id)
-                            .map(|e| format!("{} {}", e.title, e.number)),
+                            .map(|e| e.title),
                     ),
                     Err(e) => failed.push(format!("{title}: {e}")),
                 }
             }
             let updated = match done.is_empty() {
                 true => String::new(),
-                false => format!("Updated {}.", done.join(", ")),
+                false => trf("Updated {names}.", &[("names", &done.join(", "))]),
             };
             let result = match failed.is_empty() {
                 true => Ok(updated),
-                false => Err(format!("{updated} Not updated: {}", failed.join("; "))
-                    .trim()
-                    .to_string()),
+                false => Err(trf(
+                    "{updated} Not updated: {failed}",
+                    &[("updated", &updated), ("failed", &failed.join("; "))],
+                )
+                .trim()
+                .to_string()),
             };
-            let _ = tx.send(Event::Done(result, false));
+            let _ = tx.send(Event::Done(result, None));
         });
     }
 
@@ -814,8 +852,17 @@ impl Launcher {
         }
         self.mods.native_notice = None;
         self.mods.message = None;
+        let name = known
+            .as_ref()
+            .map(|p| p.title.clone())
+            .or_else(|| {
+                let had = self.mods.installed.iter().find(|e| e.project == id);
+                had.map(|e| e.title.clone())
+            })
+            .unwrap_or_else(|| id.clone());
         self.mods.busy = Some(ModsBusy::Install {
             id: id.clone(),
+            name,
             line: trf("Asking {source}…", &[("source", source.label())]),
             bar: (0., 0.),
         });
@@ -844,7 +891,7 @@ impl Launcher {
                     let _ = tx.send(Event::Progress(line.to_string(), f));
                 }
             };
-            let mut modpack = false;
+            let mut pack = None;
             let result = browser::source(source)
                 .ok_or_else(|| format!("{} isn't set up.", source.label()))
                 .and_then(|source| {
@@ -857,97 +904,69 @@ impl Launcher {
                             world.ok_or("Pick the world the data pack goes into first.")?;
                         let into = |f| progress(&p.title, f);
                         if let Some(target) = &java {
-                            let (_, number) = java_instance::install_datapack(
-                                &*source, target, &p, &world, &into,
-                            )?;
-                            return Ok(format!(
-                                "Put {} {number} in {name}'s data packs, checksum checked: the \
-                                 game turns it on when the world opens.",
-                                p.title
-                            ));
-                        }
-                        let done =
+                            java_instance::install_datapack(&*source, target, &p, &world, &into)?;
+                        } else {
                             installed::install_datapack(&*source, &p, everything, &world, &into)?;
-                        return Ok(format!(
-                            "Put {} {} in {name}'s data packs, checksum checked: the game turns \
-                             it on when the world opens. {}",
-                            p.title,
-                            done.number,
-                            done.coverage.summary()
+                        }
+                        return Ok(trf(
+                            "Added {title} to {world}.",
+                            &[("title", &p.title), ("world", &name)],
                         ));
                     }
                     if let Some(target) = java.as_ref().filter(|t| t.takes(p.kind)) {
                         let done = java_instance::install(&*source, target, &p, &home, &progress)?;
-                        let names: Vec<String> = done
-                            .iter()
-                            .map(|e| format!("{} {}", e.title, e.number))
-                            .collect();
-                        return Ok(format!("Installed {}.", names.join(", ")));
+                        return Ok(installed_line(&done));
                     }
-                    modpack = p.kind == PackKind::Modpack;
-                    if modpack && p.source == SourceId::Eclipse {
-                        let pack = eclipse::pack::install(&p.id, &progress)?;
+                    if p.kind == PackKind::Modpack && p.source == SourceId::Eclipse {
+                        let installed = eclipse::pack::install(&p.id, &progress)?;
                         if let Some(url) = &p.icon {
                             eclipse_launcher::instances::adopt_icon(
-                                &eclipse::pack::home(&pack.work),
+                                &eclipse::pack::home(&installed.work),
                                 url,
                             );
                         }
-                        return Ok(format!(
-                            "Installed {} {} as its own profile with {}, each checked. Play it \
-                             from the list above.",
-                            pack.name,
-                            pack.version,
-                            pack.mods.join(", ")
+                        pack = Some(installed.work);
+                        return Ok(trf(
+                            "Installed {pack} as a new instance.",
+                            &[("pack", &installed.name)],
                         ));
                     }
-                    if modpack {
+                    if p.kind == PackKind::Modpack {
                         let folder = modpacks::ports_dir().join("downloads");
                         let file = installed::fetch_modpack(&*source, &p, &folder, &|f| {
                             progress(&p.title, f)
                         })?;
                         let log = |line: String| progress(&line, 1.);
-                        let pack = modpacks::import_and_port(&file, resources.as_deref(), &log)?;
+                        let imported =
+                            modpacks::import_and_port(&file, resources.as_deref(), &log)?;
                         if let Some(url) = &p.icon {
                             eclipse_launcher::instances::adopt_icon(
-                                &modpacks::profile_home(&pack.work),
+                                &modpacks::profile_home(&imported.work),
                                 url,
                             );
                         }
-                        return Ok(modpacks::outcome(&pack));
+                        pack = Some(imported.work.clone());
+                        return Ok(trf(
+                            "Installed {pack} as a new instance.",
+                            &[("pack", imported.title())],
+                        ));
                     }
                     let done = installed::install(&*source, &p, everything, &home, &progress)?;
-                    let names: Vec<String> = done
-                        .iter()
-                        .map(|e| format!("{} {}", e.title, e.number))
-                        .collect();
                     if done.iter().any(|e| native_status::is_native_file(&e.file)) {
-                        return Ok(format!(
-                            "Installed {} into {instance}. Build to play with it.",
-                            names.join(", ")
+                        return Ok(trf(
+                            "Installed {names} in {instance}. Build to play with it.",
+                            &[("names", &titles(&done)), ("instance", &instance)],
                         ));
                     }
-                    if p.source == SourceId::Eclipse && p.kind == PackKind::Mod {
-                        return Ok(format!(
-                            "Installed {} into eclipse-mods and turned it on, checksum checked \
-                             (Options > Mods in the game).",
-                            names.join(", ")
+                    if p.kind == PackKind::ResourcePack {
+                        return Ok(trf(
+                            "Installed {names}. Turn it on in the game: Options > Resource Packs.",
+                            &[("names", &titles(&done))],
                         ));
                     }
-                    if p.kind == PackKind::Mod {
-                        return Ok(format!(
-                            "Ported {} into eclipse-mods and turned on (Options > Mods in the \
-                             game).",
-                            names.join(", ")
-                        ));
-                    }
-                    Ok(format!(
-                        "Installed {}, checksums checked. Turn it on in the game: Options > \
-                         Resource Packs.",
-                        names.join(", ")
-                    ))
+                    Ok(installed_line(&done))
                 });
-            let _ = tx.send(Event::Done(result, modpack));
+            let _ = tx.send(Event::Done(result, pack));
         });
     }
 
@@ -1143,6 +1162,15 @@ impl Launcher {
             .flatten()
     }
 
+    pub(super) fn mods_wait(&self) -> Option<SharedString> {
+        Some(match self.mods.busy.as_ref()? {
+            ModsBusy::Install { name, .. } => {
+                trf("Wait for {name} to finish installing", &[("name", name)]).into()
+            }
+            ModsBusy::UpdateAll { .. } => tr("Wait for the updates to finish").into(),
+        })
+    }
+
     /// Whether the selected instance has `p` (the palette's Install or Remove).
     pub(super) fn mods_has(&self, p: &Project) -> bool {
         self.mods.entry(p).is_some()
@@ -1157,20 +1185,13 @@ impl Launcher {
     }
 
     fn mods_target_line(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let instance = self.selected_instance()?;
-        (self.mods.kind == PackKind::DataPack)
-            .then(|| self.mods_world_picker(&instance.name.clone(), cx))
+        (self.mods.kind == PackKind::DataPack && !self.mods.worlds.is_empty())
+            .then(|| self.mods_world_picker(cx))
     }
 
     /// The world data packs go into: one of the instance's, picked here.
-    fn mods_world_picker(&self, instance: &str, cx: &mut Context<Self>) -> Div {
+    fn mods_world_picker(&self, cx: &mut Context<Self>) -> Div {
         let note = |s: String| ui::card_note(s);
-        if self.mods.worlds.is_empty() {
-            return div().child(note(trf(
-                "{instance} has no worlds yet. Create one in the game first.",
-                &[("instance", instance)],
-            )));
-        }
         let mut chips = div()
             .flex()
             .flex_wrap()

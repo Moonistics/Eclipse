@@ -19,14 +19,16 @@ pub struct Accent {
 pub struct Theme {
     /// Its name in `Settings::theme`.
     pub id: &'static str,
+    pub old_ids: &'static [&'static str],
     /// Its name in Settings, in English (through `tr`).
     pub name: &'static str,
     pub sky: [u32; 6],
 }
 
-/// Daybreak: the sky just before sunrise, with a harbour skyline.
+/// Daybreak: the sky just before sunrise.
 pub const DAYBREAK: Theme = Theme {
-    id: "first_light",
+    id: "daybreak",
+    old_ids: &["first_light"],
     name: "Daybreak",
     sky: [0x0b1030, 0x1d2a63, 0x3d4c94, 0x7f78c0, 0xe2a0b0, 0xffd6a0],
 };
@@ -37,7 +39,17 @@ pub const THEMES: [Theme; 1] = [DAYBREAK];
 /// The theme named `id` (`Settings::theme`); None for Eclipse's own sky or a name this launcher
 /// doesn't know.
 pub fn theme(id: Option<&str>) -> Option<&'static Theme> {
-    THEMES.iter().find(|t| Some(t.id) == id)
+    let id = id?;
+    THEMES
+        .iter()
+        .find(|t| t.id == id || t.old_ids.contains(&id))
+}
+
+pub(crate) fn stored_theme<'de, D: serde::Deserializer<'de>>(
+    stored: D,
+) -> Result<Option<String>, D::Error> {
+    let id: Option<String> = serde::Deserialize::deserialize(stored)?;
+    Ok(id.map(|id| theme(Some(&id)).map_or(id, |t| t.id.to_owned())))
 }
 
 /// The look's colour for each of [`Accent::ALL`]: the swatches Settings offers.

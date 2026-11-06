@@ -1,5 +1,5 @@
 //! The selected instance's worlds on Home (`eclipse_launcher::worlds`): each with its picture,
-//! mode, version, when it was last played and its size, and Back up, Copy, Delete (to the
+//! mode, version, when it was last played and its size, and Back up, Duplicate, Delete (to the
 //! trash, after a confirmation) and Open folder. Reading sizes and copying run in the background.
 use super::*;
 use eclipse_launcher::worlds::{self, World};
@@ -13,7 +13,7 @@ pub(super) struct Worlds {
     pub(super) list: Vec<World>,
     fresh: bool,
     reading: bool,
-    /// The world being backed up, copied or deleted now.
+    /// The world being backed up, duplicated or deleted now.
     pub(super) busy: Option<String>,
     /// What the last action did (a backup's zip), or why it failed.
     pub(super) done: Option<Result<(String, Option<PathBuf>), String>>,
@@ -28,7 +28,7 @@ impl Worlds {
 
 pub(super) enum Action {
     Backup,
-    Copy,
+    Duplicate,
     Delete,
 }
 
@@ -82,8 +82,8 @@ impl Launcher {
                         Some(zip),
                     )
                 }),
-                Action::Copy => worlds::copy(&world)
-                    .map(|c| (trf("Copied to {name}.", &[("name", &c.name)]), None)),
+                Action::Duplicate => worlds::copy(&world)
+                    .map(|c| (trf("Duplicated as {name}.", &[("name", &c.name)]), None)),
                 Action::Delete => worlds::delete(&world).map(|()| {
                     (
                         trf("{name} moved to the trash.", &[("name", &world.name)]),

@@ -23,8 +23,7 @@ const SUN_REACH: f32 = 2.4;
 const GUTTER_MARGIN: f32 = 48.;
 const SMALLEST_HIGH_SUN: f32 = 0.6;
 const SETTING_RADIUS: f32 = 12.;
-const HOME_BOTTOM: f32 = 516.;
-const SHORT_HOME_BOTTOM: f32 = 484.;
+const CLEAR_UNDER_HOME_HEAD: f32 = 310.;
 const HILLS_HIGHEST: f32 = 0.62;
 const SETTING_ACROSS: (f32, f32) = (0.6, 0.95);
 const SETTING_AT: f32 = 0.84;
@@ -33,6 +32,7 @@ const SETTING_SHOWN_BEST: f32 = 0.45;
 
 const CORONA_ALPHAS: [f32; 4] = [0.14, 0.09, 0.06, 0.035];
 const CORONA_RING: f32 = 0.26;
+const CORONA_FADE_RINGS: f32 = 2.;
 const STREAMERS: usize = 12;
 const STREAMER_ALPHA: f32 = 0.32;
 const SHORT_STREAMER: f32 = 0.55;
@@ -322,20 +322,12 @@ impl Stage {
     }
 }
 
-fn home_bottom(height: f32) -> f32 {
-    if height < crate::layout::SHORT_WINDOW {
-        SHORT_HOME_BOTTOM
-    } else {
-        HOME_BOTTOM
-    }
-}
-
-fn stage(width: f32, height: f32, texel: f32) -> Stage {
+fn stage(width: f32, height: f32, texel: f32, home_bottom: f32) -> Stage {
     use crate::layout::{content_width, sidebar};
     let column = content_width(width);
     let side = sidebar(width);
     let left = side + (width - side - column) / 2.;
-    let skyline = (home_bottom(height) / texel).max(height / texel * HILLS_HIGHEST);
+    let skyline = (home_bottom / texel).max(height / texel * HILLS_HIGHEST);
     Stage {
         texel,
         sidebar: (side / texel) as i32,
@@ -515,12 +507,12 @@ impl Canvas {
         }
     }
 
-    fn disc(&mut self, cx: i32, cy: i32, r: f32, c: Rgb, a: f32) {
+    fn disc(&mut self, cx: i32, cy: i32, r: f32, c: Rgb, a: impl Fn(i32) -> f32) {
         let reach = r.ceil() as i32;
         for dy in -reach..=reach {
             for dx in -reach..=reach {
                 if inside(r, dx, dy) {
-                    self.blend(cx + dx, cy + dy, c, a);
+                    self.blend(cx + dx, cy + dy, c, a(cy + dy));
                 }
             }
         }
@@ -712,8 +704,14 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
 
     if let Some((r, sx, sy)) = disc {
         let ring = corona_ring(r);
+        let under_home = |y: i32| match sun {
+            Sun::Setting => ((y as f32 - stage.skyline) / (ring * CORONA_FADE_RINGS)).clamp(0., 1.),
+            _ => 1.,
+        };
         for (i, alpha) in CORONA_ALPHAS.iter().enumerate().rev() {
-            c.disc(sx, sy, r + (i + 1) as f32 * ring, palette.corona, *alpha);
+            c.disc(sx, sy, r + (i + 1) as f32 * ring, palette.corona, |y| {
+                alpha * under_home(y)
+            });
         }
         let mut rays = Rng(37);
         for i in 0..STREAMERS {
@@ -724,17 +722,18 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
             let mut d = r;
             while d < r + len {
                 let fade = 1. - (d - r) / len;
+                let y = sy + (dy * d).round() as i32;
                 c.blend(
                     sx + (dx * d).round() as i32,
-                    sy + (dy * d).round() as i32,
+                    y,
                     palette.streamer,
-                    STREAMER_ALPHA * fade,
+                    STREAMER_ALPHA * fade * under_home(y),
                 );
                 d += 0.5;
             }
         }
-        c.disc(sx, sy, r + 1., palette.rim, 1.);
-        c.disc(sx, sy, r, palette.moon, 1.);
+        c.disc(sx, sy, r + 1., palette.rim, |_| 1.);
+        c.disc(sx, sy, r, palette.moon, |_| 1.);
         let (bx, by) = (
             sx + (BEAD_ANGLE.cos() * r).round() as i32,
             sy + (BEAD_ANGLE.sin() * r).round() as i32,
@@ -849,7 +848,7 @@ fn torch(c: &mut Canvas, x: i32, foot: i32, palette: &Palette) {
     c.set(x, flame, palette.flame);
 }
 
-type Key = (u32, u32, u32, Look, Sun);
+type Key = (u32, u32, u32, u32, Look, Sun);
 
 struct Baked {
     key: Key,
@@ -862,11 +861,11 @@ struct Baked {
 
 impl Baked {
     fn new(width: f64, height: f64, scale: f32, key: Key) -> Baked {
-        let (.., look, sun) = key;
+        let (.., home_bottom, look, sun) = key;
         let t = texel(width, scale);
         let cols = (width as f32 / t).ceil().max(1.) as usize;
         let rows = (height as f32 / t).ceil().max(1.) as usize;
-        let stage = stage(width as f32, height as f32, t);
+        let stage = stage(width as f32, height as f32, t, home_bottom as f32);
         let picture = paint(cols, rows, stage, sun, look);
         Baked {
             key,
@@ -885,13 +884,22 @@ impl Baked {
     }
 }
 
-fn key(width: f64, height: f64, scale: f32, look: Look, content_bottom: f32) -> Key {
+fn key(
+    width: f64,
+    height: f64,
+    scale: f32,
+    look: Look,
+    home_bottom: f32,
+    content_bottom: f32,
+) -> Key {
     let (w, h) = (width as f32, height as f32);
-    let stage = stage(w, h, texel(width, scale));
+    let home_bottom = home_bottom.round();
+    let stage = stage(w, h, texel(width, scale), home_bottom);
     (
         width.round() as u32,
         height.round() as u32,
         (scale * 100.).round() as u32,
+        home_bottom as u32,
         look,
         sun_at(w, h, stage, content_bottom),
     )
@@ -899,6 +907,7 @@ fn key(width: f64, height: f64, scale: f32, look: Look, content_bottom: f32) -> 
 
 pub struct Scene {
     look: Look,
+    home_head: Option<f32>,
     content_bottom: f32,
     baked: Option<Baked>,
     replaced: Vec<Arc<RenderImage>>,
@@ -911,6 +920,7 @@ impl Scene {
     pub fn new() -> Scene {
         Scene {
             look: Look::of(&NIGHT),
+            home_head: None,
             content_bottom: 0.,
             baked: None,
             replaced: Vec::new(),
@@ -929,6 +939,19 @@ impl Scene {
             self.content_bottom = bottom;
             cx.notify();
         }
+    }
+
+    fn set_home_head(&mut self, height: f32, cx: &mut Context<Self>) {
+        if self.home_head.is_none_or(|was| (height - was).abs() >= 1.) {
+            self.home_head = Some(height);
+            cx.notify();
+        }
+    }
+
+    fn home_bottom(&self) -> f32 {
+        self.home_head.map_or(0., |head| {
+            crate::layout::CONTENT_INSET + head + CLEAR_UNDER_HOME_HEAD
+        })
     }
 
     fn wake(&mut self, cx: &mut Context<Self>) {
@@ -959,7 +982,14 @@ impl Render for Scene {
         );
         let scale = window.scale_factor();
         let look = self.look;
-        let key = key(width, height, scale, look, self.content_bottom);
+        let key = key(
+            width,
+            height,
+            scale,
+            look,
+            self.home_bottom(),
+            self.content_bottom,
+        );
         if self.baked.as_ref().map(|b| b.key) != Some(key) {
             if let Some(old) = self.baked.replace(Baked::new(width, height, scale, key)) {
                 self.replaced.push(old.image);
@@ -1046,6 +1076,26 @@ impl Render for Scene {
     }
 }
 
+pub fn track_home_head(scene: &Entity<Scene>) -> impl IntoElement {
+    let scene = scene.clone();
+    canvas(
+        move |bounds, _, cx| {
+            let height = f32::from(bounds.size.height);
+            let was = scene.read(cx).home_head;
+            if was.is_none_or(|was| (height - was).abs() >= 1.) {
+                cx.defer(move |cx| {
+                    scene.update(cx, |scene, cx| scene.set_home_head(height, cx));
+                });
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
+
 pub fn track_content(scene: &Entity<Scene>) -> impl IntoElement {
     let scene = scene.clone();
     canvas(
@@ -1077,6 +1127,15 @@ mod tests {
         c[0] as u32 + c[1] as u32 + c[2] as u32
     }
 
+    fn home(height: f32) -> f32 {
+        let head = if height < crate::layout::SHORT_WINDOW {
+            160.
+        } else {
+            192.
+        };
+        crate::layout::CONTENT_INSET + head + CLEAR_UNDER_HOME_HEAD
+    }
+
     fn window(width: f32, height: f32, look: Look) -> Picture {
         showing(width, height, 0., look)
     }
@@ -1084,7 +1143,7 @@ mod tests {
     fn showing(width: f32, height: f32, content_bottom: f32, look: Look) -> Picture {
         let t = texel(width as f64, 1.);
         let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
-        let stage = stage(width, height, t);
+        let stage = stage(width, height, t, home(height));
         let sun = sun_at(width, height, stage, content_bottom);
         paint(cols, rows, stage, sun, look)
     }
@@ -1107,7 +1166,13 @@ mod tests {
     #[test]
     fn the_moon_covers_the_sun_and_the_corona_shows_around_it() {
         let sun = Sun::Beside { x: 0.86, scale: 1. };
-        let p = paint(295, 190, stage(1180., 760., 4.), sun, Look::of(&NIGHT));
+        let p = paint(
+            295,
+            190,
+            stage(1180., 760., 4., home(760.)),
+            sun,
+            Look::of(&NIGHT),
+        );
         let (sx, sy) = (
             (295. * 0.86f32).round() as usize,
             (190. * SUN_HIGH).round() as usize,
@@ -1120,7 +1185,7 @@ mod tests {
     fn land(width: f32, height: f32) -> Land {
         let t = texel(width as f64, 1.);
         let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
-        Land::new(cols, rows, stage(width, height, t))
+        Land::new(cols, rows, stage(width, height, t, home(height)))
     }
 
     #[test]
@@ -1132,7 +1197,7 @@ mod tests {
             let (cx, cy) = land.setting_sun().expect("a setting sun");
             let top = (cy - reach) as f32 * texel(width as f64, 1.);
             assert!(
-                top >= home_bottom(height),
+                top >= home(height),
                 "{width}x{height}: the sun's top at {top} px"
             );
             for night in [NIGHT, DAWN] {
@@ -1182,11 +1247,34 @@ mod tests {
     }
 
     #[test]
+    fn the_setting_suns_glow_stays_under_home() {
+        let glow = SETTING_RADIUS + CORONA_ALPHAS.len() as f32 * corona_ring(SETTING_RADIUS);
+        let reach = glow.ceil() as i32 + 1;
+        for (width, height) in SETTING_SIZES {
+            let t = texel(width as f64, 1.);
+            let skyline = stage(width, height, t, home(height)).skyline as usize;
+            let (sx, _) = land(width, height).setting_sun().expect("a setting sun");
+            for night in [NIGHT, DAWN] {
+                let p = window(width, height, Look::of(&night));
+                for y in 0..skyline {
+                    for x in (sx - reach).max(0)..(sx + reach).min(p.cols as i32) {
+                        assert_eq!(
+                            at(&p, x as usize, y),
+                            at(&p, 0, y),
+                            "{width}x{height}: the glow at ({x}, {y})"
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
     fn the_setting_sun_leaves_the_hills_as_they_are() {
         for (width, height) in SETTING_SIZES {
             let t = texel(width as f64, 1.);
             let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
-            let stage = stage(width, height, t);
+            let stage = stage(width, height, t, home(height));
             let land = Land::new(cols, rows, stage);
             for night in [NIGHT, DAWN] {
                 let look = Look::of(&night);
@@ -1213,7 +1301,7 @@ mod tests {
         for (width, height) in [SMALLEST, (960., 600.), (1180., 760.), (1440., 900.)] {
             let p = showing(width, height, height + 400., look);
             let land = land(width, height);
-            let sidebar = stage(width, height, texel(width as f64, 1.)).sidebar;
+            let sidebar = stage(width, height, texel(width as f64, 1.), home(height)).sidebar;
             for x in sidebar..p.cols as i32 {
                 if land
                     .torches
@@ -1285,7 +1373,7 @@ mod tests {
                 ]
                 .map(|c| c.map(|v| v as u8));
                 let p = window(width, height, look);
-                let above = (home_bottom(height) / texel(width as f64, 1.)).ceil() as usize;
+                let above = (home(height) / texel(width as f64, 1.)).ceil() as usize;
                 for y in 0..above {
                     for x in 0..p.cols {
                         assert!(
@@ -1302,7 +1390,7 @@ mod tests {
     fn the_setting_sun_never_shows_over_the_content() {
         for (width, height) in SETTING_SIZES {
             let t = texel(width as f64, 1.);
-            for content_bottom in [0., home_bottom(height) - 12., height - 14., height + 400.] {
+            for content_bottom in [0., home(height) - 12., height - 14., height + 400.] {
                 for night in [NIGHT, DAWN] {
                     let look = Look::of(&night);
                     let palette = look.palette();
@@ -1318,7 +1406,7 @@ mod tests {
                         "{width}x{height} under content to {content_bottom}: the sun at row {:?}",
                         rows.first()
                     );
-                    if content_bottom > home_bottom(height) {
+                    if content_bottom > home(height) {
                         assert!(
                             rows.is_empty(),
                             "{width}x{height}: the sun shows on a long page"
@@ -1347,7 +1435,7 @@ mod tests {
     #[test]
     fn a_high_sun_stays_in_the_gutter() {
         let (width, height) = (1920., 1080.);
-        let (_, right) = stage(width, height, texel(1920., 1.)).column;
+        let (_, right) = stage(width, height, texel(1920., 1.), home(height)).column;
         for content_bottom in [0., height + 400.] {
             let look = Look::of(&NIGHT);
             let p = showing(width, height, content_bottom, look);
@@ -1363,7 +1451,7 @@ mod tests {
     fn no_cloud_runs_behind_a_card() {
         let look = Look::of(&DAWN);
         for (width, height) in SIZES {
-            let stage = stage(width, height, texel(width as f64, 1.));
+            let stage = stage(width, height, texel(width as f64, 1.), home(height));
             let p = window(width, height, look);
             let (left, right) = stage.column;
             let reach = CLOUD_CLEARANCE as i32;
@@ -1470,7 +1558,7 @@ mod tests {
         let (cols, rows) = (384, 216);
         let look = Look::of(&NIGHT);
         let sun = Sun::Beside { x: 0.86, scale: 1. };
-        let p = paint(cols, rows, stage(1920., 1080., 5.), sun, look);
+        let p = paint(cols, rows, stage(1920., 1080., 5., home(1080.)), sun, look);
         let r = (rows as f32 * SUN_SIZE).round();
         assert!(r >= BEAD_SPARKLE_FROM);
         let (sx, sy) = (
@@ -1500,8 +1588,15 @@ mod tests {
             let column = content_width(width);
             let side = sidebar(width);
             let left = side + (width - side - column) / 2.;
-            for content_bottom in [home_bottom(height) - 28., height / 2., height + 400.] {
-                let key = key(width as f64, height as f64, 1., look, content_bottom);
+            for content_bottom in [home(height) - 28., height / 2., height + 400.] {
+                let key = key(
+                    width as f64,
+                    height as f64,
+                    1.,
+                    look,
+                    home(height),
+                    content_bottom,
+                );
                 let baked = Baked::new(width as f64, height as f64, 1., key);
                 let t = baked.stage.texel;
                 for s in baked.shown(content_bottom) {

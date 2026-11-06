@@ -4,7 +4,6 @@ use super::self_update::Staged;
 use super::updates::Updates;
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::path::PathBuf;
 use std::process::{Child, ChildStdin, Command, Stdio};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Mutex};
@@ -20,12 +19,21 @@ pub const LOG_KEEP: usize = 2000;
 
 impl Logged {
     pub fn start(job: Job, cmd: Command) -> Result<Self, String> {
+        Self::start_then(job, cmd, |_| {})
+    }
+
+    pub fn start_then(
+        job: Job,
+        cmd: Command,
+        then: impl FnOnce(&Result<(), String>) + Send + 'static,
+    ) -> Result<Self, String> {
         let (tx, rx) = std::sync::mpsc::channel();
         let running = spawn(job, cmd, tx)?;
         let log = Arc::new(Mutex::new(std::collections::VecDeque::new()));
         let exit = Arc::new(Mutex::new(None));
         let (l, e) = (log.clone(), exit.clone());
         std::thread::spawn(move || {
+            let mut then = Some(then);
             for msg in rx {
                 match msg {
                     Msg::Line(_, line) => {
@@ -35,7 +43,12 @@ impl Logged {
                             log.pop_front();
                         }
                     }
-                    Msg::Exit(_, result) => *e.lock().unwrap() = Some(result),
+                    Msg::Exit(_, result) => {
+                        if let Some(then) = then.take() {
+                            then(&result);
+                        }
+                        *e.lock().unwrap() = Some(result);
+                    }
                     _ => {}
                 }
             }
@@ -115,9 +128,6 @@ pub enum Msg {
     AccountProgress(String, u64, crate::account::session::Phase),
     AccountHead(String, Option<String>, Option<Vec<[u8; 4]>>, bool),
     AccountRemoved(String, u64, Result<bool, String>),
-    /// The owner gate's answer for the game about to start: the selected account's session
-    /// file (none = offline) and why it plays offline, if it does.
-    Session(Result<crate::account::GameSession, crate::account::NoOwner>),
     /// A modpack step's line (`modpacks`).
     PackLine(String),
     /// A modpack step ended: the pack as it now is.
@@ -128,14 +138,6 @@ pub enum Msg {
     Native(Result<String, crate::native_mods::BuildError>),
     /// An imported game build is installed (`build_import::import`): its version, or why not.
     Imported(Result<String, String>),
-    /// A Java instance's game is ready to start (`java_game`, wrapped): the instance's id and
-    /// game folder, and the command or why not.
-    /// A Java instance's game ready to start, and its variables for the post-exit command.
-    JavaGame(
-        String,
-        PathBuf,
-        Result<(Command, crate::launch::Vars), String>,
-    ),
 }
 
 /// A running process; its output arrives as `Msg::Line`, its end as `Msg::Exit`.

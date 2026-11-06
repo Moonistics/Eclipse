@@ -1,7 +1,7 @@
 //! Home's Worlds and Multiplayer tabs: one row per world or server. A world's row plays it, its
-//! size turning into "Play →" under the pointer; its ⋯ menu holds what the launcher does besides
-//! (back up, copy, data packs, folder, delete). A server's row has Join, and Remove under the
-//! pointer. Deleting or removing asks first, in place.
+//! size turning into "Play →" under the pointer (or why it can't); its ⋯ menu holds what the
+//! launcher does besides (back up, duplicate, data packs, folder, delete). A server's row has
+//! Join, and Remove under the pointer. Deleting or removing asks first, in place.
 use super::*;
 use crate::menus::{Asking, Menu};
 use crate::ui::{self, white};
@@ -17,7 +17,7 @@ impl Launcher {
         let home = self.selected_instance()?.home.clone();
         self.load_worlds(home.clone(), cx);
         let list = self.worlds.list.clone();
-        // What the last back up, copy or delete did.
+        // What the last back up, duplicate or delete did.
         let done = match self.worlds.done.clone() {
             Some(Ok((message, zip))) => {
                 let open = zip.map(|zip| {
@@ -40,24 +40,17 @@ impl Launcher {
             ))),
             None => None,
         };
-        let saves = home.join("saves");
-        let open_saves = move |_: &ClickEvent, _: &mut Window, cx: &mut App| {
-            let _ = std::fs::create_dir_all(&saves);
-            crate::toast::open(cx, &saves);
-        };
         let mut body = div().flex().flex_col();
-        let open = ui::button(
+        let open = ui::open_folder_button(
             "worlds-folder",
-            Some("folder-01"),
             tr("Open saves folder"),
-            ButtonKind::Secondary,
+            home.join("saves"),
             ui::ButtonSize::Md,
-        )
-        .on_press(open_saves);
+        );
         if list.is_empty() {
             return Some(body.children(done).child(ui::empty_state(
                 "worlds-empty",
-                "earth",
+                crate::icons::WORLD,
                 tr("No worlds yet"),
                 tr("Create one in the game."),
                 vec![open],
@@ -80,15 +73,27 @@ impl Launcher {
         let busy = self.worlds.busy.is_some();
         let this_busy = self.worlds.busy.as_ref() == Some(&w.folder);
         let can_play = self.can_start_selected() && !busy;
+        let why_not = (!can_play && !busy).then(|| {
+            if self.selected_instance().is_some_and(|i| i.java.is_some()) {
+                tr("Start it from the game's menu").to_string()
+            } else {
+                self.why_not_start()
+            }
+        });
         let mut facts = vec![tr(w.mode).to_string()];
         facts.extend(w.version.clone());
         facts.push(dates::ago(w.last_played));
         let focus = ui::try_focus_for(key.clone());
         let focused = focus.as_ref().is_some_and(ui::keyboard_focus);
         let menu_key = key.clone();
+        let description = facts
+            .iter()
+            .cloned()
+            .chain(why_not.clone())
+            .collect::<Vec<_>>();
         let mut row = ui::list_row(key.clone(), hovered || menu_open)
             .aria_label(w.name.clone())
-            .aria_description(facts.join(" · "))
+            .aria_description(description.join(" · "))
             .on_key_down(
                 cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
                     if ui::opens_row_menu(&ev.keystroke) {
@@ -120,10 +125,12 @@ impl Launcher {
             }));
         row = row.child(ui::row_picture(
             w.icon.clone().map(gpui::ImageSource::from),
-            "earth",
+            crate::icons::WORLD,
         ));
         let size = if this_busy {
             ui::card_note(tr("Working…"))
+        } else if let Some(why) = why_not.filter(|_| hovered) {
+            ui::card_note(why).truncate()
         } else if (hovered || focused) && can_play {
             div()
                 .flex()
@@ -168,8 +175,8 @@ impl Launcher {
         )
     }
 
-    /// A world's ⋯ menu: Back up, Copy, its data packs, Open world folder, then Delete… (then
-    /// asked to confirm).
+    /// A world's ⋯ menu: Back up, Duplicate world, its data packs, Open world folder, then
+    /// Delete… (then asked to confirm).
     fn world_menu(&mut self, w: &World, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = SharedString::from(format!("world-{}", w.folder));
         let confirming = self.is_asking(&Asking::WorldDelete(key.clone()));
@@ -178,7 +185,7 @@ impl Launcher {
             this.world_action(action, w.clone(), cx);
             cx.notify();
         };
-        let (backup, copy, packs, gone) = (w.clone(), w.clone(), w.clone(), w.clone());
+        let (backup, dup, packs, gone) = (w.clone(), w.clone(), w.clone(), w.clone());
         let folder = w.path.clone();
         let packs_label = if self.world_packs_open(w) {
             tr("Hide data packs")
@@ -215,14 +222,18 @@ impl Launcher {
                 ),
             )
             .child(
-                ui::menu_row("world-menu-copy", "copy-01", tr("Copy"), false).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        act(this, Action::Copy, &copy, cx)
-                    }),
-                ),
+                ui::menu_row(
+                    "world-menu-duplicate",
+                    "copy-01",
+                    tr("Duplicate world"),
+                    false,
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    act(this, Action::Duplicate, &dup, cx)
+                })),
             )
             .child(
-                ui::menu_row("world-menu-packs", "package-01", packs_label, false).on_press(
+                ui::menu_row("world-menu-packs", crate::icons::PACK, packs_label, false).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         this.toggle_world_packs(&packs);
@@ -266,31 +277,32 @@ impl Launcher {
             .on_press(toggle_add(cx));
             return Some(body.child(ui::empty_state(
                 "multiplayer-empty",
-                "globe-02",
+                crate::icons::MULTIPLAYER,
                 tr("No servers saved"),
-                tr("Add a server by its address to join it with one click."),
+                tr("Add one by its address."),
                 vec![add],
             )));
         }
-        let toggle = if adding {
-            ui::button(
-                "server-add",
-                None,
-                tr("Cancel"),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
-            )
+        body = body.child(if adding {
+            div()
+                .flex()
+                .items_center()
+                .min_h(px(ui::ButtonSize::Md.height()))
+                .px(px(space::MD))
+                .pb(px(space::SM))
+                .child(ui::section_title("server-form-title", tr("Add a server")))
         } else {
-            ui::button(
-                "server-add",
-                Some("plus-sign"),
-                tr("Add server"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
+            ui::list_head(SharedString::default()).child(
+                ui::button(
+                    "server-add",
+                    Some("plus-sign"),
+                    tr("Add server"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(toggle_add(cx)),
             )
-        };
-        body = body
-            .child(ui::list_head(SharedString::default()).child(toggle.on_press(toggle_add(cx))));
+        });
         if let Some(e) = self.multiplayer.error.clone() {
             body = body.child(ui::error_line_for(
                 "multiplayer-failed",
@@ -301,15 +313,6 @@ impl Launcher {
             ));
         }
         if adding {
-            let name_field = self
-                .field(
-                    fields::Field::MultiplayerName,
-                    tr("Server name"),
-                    layout::FIELD_MD,
-                    ui::ButtonSize::Md,
-                    cx,
-                )
-                .w_full();
             let address_field = self
                 .field(
                     fields::Field::MultiplayerAddress,
@@ -319,7 +322,16 @@ impl Launcher {
                     cx,
                 )
                 .w_full();
-            let room = |width: f32| div().flex_1().min_w(px(layout::FIELD_SM)).max_w(px(width));
+            let name_field = self
+                .field(
+                    fields::Field::MultiplayerName,
+                    tr("Server name"),
+                    layout::FIELD_MD,
+                    ui::ButtonSize::Md,
+                    cx,
+                )
+                .w_full();
+            let room = || div().flex_1().min_w(px(layout::FIELD_SM));
             body = body.child(
                 div()
                     .id("server-form")
@@ -329,22 +341,38 @@ impl Launcher {
                     .gap(px(space::SM))
                     .px(px(space::MD))
                     .pb(px(space::SM))
-                    .child(room(layout::FIELD_MD).child(name_field))
-                    .child(room(layout::FIELD_LG).child(address_field))
+                    .child(room().child(address_field))
+                    .child(room().max_w(px(layout::FIELD_MD)).child(name_field))
                     .child(
-                        ui::button(
-                            "server-save",
-                            None,
-                            tr("Save server"),
-                            ButtonKind::Secondary,
-                            ui::ButtonSize::Md,
-                        )
-                        .on_press(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.add_server();
-                                cx.notify();
-                            },
-                        )),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(space::SM))
+                            .child(
+                                ui::button(
+                                    "server-save",
+                                    None,
+                                    tr("Save server"),
+                                    ButtonKind::Secondary,
+                                    ui::ButtonSize::Md,
+                                )
+                                .on_press(cx.listener(
+                                    |this, _: &ClickEvent, _, cx| {
+                                        this.add_server();
+                                        cx.notify();
+                                    },
+                                )),
+                            )
+                            .child(
+                                ui::button(
+                                    "server-add-cancel",
+                                    None,
+                                    tr("Cancel"),
+                                    ButtonKind::Ghost,
+                                    ui::ButtonSize::Md,
+                                )
+                                .on_press(toggle_add(cx)),
+                            ),
                     ),
             );
         }
@@ -445,7 +473,7 @@ impl Launcher {
         ui::list_row(key, hovered || confirming)
             .child(ui::row_picture(
                 icon.map(gpui::ImageSource::from),
-                "globe-02",
+                crate::icons::SERVER,
             ))
             .child(ui::item_text(server.name, ui::state_line(tone, line)))
             .child(end.relative().flex_none())

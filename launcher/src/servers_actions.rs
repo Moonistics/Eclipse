@@ -467,7 +467,7 @@ impl Launcher {
     }
 
     pub(super) fn create_server(&mut self) {
-        if self.servers.creating {
+        if self.servers.creating || self.server_needs().is_some() {
             return;
         }
         let Some(c) = &mut self.servers.create else {

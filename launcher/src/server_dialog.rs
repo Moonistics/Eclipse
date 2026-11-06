@@ -464,6 +464,7 @@ impl Launcher {
                 )
             });
 
+        let needs = self.create_needs(cx);
         let body = ui::scroll_pane("create-body", &self.servers.create_scroll.handle)
             .flex()
             .flex_col()
@@ -471,6 +472,8 @@ impl Launcher {
             .min_h_0()
             .gap(px(space::XXL))
             .pb(px(space::LG))
+            .pr(px(Scrollbar::ROOM))
+            .children(needs)
             .child(ui::field_group(
                 "create-name-title",
                 tr("Name"),
@@ -504,10 +507,50 @@ impl Launcher {
             .wrap(body)
             .flex_1()
             .min_h_0()
+            .mr(px(-Scrollbar::ROOM))
             .children(ui::more_below_fade(
                 &self.servers.create_scroll.handle,
                 ui::dialog_colour(),
             ))
+    }
+
+    fn create_needs(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let need = self.server_needs()?;
+        let action = if need == Needs::Eclipse && self.installing.is_some() {
+            ui::progress_line(tr("Installing Eclipse"), Some(self.bar), "")
+                .w(px(layout::FIELD_MD))
+                .into_any_element()
+        } else {
+            self.server_need_button("create", need, ButtonKind::Secondary, cx)
+                .into_any_element()
+        };
+        let failed = self
+            .install_error
+            .as_ref()
+            .filter(|_| need == Needs::Eclipse && self.installing.is_none())
+            .filter(|(tag, _)| self.updates.eclipse.as_ref().is_some_and(|r| &r.tag == tag))
+            .map(|(_, e)| {
+                ui::error_line_for(
+                    "create-install-failed",
+                    tr("Couldn't install Eclipse"),
+                    e,
+                    None,
+                    Vec::new(),
+                )
+            });
+        Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(space::MD))
+                .child(ui::notice(
+                    ui::Notice::Info,
+                    "information-circle",
+                    need.line(),
+                    vec![action],
+                ))
+                .children(failed),
+        )
     }
 
     /// The friends let in, as chips with their face (the first is an operator), then a field to add one.
@@ -664,14 +707,16 @@ impl Launcher {
                 }))
                 .into_any_element(),
         );
-        foot.push(
-            ui::primary("create-go", tr("Create server"), ui::ButtonSize::Md)
+        let create = ui::primary("create-go", tr("Create server"), ui::ButtonSize::Md);
+        foot.push(match self.server_needs() {
+            Some(need) => ui::unavailable(create, need.line()).into_any_element(),
+            None => create
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.create_server();
                     cx.notify();
                 }))
                 .into_any_element(),
-        );
+        });
         foot
     }
 }

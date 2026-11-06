@@ -239,6 +239,14 @@ pub fn trf(en: &str, args: &[(&str, &str)]) -> String {
     out
 }
 
+pub fn capitalised(text: &str) -> String {
+    let mut chars = text.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 #[path = "i18n/tests.rs"]
 mod tests;

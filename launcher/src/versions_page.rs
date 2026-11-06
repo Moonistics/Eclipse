@@ -42,6 +42,23 @@ impl Launcher {
                 .mb(px(space::MD)),
             )
         });
+        let native = self.local_builds(
+            "versions-native",
+            tr("Native mod builds").into(),
+            &native_mods::is_native,
+            None,
+            on_disk,
+            cx,
+        );
+        let imported = self.local_builds(
+            "versions-imported",
+            tr("Imported builds").into(),
+            &build_import::is_imported,
+            Some(tr("Not checked by Eclipse. Only use builds you trust.")),
+            on_disk,
+            cx,
+        );
+        let mut grouped = native.is_some() || imported.is_some();
         page = page
             .children(self.import_error.clone().map(|e| {
                 ui::error_line_for(
@@ -53,22 +70,10 @@ impl Launcher {
                 )
                 .mb(px(space::MD))
             }))
-            .children(self.local_builds(
-                "versions-native",
-                tr("Native mod builds").into(),
-                native_mods::is_native,
-                None,
-                on_disk,
-                cx,
-            ))
-            .children(self.local_builds(
-                "versions-imported",
-                tr("Imported builds").into(),
-                build_import::is_imported,
-                Some(tr("Not checked by Eclipse. Only use builds you trust.")),
-                on_disk,
-                cx,
-            ));
+            .children(native)
+            .children(imported);
+        let downloaded =
+            |tag: &str| !native_mods::is_native(tag) && !build_import::is_imported(tag);
         let releases = match &self.releases {
             Load::Loading => {
                 return page.child(ui::empty_card(ui::loading_state(
@@ -80,7 +85,7 @@ impl Launcher {
                 let offline = self.local_builds(
                     "versions-installed",
                     tr("Installed versions").into(),
-                    |tag| !native_mods::is_native(tag) && !build_import::is_imported(tag),
+                    &downloaded,
                     None,
                     on_disk,
                     cx,
@@ -100,16 +105,37 @@ impl Launcher {
                     )));
             }
             Load::Ready(r) if r.is_empty() => {
-                return page.child(ui::empty_card(ui::empty_state(
-                    "releases-empty",
-                    "package-01",
-                    tr("No versions yet"),
-                    tr("Eclipse hasn't published a version yet."),
-                    vec![],
-                )));
+                let installed = self.local_builds(
+                    "versions-installed",
+                    tr("Installed versions").into(),
+                    &downloaded,
+                    None,
+                    on_disk,
+                    cx,
+                );
+                return page
+                    .children(installed)
+                    .child(ui::empty_card(ui::empty_state(
+                        "releases-empty",
+                        crate::icons::VERSION,
+                        tr("No versions yet"),
+                        tr("Eclipse hasn't published a version yet."),
+                        vec![],
+                    )));
             }
             Load::Ready(r) => r,
         };
+        let unlisted = |tag: &str| downloaded(tag) && !releases.iter().any(|r| r.tag == tag);
+        let unlisted = self.local_builds(
+            "versions-installed",
+            tr("Installed versions").into(),
+            &unlisted,
+            None,
+            on_disk,
+            cx,
+        );
+        grouped |= unlisted.is_some();
+        page = page.children(unlisted);
         let keep = |i: usize| {
             let tag = &releases[i].tag;
             self.installing.as_ref().is_some_and(|(t, _)| t == tag)
@@ -130,7 +156,15 @@ impl Launcher {
                 self.version_card(&release.tag, title, &mut line, i == 0, on_disk, right)
             },
         );
-        page.child(list)
+        match grouped {
+            true => page.child(ui::field_group(
+                "versions-all-title",
+                tr("All versions"),
+                None,
+                list,
+            )),
+            false => page.child(list),
+        }
     }
 
     /// One version's card: its name (Newest on the first, In use on the one in use), `line`
@@ -350,7 +384,7 @@ impl Launcher {
         &self,
         id: &str,
         title: SharedString,
-        is: fn(&str) -> bool,
+        is: &dyn Fn(&str) -> bool,
         notice_: Option<&str>,
         on_disk: &dyn Fn(&String) -> Option<u64>,
         cx: &mut Context<Self>,

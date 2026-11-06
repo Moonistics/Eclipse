@@ -345,6 +345,14 @@ impl Confirm<'_> {
         })
         .into()
     }
+
+    pub fn keep(self) -> SharedString {
+        match self {
+            Confirm::DiscardChanges => crate::tr("Keep editing"),
+            _ => crate::tr("Cancel"),
+        }
+        .into()
+    }
 }
 
 pub fn confirm(
@@ -375,7 +383,7 @@ pub fn confirm(
                     button(
                         id.clone(),
                         None,
-                        crate::tr("Cancel"),
+                        asked.keep(),
                         ButtonKind::Ghost,
                         ButtonSize::Sm,
                     )
@@ -677,6 +685,29 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     current: T,
     on_pick: impl Fn(T, &mut Window, &mut App) + Clone + 'static,
 ) -> Stateful<Div> {
+    segments_at(id, name, options, current, ButtonSize::Sm.height(), on_pick)
+}
+
+pub fn segments_sized<T: Copy + PartialEq + std::fmt::Debug + 'static>(
+    id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
+    options: &[(T, SharedString)],
+    current: T,
+    size: ButtonSize,
+    on_pick: impl Fn(T, &mut Window, &mut App) + Clone + 'static,
+) -> Stateful<Div> {
+    let height = size.height() - 2. * space::XS;
+    segments_at(id, name, options, current, height, on_pick)
+}
+
+fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
+    id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
+    options: &[(T, SharedString)],
+    current: T,
+    height: f32,
+    on_pick: impl Fn(T, &mut Window, &mut App) + Clone + 'static,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
     let values: Vec<T> = options.iter().map(|(value, _)| *value).collect();
     let rows = options
@@ -693,7 +724,7 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
                 .aria_toggled(Toggled::from(active))
                 .flex()
                 .items_center()
-                .h(px(ButtonSize::Sm.height()))
+                .h(px(height))
                 .px(px(ButtonSize::Sm.pad()))
                 .text_color(white(if active { ink::FULL } else { ink::MUTED }))
                 .child(press_text().relative().child(label.to_uppercase())),

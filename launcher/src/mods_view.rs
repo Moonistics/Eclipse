@@ -2,11 +2,12 @@
 //! what it found (icon, name, author, summary, then downloads for the registry's and how it runs
 //! for Modrinth's, a tick on what the instance has), and the picked project's card (its icon,
 //! name, line, summary, what it may do, downloads, and Install in or Remove from the instance).
-//! A kind's sources are tabs under the search: Eclipse's registry or Modrinth, on the kinds both
+//! A kind's sources lead the search: Eclipse's registry or Modrinth, on the kinds both
 //! serve (`switches`); shader packs are Eclipse's registry's only, and a Java instance's files
 //! always Modrinth's. Modrinth's Java mods are offered to an Eclipse instance too, each marked
-//! Works, Partly or Doesn't run in Eclipse. Under the two cards: adding a native mod from GitHub,
-//! the instance's installed list and its native build, and the install's progress.
+//! Works or Partly in Eclipse; those that don't run show only when asked. Under the two cards:
+//! adding a native mod from GitHub, the instance's installed list and its native build, and the
+//! install's progress.
 
 use super::*;
 use crate::menus::Asking;
@@ -115,31 +116,48 @@ impl Launcher {
         let registry = self.mods.source == SourceId::Eclipse && !java;
         let everything = self.mods.everything;
         let other_versions = !registry && !java && self.mods.kind != PackKind::Modpack;
+        let versions = other_versions.then(|| {
+            ui::toggle_label(
+                "mods-everything",
+                tr("Include other Minecraft versions"),
+                everything,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods.everything = !this.mods.everything;
+                this.mods_search(0);
+                cx.notify();
+            }))
+        });
+        let unrunnable = self.mods.may_hide_unrunnable().then(|| {
+            ui::toggle_label(
+                "mods-show-unrunnable",
+                tr("Show mods that don't run in Eclipse"),
+                self.mods.show_unrunnable,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods.show_unrunnable = !this.mods.show_unrunnable;
+                cx.notify();
+            }))
+        });
+        let toggles = (versions.is_some() || unrunnable.is_some()).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_x(px(space::XL))
+                .gap_y(px(space::MD))
+                .children(versions)
+                .children(unrunnable)
+        });
         let extras = div()
             .flex()
             .flex_col()
             .gap(px(space::MD))
             .px(px(space::XS))
             .pb(px(space::SM))
-            .when(switches(self.mods.kind) && !java, |d| {
-                d.child(self.source_switch(cx))
-            })
-            .when(other_versions, |d| {
-                d.child(
-                    ui::toggle_label(
-                        "mods-everything",
-                        tr("Include other Minecraft versions"),
-                        everything,
-                    )
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.mods.everything = !this.mods.everything;
-                        this.mods_search(0);
-                        cx.notify();
-                    })),
-                )
-            })
+            .children(toggles)
             .children(self.mods_filters(cx))
             .children(self.mods_target_line(cx));
+        let source = (switches(self.mods.kind) && !java).then(|| self.source_switch(cx));
         let search = div()
             .m(px(space::XS))
             .mb(px(space::SM))
@@ -147,14 +165,22 @@ impl Launcher {
             .flex_wrap()
             .items_center()
             .gap(px(space::SM))
+            .children(source)
             .child(
                 div()
                     .flex_1()
                     .min_w(px(SEARCH_FIELD_MIN))
                     .child(self.mods_field(cx)),
             )
-            .child(self.mods_sort(cx))
-            .child(self.mods_filters_button(cx));
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(space::SM))
+                    .child(self.mods_sort(cx))
+                    .child(self.mods_filters_button(cx)),
+            );
         let list = ui::card()
             .flex()
             .flex_col()
@@ -259,6 +285,7 @@ impl Launcher {
         let advice = self
             .mods_vanilla_notice(cx)
             .or_else(|| self.mods_shader_notice(cx))
+            .or_else(|| self.mods_world_notice(cx))
             .or_else(|| self.mods_modrinth_notice(cx))
             .map(|advice| {
                 ui::card()
@@ -318,16 +345,20 @@ impl Launcher {
             .items_center()
             .gap(px(space::MD))
             .h(px(ui::ButtonSize::Md.height()));
-        let note = |s: SharedString| {
-            ui::text(
-                eclipse_theme::glass::step::LEAD,
-                FontWeight::NORMAL,
-                ink::BODY,
-            )
-            .child(s)
-        };
         if self.mods.kind == PackKind::Modpack {
-            return Some(row.child(note(tr("Installs as a new instance").into())));
+            return Some(
+                row.gap(px(space::SM))
+                    .px(px(space::MD))
+                    .child(ui::label(tr("Install to")))
+                    .child(
+                        ui::text(
+                            eclipse_theme::glass::step::BODY,
+                            FontWeight::NORMAL,
+                            ink::FULL,
+                        )
+                        .child(tr("New instance")),
+                    ),
+            );
         }
         let current = self.selected_instance()?.clone();
         let choices = self.mods_targets(&current);
@@ -402,12 +433,11 @@ impl Launcher {
         } else {
             VANILLA_ACTION
         };
-        let create = ui::primary("mods-new-fabric", tr("Create a Fabric instance"), size).on_press(
-            cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let create = ui::primary("mods-new-fabric", tr("Create a Fabric instance…"), size)
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.mods_new_fabric(minecraft.clone(), cx);
                 cx.notify();
-            }),
-        );
+            }));
         let choose = others.then(|| {
             ui::button(
                 "mods-choose-instance",
@@ -458,8 +488,8 @@ impl Launcher {
             ButtonKind::Secondary,
             VANILLA_ACTION,
         );
-        let install = match self.mods.busy {
-            Some(_) => ui::disabled(install),
+        let install = match self.mods_wait() {
+            Some(why) => ui::unavailable(install, why),
             None => install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.mods_install(SourceId::Modrinth, slug.to_string(), None);
                 cx.notify();
@@ -473,6 +503,38 @@ impl Launcher {
                 &[("instance", &current)],
             ),
             vec![install.into_any_element()],
+        )))
+    }
+
+    fn mods_world_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        if self.mods.kind != PackKind::DataPack || !self.mods.worlds.is_empty() {
+            return None;
+        }
+        let current = self.selected_instance()?.clone();
+        let narrow = self.window_width < crate::layout::NARROW_WINDOW;
+        let others = self.mods_targets(&current).len() > 1 && !narrow;
+        let choose = others.then(|| {
+            ui::button(
+                "mods-world-choose-instance",
+                None,
+                tr("Choose another instance"),
+                ButtonKind::Secondary,
+                VANILLA_ACTION,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.open_menu_for(Menu::ModsTarget, "mods-target", window, cx);
+                cx.notify();
+            }))
+            .into_any_element()
+        });
+        Some(div().id("mods-no-worlds").child(ui::notice(
+            ui::Notice::InCard,
+            "information-circle",
+            trf(
+                "{instance} has no worlds yet. Create one in the game first.",
+                &[("instance", &current.name)],
+            ),
+            choose.into_iter().collect(),
         )))
     }
 
@@ -503,11 +565,12 @@ impl Launcher {
     /// The source switch (`switches`): Eclipse's registry or Modrinth.
     fn source_switch(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let this = cx.entity().downgrade();
-        ui::segments(
+        ui::segments_sized(
             "mods-source",
-            tr("Mods from"),
+            tr("Search in"),
             &ui::translated(&SOURCES),
             self.mods.source,
+            ui::ButtonSize::Md,
             move |source, _, cx| {
                 let _ = this.update(cx, |this, cx| {
                     this.mods_set_source(source);
@@ -515,7 +578,6 @@ impl Launcher {
                 });
             },
         )
-        .self_start()
     }
 
     /// The "Sort by" dropdown beside the search; the choices on a popover under it, the chosen one
@@ -685,6 +747,21 @@ impl Launcher {
                 actions,
             ));
         }
+        let shown: Vec<Project> = m.results.iter().filter(|p| m.listed(p)).cloned().collect();
+        if shown.is_empty() {
+            let more = m.more.then(|| self.mods_more_button(cx));
+            let note = match more {
+                Some(_) => tr("Try other words or load more."),
+                None => tr("Try other words."),
+            };
+            return div().child(ui::empty_state(
+                "mods-none-run",
+                "search-01",
+                tr("Nothing found that runs in Eclipse"),
+                note,
+                more.into_iter().collect(),
+            ));
+        }
         let picked = if self.window_width >= crate::layout::MODS_DETAIL_BESIDE
             || self.mods.picked.is_some()
         {
@@ -695,10 +772,10 @@ impl Launcher {
         let advised =
             self.mods_vanilla_target().is_some() || self.mods_missing_shader_mod().is_some();
         let cursor = ui::options_cursor("mods-results");
+        let wait = self.mods_wait();
         let mut rows = Vec::new();
         let mut ids = Vec::new();
-        for i in 0..self.mods.results.len() {
-            let p = self.mods.results[i].clone();
+        for (i, p) in shown.into_iter().enumerate() {
             let icon = self.mods_icon(&p, ui::TILE_MD);
             let m = &self.mods;
             let installed = m.entry(&p).is_some();
@@ -733,17 +810,25 @@ impl Launcher {
                     ui::ButtonSize::Sm,
                 );
                 let shown = current || i == cursor || ui::hover_within(&row_id);
+                let why = match &wait {
+                    Some(wait) => Some(wait.clone()),
+                    None if m.needs_world(&p) => {
+                        Some(tr("Create a world in the game first").into())
+                    }
+                    None => None,
+                };
                 let button = if can_install {
-                    button
-                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            this.mods_install(known.source, known.id.clone(), Some(known.clone()));
-                            cx.notify();
-                        }))
-                        .when(i != cursor, |b| b.tab_stop(false))
+                    button.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.mods_install(known.source, known.id.clone(), Some(known.clone()));
+                        cx.notify();
+                    }))
+                } else if let Some(why) = why {
+                    ui::unavailable(button, why)
                 } else {
                     ui::disabled(button)
                 };
+                let button = button.when(i != cursor, |b| b.tab_stop(false));
                 ui::shown_on_focus(button, shown).into_any_element()
             } else {
                 div().into_any_element()
@@ -813,43 +898,49 @@ impl Launcher {
             }
             cx.notify();
         });
-        let mut list = div().flex().flex_col().child(ui::options(
+        let more = self.mods.more.then(|| {
             div()
-                .id("mods-results")
-                .aria_label(tr("Results"))
                 .flex()
-                .flex_col(),
-            rows,
-            false,
-            move |i, window, cx| open(&i, window, cx),
-        ));
-        if self.mods.more {
-            let searching = self.mods.searching;
-            let offset = self.mods.results.len();
-            list = list.child(
-                div().flex().p(px(space::SM)).child(
-                    ui::button(
-                        "mods-more",
-                        None,
-                        if searching {
-                            tr("Loading…")
-                        } else {
-                            tr("Load more")
-                        },
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
-                    )
-                    .when(searching, ui::disabled)
-                    .when(!searching, |d| {
-                        d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.mods_search(offset);
-                            cx.notify();
-                        }))
-                    }),
-                ),
-            );
-        }
-        list
+                .p(px(space::SM))
+                .child(self.mods_more_button(cx))
+        });
+        div()
+            .flex()
+            .flex_col()
+            .child(ui::options(
+                div()
+                    .id("mods-results")
+                    .aria_label(tr("Results"))
+                    .flex()
+                    .flex_col(),
+                rows,
+                false,
+                move |i, window, cx| open(&i, window, cx),
+            ))
+            .children(more)
+    }
+
+    fn mods_more_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let searching = self.mods.searching;
+        let offset = self.mods.results.len();
+        ui::button(
+            "mods-more",
+            None,
+            if searching {
+                tr("Loading…")
+            } else {
+                tr("Load more")
+            },
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .when(searching, ui::disabled)
+        .when(!searching, |d| {
+            d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.mods_search(offset);
+                cx.notify();
+            }))
+        })
     }
 
     /// The picked result, else the first; when a search finds nothing, the card shown last
@@ -860,7 +951,7 @@ impl Launcher {
             .picked
             .as_ref()
             .and_then(|id| m.results.iter().find(|p| &p.id == id))
-            .or(m.results.first())
+            .or(m.results.iter().find(|p| m.listed(p)))
             .cloned();
         match found {
             Some(p) => {
@@ -986,20 +1077,26 @@ impl Launcher {
                 trf("Install in {instance}", &[("instance", instance)])
             };
             let known = p.clone();
-            let waits = busy.is_some() || self.mods.needs_world(&p);
-            ui::primary(
+            let why = match self.mods_wait() {
+                Some(wait) => Some(wait),
+                None if self.mods.needs_world(&p) => {
+                    Some(tr("Create a world in the game first").into())
+                }
+                None => None,
+            };
+            let install = ui::primary(
                 SharedString::from(format!("mods-detail-install-{}", p.id)),
                 label,
                 ui::ButtonSize::Lg,
             )
-            .w_full()
-            .when(waits, ui::disabled)
-            .when(!waits, |d| {
-                d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            .w_full();
+            match why {
+                Some(why) => ui::unavailable(install, why),
+                None => install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(known.source, known.id.clone(), Some(known.clone()));
                     cx.notify();
-                }))
-            })
+                })),
+            }
             .into_any_element()
             .into()
         } else {
@@ -1138,6 +1235,7 @@ impl Launcher {
             return None;
         }
         let busy = self.mods.busy.is_some();
+        let wait = self.mods_wait();
         let native = !native_entries.is_empty()
             || self.mods.java.is_none()
                 && entries
@@ -1159,8 +1257,8 @@ impl Launcher {
                     ButtonKind::Secondary,
                     ui::ButtonSize::Sm,
                 );
-                if busy {
-                    update = ui::disabled(update);
+                if let Some(why) = &wait {
+                    update = ui::unavailable(update, why.clone());
                 } else {
                     let (source, id) = key.clone();
                     update = update.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1287,8 +1385,8 @@ impl Launcher {
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
-            if busy {
-                ui::disabled(b)
+            if let Some(why) = &wait {
+                ui::unavailable(b, why.clone())
             } else {
                 b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.mods_update_all();

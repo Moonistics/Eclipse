@@ -21,7 +21,9 @@ const PREVIEW_ICON: f32 = ui::TILE_LG;
 const PREVIEW_ICON_SHORT: f32 = ui::TILE_MD;
 const CHOICE_ICON: f32 = ui::TILE_MD;
 const ECLIPSE_LIST: f32 = 248.;
-pub(super) const CHOICE_NOTE_LINES: usize = 2;
+const CHOICE_NOTE_LINES: usize = 2;
+const KINDS: [NewKind; 3] = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
+const CHOICE_MIN_WIDTH: f32 = 2. * space::MD + ui::TILE_LG + space::LG + layout::FIELD_SM;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
@@ -31,13 +33,17 @@ pub(super) fn loaders() -> Vec<Loader> {
         .collect()
 }
 
-fn foot_height() -> f32 {
-    let icon = if ui::short_window() {
-        PREVIEW_ICON_SHORT
-    } else {
-        PREVIEW_ICON
-    };
-    icon + 2. * ui::PANEL_INSET
+fn foot(switching: Option<Div>, row: Div) -> Stateful<Div> {
+    ui::foot_card()
+        .id("instance-foot")
+        .flex_none()
+        .mb(px(layout::CONTENT_INSET))
+        .flex()
+        .flex_col()
+        .gap(px(space::MD))
+        .p(px(ui::PANEL_INSET))
+        .children(switching)
+        .child(row)
 }
 
 fn icon_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
@@ -54,8 +60,7 @@ impl Launcher {
         let Some(d) = self.instances.draft.as_ref() else {
             return div();
         };
-        let (busy, duplicate) = (d.busy, d.duplicate);
-        let (error, scroll) = (d.error.clone(), d.scroll.clone());
+        let (busy, duplicate, scroll) = (d.busy, d.duplicate, d.scroll.clone());
         let editing = d
             .editing
             .as_ref()
@@ -80,12 +85,18 @@ impl Launcher {
             }
             None => (tr("New instance").into(), ""),
         };
+        let import = (editing.is_none() && !duplicate && !busy).then(|| self.import_button(cx));
+        let switching = match &editing {
+            Some(i) => self.switch_notice(i),
+            None if duplicate => self
+                .selected_instance()
+                .cloned()
+                .and_then(|i| self.switch_notice(&i)),
+            None => None,
+        };
         let mut cards: Vec<AnyElement> = Vec::new();
-        if let Some(i) = &editing {
-            cards.extend(self.switch_notice(i).map(IntoElement::into_any_element));
-        }
         cards.push(
-            self.kind_choice(editing.as_ref(), kind, !busy && !duplicate, cx)
+            self.kind_choice(editing.as_ref(), kind, cx)
                 .into_any_element(),
         );
         if kind == NewKind::Modded {
@@ -106,14 +117,27 @@ impl Launcher {
         if editing.is_some() {
             cards.extend(self.memory_setting(cx).map(|row| {
                 ui::card()
-                    .id("instance-memory")
+                    .id("instance-memory-card")
                     .p(px(ui::CARD_PADDING - ui::SETTING_ROW_PADDING))
                     .child(row)
                     .into_any_element()
             }));
         }
-        let foot = self.instance_foot(editing.as_ref(), kind, duplicate, busy, error, cx);
+        let foot = self.instance_foot(editing.as_ref(), kind, switching, cx);
+        let scrolled = ui::scrolled(&scroll.handle);
         let pane = ui::scroll_pane("instance-pane", &scroll.handle)
+            .on_scroll(cx.listener(move |_, _: &gpui::ScrollEvent, window, cx| {
+                cx.on_next_frame(window, move |this, _, cx| {
+                    let now = this
+                        .instances
+                        .draft
+                        .as_ref()
+                        .is_some_and(|d| ui::scrolled(&d.scroll.handle));
+                    if now != scrolled {
+                        cx.notify();
+                    }
+                });
+            }))
             .flex()
             .flex_col()
             .size_full()
@@ -124,28 +148,79 @@ impl Launcher {
             .relative()
             .flex_1()
             .min_h_0()
-            .pb(px(layout::CONTENT_INSET + foot_height()))
             .child(ui::page_pane(
                 pane,
                 &scroll,
                 layout::page_margin(self.window_width),
             ))
-            .child(foot);
+            .children(ui::more_above_fade(&scroll.handle, self.sky_under_title()));
         div()
             .flex()
             .flex_col()
             .w_full()
             .h_full()
-            .child(ui::page_head(title, note))
+            .child(ui::page_head_with(title, note, import))
             .child(pane)
+            .child(foot)
     }
 
     pub(super) fn instance_page_compact(&self) -> bool {
         layout::content_width(self.window_width) < layout::INSTANCE_COMPACT_BELOW
     }
 
-    pub(super) fn choice_marks(&self) -> bool {
-        !self.instance_page_compact()
+    pub(super) fn choices_stacked(&self) -> bool {
+        let inside = layout::content_width(self.window_width) - 2. * ui::CARD_PADDING;
+        let columns = KINDS.len() as f32;
+        inside < columns * CHOICE_MIN_WIDTH + (columns - 1.) * space::MD
+    }
+
+    pub(super) fn choice_icon(&mut self, mark: instance_icons::Mark, name: &str) -> AnyElement {
+        let spec = instance_icons::IconSpec {
+            picture: instance_icons::Picture::None,
+            icon: None,
+            mark,
+            name: name.to_string(),
+        };
+        let size = if self.choices_stacked() {
+            ui::TILE_MD
+        } else {
+            ui::TILE_LG
+        };
+        self.icon_for(spec, size)
+    }
+
+    pub(super) fn choices(&self, id: &'static str, columns: u16) -> Stateful<Div> {
+        let list = div().id(id);
+        if self.choices_stacked() {
+            list.flex().flex_col().gap(px(space::XS))
+        } else {
+            list.grid().grid_cols(columns).gap(px(space::MD))
+        }
+    }
+
+    pub(super) fn choice_row(
+        &self,
+        id: String,
+        on: bool,
+        icon: AnyElement,
+        title: SharedString,
+        note: SharedString,
+    ) -> Stateful<Div> {
+        if self.choices_stacked() {
+            return ui::list_choice(id, on)
+                .min_w_0()
+                .py(px(space::SM))
+                .child(icon)
+                .child(ui::item_text(title, note))
+                .child(ui::tick_slot(on));
+        }
+        ui::choice_card(id, on)
+            .items_start()
+            .gap(px(space::LG))
+            .p(px(space::MD))
+            .min_w_0()
+            .child(icon)
+            .child(ui::item_text_wrapped(title, note, CHOICE_NOTE_LINES))
     }
 
     /// The loader a modded instance plays (or will).
@@ -269,35 +344,33 @@ impl Launcher {
         &mut self,
         editing: Option<&Instance>,
         kind: NewKind,
-        offers_import: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let loader = self.draft_loader();
         // One made in the launcher can switch what it plays; the game's home and modpacks
         // play what they were made with.
         let switches = editing.is_none_or(|i| i.kind == instances::Kind::Own);
-        let marks = self.choice_marks();
         let mut cards = Vec::new();
-        let kinds = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
-        for k in kinds {
+        for k in KINDS {
             let (id, title, note) = match k {
                 NewKind::Eclipse => ("eclipse", tr("Eclipse"), tr("Faster Minecraft")),
                 NewKind::Vanilla => ("vanilla", tr("Vanilla"), tr("The original Minecraft")),
                 NewKind::Modded => ("modded", tr("Modded"), tr("Fabric, Forge and more")),
             };
-            let mark = marks.then(|| match k {
-                NewKind::Modded => self.modded_mark(ui::MARK),
-                _ => self
-                    .mark(&Self::auto_mark(k, loader), ui::MARK)
-                    .unwrap_or_else(|| div().into_any_element()),
-            });
-            let card = ui::choice_card(format!("new-kind-{id}"), k == kind)
-                .items_start()
-                .gap(px(space::LG))
-                .p(px(space::MD))
-                .min_w_0()
-                .children(mark.map(ui::mark_tile))
-                .child(ui::item_text_wrapped(title, note, CHOICE_NOTE_LINES));
+            let icon = match k {
+                NewKind::Modded if self.choices_stacked() => ui::tile(ui::TILE_MD)
+                    .child(self.modded_mark(ui::TILE_SM))
+                    .into_any_element(),
+                NewKind::Modded => ui::mark_tile(self.modded_mark(ui::MARK)).into_any_element(),
+                _ => self.choice_icon(Self::auto_mark(k, loader), title),
+            };
+            let card = self.choice_row(
+                format!("new-kind-{id}"),
+                k == kind,
+                icon,
+                title.into(),
+                note.into(),
+            );
             cards.push((
                 if switches {
                     card
@@ -308,47 +381,44 @@ impl Launcher {
                 k == kind,
             ));
         }
-        let importing = self.modpacks.busy;
-        let import = (offers_import && editing.is_none()).then(|| {
-            let import = ui::button(
-                "instance-import",
-                Some("folder-01"),
-                if importing {
-                    tr("Importing…")
-                } else {
-                    tr("Import a modpack…")
-                },
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
-            );
-            if importing {
-                return ui::disabled(import).into_any_element();
-            }
-            import
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.show_modpack(None);
-                    this.choose_pack(false, cx);
-                    cx.notify();
-                }))
-                .into_any_element()
-        });
-        let grid = div()
-            .id("instance-game-choices")
-            .grid()
-            .grid_cols(cards.len() as u16)
-            .gap(px(space::MD));
+        let grid = self.choices("instance-game-choices", KINDS.len() as u16);
         let grid = if switches {
             let this = cx.entity().downgrade();
             ui::options(grid, cards, true, move |i, _, cx| {
                 let _ = this.update(cx, |this, cx| {
-                    this.pick_kind(kinds[i], cx);
+                    this.pick_kind(KINDS[i], cx);
                     cx.notify();
                 });
             })
         } else {
             grid.children(cards.into_iter().map(|(card, _, _)| card))
         };
-        ui::section_card("instance-game", tr("Game"), import, grid)
+        ui::section_card("instance-game", tr("Game"), None, grid)
+    }
+
+    fn import_button(&self, cx: &mut Context<Self>) -> AnyElement {
+        let importing = self.modpacks.busy;
+        let import = ui::button(
+            "instance-import",
+            Some("folder-01"),
+            if importing {
+                tr("Importing…")
+            } else {
+                tr("Import a modpack…")
+            },
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
+        if importing {
+            return ui::disabled(import).into_any_element();
+        }
+        import
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.show_modpack(None);
+                this.choose_pack(false, cx);
+                cx.notify();
+            }))
+            .into_any_element()
     }
 
     fn name_and_group(
@@ -428,11 +498,13 @@ impl Launcher {
         &mut self,
         editing: Option<&Instance>,
         kind: NewKind,
-        duplicate: bool,
-        busy: bool,
-        error: Option<String>,
+        switching: Option<Div>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let Some(d) = self.instances.draft.as_ref() else {
+            return div().id("instance-foot");
+        };
+        let (busy, duplicate, error) = (d.busy, d.duplicate, d.error.clone());
         let typed = self.fields.value(Field::InstanceName).trim().to_string();
         let name = if typed.is_empty() {
             tr("New instance").to_string()
@@ -466,8 +538,27 @@ impl Launcher {
             (false, _) => tr("Create instance"),
         };
         let save = ui::primary("instance-save", label, button);
-        let buttons = if self.is_asking(&menus::Asking::DiscardDraft) {
-            div().child(ui::confirm(
+        let named = div()
+            .relative()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .gap(px(space::XS))
+            .child(ui::entity_title(name, title).truncate())
+            // Why Create failed takes the summary's place, by the buttons.
+            .children(match error {
+                Some(e) => Some(ui::error_note(e)),
+                None => (!summary.is_empty()).then(|| ui::card_note(summary).truncate()),
+            });
+        let row = div()
+            .relative()
+            .flex()
+            .items_center()
+            .gap(px(space::LG))
+            .min_h(px(button.height()));
+        if self.is_asking(&menus::Asking::DiscardDraft) {
+            let asking = ui::confirm(
                 "instance-cancel",
                 ui::Confirm::DiscardChanges,
                 cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -479,8 +570,25 @@ impl Launcher {
                     this.close_instance_page();
                     cx.notify();
                 }),
-            ))
-        } else if busy {
+            );
+            let same_height = named.invisible();
+            let row = row
+                .children(icon.map(|_| div().flex_none().size(px(size))))
+                .child(same_height)
+                .child(
+                    div()
+                        .absolute()
+                        .top_0()
+                        .bottom_0()
+                        .left_0()
+                        .right_0()
+                        .flex()
+                        .items_center()
+                        .child(asking.flex_1()),
+                );
+            return foot(switching, row);
+        }
+        let buttons = if busy {
             div()
                 .flex()
                 .items_center()
@@ -501,16 +609,7 @@ impl Launcher {
                     cx.notify();
                 })))
         };
-        ui::foot_card()
-            .id("instance-foot")
-            .absolute()
-            .left_0()
-            .right_0()
-            .bottom(px(layout::CONTENT_INSET))
-            .flex()
-            .items_center()
-            .gap(px(space::LG))
-            .p(px(ui::PANEL_INSET))
+        let row = row
             .children(icon.map(|icon| {
                 ui::picture_button("instance-preview-icon", icon, tr("Choose image…")).on_press(
                     cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -518,22 +617,9 @@ impl Launcher {
                     }),
                 )
             }))
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(space::XS))
-                    .child(ui::entity_title(name, title).truncate())
-                    // Why Create failed takes the summary's place, by the buttons.
-                    .children(match error {
-                        Some(e) => Some(ui::error_note(e)),
-                        None => (!summary.is_empty()).then(|| ui::card_note(summary).truncate()),
-                    }),
-            )
-            .child(buttons.relative().flex_none())
+            .child(named)
+            .child(buttons.relative().flex_none());
+        foot(switching, row)
     }
 
     /// Eclipse's versions, the newest first: picking the one the launcher plays lets the
@@ -608,7 +694,7 @@ impl Launcher {
             .into_any_element(),
             (_, true) => ui::empty_state(
                 "eclipse-versions-empty",
-                "package-01",
+                crate::icons::VERSION,
                 tr("No version installed"),
                 tr("Install one on the Versions page first."),
                 vec![],
@@ -809,12 +895,7 @@ enum IconPick {
 }
 
 fn texture_name(texture: &str) -> String {
-    let words = texture.replace('_', " ");
-    let mut chars = words.chars();
-    chars
-        .next()
-        .map(|c| c.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
+    i18n::capitalised(&texture.replace('_', " "))
 }
 
 impl Launcher {

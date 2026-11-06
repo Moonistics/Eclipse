@@ -424,6 +424,7 @@ fn actions(d: Stateful<Div>, actions: Vec<Stateful<Div>>) -> Stateful<Div> {
             div()
                 .flex()
                 .flex_wrap()
+                .items_center()
                 .justify_center()
                 .gap(px(space::SM))
                 .mt(px(STATE_ACTIONS_GAP))
@@ -602,8 +603,12 @@ pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
         .border_color(edge())
 }
 
+pub fn scrolled(pane: &ScrollHandle) -> bool {
+    pane.offset().y < px(-1.)
+}
+
 pub fn more_above_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
-    (pane.offset().y < px(-1.)).then(|| {
+    scrolled(pane).then(|| {
         div()
             .absolute()
             .left_0()

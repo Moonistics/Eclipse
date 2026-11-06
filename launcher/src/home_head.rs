@@ -8,10 +8,8 @@ use std::time::Instant;
 
 const PLAY: f32 = 240.;
 const PLAY_WIDE: f32 = 280.;
-const PICKER: f32 = 170.;
-const PICKER_WIDE: f32 = 220.;
+const PICKER: f32 = 280.;
 const INVITE_MIN: f32 = 360.;
-const INVITE_MAX: f32 = 420.;
 const ICON: f32 = ui::TILE_LG;
 
 /// Play, the version and the big icons are this tall.
@@ -31,6 +29,10 @@ impl Launcher {
             _ => {}
         }
         let play = self.play_group(tag, cx);
+        let invite = java.is_none().then(|| {
+            let width = self.invite_width();
+            self.invite_field(tag, width, cx)
+        });
         let actions = div()
             .mt(px(ui::page_gap()))
             .flex()
@@ -40,8 +42,9 @@ impl Launcher {
             .child(play)
             .children(java.is_none().then(|| self.version_picker(cx)))
             .children(self.folder_button())
-            .children(java.is_none().then(|| self.invite_field(tag, cx)));
+            .children(invite);
         div()
+            .relative()
             .flex()
             .flex_col()
             .min_w_0()
@@ -49,6 +52,7 @@ impl Launcher {
             .child(self.home_title(cx))
             .child(self.played_text(tag, prepared))
             .child(actions)
+            .child(scene::track_home_head(&self.scene))
     }
 
     /// The instance's icon tile and its name. The icon opens the instance's Edit page.
@@ -83,10 +87,20 @@ impl Launcher {
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
             ),
-            (None, Some(i)) if i.java.is_none() && !prepared => trf(
-                "Play first sets up Minecraft {version} from your Minecraft launcher.",
-                &[("version", &backend::game_version(tag))],
-            ),
+            (None, Some(i)) if i.java.is_none() && !prepared => {
+                let version = backend::game_version(tag);
+                if self.owner == Some(true) {
+                    trf(
+                        "The first Play downloads Minecraft {version} from Mojang.",
+                        &[("version", &version)],
+                    )
+                } else {
+                    trf(
+                        "Before your first game, play Minecraft {version} once in your Minecraft launcher.",
+                        &[("version", &version)],
+                    )
+                }
+            }
             (None, Some(i)) => {
                 let played = match i.last_played {
                     Some(when) => trf(
@@ -170,11 +184,7 @@ impl Launcher {
                 }
             }
         };
-        let width = px(if self.window_width >= layout::HOME_HEAD_WIDE {
-            PLAY_WIDE
-        } else {
-            PLAY
-        });
+        let width = px(self.play_width());
         let play = if tag.is_empty() {
             main.min_w(width).into_any_element()
         } else {
@@ -208,7 +218,7 @@ impl Launcher {
             }
             items.push((
                 "play-prepare",
-                "package-01",
+                crate::icons::VERSION,
                 tr(if backend::is_prepared(tag) {
                     "Prepare game files again"
                 } else {
@@ -279,11 +289,7 @@ impl Launcher {
             open,
             ui::ButtonSize::Hero,
         )
-        .min_w(px(if self.window_width >= layout::HOME_HEAD_WIDE {
-            PICKER_WIDE
-        } else {
-            PICKER
-        }));
+        .w(px(PICKER));
         let button = self.menu_opener(button, Menu::Version, cx);
         let mut wrap = div().relative().child(button);
         if open {
@@ -341,9 +347,30 @@ impl Launcher {
         )
     }
 
-    /// The invite code field: what its row leaves, up to [`INVITE_MAX`] below
-    /// [`layout::HOME_HEAD_WIDE`]; the icon inside on the left, Join inside on the right.
-    fn invite_field(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
+    fn play_width(&self) -> f32 {
+        if self.window_width >= layout::HOME_HEAD_WIDE {
+            PLAY_WIDE
+        } else {
+            PLAY
+        }
+    }
+
+    fn invite_width(&self) -> Option<f32> {
+        let room = layout::content_width(self.window_width);
+        let pair = self.play_width() + space::MD + PICKER;
+        let row = pair + space::MD + tall();
+        if row + space::MD + INVITE_MIN <= room {
+            None
+        } else if row <= room {
+            Some(pair)
+        } else {
+            Some(pair - tall() - space::MD)
+        }
+    }
+
+    /// The invite code field, `width` wide or what its row leaves; the icon inside on the left,
+    /// Join inside on the right.
+    fn invite_field(&mut self, tag: &str, width: Option<f32>, cx: &mut Context<Self>) -> Div {
         let code = self.fields.value(Field::InviteCode);
         let valid = eclipse_friends::invite::parse(code).is_some();
         let wrong = !valid && !code.trim().is_empty();
@@ -366,13 +393,12 @@ impl Launcher {
         } else {
             ui::unavailable(join, self.why_not_start())
         };
-        let wide = self.window_width >= layout::HOME_HEAD_WIDE;
         let field = self
             .field_with(
                 Field::InviteCode,
                 Some(ui::field_icon("user-add-01")),
                 tr("Paste a friend's invite code"),
-                INVITE_MAX,
+                width.unwrap_or(INVITE_MIN),
                 ui::ButtonSize::Hero,
                 Some(join.into_any_element()),
                 cx,
@@ -380,9 +406,10 @@ impl Launcher {
             .w_full();
         div()
             .relative()
-            .flex_1()
-            .min_w(px(INVITE_MIN))
-            .when(!wide, |d| d.max_w(px(INVITE_MAX)))
+            .map(|d| match width {
+                Some(w) => d.w(px(w)),
+                None => d.flex_1().min_w(px(INVITE_MIN)),
+            })
             .child(field)
             .children(wrong.then(|| {
                 ui::error_note(tr("That isn't an invite code."))

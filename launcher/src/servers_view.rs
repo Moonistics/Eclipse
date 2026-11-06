@@ -410,7 +410,7 @@ impl Launcher {
                     .items_center()
                     .gap(px(space::MD))
                     .child(ui::icon(
-                        "computer-terminal-01",
+                        crate::icons::CONSOLE,
                         ui::IconSize::Px16,
                         white(ink::MUTED),
                     ))
@@ -474,15 +474,30 @@ impl Launcher {
     }
 
     fn no_server(&mut self, cx: &mut Context<Self>) -> Div {
-        let create = ui::primary(
-            "server-create-empty",
-            tr("Create a server"),
-            ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.open_create(cx);
-            cx.notify();
-        }));
+        let needs = self.server_needs();
+        if needs == Some(Needs::Eclipse) && self.installing.is_some() {
+            return ui::empty_card(
+                ui::loading_state("servers-installing", tr("Installing Eclipse")).child(
+                    div()
+                        .w_full()
+                        .max_w(px(layout::FIELD_LG))
+                        .mt(px(space::LG))
+                        .child(ui::progress_line("", Some(self.bar), "")),
+                ),
+            );
+        }
+        let first = match needs {
+            Some(need) => self.server_need_button("servers-empty", need, ButtonKind::Primary, cx),
+            None => ui::primary(
+                "server-create-empty",
+                tr("Create a server"),
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.open_create(cx);
+                cx.notify();
+            })),
+        };
         let add = ui::button(
             "server-import-empty",
             Some("folder-01"),
@@ -492,6 +507,8 @@ impl Launcher {
         );
         let add = if self.servers.creating {
             ui::disabled(add)
+        } else if let Some(need) = needs.filter(|_| servers::program().is_none()) {
+            ui::unavailable(add, need.line())
         } else {
             add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.add_server_folder(cx);
@@ -503,21 +520,69 @@ impl Launcher {
             .problem
             .clone()
             .map(|p| ui::error_note(p.message).mt(px(space::LG)));
+        let note = needs.map_or(tr("Host a world your friends can join."), Needs::line);
         ui::empty_card(
             ui::empty_state(
                 "servers-empty",
-                "computer",
+                Page::Servers.icon(),
                 tr("No servers yet"),
-                tr("Host a world your friends can join."),
-                vec![create, add],
+                note,
+                vec![first, add],
             )
             .children(problem),
         )
     }
 
+    pub(super) fn server_need_button(
+        &mut self,
+        prefix: &str,
+        need: Needs,
+        kind: ButtonKind,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let size = ui::ButtonSize::Md;
+        match need {
+            Needs::Eclipse if self.updates.eclipse.is_some() => ui::button(
+                format!("{prefix}-install-eclipse"),
+                Some("download-04"),
+                tr("Install Eclipse"),
+                kind,
+                size,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.install_update();
+                cx.notify();
+            })),
+            Needs::Eclipse => ui::button(
+                format!("{prefix}-choose-version"),
+                None,
+                tr("Choose a version"),
+                kind,
+                size,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.servers.create = None;
+                this.servers.problem = None;
+                this.go(Page::Versions);
+                cx.notify();
+            })),
+            Needs::GameFiles => ui::button(
+                format!("{prefix}-prepare"),
+                None,
+                tr("Prepare game files"),
+                kind,
+                size,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.fix(Fix::Prepare, cx);
+                cx.notify();
+            })),
+        }
+    }
+
     /// The servers, the open one lit, then Create a server and adding a server folder.
     fn server_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut list = ui::card().flex().flex_col().p(px(ui::LIST_INSET));
+        let mut rows = Vec::new();
         for e in self.servers.list.clone() {
             let status = self
                 .servers
@@ -537,27 +602,42 @@ impl Launcher {
                 _ if !status.running() => self.servers.stopped_line(&e.dir),
                 _ => phase_label(&status),
             };
-            let dir = e.dir.clone();
-            list = list.child(
-                ui::row(
-                    format!("server-row-{}", e.dir.display()),
-                    e.name.clone(),
-                    current,
-                )
-                .pr(px(space::MD))
-                .child(ui::item_text(
-                    e.name.clone(),
-                    ui::state_line(tone(&status), line),
-                ))
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            let row = ui::row(
+                format!("server-row-{}", e.dir.display()),
+                e.name.clone(),
+                current,
+            )
+            .pr(px(space::MD))
+            .child(ui::item_text(
+                e.name.clone(),
+                ui::state_line(tone(&status), line),
+            ));
+            rows.push((row, SharedString::from(e.name.clone()), current));
+        }
+        let dirs: Vec<PathBuf> = self.servers.list.iter().map(|e| e.dir.clone()).collect();
+        let this = cx.entity().downgrade();
+        let servers = ui::options(
+            div().id("server-rows").flex().flex_col(),
+            rows,
+            true,
+            move |i, _, cx| {
+                let Some(dir) = dirs.get(i).cloned() else {
+                    return;
+                };
+                let _ = this.update(cx, |this, cx| {
                     this.servers.polled = None;
                     this.servers.problem = None;
                     this.servers.note = None;
-                    this.open_server(dir.clone());
+                    this.open_server(dir);
                     cx.notify();
-                })),
-            );
-        }
+                });
+            },
+        );
+        let mut list = ui::card()
+            .flex()
+            .flex_col()
+            .p(px(ui::LIST_INSET))
+            .child(servers);
         let action = |id: &'static str, icon: &'static str, label: SharedString| {
             ui::row(id, label.clone(), false)
                 .pr(px(space::MD))
@@ -577,8 +657,11 @@ impl Launcher {
             ),
         );
         let add = action("server-import", "folder-01", tr("Import a server…").into());
+        let needs = self.server_needs().filter(|_| servers::program().is_none());
         list.child(if self.servers.creating {
             ui::disabled(add)
+        } else if let Some(need) = needs {
+            ui::unavailable(add, need.line())
         } else {
             add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.add_server_folder(cx);

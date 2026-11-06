@@ -10,14 +10,11 @@
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::{
-    eclipse, images, installed, java, modrinth, Kind as PackKind, SourceId,
+    eclipse, images, installed, java, java_instance, modrinth, Kind as PackKind, SourceId,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-
-/// A turned-off jar's suffix, which the loaders don't read.
-const OFF: &str = ".disabled";
 
 /// A mod as the tab lists it.
 #[derive(Clone)]
@@ -106,37 +103,30 @@ fn read(home: &Path, java_instance: bool, entries: Vec<installed::Entry>) -> Vec
         .filter(|e| e.kind == PackKind::Mod)
         .collect();
     let mut rows: Vec<ModRow> = if java_instance {
-        let Ok(dir) = std::fs::read_dir(home.join("mods")) else {
-            return Vec::new();
-        };
-        dir.flatten()
-            .filter_map(|f| {
-                let name = f.file_name().to_string_lossy().into_owned();
-                let on = name.ends_with(".jar");
-                let jar = name.strip_suffix(OFF).unwrap_or(&name);
-                (jar.ends_with(".jar") && f.path().is_file()).then(|| {
-                    let file = format!("mods/{jar}");
-                    let entry = entries.iter().find(|e| e.file == file).cloned();
-                    let (name, version) = match &entry {
-                        Some(e) => (e.title.clone(), e.number.clone()),
-                        None => eclipse_port_pack::jar::read(&f.path())
-                            .map(|j| (j.name, j.version))
-                            .unwrap_or_else(|_| {
-                                (jar.trim_end_matches(".jar").into(), String::new())
-                            }),
-                    };
-                    let icon = images::jar_icon(&f.path(), images::ROW)
-                        .map(|png| Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)));
-                    ModRow {
-                        file,
-                        name,
-                        version,
-                        on,
-                        entry,
-                        icon,
-                        native: None,
-                    }
-                })
+        java_instance::jars(home)
+            .into_iter()
+            .map(|jar| {
+                let entry = entries.iter().find(|e| e.file == jar.file).cloned();
+                let (name, version) = match &entry {
+                    Some(e) => (e.title.clone(), e.number.clone()),
+                    None => eclipse_port_pack::jar::read(&jar.path)
+                        .map(|j| (j.name, j.version))
+                        .unwrap_or_else(|_| {
+                            let stem = Path::new(&jar.file).file_stem().unwrap_or_default();
+                            (stem.to_string_lossy().into_owned(), String::new())
+                        }),
+                };
+                let icon = images::jar_icon(&jar.path, images::ROW)
+                    .map(|png| Arc::new(gpui::Image::from_bytes(gpui::ImageFormat::Png, png)));
+                ModRow {
+                    file: jar.file,
+                    name,
+                    version,
+                    on: jar.on,
+                    entry,
+                    icon,
+                    native: None,
+                }
             })
             .collect()
     } else {
@@ -170,13 +160,6 @@ fn read(home: &Path, java_instance: bool, entries: Vec<installed::Entry>) -> Vec
     }
     rows.sort_by_key(|r| r.name.to_lowercase());
     rows
-}
-
-/// Turns a Java instance's jar on or off by renaming it.
-fn switch_jar(home: &Path, file: &str, on: bool) -> Result<(), String> {
-    let (jar, off) = (home.join(file), home.join(format!("{file}{OFF}")));
-    let (from, to) = if on { (off, jar) } else { (jar, off) };
-    std::fs::rename(&from, &to).map_err(|e| format!("{}: {e}", from.display()))
 }
 
 impl Launcher {
@@ -315,7 +298,9 @@ impl Launcher {
             Some(e) => self.mods_switch(e),
             None => {
                 let home = self.mods.home();
-                self.mods.message = switch_jar(&home, &row.file, !row.on).err().map(Err);
+                self.mods.message = java_instance::set_file_on(&home, &row.file, !row.on)
+                    .err()
+                    .map(Err);
                 self.instance_mods.invalidate();
             }
         }
@@ -444,7 +429,7 @@ mod tests {
         let rows = read(&home, true, Vec::new());
         let seen: Vec<_> = rows.iter().map(|r| (r.name.as_str(), r.on)).collect();
         assert_eq!(seen, [("alpha-2.0", false), ("zeta-1.0", true)]);
-        switch_jar(&home, "mods/alpha-2.0.jar", true).unwrap();
+        java_instance::set_file_on(&home, "mods/alpha-2.0.jar", true).unwrap();
         assert!(read(&home, true, Vec::new()).iter().all(|r| r.on));
         let _ = std::fs::remove_dir_all(&home);
     }

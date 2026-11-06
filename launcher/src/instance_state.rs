@@ -478,7 +478,6 @@ fn java_choice_of(instance: &Instance) -> JavaChoice {
     }
 }
 
-/// The first letter or digit of a name, for an icon without a picture.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum NewKind {
     Eclipse,

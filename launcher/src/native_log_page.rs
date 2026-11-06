@@ -295,7 +295,7 @@ impl Launcher {
             )),
             Some(Err(Missing::None)) => div().child(ui::empty_state(
                 "native-log-empty",
-                "computer-terminal-01",
+                crate::icons::CONSOLE,
                 tr("No native build log yet"),
                 tr("Build native mods on the Mods page to see one."),
                 Vec::new(),

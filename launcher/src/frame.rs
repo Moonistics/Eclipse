@@ -583,32 +583,26 @@ impl Launcher {
                 .child(text)
                 .into_any_element()
         };
-        let card = |title: String, right: Option<String>, body: AnyElement, actions| {
-            let head = div()
+        let card = |body: AnyElement, actions| {
+            ui::notice(ui::Notice::Info, "download-04", body, actions).mb(px(space::SM))
+        };
+        let titled = |title: String, body: AnyElement| {
+            div()
                 .flex()
-                .items_baseline()
-                .justify_between()
+                .flex_col()
                 .child(ui::text(step::NOTE, FontWeight::SEMIBOLD, ink::FULL).child(title))
-                .children(
-                    right.map(|r| ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED).child(r)),
-                );
-            ui::notice(
-                ui::Notice::Info,
-                "download-04",
-                div().flex().flex_col().child(head).child(body),
-                actions,
-            )
-            .mb(px(space::SM))
+                .child(body)
+                .into_any_element()
         };
         match &self.self_update {
             SelfUpdate::Downloading(version, f) => {
                 foot = foot.child(card(
-                    trf("Launcher {version}", &[("version", version)]),
-                    Some(format!("{:.0}%", f * 100.)),
-                    div()
-                        .mt(px(space::SM))
-                        .child(ui::bar(*f))
-                        .into_any_element(),
+                    ui::progress_line(
+                        trf("Launcher {version}", &[("version", version)]),
+                        Some((*f, *f)),
+                        "",
+                    )
+                    .into_any_element(),
                     Vec::new(),
                 ));
             }
@@ -626,9 +620,10 @@ impl Launcher {
                     cx.notify();
                 }));
                 foot = foot.child(card(
-                    tr("Launcher update available").to_string(),
-                    None,
-                    caption(trf("Launcher {version}", &[("version", version)])),
+                    titled(
+                        tr("Launcher update available").to_string(),
+                        caption(trf("Launcher {version}", &[("version", version)])),
+                    ),
                     vec![update.into_any_element()],
                 ));
             }
@@ -666,9 +661,7 @@ impl Launcher {
                     .into_any_element(),
                 );
                 foot = foot.child(card(
-                    tr("Launcher update available").to_string(),
-                    None,
-                    caption(why),
+                    titled(tr("Launcher update available").to_string(), caption(why)),
                     actions,
                 ));
             }
@@ -678,7 +671,7 @@ impl Launcher {
             foot = foot.child(
                 ui::nav_row(
                     "side-native-log",
-                    "computer-terminal-01",
+                    crate::icons::CONSOLE,
                     tr("Mod build log"),
                     false,
                     ui::NavDensity::Sidebar,
@@ -900,7 +893,7 @@ impl Launcher {
             .child(
                 item(
                     "command",
-                    "computer-terminal-01",
+                    crate::icons::CONSOLE,
                     tr("Copy the launch command").into(),
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {

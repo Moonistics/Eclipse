@@ -619,8 +619,8 @@ impl Launcher {
     }
 }
 
-/// Account state uses the same semantic colors as the launcher's other notices. Keep a
-/// distinct icon and the full label so color is never the only way to recognize a state.
+/// Account state uses the same semantic colors as the launcher's other notices. Keep the full
+/// label so color is never the only way to recognize a state.
 pub(super) fn account_status_line(
     status: Option<&account::session::Status>,
     progress: Option<&str>,

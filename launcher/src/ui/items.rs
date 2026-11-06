@@ -513,7 +513,11 @@ pub fn setting_row_fit(
     if beside {
         setting_row(title, note, Some(control))
     } else {
-        setting_row_stacked(title, note, div().flex().child(control).into_any_element())
+        setting_row_stacked(
+            title,
+            note,
+            div().flex().justify_end().child(control).into_any_element(),
+        )
     }
 }
 

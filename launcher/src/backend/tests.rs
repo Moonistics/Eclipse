@@ -2510,3 +2510,19 @@ fn play_turns_a_taken_down_mod_off_in_the_instance_it_plays() {
     assert_eq!(launched.err(), None);
     assert!(!on, "the taken-down mod is off in the instance's folder");
 }
+
+#[cfg(unix)]
+#[test]
+fn a_logged_process_says_how_it_ended_once_it_has() {
+    let (tx, rx) = std::sync::mpsc::channel();
+    let mut cmd = Command::new("sh");
+    cmd.args(["-c", "echo done; exit 3"]);
+    let logged = Logged::start_then(Job::Client, cmd, move |result| {
+        let _ = tx.send(result.clone());
+    })
+    .unwrap();
+    let told = rx.recv_timeout(std::time::Duration::from_secs(20)).unwrap();
+    assert!(told.is_err(), "{told:?}");
+    assert_eq!(logged.wait(), told);
+    assert_eq!(logged.tail(1), ["done"]);
+}

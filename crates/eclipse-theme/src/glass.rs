@@ -449,7 +449,7 @@ mod tests {
         let typed = (0..216).map(|i: u32| {
             [i / 36, i / 6 % 6, i % 6]
                 .iter()
-                .fold(0, |c, n| c << 8 | n * 0x33)
+                .fold(0, |c, n| (c << 8) | (n * 0x33))
         });
         for accent in [ACCENT].into_iter().chain(typed) {
             let look = Glass::new(accent).light();

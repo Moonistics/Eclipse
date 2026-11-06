@@ -502,3 +502,46 @@ fn a_planted_list_never_reaches_outside_the_instance() {
     assert_eq!(fs::read(&secret).unwrap(), b"key");
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn a_jar_put_in_by_hand_turns_off_and_on() {
+    let home = home("by-hand");
+    let mods = home.join("mods");
+    fs::create_dir_all(mods.join("folder.jar")).unwrap();
+    fs::write(mods.join("zeta-1.0.jar"), b"jar").unwrap();
+    fs::write(mods.join("alpha-2.0.jar.disabled"), b"jar").unwrap();
+    fs::write(mods.join("notes.txt"), b"").unwrap();
+    let listed = |home: &Path| {
+        let mut jars: Vec<_> = jars(home).into_iter().map(|j| (j.file, j.on)).collect();
+        jars.sort();
+        jars
+    };
+    assert_eq!(
+        listed(&home),
+        [
+            ("mods/alpha-2.0.jar".to_owned(), false),
+            ("mods/zeta-1.0.jar".to_owned(), true)
+        ]
+    );
+
+    set_file_on(&home, "mods/alpha-2.0.jar", true).unwrap();
+    set_file_on(&home, "mods/alpha-2.0.jar", true).unwrap();
+    set_file_on(&home, "mods/zeta-1.0.jar", false).unwrap();
+    assert!(mods.join("alpha-2.0.jar").is_file() && !mods.join("alpha-2.0.jar.disabled").exists());
+    assert!(mods.join("zeta-1.0.jar.disabled").is_file() && !mods.join("zeta-1.0.jar").exists());
+    assert_eq!(
+        listed(&home),
+        [
+            ("mods/alpha-2.0.jar".to_owned(), true),
+            ("mods/zeta-1.0.jar".to_owned(), false)
+        ]
+    );
+
+    fs::write(home.join("options.txt"), b"keep").unwrap();
+    for outside in ["options.txt", "mods/../options.txt", "/etc/hosts"] {
+        assert!(set_file_on(&home, outside, false).is_err(), "{outside}");
+    }
+    assert!(home.join("options.txt").is_file() && !home.join("options.txt.disabled").exists());
+    assert!(jars(&home.join("missing")).is_empty());
+    fs::remove_dir_all(&home).unwrap();
+}

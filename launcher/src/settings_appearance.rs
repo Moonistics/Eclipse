@@ -137,12 +137,18 @@ impl Launcher {
                 .flex()
                 .flex_wrap()
                 .items_center()
+                .justify_end()
                 .gap(px(space::XS)),
             swatches,
             false,
             move |i, window, cx| pick(&i, window, cx),
         );
-        let mut row = div().flex().flex_wrap().items_center().gap(px(space::XS));
+        let mut row = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_end()
+            .gap(px(space::XS));
         row = row.child(swatches).child(
             self.field(
                 Field::AccentHex,
@@ -156,7 +162,7 @@ impl Launcher {
         let control = div()
             .flex()
             .flex_col()
-            .when(beside, |d| d.items_end())
+            .items_end()
             .gap(px(space::MD))
             .child(row)
             .when(self.settings_ui.accent_strip, |d| {
