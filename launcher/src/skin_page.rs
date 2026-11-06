@@ -1,9 +1,9 @@
 //! Settings > Account's skin panel for an offline name (`eclipse_launcher::skins`): the front
 //! of the skin and the cape, choosing either from a PNG, and the model.
 use super::*;
-use crate::ui::{self, white};
+use crate::ui::{self};
 use eclipse_launcher::skins::{self, Model};
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use gpui::RenderImage;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -150,7 +150,7 @@ impl Launcher {
                 .w(px(w + 24.))
                 .h(px(h + 24.))
                 .rounded(px(radius::ROW))
-                .bg(ui::well())
+                .bg(ui::inset())
                 .child(match image {
                     Some(i) => gpui::img(i).w(px(w)).h(px(h)).into_any_element(),
                     None => ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
@@ -161,7 +161,7 @@ impl Launcher {
         let weak = cx.entity().downgrade();
         let model = ui::segments(
             "skin-model",
-            &[(Model::Classic, "Classic arms"), (Model::Slim, "Slim arms")],
+            &ui::translated(&[(Model::Classic, "Classic arms"), (Model::Slim, "Slim arms")]),
             look.model,
             move |m, _, cx| {
                 let _ = weak.update(cx, |this, cx| {
@@ -171,28 +171,33 @@ impl Launcher {
             },
         );
         let pick = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            button(id, label, ButtonKind::Secondary).on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    this.choose_look_file(cape, cx);
-                    cx.notify();
-                },
-            ))
+            ui::button(
+                id,
+                None,
+                tr(label),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.choose_look_file(cape, cx);
+                cx.notify();
+            }))
         };
         let drop = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            button(id, label, ButtonKind::Ghost).on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
+            ui::button(id, None, tr(label), ButtonKind::Ghost, ui::ButtonSize::Md).on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
                     let _ = this.save_look(|l| match cape {
                         false => l.skin = false,
                         true => l.cape = false,
                     });
                     cx.notify();
-                },
-            ))
+                }),
+            )
         };
         let mut skin_buttons =
             div()
                 .flex()
-                .gap(px(6.))
+                .gap(px(space::SM))
                 .child(pick("skin-choose", "Choose a skin…", false, cx));
         if look.skin {
             skin_buttons = skin_buttons.child(drop("skin-remove", "Default skin", false, cx));
@@ -200,7 +205,7 @@ impl Launcher {
         let mut cape_buttons =
             div()
                 .flex()
-                .gap(px(6.))
+                .gap(px(space::SM))
                 .child(pick("cape-choose", "Choose a cape…", true, cx));
         if look.cape {
             cape_buttons = cape_buttons.child(drop("cape-remove", "No cape", true, cx));
@@ -210,10 +215,10 @@ impl Launcher {
             div()
                 .flex()
                 .flex_wrap()
-                .gap(px(20.))
+                .gap(px(space::XL))
                 .p(px(ui::PANEL_INSET))
                 .rounded(px(radius::ROW))
-                .bg(white(fill::WELL))
+                .bg(ui::inset())
                 .child(frame(16. * TEXEL, 32. * TEXEL, skin, "Default"))
                 .child(frame(10. * TEXEL, 16. * TEXEL, cape, "No cape"))
                 .child(
@@ -222,7 +227,7 @@ impl Launcher {
                         .flex_col()
                         .flex_1()
                         .min_w_0()
-                        .gap(px(12.))
+                        .gap(px(space::MD))
                         .child(ui::label(trf("{name}'s skin", &[("name", &name)])))
                         .child(skin_buttons)
                         .child(model)

@@ -5,6 +5,12 @@ use gpui::{
 };
 use std::{cell::Cell, rc::Rc};
 
+const GUTTER: f32 = 12.;
+
+const THUMB_WIDTH: f32 = 8.;
+
+const THUMB: f32 = 0.24;
+
 #[derive(Clone, Default)]
 pub(crate) struct Scrollbar {
     pub handle: ScrollHandle,
@@ -48,9 +54,10 @@ impl Scrollbar {
     /// Wrap the scroll container, reserving a narrow gutter so the bar never covers controls.
     pub fn wrap(&self, content: Stateful<Div>) -> Div {
         let state = self.clone();
-        let (track_color, thumb_color) = (
+        let (track_color, thumb_color, held_color) = (
             gpui::transparent_black(),
-            crate::ui::white(eclipse_theme::glass::fill::ACTIVE),
+            crate::ui::white(THUMB),
+            crate::ui::white(eclipse_theme::glass::ink::DIM),
         );
         div()
             .relative()
@@ -85,12 +92,17 @@ impl Scrollbar {
                         };
                         let hitbox = hitbox.unwrap();
                         window.paint_quad(fill(bounds, track_color));
+                        let inset = (GUTTER - THUMB_WIDTH) / 2.;
                         window.paint_quad(fill(
                             Bounds::new(
-                                point(bounds.left() + px(3.), bounds.top() + px(g.top)),
-                                size(bounds.size.width - px(6.), px(g.thumb)),
+                                point(bounds.left() + px(inset), bounds.top() + px(g.top)),
+                                size(px(THUMB_WIDTH), px(g.thumb)),
                             ),
-                            thumb_color,
+                            if state.grabbed.get().is_some() {
+                                held_color
+                            } else {
+                                thumb_color
+                            },
                         ));
                         window.on_mouse_event({
                             let state = state.clone();
@@ -153,7 +165,7 @@ impl Scrollbar {
                 .right(px(2.))
                 .top_0()
                 .bottom_0()
-                .w(px(12.)),
+                .w(px(GUTTER)),
             )
     }
 }

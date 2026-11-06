@@ -1,6 +1,6 @@
 //! Release notes: pulldown-cmark events into gpui elements.
 use crate::ui::{self, white};
-use eclipse_theme::glass::{ink, radius, step, EDGE};
+use eclipse_theme::glass::{ink, radius, space, step, EDGE};
 use gpui::{
     div, prelude::*, px, AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString,
     StyledText,
@@ -159,7 +159,7 @@ pub fn render(source: &str) -> AnyElement {
                     ..Default::default()
                 },
                 Span::Code => HighlightStyle {
-                    background_color: Some(ui::well()),
+                    background_color: Some(ui::inset()),
                     color: Some(white(ink::FULL)),
                     ..Default::default()
                 },
@@ -175,7 +175,7 @@ pub fn render(source: &str) -> AnyElement {
     let mut column = ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
         .flex()
         .flex_col()
-        .gap(px(6.));
+        .gap(px(space::SM));
     for block in blocks {
         column = column.child(match block {
             Block::Heading(level, text, spans) => ui::text(
@@ -189,7 +189,7 @@ pub fn render(source: &str) -> AnyElement {
             Block::Paragraph(text, spans) => div().child(styled(text, spans)).into_any_element(),
             Block::Item(depth, number, text, spans) => div()
                 .flex()
-                .gap(px(12.))
+                .gap(px(space::MD))
                 .pl(px(depth as f32 * 16.))
                 .child(match number {
                     None => div()
@@ -208,27 +208,27 @@ pub fn render(source: &str) -> AnyElement {
             Block::Code(code) => ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
                 .p(px(ui::PANEL_INSET))
                 .rounded(px(radius::ROW))
-                .bg(ui::well())
+                .bg(ui::inset())
                 .font_family(crate::theme::MONO)
                 .child(code.trim_end().to_string())
                 .into_any_element(),
             Block::Rule => div()
                 .h(px(1.))
                 .bg(white(EDGE))
-                .my(px(8.))
+                .my(px(space::SM))
                 .into_any_element(),
             Block::Table(rows) => {
                 let mut grid = div()
                     .flex()
                     .flex_col()
-                    .my(px(4.))
+                    .my(px(space::XS))
                     .border_t_1()
                     .border_color(white(EDGE));
                 for (i, row) in rows.into_iter().enumerate() {
                     let mut line = div()
                         .flex()
-                        .gap(px(16.))
-                        .py(px(8.))
+                        .gap(px(space::LG))
+                        .py(px(space::SM))
                         .border_b_1()
                         .border_color(white(EDGE));
                     let columns = row.len();

@@ -6,7 +6,7 @@ use super::fields::Field;
 use super::*;
 use crate::ui;
 use eclipse_launcher::tailscale::{self, Api, Invite, Reach, State};
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use serde_json::Value;
 
 /// How often Tailscale's state is read while the panel shows.
@@ -259,13 +259,18 @@ impl Launcher {
             .copied
             .as_ref()
             .is_some_and(|(what, at)| what == &text && at.elapsed() < Duration::from_secs(2));
-        button(id, if copied { "Copied" } else { "Copy" }, kind).on_press(cx.listener(
-            move |this, _: &ClickEvent, _, cx| {
-                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
-                this.internet.copied = Some((text.clone(), Instant::now()));
-                cx.notify();
-            },
-        ))
+        ui::button(
+            id,
+            None,
+            tr(if copied { "Copied" } else { "Copy" }),
+            kind,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
+            this.internet.copied = Some((text.clone(), Instant::now()));
+            cx.notify();
+        }))
     }
 
     /// The Servers page's "Over the internet": the Tailscale address once it runs, else what
@@ -275,37 +280,42 @@ impl Launcher {
             .flex()
             .flex_col()
             .child(ui::label(tr("Over the internet")));
-        let check = button("ts-check", "Check again", ButtonKind::Ghost).on_press(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.internet_refresh();
-                cx.notify();
-            },
-        ));
+        let check = ui::button(
+            "ts-check",
+            None,
+            tr("Check again"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.internet_refresh();
+            cx.notify();
+        }));
         let act = |b: Stateful<Div>, check: Stateful<Div>| {
             div()
-                .mt(px(10.))
+                .mt(px(space::MD))
                 .flex()
                 .flex_wrap()
-                .gap(px(8.))
+                .gap(px(space::SM))
                 .child(b)
                 .child(check)
         };
         match self.internet.state.clone() {
-            None => d.child(ui::card_note(tr("Looking for Tailscale…")).mt(px(4.))),
+            None => d.child(ui::card_note(tr("Looking for Tailscale…")).mt(px(space::XS))),
             Some(State::Missing) => d
                 .child(ui::card_note(trf(
                     "Install Tailscale so friends anywhere can join, or forward TCP port {port} to this computer.",
                     &[("port", &port.to_string())],
-                )).mt(px(4.)))
+                )).mt(px(space::XS)))
                 .child(act(
-                    button("ts-install", "Install Tailscale", ButtonKind::Secondary)
+                    ui::button("ts-install", None, tr("Install Tailscale"), ButtonKind::Secondary, ui::ButtonSize::Md)
                         .on_press(|_, _, cx| cx.open_url(tailscale::install_url())),
                     check,
                 )),
             Some(State::Off(_)) => d
-                .child(ui::card_note(tr("Tailscale is installed but not running. Open it and switch it on.")).mt(px(4.)))
+                .child(ui::card_note(tr("Tailscale is installed but not running. Open it and switch it on.")).mt(px(space::XS)))
                 .child(act(
-                    button("ts-open", "Open Tailscale", ButtonKind::Secondary).on_press(cx.listener(
+                    ui::button("ts-open", None, tr("Open Tailscale"), ButtonKind::Secondary, ui::ButtonSize::Md).on_press(cx.listener(
                         |this, _: &ClickEvent, _, cx| {
                             if let Err(e) = tailscale::open_app() {
                                 this.internet.message = Some(Err(e));
@@ -317,9 +327,9 @@ impl Launcher {
                     check,
                 )),
             Some(State::SignedOut { auth_url }) => d
-                .child(ui::card_note(tr("Tailscale is installed. Sign in to Tailscale to continue.")).mt(px(4.)))
+                .child(ui::card_note(tr("Tailscale is installed. Sign in to Tailscale to continue.")).mt(px(space::XS)))
                 .child(act(
-                    button("ts-login", "Sign in to Tailscale", ButtonKind::Secondary).on_press(
+                    ui::button("ts-login", None, tr("Sign in to Tailscale"), ButtonKind::Secondary, ui::ButtonSize::Md).on_press(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             match &auth_url {
                                 Some(url) => cx.open_url(url),
@@ -342,7 +352,7 @@ impl Launcher {
                     *what == address && at.elapsed() < Duration::from_secs(2)
                 });
                 let text = address.clone();
-                let copy = ui::icon_button("ts-copy", if copied { "tick-02" } else { "copy-01" }, tr("Copy the address"), ui::Size::Md, false)
+                let copy = ui::icon_button("ts-copy", if copied { "tick-02" } else { "copy-01" }, tr("Copy the address"), ButtonKind::Ghost, ui::ButtonSize::Md, false)
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                     this.internet.copied = Some((text.clone(), Instant::now()));
@@ -350,11 +360,11 @@ impl Launcher {
                 }));
                 d.child(
                     div()
-                        .mt(px(4.))
+                        .mt(px(space::XS))
                         .flex()
                         .items_center()
                         .justify_between()
-                        .gap(px(12.))
+                        .gap(px(space::MD))
                         .child(
                             ui::text(step::LEAD, FontWeight::MEDIUM, ink::FULL)
                                 .min_w_0()
@@ -363,7 +373,7 @@ impl Launcher {
                         )
                         .child(copy),
                 )
-                .child(ui::card_note(tr("Only friends you invite can join.")).mt(px(4.)))
+                .child(ui::card_note(tr("Only friends you invite can join.")).mt(px(space::XS)))
             }
         }
     }
@@ -383,7 +393,7 @@ impl Launcher {
         let panel = div()
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .child(ui::label(tr("Invite a friend")))
             .child(self.invite_section(&ip, port, cx));
         self.internet_message(panel)
@@ -402,11 +412,12 @@ impl Launcher {
     fn invite_section(&mut self, ip: &str, port: u16, cx: &mut Context<Self>) -> Div {
         let line = |s: String| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(s);
         let link = |id: &'static str, label: &'static str, url: &'static str| {
-            button(id, label, ButtonKind::Ghost).on_press(move |_, _, cx| cx.open_url(url))
+            ui::button(id, None, tr(label), ButtonKind::Ghost, ui::ButtonSize::Md)
+                .on_press(move |_, _, cx| cx.open_url(url))
         };
         let token = self.internet.token();
         if token.is_none() {
-            let mut d = div().flex().flex_col().gap(px(10.)).child(line(
+            let mut d = div().flex().flex_col().gap(px(space::MD)).child(line(
                 tr("Share this computer with friends in Tailscale's admin console, or here with an access token.")
                     .into(),
             ));
@@ -416,20 +427,31 @@ impl Launcher {
                 "https://login.tailscale.com/admin/machines",
             );
             if self.internet.asking_token {
-                let save = button("ts-token-save", "Save", ButtonKind::Secondary).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.save_token();
-                        cx.notify();
-                    }),
-                );
+                let save = ui::button(
+                    "ts-token-save",
+                    None,
+                    tr("Save"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.save_token();
+                    cx.notify();
+                }));
                 d = d
                     .child(
                         div()
                             .flex()
                             .flex_wrap()
                             .items_center()
-                            .gap(px(8.))
-                            .child(self.field(Field::TailscaleToken, "tskey-api-…", 300., cx))
+                            .gap(px(space::SM))
+                            .child(self.field(
+                                Field::TailscaleToken,
+                                "tskey-api-…",
+                                300.,
+                                ui::ButtonSize::Md,
+                                cx,
+                            ))
                             .child(save)
                             .child(link("ts-keys", "Make a token", tailscale::KEYS)),
                     )
@@ -437,24 +459,44 @@ impl Launcher {
                         tr("In Tailscale: Settings, Keys, Generate access token.").into(),
                     ));
             } else {
-                d = d.child(div().flex().flex_wrap().gap(px(8.)).child(machines).child(
-                    button("ts-token", "Use an access token…", ButtonKind::Ghost).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.internet.asking_token = true;
-                            this.internet.message = None;
-                            cx.notify();
-                        }),
-                    ),
-                ));
+                d = d.child(
+                    div()
+                        .flex()
+                        .flex_wrap()
+                        .gap(px(space::SM))
+                        .child(machines)
+                        .child(
+                            ui::button(
+                                "ts-token",
+                                None,
+                                tr("Use an access token…"),
+                                ButtonKind::Ghost,
+                                ui::ButtonSize::Md,
+                            )
+                            .on_press(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
+                                    this.internet.asking_token = true;
+                                    this.internet.message = None;
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                );
             }
             return d;
         }
 
         // Invite.
         let busy = self.internet.busy;
-        let invite = button("ts-invite", "Make an invitation", ButtonKind::Secondary);
+        let invite = ui::button(
+            "ts-invite",
+            None,
+            tr("Make an invitation"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
         let invite = if busy {
-            disabled(invite)
+            ui::disabled(invite)
         } else {
             invite.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.invite_friend();
@@ -464,14 +506,20 @@ impl Launcher {
         let mut d = div()
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .child(
                 div()
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(8.))
-                    .child(self.field(Field::FriendEmail, "Their email (optional)", 260., cx))
+                    .gap(px(space::SM))
+                    .child(self.field(
+                        Field::FriendEmail,
+                        tr("Their email (optional)"),
+                        260.,
+                        ui::ButtonSize::Md,
+                        cx,
+                    ))
                     .child(invite),
             )
             .child(line(
@@ -482,7 +530,7 @@ impl Launcher {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(10.))
+                    .gap(px(space::MD))
                     .child(
                         ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
                             .font_family(theme::MONO)
@@ -504,17 +552,19 @@ impl Launcher {
                         (None, None) => "Link not used yet".to_string(),
                     };
                     let id = inv.id.clone();
-                    let withdraw = button(
+                    let withdraw = ui::button(
                         SharedString::from(format!("ts-revoke-{n}")),
-                        if inv.accepted {
+                        None,
+                        tr(if inv.accepted {
                             "Stop sharing"
                         } else {
                             "Withdraw"
-                        },
+                        }),
                         ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
                     );
                     let withdraw = if busy {
-                        disabled(withdraw)
+                        ui::disabled(withdraw)
                     } else {
                         withdraw.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             let id = id.clone();
@@ -536,10 +586,7 @@ impl Launcher {
                         )
                         .child(ui::item_text(
                             who,
-                            trf(
-                                "Made {date}",
-                                &[("date", &versions_page::published(date, ""))],
-                            ),
+                            trf("Made {date}", &[("date", &dates::published(date, ""))]),
                         ))
                         .child(withdraw.flex_none()),
                     );
@@ -564,7 +611,7 @@ impl Launcher {
             None => None,
         };
         if let Some((reach, policy, etag)) = reach {
-            let mut safety = div().flex().flex_col().gap(px(8.)).pt(px(4.));
+            let mut safety = div().flex().flex_col().gap(px(space::SM)).pt(px(space::XS));
             match reach {
                 Reach::Everything => {
                     safety =
@@ -584,9 +631,9 @@ impl Launcher {
                                 div()
                                     .flex()
                                     .flex_wrap()
-                                    .gap(px(8.))
+                                    .gap(px(space::SM))
                                     .child(
-                                        button("ts-limit-go", "Change the access controls", ButtonKind::Primary)
+                                        ui::button("ts-limit-go", None, tr("Change the access controls"), ButtonKind::Primary, ui::ButtonSize::Md)
                                             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                                 if let Some(new) = new.clone() {
                                                     this.change_policy(
@@ -598,7 +645,7 @@ impl Launcher {
                                                 cx.notify();
                                             })),
                                     )
-                                    .child(button("ts-limit-cancel", "Cancel", ButtonKind::Ghost).on_press(
+                                    .child(ui::button("ts-limit-cancel", None, tr("Cancel"), ButtonKind::Ghost, ui::ButtonSize::Md).on_press(
                                         cx.listener(|this, _: &ClickEvent, _, cx| {
                                             this.internet.confirm_limit = false;
                                             cx.notify();
@@ -606,10 +653,15 @@ impl Launcher {
                                     )),
                             );
                     } else {
-                        let b =
-                            button("ts-limit", "Limit them to Minecraft", ButtonKind::Secondary);
+                        let b = ui::button(
+                            "ts-limit",
+                            None,
+                            tr("Limit them to Minecraft"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        );
                         safety = safety.child(div().flex().child(if busy {
-                            disabled(b)
+                            ui::disabled(b)
                         } else {
                             b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.internet.confirm_limit = true;
@@ -620,12 +672,18 @@ impl Launcher {
                 }
                 Reach::ServerOnly => {
                     let undo = tailscale::unlimit_shared(&policy, ip, port);
-                    let b = button("ts-unlimit", "Remove the limit", ButtonKind::Ghost);
+                    let b = ui::button(
+                        "ts-unlimit",
+                        None,
+                        tr("Remove the limit"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    );
                     safety = safety.child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(12.))
+                            .gap(px(space::MD))
                             .child(
                                 ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                                     .flex_1()
@@ -637,7 +695,7 @@ impl Launcher {
                                     )),
                             )
                             .child(if busy {
-                                disabled(b)
+                                ui::disabled(b)
                             } else {
                                 b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                     if let Some(undo) = undo.clone() {
@@ -663,7 +721,7 @@ impl Launcher {
                             ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                                 .p(px(ui::PANEL_INSET))
                                 .rounded(px(radius::ROW))
-                                .bg(ui::well())
+                                .bg(ui::inset())
                                 .font_family(theme::MONO)
                                 .child(snippet.clone()),
                         )
@@ -671,7 +729,7 @@ impl Launcher {
                             div()
                                 .flex()
                                 .flex_wrap()
-                                .gap(px(8.))
+                                .gap(px(space::SM))
                                 .child(self.copy_button(
                                     "ts-snippet-copy",
                                     snippet,
@@ -686,10 +744,12 @@ impl Launcher {
         }
         d.child(
             div().flex().child(
-                button(
+                ui::button(
                     "ts-forget",
+                    None,
                     tr("Forget the access token"),
                     ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.forget_token();

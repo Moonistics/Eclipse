@@ -5,12 +5,10 @@ use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Instance, Plays, Unkept};
 use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{fill, ink, radius, space};
 use fields::Field;
-use instance_page::{
-    choice, list_box, list_choice, loaders, mark_tile, section_card, tick, MARK, MARK_TILE,
-};
-use new_instance::{JavaChoice, LoaderVersions, NewKind, VersionList};
+use instance_page::{loaders, mark_tile, section_card, MARK, MARK_TILE};
+use instance_state::{JavaChoice, LoaderVersions, NewKind, VersionList};
 
 /// Mojang versions listed at most: the search finds the others.
 const ROWS: usize = 60;
@@ -18,7 +16,7 @@ const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 154.;
 
 fn released(time: &str) -> String {
-    versions_page::published(time.get(..10).unwrap_or_default(), "")
+    dates::published(time.get(..10).unwrap_or_default(), "")
 }
 
 impl Launcher {
@@ -43,7 +41,7 @@ impl Launcher {
         let filters = div()
             .flex()
             .items_center()
-            .gap(px(20.))
+            .gap(px(space::XL))
             .child(filter(
                 "mc-snapshots",
                 "Show snapshots",
@@ -53,43 +51,35 @@ impl Launcher {
             .child(filter("mc-old", "Show old versions", choice.old, |j| {
                 j.old = !j.old
             }));
-        let field = div()
-            .relative()
-            .mb(px(8.))
-            .child(
-                self.field(Field::VersionSearch, tr("Search versions"), 600., cx)
-                    .w_full()
-                    .pl(px(44.)),
+        let field = self
+            .field_with(
+                Field::VersionSearch,
+                Some(ui::field_icon("search-01")),
+                tr("Search versions"),
+                600.,
+                ui::ButtonSize::Lg,
+                None,
+                cx,
             )
-            .child(
-                div()
-                    .absolute()
-                    .top_0()
-                    .left(px(16.))
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .child(ui::icon("search-01", ui::IconSize::Px16, white(ink::DIM))),
-            );
+            .w_full()
+            .mb(px(space::SM));
         let height = if ui::short_window() { LIST_SHORT } else { LIST };
         let list = match &self.instances.versions {
-            VersionList::NotAsked | VersionList::Loading => list_box("mc-versions", height).child(
-                ui::loading_state("mc-versions-loading", tr("Loading Minecraft versions…")),
-            ),
-            VersionList::Failed(e) => {
-                let retry = ui::primary("mc-versions-retry", tr("Try again"), ui::Size::Md)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.instances.versions = VersionList::NotAsked;
-                        this.load_versions(cx);
-                        cx.notify();
-                    }));
-                list_box("mc-versions", height).child(ui::error_state(
-                    "mc-versions-failed",
-                    tr("Couldn't load Minecraft versions"),
-                    e,
-                    retry,
-                ))
-            }
+            VersionList::NotAsked | VersionList::Loading => ui::list_box("mc-versions", height)
+                .child(ui::loading_state(
+                    "mc-versions-loading",
+                    tr("Loading Minecraft versions…"),
+                )),
+            VersionList::Failed(e) => ui::list_box("mc-versions", height).child(ui::error_state(
+                "mc-versions-failed",
+                tr("Couldn't load Minecraft versions"),
+                e,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.instances.versions = VersionList::NotAsked;
+                    this.load_versions(cx);
+                    cx.notify();
+                }),
+            )),
             VersionList::Ready(versions) => {
                 let rows: Vec<_> = versions
                     .of(choice.snapshots, choice.old)
@@ -104,8 +94,8 @@ impl Launcher {
                             VersionKind::OldBeta => "Beta",
                             VersionKind::OldAlpha => "Alpha",
                         };
-                        list_choice(format!("mc-{}", v.id), on)
-                            .py(px(8.))
+                        ui::list_choice(format!("mc-{}", v.id), on)
+                            .py(px(space::SM))
                             .child(
                                 ui::text(
                                     eclipse_theme::glass::step::LEAD,
@@ -130,7 +120,7 @@ impl Launcher {
                                     released(&v.released)
                                 )),
                             )
-                            .child(tick(on))
+                            .child(ui::tick_slot(on))
                             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.change(|j| j.version = Some(id.clone()));
                                 cx.notify();
@@ -153,15 +143,15 @@ impl Launcher {
                     }
                 }
                 if rows.is_empty() {
-                    list_box("mc-versions", height).child(ui::empty_state(
+                    ui::list_box("mc-versions", height).child(ui::empty_state(
                         "mc-versions-no-match",
                         "search-01",
                         trf("No version matches “{search}”", &[("search", &typed)]),
-                        "",
+                        tr("Try another version number."),
                         vec![],
                     ))
                 } else {
-                    list_box("mc-versions", height).children(rows)
+                    ui::list_box("mc-versions", height).children(rows)
                 }
             }
         };
@@ -176,7 +166,7 @@ impl Launcher {
     pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let now = self.draft_loader();
         let version = self.loader_version_shown(cx);
-        let mut grid = div().grid().grid_cols(2).gap(px(10.));
+        let mut grid = div().grid().grid_cols(2).gap(px(space::MD));
         for loader in loaders() {
             let logo = match self.loader_logo(loader.id(), MARK) {
                 Some(image) => mark_tile(ui::image_tile(image, MARK)),
@@ -194,10 +184,10 @@ impl Launcher {
                 _ => "",
             };
             grid = grid.child(
-                choice(format!("loader-{}", loader.id()), loader == now)
+                ui::choice(format!("loader-{}", loader.id()), loader == now)
                     .items_center()
-                    .gap(px(14.))
-                    .p(px(12.))
+                    .gap(px(space::LG))
+                    .p(px(space::MD))
                     .min_w_0()
                     .child(logo)
                     .child(ui::item_text(title, note))
@@ -295,8 +285,8 @@ impl Launcher {
             div()
                 .flex()
                 .flex_none()
-                .gap(px(12.))
-                .p(px(16.))
+                .gap(px(space::MD))
+                .p(px(space::LG))
                 .rounded(px(radius::POPOVER))
                 .bg(warn.opacity(fill::SELECTED))
                 .child(ui::icon("information-circle", ui::IconSize::Px16, warn))
@@ -304,7 +294,7 @@ impl Launcher {
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(6.))
+                        .gap(px(space::SM))
                         .min_w_0()
                         .child(
                             ui::text(

@@ -1,4 +1,4 @@
-//! Who plays: the top bar's quick switch (a menu under the account chip) and Settings' offline
+//! Who plays: the sidebar's quick switch (a menu under the account chip) and Settings' offline
 //! names (`eclipse_launcher::account::Accounts::offline`).
 use super::fields::Field;
 use super::*;
@@ -31,7 +31,7 @@ impl Launcher {
             Ok(()) => self.accounts = accounts,
             Err(e) => self.sign_in_state = Some(SignInState::Done(Err(e))),
         }
-        self.account_menu = false;
+        self.close_menu();
     }
 
     /// Everyone the player can play as, with how each signs in.

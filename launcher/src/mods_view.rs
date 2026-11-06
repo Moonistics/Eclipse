@@ -10,9 +10,11 @@
 //! progress.
 
 use super::*;
+use crate::menus::Asking;
+use crate::menus::Menu;
 use crate::ui::{self, white};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{ink, radius, space};
 
 const DETAIL: f32 = 360.;
 
@@ -53,15 +55,9 @@ impl Launcher {
             .map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
         let target = self.mods_target(cx);
         let open = self.mods.kind;
-        let mut tabs = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(4.))
-            .mt(px(20.))
-            .ml(px(-ui::TAB_PAD));
-        for (kind, label, _) in KINDS {
-            tabs = tabs.child(
+        let tabs = ui::tab_strip(
+            "mods-tabs",
+            KINDS.into_iter().map(|(kind, label, _)| {
                 ui::tab(
                     SharedString::from(format!("mods-tab-{kind:?}")),
                     tr(label),
@@ -70,15 +66,21 @@ impl Launcher {
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_set_kind(kind);
                     cx.notify();
-                })),
-            );
-        }
-        let header = ui::page_head(tr("Mods"), "").children(target).child(tabs);
+                }))
+            }),
+        )
+        .mt(px(space::LG));
+        let header = ui::page_head(tr("Mods"), "")
+            .mb_0()
+            .children(target)
+            .child(tabs);
 
         // Installation can pause for consent in either view. Keep the notice before
         // the project or results, rather than below a potentially long detail card.
-        let notice = self.native_notice(cx).map(|notice| notice.mb(px(20.)));
-        // A project's own page replaces the two cards, as before.
+        let notice = self
+            .native_notice(cx)
+            .map(|notice| notice.mb(px(space::XL)));
+        // A project's own page replaces the two cards.
         if let Some(project) = self.mods_project_page(cx) {
             return div()
                 .flex()
@@ -99,9 +101,9 @@ impl Launcher {
         let extras = div()
             .flex()
             .flex_col()
-            .gap(px(12.))
-            .px(px(4.))
-            .pb(px(8.))
+            .gap(px(space::MD))
+            .px(px(space::XS))
+            .pb(px(space::SM))
             .when(!registry && !java, |d| {
                 d.child(
                     ui::toggle_label("mods-everything", tr("Show all results"), everything)
@@ -118,11 +120,11 @@ impl Launcher {
             .children(self.mods_filters(cx))
             .children(self.mods_target_line(cx));
         let search = div()
-            .m(px(4.))
-            .mb(px(8.))
+            .m(px(space::XS))
+            .mb(px(space::SM))
             .flex()
             .items_center()
-            .gap(px(8.))
+            .gap(px(space::SM))
             .child(div().flex_1().min_w(px(200.)).child(self.mods_field(cx)))
             .child(self.mods_sort(cx))
             .child(self.mods_filters_button(cx));
@@ -156,7 +158,8 @@ impl Launcher {
                 "mods-detail-close",
                 "cancel-01",
                 tr("Close"),
-                ui::Size::Sm,
+                ButtonKind::Ghost,
+                ui::ButtonSize::Sm,
                 false,
             )
             .absolute()
@@ -164,7 +167,7 @@ impl Launcher {
             .right(px(16.))
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.mods.picked = None;
-                this.mods.confirm_remove = None;
+                this.asking = None;
                 cx.notify();
             }));
             ui::float_card(radius::PANEL)
@@ -182,7 +185,7 @@ impl Launcher {
             .relative()
             .flex()
             .items_start()
-            .gap(px(if wide { 10. } else { 0. }))
+            .gap(px(if wide { layout::CARD_GAP } else { 0. }))
             .child(self.mods_sticky.row(&self.content_scroll.handle))
             .child(list)
             .children(detail);
@@ -207,8 +210,8 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(10.))
-                    .mt(px(10.))
+                    .gap(px(layout::CARD_GAP))
+                    .mt(px(layout::CARD_GAP))
                     .children(more),
             )
     }
@@ -217,9 +220,9 @@ impl Launcher {
         let row = div()
             .flex()
             .items_center()
-            .gap(px(12.))
-            .h(px(36.))
-            .mt(px(12.));
+            .gap(px(space::MD))
+            .h(px(ui::ButtonSize::Md.height()))
+            .mt(px(space::MD));
         let note = |s: SharedString| {
             ui::text(
                 eclipse_theme::glass::step::LEAD,
@@ -233,29 +236,26 @@ impl Launcher {
         }
         let current = self.selected_instance()?.clone();
         let choices = self.mods_targets(&current);
-        let open = self.mods.target_menu;
+        let open = self.menu_is(&Menu::ModsTarget);
         let button = ui::dropdown(
             "mods-target",
-            Some(self.instance_icon(&current, 24.)),
+            Some(self.instance_icon(&current, ui::TILE_SM)),
             current.name.clone(),
             open,
-            ui::Size::Md.height(),
+            ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
             if this.closed_by_this_press(event) {
                 return;
             }
-            this.mods.target_menu = !this.mods.target_menu;
-            if this.mods.target_menu {
-                this.opened_menu(window, cx);
-            }
+            this.toggle_menu(Menu::ModsTarget, window, cx);
             cx.notify();
         }));
         let mut wrap = div().relative().flex_none().child(button);
         if open {
             let mut menu = ui::popover("mods-target-menu").on_mouse_down_out(cx.listener(
                 |this, event: &MouseDownEvent, _, cx| {
-                    this.mods.target_menu = false;
+                    this.close_menu();
                     this.menu_closed_at = Some(event.position);
                     cx.notify();
                 },
@@ -270,7 +270,7 @@ impl Launcher {
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
-                            this.mods.target_menu = false;
+                            this.close_menu();
                             if !picked {
                                 this.select_instance(&i);
                             }
@@ -283,7 +283,7 @@ impl Launcher {
                 gpui::deferred(
                     div()
                         .absolute()
-                        .top(px(ui::Size::Md.height() + ui::MENU_GAP))
+                        .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
                         .left_0()
                         .child(menu),
                 )
@@ -316,7 +316,7 @@ impl Launcher {
         let create = ui::primary(
             "mods-new-fabric",
             tr("Create a Fabric instance"),
-            ui::Size::Sm,
+            ui::ButtonSize::Sm,
         )
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.mods_new_fabric(minecraft.clone(), cx);
@@ -327,73 +327,41 @@ impl Launcher {
                 "mods-choose-instance",
                 None,
                 tr("Choose another instance"),
-                ButtonKind::Ghost,
-                ui::Size::Sm,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.mods.target_menu = true;
+                this.open_menu = Some(Menu::ModsTarget);
                 this.opened_menu(window, cx);
                 cx.notify();
             }))
+            .into_any_element()
         });
+        let said = trf(
+            "{instance} is vanilla. Mods need Fabric, Quilt, NeoForge or Forge.",
+            &[("instance", &current.name)],
+        );
+        let actions = std::iter::once(create.into_any_element())
+            .chain(choose)
+            .collect();
         Some(
             div()
                 .id("mods-vanilla")
-                .flex()
-                .flex_col()
-                .gap(px(12.))
-                .mx(px(4.))
-                .mb(px(8.))
-                .p(px(ui::PANEL_INSET))
-                .rounded(px(radius::ROW))
-                .bg(white(fill::WELL))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .child(ui::icon(
-                            "information-circle",
-                            ui::IconSize::Px16,
-                            white(ink::BODY),
-                        ))
-                        .child(
-                            ui::text(
-                                eclipse_theme::glass::step::BODY,
-                                FontWeight::NORMAL,
-                                ink::FULL,
-                            )
-                            .min_w_0()
-                            .child(trf(
-                                "{instance} is vanilla. Mods need Fabric, Quilt, NeoForge or Forge.",
-                                &[("instance", &current.name)],
-                            )),
-                        ),
-                )
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(create)
-                        .children(choose),
-                ),
+                .mx(px(space::XS))
+                .mb(px(space::SM))
+                .child(ui::notice("information-circle", said, actions)),
         )
     }
 
-    /// The source switch (`switches`): Eclipse's registry or Modrinth as small tabs.
-    fn source_switch(&mut self, cx: &mut Context<Self>) -> Div {
-        let current = self.mods.source;
-        let mut row = div().flex().items_center().gap(px(4.));
-        for (source, label) in SOURCES {
-            row = row.child(
-                ui::tab(
-                    SharedString::from(format!("mods-source-{source:?}")),
-                    tr(label),
-                    source == current,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+    /// The source switch (`switches`): Eclipse's registry or Modrinth.
+    fn source_switch(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let this = cx.entity().downgrade();
+        ui::segments(
+            "mods-source",
+            &ui::translated(&SOURCES),
+            self.mods.source,
+            move |source, _, cx| {
+                let _ = this.update(cx, |this, cx| {
                     if this.mods.source != source {
                         this.mods.source = source;
                         this.mods.browse.filters = Default::default();
@@ -402,10 +370,10 @@ impl Launcher {
                         this.mods_search(0);
                     }
                     cx.notify();
-                })),
-            );
-        }
-        row
+                });
+            },
+        )
+        .self_start()
     }
 
     /// The "Sort by" dropdown beside the search; the choices on a popover under it, the chosen one
@@ -423,29 +391,26 @@ impl Launcher {
             .iter()
             .find(|(value, _)| Some(*value) == shown)
             .map_or("", |(_, label)| *label);
-        let open = self.mods.browse.sort_menu;
+        let open = self.menu_is(&Menu::ModsSort);
         let button = ui::dropdown(
             "mods-sort",
             None,
             trf("Sort by: {order}", &[("order", tr(name))]),
             open,
-            ui::Size::Md.height(),
+            ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
             if this.closed_by_this_press(event) {
                 return;
             }
-            this.mods.browse.sort_menu = !this.mods.browse.sort_menu;
-            if this.mods.browse.sort_menu {
-                this.opened_menu(window, cx);
-            }
+            this.toggle_menu(Menu::ModsSort, window, cx);
             cx.notify();
         }));
         let mut wrap = div().relative().flex_none().child(button);
         if open {
             let mut menu = ui::popover("mods-sort-menu").on_mouse_down_out(cx.listener(
                 |this, event: &MouseDownEvent, _, cx| {
-                    this.mods.browse.sort_menu = false;
+                    this.close_menu();
                     this.menu_closed_at = Some(event.position);
                     cx.notify();
                 },
@@ -459,7 +424,7 @@ impl Launcher {
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
-                            this.mods.browse.sort_menu = false;
+                            this.close_menu();
                             this.mods_filter(|f| f.sort = value);
                             cx.notify();
                         },
@@ -470,7 +435,7 @@ impl Launcher {
                 gpui::deferred(
                     div()
                         .absolute()
-                        .top(px(ui::Size::Md.height() + ui::MENU_GAP))
+                        .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
                         .right_0()
                         .child(menu),
                 )
@@ -484,17 +449,14 @@ impl Launcher {
     fn mods_list(&mut self, cx: &mut Context<Self>) -> Div {
         let m = &self.mods;
         if let Some(e) = &m.error {
-            let retry = ui::primary("mods-retry", tr("Try again"), ui::Size::Md).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.mods_search(0);
-                    cx.notify();
-                }),
-            );
             return div().child(ui::error_state(
                 "mods-failed",
                 tr("Couldn't search"),
                 e,
-                retry,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.mods_search(0);
+                    cx.notify();
+                }),
             ));
         }
         if m.results.is_empty() {
@@ -532,7 +494,7 @@ impl Launcher {
                         None,
                         tr("Show all results"),
                         ButtonKind::Secondary,
-                        ui::Size::Md,
+                        ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.mods.everything = true;
@@ -561,7 +523,7 @@ impl Launcher {
         let mut list = div().flex().flex_col();
         for i in 0..self.mods.results.len() {
             let p = self.mods.results[i].clone();
-            let icon = self.mods_icon(&p, 40.);
+            let icon = self.mods_icon(&p, MOD_TILE);
             let m = &self.mods;
             let installed = m.entry(&p).is_some();
             let busy = m.busy.as_ref().is_some_and(|b| b.0 == p.id);
@@ -584,17 +546,16 @@ impl Launcher {
                     tr("Install")
                 };
                 let known = p.clone();
+                let button_id = SharedString::from(format!("mods-row-install-{}", p.id));
+                let lit = current || ui::hover_is(&row_id) || ui::hover_is(&button_id);
                 let button = ui::button(
-                    SharedString::from(format!("mods-row-install-{}", p.id)),
+                    button_id,
                     None,
                     label,
-                    if current {
-                        ButtonKind::Secondary
-                    } else {
-                        ButtonKind::Ghost
-                    },
-                    ui::Size::Sm,
-                );
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Sm,
+                )
+                .text_color(white(if lit { ink::FULL } else { ink::MUTED }));
                 if can_install {
                     button
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -604,7 +565,7 @@ impl Launcher {
                         }))
                         .into_any_element()
                 } else {
-                    disabled(button).into_any_element()
+                    ui::disabled(button).into_any_element()
                 }
             } else {
                 div().flex_none().w(px(20.)).into_any_element()
@@ -646,64 +607,20 @@ impl Launcher {
                 })
             };
             let id = p.id.clone();
+            let by = match p.kind {
+                PackKind::Mod | PackKind::Shader => p.author.clone(),
+                _ => tr(kind_name(p.kind)).to_string(),
+            };
+            let summary = p.summary.split_whitespace().collect::<Vec<_>>().join(" ");
             list = list.child(
-                ui::row(row_id, current, 11.)
-                    .px(px(11.))
-                    .py(px(9.))
+                ui::row(row_id, current)
                     .child(div().relative().child(icon))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_baseline()
-                                    .gap(px(8.))
-                                    .min_w_0()
-                                    .child(
-                                        ui::text(
-                                            eclipse_theme::glass::step::BODY,
-                                            FontWeight::MEDIUM,
-                                            ink::FULL,
-                                        )
-                                        .truncate()
-                                        .child(p.title.clone()),
-                                    )
-                                    .child(
-                                        ui::text(
-                                            eclipse_theme::glass::step::NOTE,
-                                            FontWeight::NORMAL,
-                                            ink::DIM,
-                                        )
-                                        .truncate()
-                                        .child(
-                                            match p.kind {
-                                                PackKind::Mod | PackKind::Shader => {
-                                                    p.author.clone()
-                                                }
-                                                _ => tr(kind_name(p.kind)).to_string(),
-                                            },
-                                        ),
-                                    ),
-                            )
-                            .child(
-                                ui::text(
-                                    eclipse_theme::glass::step::NOTE,
-                                    FontWeight::NORMAL,
-                                    ink::MUTED,
-                                )
-                                .truncate()
-                                .child(p.summary.split_whitespace().collect::<Vec<_>>().join(" ")),
-                            ),
-                    )
+                    .child(ui::item_text_by(p.title.clone(), by, summary))
                     .children(right.map(|r| r.flex_none()))
                     .child(action)
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.mods.picked = Some(id.clone());
-                        this.mods.confirm_remove = None;
+                        this.asking = None;
                         cx.notify();
                     })),
             );
@@ -712,15 +629,15 @@ impl Launcher {
             let searching = self.mods.searching;
             let offset = self.mods.results.len();
             list = list.child(
-                div().flex().p(px(8.)).child(
+                div().flex().p(px(space::SM)).child(
                     ui::button(
                         "mods-more",
                         None,
                         tr("Load more"),
                         ButtonKind::Secondary,
-                        ui::Size::Md,
+                        ui::ButtonSize::Md,
                     )
-                    .when(searching, crate::disabled)
+                    .when(searching, ui::disabled)
                     .when(!searching, |d| {
                         d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.mods_search(offset);
@@ -787,15 +704,15 @@ impl Launcher {
                 _ => white(ink::DIM),
             };
             div()
-                .mt(px(16.))
+                .mt(px(space::LG))
                 .flex()
                 .flex_col()
-                .gap(px(4.))
+                .gap(px(space::XS))
                 .child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(8.))
+                        .gap(px(space::SM))
                         .child(ui::dot(tone))
                         .child(
                             ui::text(
@@ -825,7 +742,7 @@ impl Launcher {
         // The action: Remove (then asked to confirm), Install or Import, or a Fabric instance
         // for a mod a vanilla one can't take.
         let button: Option<AnyElement> = if let Some(e) = &entry {
-            let confirming = m.confirm_remove.as_deref() == Some(e.project.as_str());
+            let confirming = self.is_asking(&Asking::Mod(e.project.clone()));
             let remove_id = SharedString::from(format!("mods-detail-remove-{}", p.id));
             let id = e.project.clone();
             if confirming {
@@ -834,7 +751,7 @@ impl Launcher {
                     trf("Remove {name}?", &[("name", &e.title)]),
                     tr("Remove"),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.mods.confirm_remove = None;
+                        this.asking = None;
                         cx.notify();
                     }),
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -850,11 +767,11 @@ impl Launcher {
                     None,
                     trf("Remove from {instance}…", &[("instance", instance)]),
                     ButtonKind::Secondary,
-                    ui::Size::Lg,
+                    ui::ButtonSize::Lg,
                 )
                 .w_full()
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.mods.confirm_remove = Some(id.clone());
+                    this.asking = Some(Asking::Mod(id.clone()));
                     cx.notify();
                 }))
                 .into_any_element()
@@ -870,10 +787,10 @@ impl Launcher {
                     tr("Installing…")
                 },
                 ButtonKind::Secondary,
-                ui::Size::Lg,
+                ui::ButtonSize::Lg,
             )
             .w_full()
-            .map(crate::disabled)
+            .map(ui::disabled)
             .into_any_element()
             .into()
         } else if support.installable() {
@@ -886,10 +803,10 @@ impl Launcher {
             ui::primary(
                 SharedString::from(format!("mods-detail-install-{}", p.id)),
                 label,
-                ui::Size::Lg,
+                ui::ButtonSize::Lg,
             )
             .w_full()
-            .when(busy.is_some(), crate::disabled)
+            .when(busy.is_some(), ui::disabled)
             .when(busy.is_none(), |d| {
                 d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(known.source, known.id.clone(), Some(known.clone()));
@@ -905,7 +822,7 @@ impl Launcher {
                     None,
                     tr("Create a Fabric instance"),
                     ButtonKind::Secondary,
-                    ui::Size::Lg,
+                    ui::ButtonSize::Lg,
                 )
                 .w_full()
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -932,7 +849,7 @@ impl Launcher {
                         p.title.clone(),
                         eclipse_theme::glass::pixel_text::CARD_TITLE,
                     )
-                    .mt(px(20.)),
+                    .mt(px(space::XL)),
                 )
                 .child(
                     ui::text(
@@ -940,14 +857,14 @@ impl Launcher {
                         FontWeight::NORMAL,
                         ink::DIM,
                     )
-                    .mt(px(4.))
+                    .mt(px(space::XS))
                     .child(by.join(" · ")),
                 )
                 .children(
                     (p.source == SourceId::Eclipse)
                         .then(|| stars(&p.id))
                         .flatten()
-                        .map(|s| s.mt(px(8.))),
+                        .map(|s| s.mt(px(space::SM))),
                 )
                 .child(
                     ui::text(
@@ -955,7 +872,7 @@ impl Launcher {
                         FontWeight::NORMAL,
                         ink::BODY,
                     )
-                    .mt(px(16.))
+                    .mt(px(space::LG))
                     .child(p.summary.clone()),
                 )
                 .children(about.map(|a| {
@@ -964,7 +881,7 @@ impl Launcher {
                         FontWeight::NORMAL,
                         ink::DIM,
                     )
-                    .mt(px(16.))
+                    .mt(px(space::LG))
                     .child(a)
                 }))
                 .children(status)
@@ -974,7 +891,7 @@ impl Launcher {
                         FontWeight::NORMAL,
                         ink::DIM,
                     )
-                    .mt(px(16.))
+                    .mt(px(space::LG))
                     .child(trf(
                         "{count} downloads",
                         &[("count", &super::thousands(p.downloads))],
@@ -984,16 +901,24 @@ impl Launcher {
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(8.))
-                        .mt(px(24.))
+                        .gap(px(space::SM))
+                        .mt(px(space::XL))
                         .children(button)
                         .child(
-                            crate::button("mods-page-link", page_label(p.kind), page_kind)
-                                .w_full()
-                                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            ui::button(
+                                "mods-page-link",
+                                None,
+                                tr(page_label(p.kind)),
+                                page_kind,
+                                ui::ButtonSize::Md,
+                            )
+                            .w_full()
+                            .on_press(cx.listener(
+                                move |this, _: &ClickEvent, _, cx| {
                                     this.mods_open(open.clone());
                                     cx.notify();
-                                })),
+                                },
+                            )),
                         ),
                 ),
         )

@@ -4,9 +4,9 @@ use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{fill, ink, radius, EDGE};
+use eclipse_theme::glass::{fill, ink, radius, space};
 use fields::Field;
-use new_instance::{NewKind, VersionList};
+use instance_state::{NewKind, VersionList};
 
 /// The loaders Prism Launcher offers. Those `loaders::Kind` can install are shown; the others
 /// join when the launcher learns them.
@@ -17,9 +17,9 @@ const LOGO_ICONS: [&str; 4] = ["neoforge", "fabric", "quilt", "forge"];
 const COLOURS: [u32; 7] = [
     0x3b82f6, 0x14b8a6, 0x22c55e, 0xeab308, 0xf97316, 0xef4444, 0x8b8a99,
 ];
-const PREVIEW_ICON: f32 = 48.;
+const PREVIEW_ICON: f32 = ui::TILE_LG;
 const PREVIEW_ICON_SHORT: f32 = 32.;
-pub(super) const MARK_TILE: f32 = 42.;
+pub(super) const MARK_TILE: f32 = ui::TILE_LG;
 pub(super) const MARK: f32 = 32.;
 
 /// The loaders a new modded instance can use now.
@@ -34,43 +34,15 @@ pub(super) fn mark_tile(mark: impl IntoElement) -> Div {
     ui::tile(MARK_TILE).relative().child(mark)
 }
 
-pub(super) fn choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    ui::selected(
-        ui::hoverable(id, radius::ROW, ui::Hover::Row)
-            .flex()
-            .cursor_pointer(),
-        on,
-    )
-}
-
-/// A field group: its heading, anything `aside` at its right, then `body`.
-pub(super) fn section(title: SharedString, aside: Option<Div>, body: impl IntoElement) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .flex_none()
-        .child(
-            div()
-                .flex()
-                .items_end()
-                .justify_between()
-                .gap(px(16.))
-                .mb(px(12.))
-                .child(ui::label(title))
-                .children(aside),
-        )
-        .child(body)
-}
-
 fn card_head(title: SharedString, aside: Option<AnyElement>) -> Div {
     div()
         .relative()
         .flex()
         .items_center()
         .justify_between()
-        .gap(px(16.))
-        .h(px(ui::Size::Md.height()))
-        .mb(px(12.))
+        .gap(px(space::LG))
+        .h(px(ui::ButtonSize::Md.height()))
+        .mb(px(space::MD))
         .child(ui::label(title))
         .children(aside)
 }
@@ -91,40 +63,12 @@ pub(super) fn section_card(
         .child(div().relative().child(body))
 }
 
-pub(super) fn list_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    choice(id, on)
-        .flex_none()
-        .items_center()
-        .gap(px(16.))
-        .px(px(16.))
-}
-
-pub(super) fn tick(on: bool) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .justify_center()
-        .w(px(20.))
-        .children(on.then(ui::tick))
-}
-
-pub(super) fn list_box(id: &'static str, max: f32) -> Stateful<Div> {
-    ui::nested_list(id)
-        .flex()
-        .flex_col()
-        .max_h(px(max))
-        .p(px(6.))
-        .rounded(px(radius::POPOVER))
-        .border_1()
-        .border_color(white(EDGE))
-}
-
 fn icon_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    choice(id, on)
+    ui::choice(id, on)
         .flex_none()
         .items_center()
         .justify_center()
-        .size(px(52.))
+        .size(px(ui::TILE_LG))
 }
 
 impl Launcher {
@@ -185,8 +129,8 @@ impl Launcher {
             .flex()
             .flex_col()
             .size_full()
-            .gap(px(16.))
-            .pb(px(8.))
+            .gap(px(layout::CARD_GAP))
+            .pb(px(space::SM))
             .children(cards);
         let pane = div()
             .relative()
@@ -393,14 +337,13 @@ impl Launcher {
                 NewKind::Modded => ("modded", tr("Modded"), modded.clone()),
             };
             let mark = match k {
-                NewKind::Modded => ui::icon("puzzle", ui::IconSize::Px32, ui::icon_tone(k == kind))
-                    .into_any_element(),
+                NewKind::Modded => self.modded_mark(MARK),
                 _ => self.auto_mark(k, loader, MARK),
             };
-            let card = choice(format!("new-kind-{id}"), k == kind)
+            let card = ui::choice(format!("new-kind-{id}"), k == kind)
                 .items_center()
-                .gap(px(14.))
-                .p(px(12.))
+                .gap(px(space::LG))
+                .p(px(space::MD))
                 .min_w_0()
                 .child(mark_tile(mark))
                 .child(
@@ -421,7 +364,7 @@ impl Launcher {
                         .child(ui::card_note(note)),
                 );
             cards.push(if !switches {
-                card.cursor_default().when(k != kind, crate::disabled)
+                card.cursor_default().when(k != kind, ui::disabled)
             } else {
                 card.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.pick_kind(k, cx);
@@ -436,7 +379,7 @@ impl Launcher {
                 None,
                 tr("Import a modpack…"),
                 ButtonKind::Secondary,
-                ui::Size::Md,
+                ui::ButtonSize::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.show_modpack(None);
@@ -451,7 +394,7 @@ impl Launcher {
             div()
                 .grid()
                 .grid_cols(cards.len() as u16)
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .children(cards),
         )
     }
@@ -462,10 +405,22 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let name = self
-            .field(Field::InstanceName, tr("My instance"), 340., cx)
+            .field(
+                Field::InstanceName,
+                tr("My instance"),
+                340.,
+                ui::ButtonSize::Lg,
+                cx,
+            )
             .w_full();
         let group = self
-            .field(Field::InstanceGroup, tr("For example Modpacks"), 340., cx)
+            .field(
+                Field::InstanceGroup,
+                tr("For example Modpacks"),
+                340.,
+                ui::ButtonSize::Lg,
+                cx,
+            )
             .w_full();
         let labelled = |label: &'static str, field: Stateful<Div>| {
             div()
@@ -481,12 +436,12 @@ impl Launcher {
             .flex()
             .flex_col()
             .flex_none()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .p(px(ui::CARD_PADDING))
             .child(
                 div()
                     .flex()
-                    .gap(px(10.))
+                    .gap(px(space::MD))
                     .child(labelled("Name", name))
                     .child(labelled("Group (optional)", group)),
             )
@@ -551,26 +506,26 @@ impl Launcher {
             None,
             tr("Cancel"),
             ButtonKind::Ghost,
-            ui::Size::Lg,
+            ui::ButtonSize::Lg,
         );
         let label = match (editing.is_some(), busy) {
             (true, _) => tr("Save changes"),
             (false, true) if copy => tr("Copying…"),
             (false, _) => tr("Create instance"),
         };
-        let save = ui::primary("instance-save", label, ui::Size::Lg);
+        let save = ui::primary("instance-save", label, ui::ButtonSize::Lg);
         let buttons = if busy {
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .child(disabled(cancel))
-                .child(disabled(save))
+                .gap(px(space::SM))
+                .child(ui::disabled(cancel))
+                .child(ui::disabled(save))
         } else {
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.))
+                .gap(px(space::SM))
                 .child(cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.close_instance_page();
                     cx.notify();
@@ -585,8 +540,8 @@ impl Launcher {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(16.))
-            .mt(px(12.))
+            .gap(px(space::LG))
+            .mt(px(space::MD))
             .p(px(ui::PANEL_INSET))
             .child(
                 ui::hover_over("instance-preview-icon", radius::ROW, icon)
@@ -604,20 +559,14 @@ impl Launcher {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(4.))
+                    .gap(px(space::XS))
                     .child(
                         ui::entity_title(name, eclipse_theme::glass::pixel_text::CARD_TITLE)
                             .truncate(),
                     )
                     // Why Create failed takes the summary's place, by the buttons.
                     .child(match error {
-                        Some(e) => ui::text(
-                            eclipse_theme::glass::step::NOTE,
-                            FontWeight::NORMAL,
-                            ink::FULL,
-                        )
-                        .text_color(ui::danger())
-                        .child(e),
+                        Some(e) => ui::error_note(e),
                         None => ui::text(
                             eclipse_theme::glass::step::NOTE,
                             FontWeight::NORMAL,
@@ -644,11 +593,11 @@ impl Launcher {
                 let latest = follows.as_ref() == Some(&tag);
                 let newest = i == 0;
                 let on = chosen.as_ref() == Some(&tag);
-                let date = eclipse_launcher::nightly::date_of(&tag)
-                    .map(|d| versions_page::published(d, ""));
+                let date =
+                    eclipse_launcher::nightly::date_of(&tag).map(|d| dates::published(d, ""));
                 let pick = tag.clone();
-                list_choice(format!("eclipse-version-{tag}"), on)
-                    .py(px(12.))
+                ui::list_choice(format!("eclipse-version-{tag}"), on)
+                    .py(px(space::MD))
                     .child(ui::item_text(version_label(&tag), date.unwrap_or_default()).flex_1())
                     .children(newest.then(|| {
                         ui::text(
@@ -659,7 +608,7 @@ impl Launcher {
                         .text_color(ui::color(soft))
                         .child(tr("Newest"))
                     }))
-                    .child(tick(on))
+                    .child(ui::tick_slot(on))
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         if let Some(d) = &mut this.instances.draft {
                             d.pin = (!latest).then(|| pick.clone());
@@ -668,31 +617,27 @@ impl Launcher {
                     }))
             })
             .collect();
-        let list = list_box("eclipse-versions", 248.);
+        let list = ui::list_box("eclipse-versions", 248.);
         let list = match (&self.releases, rows.is_empty()) {
             (_, false) => list.children(rows),
             (Load::Loading, true) => list.child(ui::loading_state(
                 "eclipse-versions-loading",
                 tr("Loading versions…"),
             )),
-            (Load::Failed(e), true) => {
-                let retry = ui::primary("eclipse-versions-retry", tr("Try again"), ui::Size::Md)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.fetch_releases();
-                        cx.notify();
-                    }));
-                list.child(ui::error_state(
-                    "eclipse-versions-failed",
-                    tr("Couldn't load versions"),
-                    e,
-                    retry,
-                ))
-            }
+            (Load::Failed(e), true) => list.child(ui::error_state(
+                "eclipse-versions-failed",
+                tr("Couldn't load versions"),
+                e,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.fetch_releases();
+                    cx.notify();
+                }),
+            )),
             (_, true) => list.child(ui::empty_state(
                 "eclipse-versions-empty",
                 "package-01",
                 tr("No version installed"),
-                "",
+                tr("Install one on the Versions page first."),
                 vec![],
             )),
         };
@@ -715,12 +660,12 @@ impl Launcher {
             None => self.eclipse_mark(MARK),
         };
         let card = |on: bool, id: &'static str| {
-            choice(id, on)
+            ui::choice(id, on)
                 .flex_1()
                 .min_w_0()
                 .items_center()
-                .gap(px(14.))
-                .p(px(12.))
+                .gap(px(space::LG))
+                .p(px(space::MD))
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if let Some(d) = &mut this.instances.draft {
                         d.copy = id == "instance-from-copy";
@@ -745,7 +690,7 @@ impl Launcher {
             "instance-start-from",
             tr("Start from").into(),
             None,
-            div().flex().gap(px(10.)).child(empty).child(copied),
+            div().flex().gap(px(space::MD)).child(empty).child(copied),
         )
     }
 
@@ -839,7 +784,9 @@ impl Launcher {
                 "grass" => self
                     .icon_image("mark:grass".into(), 40., false, || Some(png.clone()))
                     .map(|i| instance_icons::centred(i, 40., self.scale).into_any_element()),
-                _ => self.loader_logo(id, 40.).map(|i| ui::image_tile(i, 40.)),
+                _ => self
+                    .loader_logo(id, ui::TILE_MD)
+                    .map(|i| ui::image_tile(i, ui::TILE_MD)),
             };
             let Some(shown) = shown else {
                 continue;
@@ -867,7 +814,7 @@ impl Launcher {
             let on = !pictured && icon == Some(Icon::Texture(texture.into()));
             first.push(
                 icon_choice(format!("icon-{texture}"), on)
-                    .child(ui::image_tile(image, 40.))
+                    .child(ui::image_tile(image, ui::TILE_MD))
                     .on_press(pick(Some(Icon::Texture(texture.into()))))
                     .into_any_element(),
             );
@@ -884,23 +831,23 @@ impl Launcher {
             Some("image-01"),
             tr("Choose image…"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         )
-        .ml(px(6.))
+        .ml(px(space::SM))
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.choose_instance_picture(cx);
         }));
         let mut body = div()
             .flex()
             .flex_col()
-            .child(div().flex().flex_wrap().gap(px(6.)).children(first))
+            .child(div().flex().flex_wrap().gap(px(space::SM)).children(first))
             .child(
                 div()
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(6.))
-                    .mt(px(6.))
+                    .gap(px(space::SM))
+                    .mt(px(space::SM))
                     .children(colours)
                     .child(choose),
             );
@@ -911,7 +858,7 @@ impl Launcher {
                     FontWeight::NORMAL,
                     ink::MUTED,
                 )
-                .mt(px(12.))
+                .mt(px(space::MD))
                 .child(tr("Prepare a version to use block and item icons.")),
             );
         }

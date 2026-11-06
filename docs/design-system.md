@@ -290,48 +290,60 @@ Light); `tokens.css` carries them as `--night-*`. The game's menus don't use it.
   needed), the code in mono on a raised box with Copy, and Open link as the main action; the window
   goes on by itself once Microsoft answers (`ECLIPSE_LAUNCHER_PAGE=sign-in` shows it with a made-up
   code for screenshots).
-- **New instance** (`launcher/src/new_instance.rs`): an opaque plate over the dimmed launcher,
-  tabs for the kind (Eclipse, Vanilla, Modded). A Java kind lists Mojang's versions (search,
-  Snapshots, Old; the newest release chosen), Modded adds the loader (Fabric, Quilt, Forge or NeoForge, with its logo, at its newest
-  stable version), and the name follows the choice ("Fabric 1.21.4") until the player types one.
-  Create is the main action.
+- **New instance** (`launcher/src/instance_page.rs`, its state in `instance_state.rs`): a page in
+  the frame, its title still while its cards scroll, with the instance as it will be, Cancel and
+  Create pinned at the foot. Cards for the kind (Eclipse, Vanilla, Modded); a Java kind lists
+  Mojang's versions (search, Snapshots, Old; the newest release chosen), Modded adds the loader
+  (Fabric, Quilt, Forge or NeoForge, with its logo, at its newest stable version), and the name
+  follows the choice ("Fabric 1.21.4") until the player types one. Create is the main action.
 
-## Glass
+## Corona
 
-The launcher's next look, designed by Anthony S. (dezer-x) as a web mockup: playhorizon.dev/launcher,
-source in eclipse-site `app/launcher/` and `components/launcher/`. The launcher ports it one to one,
-screen by screen, replacing Night where they differ; the mockup is the reference for every size,
-colour, state and motion. Its tokens are `eclipse_theme::glass`; `tokens.css` carries the colours
-as `--glass-*`.
+The launcher's look: quiet charcoal cards with hairline edges over a pixel eclipse scene, white
+text at a few opacities, one amber accent, Monocraft for what is pressed and named, Geist for
+what is read. Its tokens are `eclipse_theme::glass` (the module keeps that name: `tokens.css`
+carries the colours as `--glass-*`); the launcher's components are `launcher/src/ui/`, its layout
+numbers `launcher/src/layout.rs`.
 
-- **The scene is the background**: a pixel sunset over three ridges with trees, clouds, stars, a
-  meteor now and then and fireflies (`launcher/src/scene.rs`), a port of the website's
-  `EclipseScene` with its seeds and sums, so a window shows the picture the mockup shows at the
-  same size. It eases with the pointer and stops 10 s after the window loses focus;
-  `ECLIPSE_LAUNCHER_MOTION` works as for Night. Dark appearance only so far; Light keeps the dawn.
-- **Frosted plates, round corners, no borders.** A plate is the scene behind it blurred 24 px and
-  saturated 140 %, under white at 6 % and the accent's dark violet (`base`) at 22 %. Menus and
-  popovers take the same glass with a shadow (the mockup's darker `hzl-float` read as another
-  material beside the cards); toasts keep it. Corners (`glass::radius`): dialogs 28, panels 20,
-  menus 16, the Play group 14, rows and chips 12, buttons and tabs 10. No pixel steps, no strokes.
-- **Motion as the website plays it** (`launcher/src/motion.rs`): hovers ease over `quick`'s
-  150 ms curve, toasts and a new page arrive as `hzl-pop` (a fade and a 6 px rise over 200 ms,
-  `cubic-bezier(0.2, 0.7, 0.2, 1)`), a switch's knob slides for 200 ms. Menus open at once. Under
-  reduced motion each is drawn where it ends.
-- **Light**: plates are white at 84 % over the dawn sky washed with white (55 %), so the page
-  reads white; icons and text on the accent keep `on-accent`.
-- **One accent, mixed like the mockup.** `accent` (`#6b4bff`) fills the main action;
-  `accent-soft` (half accent, half white in OKLab) draws progress, ticks, links and the focus ring;
-  text on the accent turns dark when a player's accent is light. `Glass::new` does the mockup's
-  `color-mix` sums, so a player's own accent comes out as the website's would.
-- **White text at a few opacities** (`glass::ink`: 100, 80, 70, 60, 50, 45, 40 %) and white fills
-  for states (`glass::fill`: hover 5 %, field 7 %, button 8 %, selected 10 %, active 12 %).
-  Live `#4ade80`, busy `#f2c46b`, destructive `#ff8a8a`.
-- **Type**: Geist for everything; Bricolage Grotesque SemiBold for page, instance and dialog names,
-  at the optical size a browser picks for them: `Bricolage Grotesque Display` (56) and
-  `Bricolage Grotesque Heading` (28), cut by `tools/bake_bricolage.py`.
-- **Icons**: Eclipse's 16 px pixel set, filled in the text colour
-  (`crates/eclipse-theme/icons/glass/`, served as `icons/glass/<name>.svg`).
+- **The scene is the background**: a pixel eclipse (an eclipsed sun with an amber corona) over
+  ridges, blocky terrain, trees and torches, night in the dark appearance and dawn in the light one
+  (`launcher/src/scene.rs`, colours in `eclipse_theme::night`). It is drawn at device pixels on a
+  whole texel and sits in the gutter beside the page on wide windows.
+- **Opaque cards, one level only.** A card is `look.plate` (`#15171e` for amber) with a hairline
+  edge (`EDGE`, white at 7 %; `EDGE_LIGHT`, 12 % of the ink, in light), paper white in light.
+  Menus and dialogs float on `FLOAT` with a shadow. Corners (`glass::radius`): dialogs 14, cards
+  12, menus 10, rows, fields and tiles 8, buttons and tabs 6, switches 4.
+- **One accent, corona amber** (`ACCENT`, `#f5a524`). It fills the one main action of a view (the
+  Play block, with a 2 px shine and a 3 px shade), the selected icon, the open tab's underline, a
+  switch that is on and the ticks. `accent-soft` (amber mixed with white in OKLab) draws progress,
+  links and the focus ring. In light, `Glass::light` darkens the mark and the soft shade until
+  they read on every light surface (a test checks every accent the picker makes); a switch that is
+  on is filled with the mark there. Text on the accent turns dark when the accent is light.
+- **Selection is a raised plate**: the selected fill (white at 10 %) with a hairline edge, and the
+  item's icon in the mark. Never a bar at the left edge.
+- **White text at a few opacities** (`glass::ink`: full, strong 86 %, body 72 %, muted 60 %, dim
+  50 %; `ink_light` maps them onto the light ink so every level reads at 4.5:1 on every surface) and
+  white fills for states (`glass::fill`: hover 5 %, field 7 %, button 8 %, selected 10 %, active
+  12 %, the danger fill 12 % of the red, the inset well black at 25 %). Live `#4ade80`, warn
+  `#ff7059`, danger `#ff8a8a`; their light forms are checked against every light plate and hover
+  fill.
+- **Type**: Geist through the steps of `glass::step` (label 11, caption 12, note 13, body 14, lead
+  15, title 16, figure 22). Monocraft, uppercase, for navigation, tabs and buttons (18) and for
+  card and page titles (27 and 36): only on its 9 px grid (`MONOCRAFT_PIXEL`), where each font
+  pixel is a whole number of screen pixels. Text is drawn in greyscale so the pixel stems stay
+  clean.
+- **Space** comes from `glass::space` (2, 4, 8, 12, 16, 24, 32); cards stack 16 apart
+  (`layout::CARD_GAP`), a tab strip sits 16 above what it opens, a note 12 under a title.
+- **Controls**: buttons are 32, 36, 44 or 56 tall (`ButtonSize`), Primary (the amber block),
+  Secondary (a faint fill) or Ghost (text only); fields take the same sizes, an icon before the
+  text and their button inside. A disabled control is 40 % opaque and never lights under the
+  pointer. The keyboard focus ring is 2 px of `accent-soft`: outside a solid control with a gap in
+  the page colour, inside anything translucent.
+- **Motion** (`launcher/src/motion.rs`): hovers fade over `quick`, a page arrives with a fade and
+  a 6 px rise, a switch's knob slides. Under reduced motion each is drawn where it ends, and
+  progress bars stand still.
+- **Icons**: Eclipse's pixel set, drawn on an 8 px grid at 2 px a pixel and filled in the text
+  colour (`crates/eclipse-theme/icons/glass/`, served as `icons/glass/<name>.svg`).
 
 ## The mark
 

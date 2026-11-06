@@ -4,7 +4,7 @@
 use super::*;
 use crate::ui;
 use eclipse_launcher::export::{self, Format};
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use std::path::PathBuf;
 
 pub(super) struct ExportPanel {
@@ -109,7 +109,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let pick = ui::segments(
             "export-format",
-            &[(Format::Mrpack, ".mrpack"), (Format::Zip, ".zip")],
+            &ui::translated(&[(Format::Mrpack, ".mrpack"), (Format::Zip, ".zip")]),
             panel.format,
             move |format, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -120,7 +120,7 @@ impl Launcher {
                 });
             },
         );
-        let mut worlds = div().flex().flex_col().gap(px(10.));
+        let mut worlds = div().flex().flex_col().gap(px(space::MD));
         if panel.worlds.is_empty() {
             worlds = worlds.child(
                 ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
@@ -142,9 +142,15 @@ impl Launcher {
                 })),
             );
         }
-        let go = button("export-run", "Export", ButtonKind::Secondary);
+        let go = ui::button(
+            "export-run",
+            None,
+            tr("Export"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
         let go = match panel.busy {
-            true => disabled(go),
+            true => ui::disabled(go),
             false => go.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.run_export(cx);
                 cx.notify();
@@ -158,13 +164,19 @@ impl Launcher {
                         .flex()
                         .flex_wrap()
                         .items_center()
-                        .gap(px(10.))
+                        .gap(px(space::MD))
                         .child(
                             ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(said.clone()),
                         )
                         .child(
-                            button("export-show", "Show in folder", ButtonKind::Ghost)
-                                .on_press(move |_, _, cx| cx.reveal_path(&path)),
+                            ui::button(
+                                "export-show",
+                                None,
+                                tr("Show in folder"),
+                                ButtonKind::Ghost,
+                                ui::ButtonSize::Md,
+                            )
+                            .on_press(move |_, _, cx| cx.reveal_path(&path)),
                         ),
                 )
             }
@@ -175,7 +187,8 @@ impl Launcher {
             "export-close",
             "cancel-01",
             tr("Close"),
-            ui::Size::Sm,
+            ButtonKind::Ghost,
+            ui::ButtonSize::Sm,
             false,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -186,7 +199,7 @@ impl Launcher {
             ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
-                .gap(px(16.))
+                .gap(px(space::LG))
                 .p(px(ui::CARD_PADDING))
                 .child(
                     div()
@@ -201,7 +214,7 @@ impl Launcher {
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(10.))
+                        .gap(px(space::MD))
                         .child(ui::label(tr("Worlds")))
                         .child(worlds),
                 )
@@ -212,7 +225,7 @@ impl Launcher {
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(10.))
+                        .gap(px(space::MD))
                         .child(go)
                         .when(panel.busy, |d| {
                             d.child(

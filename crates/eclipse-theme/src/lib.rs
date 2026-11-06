@@ -46,9 +46,9 @@ pub mod fonts {
         include_bytes!("../fonts/BricolageGrotesqueHeading-SemiBold.ttf");
 }
 
-/// The glass look's icons: Eclipse's pixel set on a 16 px grid, filled in `currentColor`, by name
-/// (`"folder-01"`, `"more-horizontal"`…). `github` is GitHub's mark, drawn for Eclipse (filled,
-/// its cat cut out by a mask), beside the links to GitHub Sponsors.
+/// The glass look's icons: Eclipse's pixel set on an 8 px grid at 2 px a pixel, filled in
+/// `currentColor`, by name (`"folder-01"`, `"more-horizontal"`…). `github` is GitHub's mark,
+/// drawn for Eclipse (filled, its cat cut out by a mask), beside the links to GitHub Sponsors.
 pub mod glass_icons {
     macro_rules! icons {
         ($($name:literal),* $(,)?) => {

@@ -2,10 +2,11 @@
 //! in `datapacks/`, Add (a file picker) or a zip dropped on the world, and Delete (to the trash,
 //! after a confirmation).
 use super::*;
+use crate::menus::Asking;
 use crate::ui::{self, white};
 use eclipse_launcher::datapacks::{self, DataPack};
 use eclipse_launcher::worlds::World;
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use std::path::PathBuf;
 
 const WORLD_PACKS_INDENT: f32 = 62.;
@@ -15,7 +16,6 @@ pub(super) struct WorldPacks {
     /// The world whose packs are open, and its packs as last read.
     open: Option<PathBuf>,
     list: Vec<DataPack>,
-    pub(super) confirm_remove: Option<String>,
     note: Option<Result<String, String>>,
 }
 
@@ -61,7 +61,6 @@ impl Launcher {
                 )
             })),
             open: Some(world),
-            confirm_remove: None,
         };
     }
 
@@ -97,26 +96,38 @@ impl Launcher {
         let mut panel = div()
             .flex()
             .flex_col()
-            .gap(px(6.))
+            .gap(px(space::SM))
             .ml(px(WORLD_PACKS_INDENT))
-            .mb(px(6.))
+            .mb(px(space::SM))
             .p(px(ui::PANEL_INSET))
             .rounded(px(radius::ROW))
-            .bg(white(fill::WELL));
+            .bg(ui::inset());
         let (add_kind, folder_kind) = if empty {
             (ButtonKind::Primary, ButtonKind::Secondary)
         } else {
             (ButtonKind::Ghost, ButtonKind::Ghost)
         };
-        let add = button("world-packs-add", "Add data pack…", add_kind).on_press(cx.listener(
-            move |this, _: &ClickEvent, _, cx| {
-                this.choose_world_packs(path.clone(), cx);
-                cx.notify();
-            },
-        ));
+        let add = ui::button(
+            "world-packs-add",
+            None,
+            tr("Add data pack…"),
+            add_kind,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.choose_world_packs(path.clone(), cx);
+            cx.notify();
+        }));
         let folder = {
             let dir = world.path.join("datapacks");
-            button("world-packs-folder", "Open folder", folder_kind).on_press(move |_, _, cx| {
+            ui::button(
+                "world-packs-folder",
+                None,
+                tr("Open folder"),
+                folder_kind,
+                ui::ButtonSize::Md,
+            )
+            .on_press(move |_, _, cx| {
                 let _ = std::fs::create_dir_all(&dir);
                 crate::toast::open(cx, &dir);
             })
@@ -125,11 +136,11 @@ impl Launcher {
             (None, vec![add, folder])
         } else {
             (
-                Some(div().flex().gap(px(6.)).child(add).child(folder)),
+                Some(div().flex().gap(px(space::SM)).child(add).child(folder)),
                 Vec::new(),
             )
         };
-        let mut head = div().flex().flex_col().gap(px(6.)).child(
+        let mut head = div().flex().flex_col().gap(px(space::SM)).child(
             div()
                 .flex()
                 .items_center()
@@ -151,15 +162,15 @@ impl Launcher {
                 "world-packs-empty",
                 "package-01",
                 tr("No data packs yet"),
-                "",
+                tr("Add one from a file to change this world's rules or recipes."),
                 empty_actions,
             ));
         }
         panel = panel.child(head).children(failed);
-        for (i, pack) in self.world_packs.list.clone().into_iter().enumerate() {
-            let confirming = self.world_packs.confirm_remove.as_ref() == Some(&pack.file);
-            let remove_id = SharedString::from(format!("world-pack-remove-{i}"));
-            let mut actions = div().flex().items_center().gap(px(6.));
+        for pack in self.world_packs.list.clone() {
+            let confirming = self.is_asking(&Asking::WorldPack(pack.file.clone()));
+            let remove_id = SharedString::from(format!("world-pack-remove-{}", pack.file));
+            let mut actions = div().flex().items_center().gap(px(space::SM));
             if confirming {
                 let (world, gone) = (world.path.clone(), pack.clone());
                 actions = actions.child(ui::confirm(
@@ -167,7 +178,7 @@ impl Launcher {
                     trf("Delete {name}?", &[("name", &pack.file)]),
                     tr("Delete"),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.world_packs.confirm_remove = None;
+                        this.asking = None;
                         cx.notify();
                     }),
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -175,7 +186,7 @@ impl Launcher {
                             .map(|()| trf("{name} moved to the trash.", &[("name", &gone.file)]));
                         this.world_packs.list = datapacks::list(&world);
                         this.world_packs.note = Some(note);
-                        this.world_packs.confirm_remove = None;
+                        this.asking = None;
                         cx.notify();
                     }),
                 ));
@@ -187,16 +198,25 @@ impl Launcher {
                             .child(tr("Off in the game")),
                     );
                 }
-                actions = actions.child(button(remove_id, "Delete…", ButtonKind::Ghost).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.world_packs.confirm_remove = Some(file.clone());
-                        cx.notify();
-                    }),
-                ));
+                actions = actions.child(
+                    ui::button(
+                        remove_id,
+                        None,
+                        tr("Delete…"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.asking = Some(Asking::WorldPack(file.clone()));
+                            cx.notify();
+                        },
+                    )),
+                );
             }
             panel = panel.child(
                 ui::list_row(
-                    SharedString::from(format!("world-pack-{i}")),
+                    SharedString::from(format!("world-pack-{}", pack.file)),
                     confirming,
                     |_, _, _| {},
                 )

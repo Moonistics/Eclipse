@@ -31,7 +31,7 @@ pub(super) fn symbol() -> Div {
         }))
 }
 
-/// The symbol at `size` pixels square (the top bar's button draws it at 16).
+/// The symbol at `size` pixels square (the sign-in buttons draw it at 18).
 pub(super) fn logo(size: f32) -> Div {
     let u = size / 21.;
     div()
@@ -50,14 +50,14 @@ pub(super) fn logo(size: f32) -> Div {
 
 pub(super) fn white_button(id: &'static str) -> Stateful<Div> {
     use crate::ui;
-    use eclipse_theme::glass::{fill, radius, step, ON_LIGHT};
+    use eclipse_theme::glass::{fill, radius, space, step, ON_LIGHT};
     ui::hoverable(id, radius::ROW, ui::Hover::Shade)
         .flex()
         .items_center()
         .justify_center()
-        .gap(px(10.))
+        .gap(px(space::MD))
         .h(px(WHITE_BUTTON))
-        .px(px(20.))
+        .px(px(space::XL))
         .rounded(px(radius::ROW))
         .bg(gpui::white())
         .when(ui::light(), |d| {
@@ -76,6 +76,7 @@ const WHITE_BUTTON: f32 = 48.;
 
 /// The button, in the dark or light form the launcher's look calls for.
 pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
+    use eclipse_theme::glass::space;
     let (fill, ink, border) = if t.dark {
         (0x2f2f2f, 0xffffff, None)
     } else {
@@ -85,9 +86,9 @@ pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
         .flex()
         .flex_none()
         .items_center()
-        .gap(px(12.))
+        .gap(px(space::MD))
         .h(px(41.))
-        .px(px(12.))
+        .px(px(space::MD))
         .bg(gpui::rgb(fill))
         .when_some(border, |d, b| d.border_1().border_color(gpui::rgb(b)))
         .cursor_pointer()

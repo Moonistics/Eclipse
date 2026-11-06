@@ -3,16 +3,14 @@
 //! open one. Below, the server's Players, Settings and Backups.
 use super::*;
 use crate::ui::{self, white, Tone};
-use eclipse_theme::glass::{fill, ink, pixel_text, radius, step, TextStep};
+use eclipse_theme::glass::{ink, pixel_text, radius, space, step, TextStep};
 
 /// The right column's width.
 const SIDE: f32 = 320.;
 
-const COLUMN_GAP: f32 = 10.;
-
 const LIST_ROW_PAD: f32 = 10.;
 
-const STEPPER_VALUE_WIDTH: f32 = 44.;
+const COMMAND_WIDTH: f32 = 520.;
 
 /// The tabs under the server's card.
 const LOWER_TABS: [(Tab, &str); 3] = [
@@ -59,7 +57,7 @@ impl Launcher {
         };
         let status = self.servers.status();
         let content = layout::content_width(self.window_width);
-        let beside = content >= layout::SERVER_CARD_MIN + COLUMN_GAP + SIDE;
+        let beside = content >= layout::SERVER_CARD_MIN + layout::CARD_GAP + SIDE;
         let list = self.server_list(cx);
         let addresses = self.server_addresses(&status, cx);
         let side = if beside {
@@ -68,14 +66,14 @@ impl Launcher {
                 .flex_col()
                 .flex_none()
                 .w(px(SIDE))
-                .gap(px(COLUMN_GAP))
+                .gap(px(layout::CARD_GAP))
                 .child(list)
                 .child(addresses)
         } else {
             div()
                 .flex()
                 .items_start()
-                .gap(px(COLUMN_GAP))
+                .gap(px(layout::CARD_GAP))
                 .child(list.flex_1().min_w_0())
                 .child(addresses.flex_1().min_w_0())
         };
@@ -83,14 +81,14 @@ impl Launcher {
             div()
                 .flex()
                 .items_start()
-                .gap(px(COLUMN_GAP))
+                .gap(px(layout::CARD_GAP))
                 .child(main.flex_1().min_w_0())
                 .child(side)
         } else {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(COLUMN_GAP))
+                .gap(px(layout::CARD_GAP))
                 .child(main)
                 .child(side)
         };
@@ -163,7 +161,8 @@ impl Launcher {
             "server-panel",
             "dashboard-square-01",
             tr("Server panel"),
-            ui::Size::Sm,
+            ButtonKind::Ghost,
+            ui::ButtonSize::Sm,
             false,
         );
         let panel = if running {
@@ -177,26 +176,27 @@ impl Launcher {
                 cx.notify();
             }))
         } else {
-            crate::disabled(panel)
+            ui::disabled(panel)
         };
         let folder = dir.to_path_buf();
         let folder = ui::icon_button(
             "server-folder",
             "folder-01",
             tr("Open folder"),
-            ui::Size::Sm,
+            ButtonKind::Ghost,
+            ui::ButtonSize::Sm,
             false,
         )
         .on_press(move |_, _, cx| crate::toast::open(cx, &folder));
 
-        let mut buttons = div().flex().flex_none().items_center().gap(px(8.));
+        let mut buttons = div().flex().flex_none().items_center().gap(px(space::SM));
         if running {
             let restart = ui::button(
                 "server-restart",
                 None,
                 tr("Restart"),
                 ButtonKind::Secondary,
-                ui::Size::Lg,
+                ui::ButtonSize::Lg,
             );
             buttons = buttons.child(if idle {
                 restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -205,14 +205,14 @@ impl Launcher {
                     cx.notify();
                 }))
             } else {
-                crate::disabled(restart)
+                ui::disabled(restart)
             });
             let stop = ui::button(
                 "server-stop",
                 None,
                 tr("Stop"),
                 ButtonKind::Secondary,
-                ui::Size::Lg,
+                ui::ButtonSize::Lg,
             );
             buttons = buttons.child(if idle {
                 stop.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -220,24 +220,24 @@ impl Launcher {
                     cx.notify();
                 }))
             } else {
-                crate::disabled(stop)
+                ui::disabled(stop)
             });
         } else if self.servers.busy.as_deref() == Some("Starting") {
             buttons = buttons.child(ui::primary_busy(
                 "server-start",
                 tr("Starting"),
                 None,
-                ui::Size::Lg,
+                ui::ButtonSize::Lg,
             ));
         } else {
-            let start = ui::primary("server-start", tr("Start"), ui::Size::Lg);
+            let start = ui::primary("server-start", tr("Start"), ui::ButtonSize::Lg);
             buttons = buttons.child(if idle {
                 start.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.start_server();
                     cx.notify();
                 }))
             } else {
-                crate::disabled(start)
+                ui::disabled(start)
             });
         }
 
@@ -251,12 +251,12 @@ impl Launcher {
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap(px(12.))
+                    .gap(px(space::MD))
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(8.))
+                            .gap(px(space::SM))
                             .min_w_0()
                             .child(ui::dot(tone(&status)))
                             .child(
@@ -269,7 +269,7 @@ impl Launcher {
                         div()
                             .flex()
                             .flex_none()
-                            .gap(px(4.))
+                            .gap(px(space::XS))
                             .child(panel)
                             .child(folder),
                     ),
@@ -277,11 +277,11 @@ impl Launcher {
             .child(
                 div()
                     .relative()
-                    .mt(px(12.))
+                    .mt(px(space::MD))
                     .flex()
                     .items_center()
                     .justify_between()
-                    .gap(px(20.))
+                    .gap(px(space::XL))
                     .child(
                         ui::entity_title(name, pixel_text::CARD_TITLE)
                             .min_w_0()
@@ -292,7 +292,7 @@ impl Launcher {
             .child(
                 ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
                     .relative()
-                    .mt(px(8.))
+                    .mt(px(space::SM))
                     .truncate()
                     .child(numbers),
             );
@@ -305,7 +305,7 @@ impl Launcher {
                     &[("count", &status.crashes.to_string())],
                 ))
                 .relative()
-                .mt(px(8.)),
+                .mt(px(space::SM)),
             );
         }
         card = card.children(self.server_notes(running, idle, cx));
@@ -320,10 +320,10 @@ impl Launcher {
             out.push(
                 div()
                     .relative()
-                    .mt(px(16.))
+                    .mt(px(space::LG))
                     .flex()
                     .flex_col()
-                    .gap(px(8.))
+                    .gap(px(space::SM))
                     .child(ui::progress_bar(None))
                     .child(
                         ui::card_note(format!("{} {last}", tr(&format!("{label}…")))).truncate(),
@@ -331,7 +331,7 @@ impl Launcher {
             );
         }
         if let Some(p) = self.servers.problem.clone() {
-            let mut d = ui::notice_line(ui::danger(), p.message.clone()).mt(px(16.));
+            let mut actions = Vec::new();
             if let Some(fix) = p.fix {
                 let label = match &fix {
                     Fix::UsePort(port) => trf("Use port {port}", &[("port", &port.to_string())]),
@@ -339,40 +339,39 @@ impl Launcher {
                     Fix::AgreeEula => tr("I agree to the EULA").into(),
                     Fix::ShowLog => tr("Open the logs").into(),
                 };
-                d = d.child(
+                actions.push(
                     ui::button(
                         "problem-fix",
                         None,
                         label,
                         ButtonKind::Secondary,
-                        ui::Size::Sm,
+                        ui::ButtonSize::Sm,
                     )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.fix(fix.clone(), cx);
-                            cx.notify();
-                        },
-                    )),
+                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.fix(fix.clone(), cx);
+                        cx.notify();
+                    }))
+                    .into_any_element(),
                 );
             }
-            out.push(
-                d.child(
-                    ui::button(
-                        "problem-dismiss",
-                        None,
-                        tr("Dismiss"),
-                        ButtonKind::Ghost,
-                        ui::Size::Sm,
-                    )
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.servers.problem = None;
-                        cx.notify();
-                    })),
-                ),
+            actions.push(
+                ui::button(
+                    "problem-dismiss",
+                    None,
+                    tr("Dismiss"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Sm,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.servers.problem = None;
+                    cx.notify();
+                }))
+                .into_any_element(),
             );
+            out.push(ui::error_line(p.message.clone(), actions).mt(px(space::LG)));
         }
         if let Some(n) = self.servers.note.clone() {
-            out.push(ui::notice_line(ui::live(), n).mt(px(16.)));
+            out.push(ui::notice_line(ui::live(), n).mt(px(space::LG)));
         }
         if running && !self.servers.restart_needed.is_empty() {
             let names: Vec<String> = self
@@ -386,7 +385,7 @@ impl Launcher {
                 None,
                 tr("Restart now"),
                 ButtonKind::Secondary,
-                ui::Size::Sm,
+                ui::ButtonSize::Sm,
             );
             out.push(
                 ui::notice_line(
@@ -396,7 +395,7 @@ impl Launcher {
                         &[("settings", &names.join(", "))],
                     ),
                 )
-                .mt(px(16.))
+                .mt(px(space::LG))
                 .child(if idle {
                     restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.servers.restart_needed.clear();
@@ -404,7 +403,7 @@ impl Launcher {
                         cx.notify();
                     }))
                 } else {
-                    crate::disabled(restart)
+                    ui::disabled(restart)
                 }),
             );
         }
@@ -413,16 +412,16 @@ impl Launcher {
 
     /// The console and the command line under it, or what a stopped server shows instead.
     fn server_console(&mut self, running: bool, cx: &mut Context<Self>) -> Div {
-        let console = div().relative().mt(px(24.)).flex().flex_col();
+        let console = div().relative().mt(px(space::XL)).flex().flex_col();
         if !running {
             return console.child(
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.))
+                    .gap(px(space::MD))
                     .p(px(ui::CARD_PADDING))
                     .rounded(px(radius::ROW))
-                    .bg(ui::well())
+                    .bg(ui::inset())
                     .child(ui::icon(
                         "computer-terminal-01",
                         ui::IconSize::Px16,
@@ -456,7 +455,7 @@ impl Launcher {
             None,
             tr("Send"),
             ButtonKind::Secondary,
-            ui::Size::Sm,
+            ui::ButtonSize::Sm,
         );
         let typed = !self.fields.value(Field::ServerCommand).trim().is_empty();
         let send = if typed {
@@ -465,58 +464,60 @@ impl Launcher {
                 cx.notify();
             }))
         } else {
-            crate::disabled(send)
+            ui::disabled(send)
         };
-        let input = self
-            .field(
+        let slash = div()
+            .text_color(white(ink::DIM))
+            .child("/")
+            .into_any_element();
+        console.child(log).child(
+            self.field_with(
                 Field::ServerCommand,
-                "Type a command, like list or time set day",
-                520.,
+                Some(slash),
+                tr("Type a command, like list or time set day"),
+                COMMAND_WIDTH,
+                ui::ButtonSize::Md,
+                Some(send.into_any_element()),
                 cx,
             )
-            .flex_1()
-            .min_w_0();
-        let focused = self.fields.has_focus(Field::ServerCommand);
-        console.child(log).child(
-            ui::field(focused, false)
-                .mt(px(8.))
-                .gap(px(8.))
-                .pr(px(6.))
-                .font_family(theme::MONO)
-                .text_size(px(step::NOTE.size))
-                .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
-                .child(div().text_color(white(ink::DIM)).child("/"))
-                .child(input)
-                .child(send),
+            .w_full()
+            .mt(px(space::SM))
+            .pr(px(space::XS))
+            .font_family(theme::MONO)
+            .text_size(px(step::NOTE.size)),
         )
     }
 
     fn no_server(&mut self, cx: &mut Context<Self>) -> Div {
-        let create = ui::primary("server-create-empty", tr("Create a server"), ui::Size::Md)
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.open_create(cx);
-                cx.notify();
-            }));
+        let create = ui::primary(
+            "server-create-empty",
+            tr("Create a server"),
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.open_create(cx);
+            cx.notify();
+        }));
         let add = ui::button(
             "server-import-empty",
             Some("folder-01"),
             tr("Import a server…"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         );
         let add = if self.servers.creating {
-            crate::disabled(add)
+            ui::disabled(add)
         } else {
             add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.add_server_folder(cx);
                 cx.notify();
             }))
         };
-        let problem = self.servers.problem.clone().map(|p| {
-            ui::card_note(p.message)
-                .mt(px(16.))
-                .text_color(ui::danger())
-        });
+        let problem = self
+            .servers
+            .problem
+            .clone()
+            .map(|p| ui::error_note(p.message).mt(px(space::LG)));
         ui::empty_card(
             ui::empty_state(
                 "servers-empty",
@@ -535,7 +536,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .p(px(ui::LIST_INSET));
-        for (i, e) in self.servers.list.clone().into_iter().enumerate() {
+        for e in self.servers.list.clone() {
             let status = self
                 .servers
                 .statuses
@@ -556,7 +557,8 @@ impl Launcher {
             };
             let dir = e.dir.clone();
             list = list.child(
-                ui::row(format!("server-row-{i}"), current, 12.)
+                ui::row(format!("server-row-{}", e.dir.display()), current)
+                    .pr(px(space::MD))
                     .child(ui::item_text(e.name.clone(), line))
                     .child(ui::dot(tone(&status)).relative())
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -569,7 +571,8 @@ impl Launcher {
             );
         }
         let action = |id: &'static str, icon: &'static str, label: SharedString| {
-            ui::row(id, false, 12.)
+            ui::row(id, false)
+                .pr(px(space::MD))
                 .child(ui::icon(icon, ui::IconSize::Px16, white(ink::BODY)).relative())
                 .child(
                     ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
@@ -587,7 +590,7 @@ impl Launcher {
         );
         let add = action("server-import", "folder-01", tr("Import a server…").into());
         list.child(if self.servers.creating {
-            crate::disabled(add)
+            ui::disabled(add)
         } else {
             add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.add_server_folder(cx);
@@ -614,7 +617,8 @@ impl Launcher {
                 id,
                 if copied { "tick-02" } else { "copy-01" },
                 tr("Copy the address"),
-                ui::Size::Md,
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
                 false,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -625,11 +629,11 @@ impl Launcher {
         };
         let address = |value: String, size: TextStep, button: Stateful<Div>| {
             div()
-                .mt(px(4.))
+                .mt(px(space::XS))
                 .flex()
                 .items_center()
                 .justify_between()
-                .gap(px(12.))
+                .gap(px(space::MD))
                 .child(
                     ui::text(size, FontWeight::MEDIUM, ink::FULL)
                         .min_w_0()
@@ -649,13 +653,13 @@ impl Launcher {
             ))
             .child(
                 ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))
-                    .mt(px(4.)),
+                    .mt(px(space::XS)),
             );
         let internet = self.internet_card(port, cx);
         let mut card = ui::card(radius::PANEL)
             .flex()
             .flex_col()
-            .gap(px(24.))
+            .gap(px(space::XL))
             .p(px(ui::CARD_PADDING))
             .child(here.relative())
             .child(internet.relative());
@@ -666,14 +670,14 @@ impl Launcher {
                 .as_deref()
                 .map(|d| servers::names(d, "ops.json"))
                 .unwrap_or_default();
-            let mut people = div().mt(px(12.)).flex().flex_col().gap(px(10.));
+            let mut people = div().mt(px(space::MD)).flex().flex_col().gap(px(space::MD));
             for p in status.players.clone() {
                 let op = ops.iter().any(|o| o.eq_ignore_ascii_case(&p.name));
                 people = people.child(
                     div()
                         .flex()
                         .items_center()
-                        .gap(px(12.))
+                        .gap(px(space::MD))
                         .child(self.head(&p.uuid, 28.))
                         .child(
                             ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
@@ -703,15 +707,9 @@ impl Launcher {
 
     /// The server's Players, Settings and Backups, on a card under it.
     fn server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
-        if self.servers.tab == Tab::Overview {
-            self.servers.tab = Tab::Players;
-        }
-        let strip = div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .ml(px(-ui::TAB_PAD))
-            .children(LOWER_TABS.iter().map(|&(tab, label)| {
+        let strip = ui::tab_strip(
+            "server-tabs",
+            LOWER_TABS.iter().map(|&(tab, label)| {
                 ui::tab(
                     SharedString::from(format!("server-tab-{tab:?}")),
                     tr(label),
@@ -719,32 +717,39 @@ impl Launcher {
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.servers.tab = tab;
-                    this.servers.confirm_restore = None;
+                    this.asking = None;
                     cx.notify();
                 }))
-            }));
-        let players = !matches!(self.servers.tab, Tab::Settings | Tab::Backups);
+            }),
+        );
+        let players = self.servers.tab == Tab::Players;
         let body = match self.servers.tab {
             Tab::Settings => self.settings_tab(status, cx),
             Tab::Backups => self.backups_tab(status, cx),
-            _ => self.players_tab(dir, status, cx),
+            Tab::Players => self.players_tab(dir, status, cx),
         };
         ui::card(radius::PANEL)
-            .mt(px(COLUMN_GAP))
+            .mt(px(layout::CARD_GAP))
             .flex()
             .flex_col()
-            .gap(px(24.))
             .p(px(ui::CARD_PADDING))
             .child(strip.relative())
-            .child(body.relative())
-            .when(players, |d| {
-                d.child(self.internet_invites(port_of(self), cx).relative())
-            })
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::XL))
+                    .child(body)
+                    .when(players, |d| {
+                        d.child(self.internet_invites(port_of(self), cx))
+                    }),
+            )
     }
 
     /// A row of a tab's list (players, backups): what leads it, the name over its detail, then
     /// what is on its right.
-    pub(super) fn list_row(
+    pub(super) fn static_row(
         &self,
         lead: Option<Div>,
         name: impl Into<SharedString>,
@@ -762,7 +767,7 @@ impl Launcher {
         div()
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .py(px(LIST_ROW_PAD))
             .children(lead)
             .child(text)
@@ -778,43 +783,20 @@ impl Launcher {
         cx: &mut Context<Self>,
         set: impl Fn(&mut Self, i64) + Clone + 'static,
     ) -> AnyElement {
-        let step_button = |side: &str, icon: &'static str, to: i64| {
-            let b = ui::icon_button(
-                SharedString::from(format!("{id}-{side}")),
-                icon,
-                tr(if to < value { "Decrease" } else { "Increase" }),
-                ui::Size::Md,
-                false,
-            );
-            if range.contains(&to) && to != value {
+        let this = cx.entity().downgrade();
+        ui::stepper(
+            SharedString::from(id.to_string()),
+            value,
+            range,
+            move |to, _, cx| {
                 let set = set.clone();
-                b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let _ = this.update(cx, |this, cx| {
                     set(this, to);
                     cx.notify();
-                }))
-            } else {
-                crate::disabled(b)
-            }
-        };
-        let less = step_button("less", "minus-sign", value - 1);
-        let more = step_button("more", "plus-sign", value + 1);
-        div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .p(px(4.))
-            .rounded(px(radius::ROW))
-            .bg(white(fill::WELL))
-            .child(less)
-            .child(
-                ui::text(step::LEAD, FontWeight::SEMIBOLD, ink::FULL)
-                    .w(px(STEPPER_VALUE_WIDTH))
-                    .flex()
-                    .justify_center()
-                    .child(value.to_string()),
-            )
-            .child(more)
-            .into_any_element()
+                });
+            },
+        )
+        .into_any_element()
     }
 }
 

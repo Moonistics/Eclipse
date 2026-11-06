@@ -6,7 +6,7 @@
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::import::{self, Dropped};
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use gpui::ExternalPaths;
 use std::path::PathBuf;
 
@@ -135,7 +135,7 @@ impl Launcher {
                         .w_full()
                         .flex()
                         .items_center()
-                        .gap(px(12.))
+                        .gap(px(space::MD))
                         .p(px(ui::PANEL_INSET))
                         .shadow_lg()
                         .child(ui::icon(
@@ -149,7 +149,8 @@ impl Launcher {
                                 "import-close",
                                 "cancel-01",
                                 tr("Close"),
-                                ui::Size::Sm,
+                                ButtonKind::Ghost,
+                                ui::ButtonSize::Sm,
                                 false,
                             )
                             .on_press(cx.listener(

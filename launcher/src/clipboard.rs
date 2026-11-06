@@ -1,10 +1,15 @@
 use super::*;
 
+const COPIED_SHOWN: usize = 40;
+
 /// Copies to the clipboard, or into `ECLIPSE_LAUNCHER_CLIPBOARD` when a test run sets it
 /// (`eclipse_launcher::desktop_seams`).
 pub(super) fn copy_to_clipboard(cx: &mut App, item: gpui::ClipboardItem) {
     match item.text() {
-        Some(text) => toast::say(trf("Copied {text}", &[("text", &text)])),
+        Some(text) if !text.contains('\n') && text.chars().count() <= COPIED_SHOWN => {
+            toast::say(trf("Copied {text}", &[("text", &text)]))
+        }
+        Some(_) => toast::say(tr("Copied to the clipboard")),
         None => toast::say(tr("Copied the picture")),
     }
     if let Some(file) = eclipse_launcher::desktop_seams::clipboard_file() {

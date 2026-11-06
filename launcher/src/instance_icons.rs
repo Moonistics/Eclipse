@@ -5,6 +5,7 @@
 use super::*;
 use eclipse_launcher::browser::images;
 use eclipse_launcher::instances::{self, Instance, Kind as InstanceKind};
+use eclipse_theme::mark;
 use gpui::RenderImage;
 use std::sync::Arc;
 
@@ -15,10 +16,23 @@ const NEOFORGE: &[u8] = include_bytes!("../assets/logos/neoforge.png");
 const FORGE: &[u8] = include_bytes!("../assets/logos/forge.png");
 /// Vanilla's mark: our own grass block (`tools/launcher_grass_block.py`), not Mojang's art.
 pub(super) const GRASS: &[u8] = include_bytes!("../assets/logos/grass-block.png");
-/// Eclipse's mark (`docs/media/brand/icon.svg`), as the icon theme holds it.
-const MARK: &[u8] = include_bytes!("../../packaging/icons/hicolor/256x256/apps/eclipse.png");
 /// The loaders a logo is drawn for.
 const LOADERS: [&str; 4] = ["fabric", "quilt", "forge", "neoforge"];
+const SMALL_MARK: [&str; 12] = [
+    "....oooo....",
+    "...occcco...",
+    "..ocrrrrco..",
+    ".ocbmmmmrco.",
+    "ocrmmmmmmrco",
+    "ocrmmmmmmrco",
+    "ocrmmmmmmrco",
+    "ocrmmmmmmrco",
+    ".ocrmmmmrco.",
+    "..ocrrrrco..",
+    "...occcco...",
+    "....oooo....",
+];
+const MODDED_GAP: f32 = 2.;
 
 impl Launcher {
     /// The instance's own picture, `size` points square. Whether there is one is asked once:
@@ -57,7 +71,7 @@ impl Launcher {
         if instance.java.is_some() {
             return self.grass_mark(size);
         }
-        self.icon_image("mark:eclipse".into(), size, false, || Some(MARK.to_vec()))
+        self.mark_image(size)
     }
 
     /// Vanilla's grass block, `size` points square.
@@ -65,12 +79,44 @@ impl Launcher {
         self.icon_image("mark:grass".into(), size, false, || Some(GRASS.to_vec()))
     }
 
-    /// Eclipse's own mark, `size` points square: the brand icon, its tile already rounded.
+    /// Eclipse's own mark, `size` points square.
     pub(super) fn eclipse_mark(&mut self, size: f32) -> AnyElement {
-        match self.icon_image("mark:eclipse".into(), size, false, || Some(MARK.to_vec())) {
+        match self.mark_image(size) {
             Some(image) => centred(image, size, self.scale).into_any_element(),
             None => div().size(px(size)).flex_none().into_any_element(),
         }
+    }
+
+    fn mark_image(&mut self, size: f32) -> Option<Arc<RenderImage>> {
+        let scale = self.scale;
+        self.instances
+            .icons
+            .entry(("mark:eclipse".into(), (size * scale) as u32))
+            .or_insert_with(|| Some(pixel_mark(size, scale)))
+            .clone()
+    }
+
+    pub(super) fn modded_mark(&mut self, size: f32) -> AnyElement {
+        let cell = ((size - MODDED_GAP) / 2.).floor();
+        let [fabric, quilt, forge, neoforge] = LOADERS.map(|loader| self.loader_logo(loader, cell));
+        let scale = self.scale;
+        let row = |left: Option<Arc<RenderImage>>, right: Option<Arc<RenderImage>>| {
+            div()
+                .flex()
+                .gap(px(MODDED_GAP))
+                .children(left.map(|image| centred(image, cell, scale)))
+                .children(right.map(|image| centred(image, cell, scale)))
+        };
+        div()
+            .flex()
+            .flex_col()
+            .flex_none()
+            .justify_center()
+            .gap(px(MODDED_GAP))
+            .size(px(size))
+            .child(row(fabric, quilt))
+            .child(row(neoforge, forge))
+            .into_any_element()
     }
 
     /// A mod loader's logo by its id (`fabric`, `quilt`, `forge`, `neoforge`): None for another
@@ -112,6 +158,25 @@ fn fitted(bytes: Vec<u8>, size: f32, scale: f32) -> Option<Arc<RenderImage>> {
     let texels: Vec<[u8; 4]> = image.pixels().map(|p| p.0).collect();
     let whole = (side as usize / w.max(h)).max(1) as f32;
     Some(art::bake(&texels, w, h, whole / scale, scale))
+}
+
+fn pixel_mark(size: f32, scale: f32) -> Arc<RenderImage> {
+    let side = (size * scale).round();
+    let rows: &[&str] = if side < 2. * mark::PIXELS.len() as f32 {
+        &SMALL_MARK
+    } else {
+        &mark::PIXELS
+    };
+    let cell = (side / rows.len() as f32).floor().max(1.);
+    let texels: Vec<[u8; 4]> = rows
+        .iter()
+        .flat_map(|row| row.bytes())
+        .map(|c| match mark::colour(c) {
+            Some(rgb) => [(rgb >> 16) as u8, (rgb >> 8) as u8, rgb as u8, 255],
+            None => [0; 4],
+        })
+        .collect();
+    art::bake(&texels, rows.len(), rows.len(), cell / scale, scale)
 }
 
 /// A loader's logo file by its id.

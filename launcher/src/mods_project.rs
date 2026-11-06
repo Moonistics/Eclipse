@@ -17,7 +17,7 @@ use eclipse_launcher::browser::{
     details::{self, Details, Environment, Filters, Image, Sort, Tags},
     images, java, Kind as PackKind, Project, SourceId, Version,
 };
-use eclipse_theme::glass::{ink, pixel_text, radius, step};
+use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
 use gpui::img;
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -131,8 +131,6 @@ pub(super) struct Browse {
     pub(super) open: Option<Opened>,
     pub(super) filters: Filters,
     pub(super) show_filters: bool,
-    /// The Sort by dropdown's list is open.
-    pub(super) sort_menu: bool,
     tags: HashMap<(SourceId, PackKind), Tags>,
     tags_asked: HashSet<(SourceId, PackKind)>,
     /// Images on disk, by URL and size; `None` while they load or when they failed.
@@ -371,7 +369,7 @@ impl Launcher {
             Some(sliders.into_any_element()),
             label,
             shown,
-            ui::Size::Md.height(),
+            ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.mods.browse.show_filters = !this.mods.browse.show_filters;
@@ -391,7 +389,7 @@ impl Launcher {
         if !shown && active == 0 {
             return None;
         }
-        let mut bar = div().flex().flex_col().gap(px(12.));
+        let mut bar = div().flex().flex_col().gap(px(space::MD));
         if !shown {
             if active > 0 {
                 bar = bar.child(self.mods_picked_filters(&f, cx));
@@ -406,7 +404,7 @@ impl Launcher {
         // A chip: on or off, one value of a filter.
         let chip = |id: String, label: String, on: bool| {
             ui::selected(
-                ui::button(id, None, label, ButtonKind::Ghost, ui::Size::Sm),
+                ui::button(id, None, label, ButtonKind::Ghost, ui::ButtonSize::Sm),
                 on,
             )
         };
@@ -415,7 +413,7 @@ impl Launcher {
                 .flex()
                 .flex_wrap()
                 .items_center()
-                .gap(px(4.))
+                .gap(px(space::XS))
                 .child(ui::label(tr(title)).w(px(FILTER_NAME)))
         };
         let mut loaders = row("Loader");
@@ -496,12 +494,17 @@ impl Launcher {
                 }),
             ));
         }
-        let clear = button("mods-clear", "Clear filters", ButtonKind::Ghost).on_press(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.mods_filter(|f| *f = Filters::default());
-                cx.notify();
-            },
-        ));
+        let clear = ui::button(
+            "mods-clear",
+            None,
+            tr("Clear filters"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods_filter(|f| *f = Filters::default());
+            cx.notify();
+        }));
         if !registry {
             bar = bar.child(loaders).child(versions).child(environment);
         }
@@ -552,7 +555,7 @@ impl Launcher {
                 Rc::new(|f| f.environment = None),
             ));
         }
-        let mut row = div().flex().flex_wrap().items_center().gap(px(6.));
+        let mut row = div().flex().flex_wrap().items_center().gap(px(space::SM));
         for (id, label, remove) in picked {
             let cross = ui::icon("cancel-01", ui::IconSize::Px16, white(ink::BODY));
             row = row.child(
@@ -561,7 +564,7 @@ impl Launcher {
                     None,
                     label,
                     ButtonKind::Secondary,
-                    ui::Size::Sm,
+                    ui::ButtonSize::Sm,
                 )
                 .child(cross)
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -572,18 +575,23 @@ impl Launcher {
             );
         }
         row.child(
-            button("mods-picked-clear", "Clear filters", ButtonKind::Ghost).on_press(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    // The sort has its own control: only what filters goes.
-                    this.mods_filter(|f| {
-                        *f = Filters {
-                            sort: f.sort,
-                            ..Filters::default()
-                        }
-                    });
-                    cx.notify();
-                },
-            )),
+            ui::button(
+                "mods-picked-clear",
+                None,
+                tr("Clear filters"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                // The sort has its own control: only what filters goes.
+                this.mods_filter(|f| {
+                    *f = Filters {
+                        sort: f.sort,
+                        ..Filters::default()
+                    }
+                });
+                cx.notify();
+            })),
         )
     }
 
@@ -593,12 +601,17 @@ impl Launcher {
         let p = o.project.clone();
         let tab = o.tab;
         let shot = o.shot;
-        let back = button("mods-back", "Back to results", ButtonKind::Ghost).on_press(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.mods.browse.open = None;
-                cx.notify();
-            },
-        ));
+        let back = ui::button(
+            "mods-back",
+            None,
+            tr("Back to results"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods.browse.open = None;
+            cx.notify();
+        }));
         let details = o.details.clone();
         let versions = o.versions.clone();
         let version_list = o.version_list.clone();
@@ -622,7 +635,7 @@ impl Launcher {
             if let Some(day) = d.updated.get(..10) {
                 meta.push(trf(
                     "updated {date}",
-                    &[("date", &versions_page::published(day, ""))],
+                    &[("date", &dates::published(day, ""))],
                 ));
             }
         }
@@ -666,7 +679,7 @@ impl Launcher {
         let state = |tone: ui::Tone, said: String| {
             ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(tone, said))
         };
-        let mut action = div().flex().flex_none().items_center().gap(px(12.));
+        let mut action = div().flex().flex_none().items_center().gap(px(space::MD));
         if busy.as_deref() == Some(p.id.as_str()) {
             action = action.child(state(ui::Tone::Busy, tr("Installing…").to_string()));
         } else if installed {
@@ -680,9 +693,9 @@ impl Launcher {
             } else {
                 trf("Install in {instance}", &[("instance", &instance)])
             };
-            let mut install = ui::primary("mods-page-install", label, ui::Size::Md);
+            let mut install = ui::primary("mods-page-install", label, ui::ButtonSize::Md);
             if busy.is_some() {
-                install = disabled(install);
+                install = ui::disabled(install);
             } else {
                 let p = p.clone();
                 install = install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -698,7 +711,7 @@ impl Launcher {
                     None,
                     tr("Create a Fabric instance"),
                     ButtonKind::Secondary,
-                    ui::Size::Md,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_new_fabric(minecraft.clone(), cx);
@@ -710,7 +723,7 @@ impl Launcher {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(20.))
+            .gap(px(space::XL))
             .child(icon)
             .child(
                 div()
@@ -718,7 +731,7 @@ impl Launcher {
                     .flex_col()
                     .flex_1()
                     .min_w(px(HEAD_TEXT_MIN))
-                    .gap(px(4.))
+                    .gap(px(space::XS))
                     .child(ui::entity_title(p.title.clone(), pixel_text::CARD_TITLE))
                     .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(
                         if authors.is_empty() {
@@ -745,14 +758,14 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(24.))
+                .gap(px(space::XL))
                 .child(div().flex().child(back))
                 .child(head)
                 .children(status.map(|(tone, said, reason)| {
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(4.))
+                        .gap(px(space::XS))
                         .child(state(tone, said))
                         .children(reason.map(|why| {
                             ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(why)
@@ -769,11 +782,17 @@ impl Launcher {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(16.))
+                    .gap(px(space::LG))
                     .children(super::mods_page::stars(&p.id))
                     .children(repo.map(|repo| {
-                        button("mods-star", "Star on GitHub", ButtonKind::Ghost)
-                            .on_press(move |_, _, cx| cx.open_url(&repo))
+                        ui::button(
+                            "mods-star",
+                            None,
+                            tr("Star on GitHub"),
+                            ButtonKind::Ghost,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(move |_, _, cx| cx.open_url(&repo))
                     })),
             );
         }
@@ -782,13 +801,13 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(4.))
+                    .gap(px(space::XS))
                     .child(ui::label(tr(title)))
                     .children(list.iter().map(|l| {
                         ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(l.clone())
                     }))
             };
-            let mut what = div().flex().flex_wrap().gap(px(32.));
+            let mut what = div().flex().flex_wrap().gap(px(space::XXL));
             if !c.ports.is_empty() {
                 what = what.child(lines("Ports", &c.ports));
             }
@@ -798,14 +817,16 @@ impl Launcher {
             page = page.child(what);
         }
         if let Some(Ok(d)) = &details {
-            let mut links = div().flex().flex_wrap().gap(px(8.));
+            let mut links = div().flex().flex_wrap().gap(px(space::SM));
             let page_url = p.page.clone();
             if !page_url.is_empty() {
                 links = links.child(
-                    button(
+                    ui::button(
                         "mods-link-page",
-                        trf("Open on {source}", &[("source", p.source.label())]),
+                        None,
+                        tr(&trf("Open on {source}", &[("source", p.source.label())])),
                         ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
                     )
                     .on_press(move |_, _, cx| cx.open_url(&page_url)),
                 );
@@ -813,8 +834,14 @@ impl Launcher {
             for (i, l) in d.links.iter().enumerate() {
                 let url = l.url.clone();
                 links = links.child(
-                    button(format!("mods-link-{i}"), l.label.clone(), ButtonKind::Ghost)
-                        .on_press(move |_, _, cx| cx.open_url(&url)),
+                    ui::button(
+                        format!("mods-link-{i}"),
+                        None,
+                        tr(&l.label.clone()),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| cx.open_url(&url)),
                 );
             }
             page = page.child(links);
@@ -826,36 +853,31 @@ impl Launcher {
             .into_iter()
             .filter(|(tab, _)| !(no_gallery && *tab == Tab::Gallery))
             .collect();
-        page = page.child(div().flex().child(ui::segments("mods-tab", &tabs, tab, {
-            move |value, _, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    if let Some(o) = &mut this.mods.browse.open {
-                        o.tab = value;
-                    }
-                    cx.notify();
-                });
-            }
-        })));
-        let retry = |cx: &mut Context<Self>| {
-            let again = p.clone();
-            ui::button(
-                "mods-project-retry",
-                None,
-                tr("Try again"),
-                ButtonKind::Secondary,
-                ui::Size::Md,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.mods_open(again.clone());
-                cx.notify();
-            }))
-        };
+        page = page.child(div().flex().child(ui::segments(
+            "mods-tab",
+            &ui::translated(&tabs),
+            tab,
+            {
+                move |value, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        if let Some(o) = &mut this.mods.browse.open {
+                            o.tab = value;
+                        }
+                        cx.notify();
+                    });
+                }
+            },
+        )));
         let failed = |e: &str, cx: &mut Context<Self>| {
+            let again = p.clone();
             ui::error_state(
                 "mods-project-failed",
                 tr("Couldn't load the page"),
                 e,
-                retry(cx),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.mods_open(again.clone());
+                    cx.notify();
+                }),
             )
             .into_any_element()
         };
@@ -891,10 +913,7 @@ impl Launcher {
                             let v = &list[i].version;
                             let file = v.file();
                             let mut detail = vec![
-                                versions_page::published(
-                                    v.published.get(..10).unwrap_or_default(),
-                                    "",
-                                ),
+                                dates::published(v.published.get(..10).unwrap_or_default(), ""),
                                 v.loaders.join(", "),
                             ];
                             let games: Vec<&str> = v
@@ -957,7 +976,7 @@ impl Launcher {
         let mut out = div()
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .max_w(px(PAGE_TEXT))
             .child(
                 ui::hover_over(
@@ -966,7 +985,7 @@ impl Launcher {
                     div()
                         .rounded(px(radius::ROW))
                         .overflow_hidden()
-                        .bg(ui::well())
+                        .bg(ui::inset())
                         .child(large),
                 )
                 .cursor_pointer()
@@ -980,7 +999,7 @@ impl Launcher {
         if count < 2 {
             return out;
         }
-        let mut strip = div().flex().flex_wrap().items_center().gap(px(8.));
+        let mut strip = div().flex().flex_wrap().items_center().gap(px(space::SM));
         for (i, g) in gallery.iter().enumerate() {
             let thumb = image(self, &g.url, THUMB.0, THUMB.1);
             strip = strip.child(
@@ -988,7 +1007,7 @@ impl Launcher {
                     div()
                         .id(SharedString::from(format!("mods-shot-{i}")))
                         .flex_none()
-                        .p(px(2.))
+                        .p(px(space::XXS))
                         .cursor_pointer()
                         .child(
                             div()

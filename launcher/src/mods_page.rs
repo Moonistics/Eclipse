@@ -6,8 +6,8 @@
 //! signed and what it may do), install it with its checksum checked, turn Eclipse mods on and
 //! off, and update or remove what was installed (`eclipse_launcher::browser`). Imported modpacks
 //! are listed on its Modpacks tab.
-use super::line_edit;
 use super::*;
+use crate::menus::Asking;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::{
     self, eclipse, installed, java, java_instance, Kind as PackKind, Project, Query, SourceId,
@@ -16,7 +16,7 @@ use eclipse_launcher::browser::{
 use eclipse_launcher::modpacks;
 use eclipse_launcher::native_status;
 use eclipse_port_pack::check::Check;
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use java_instance::Target;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -37,7 +37,8 @@ pub(super) const SOURCES: [(SourceId, &str); 2] = [
     (SourceId::Modrinth, "Modrinth"),
 ];
 const PAGE: usize = 20;
-pub(super) const MOD_TILE: f32 = 40.;
+pub(super) const MOD_TILE: f32 = ui::TILE_MD;
+const MODS_SEARCH_WIDTH: f32 = 600.;
 
 #[path = "mods_view.rs"]
 mod mods_view;
@@ -100,7 +101,6 @@ pub(super) struct Mods {
     pub(super) busy: Option<(String, String, f32)>,
     pub(super) message: Option<Result<String, String>>,
     pub(super) updates: HashMap<(SourceId, String), String>,
-    pub(super) confirm_remove: Option<String>,
     /// Instances (ids) whose native mods the automatic update moved on: Play builds their game
     /// first (`build_native`), then plays it when `play_after_build` is set.
     pub(super) rebuild: Vec<String>,
@@ -109,7 +109,6 @@ pub(super) struct Mods {
     pub(super) picked: Option<String>,
     /// The project the detail card showed last.
     pub(super) shown: Option<Project>,
-    pub(super) target_menu: bool,
     /// A native mod's Install waiting for the one-time trust notice (`native_status::NOTICE`).
     native_notice: Option<(SourceId, String, Option<Project>)>,
     /// The selected instance's native build state, and the `native_status::fingerprint` it was
@@ -197,12 +196,10 @@ impl Mods {
             native_state: Default::default(),
             native_files: Default::default(),
             updates: HashMap::new(),
-            confirm_remove: None,
             rebuild: Vec::new(),
             play_after_build: false,
             picked: None,
             shown: None,
-            target_menu: false,
             checks: HashMap::new(),
             about: HashMap::new(),
             browse: Default::default(),
@@ -269,7 +266,7 @@ pub(super) fn stars(id: &str) -> Option<Div> {
     let row = ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
         .flex()
         .items_center()
-        .gap(px(2.));
+        .gap(px(space::XXS));
     Some(match eclipse::rating(id)? {
         None => row.child(tr("No ratings yet")),
         Some(r) => {
@@ -285,7 +282,7 @@ pub(super) fn stars(id: &str) -> Option<Div> {
                     },
                 )
             }))
-            .child(div().ml(px(4.)).child(format!(
+            .child(div().ml(px(space::XS)).child(format!(
                 "{:.1} ({})",
                 r.average,
                 count(r.count)
@@ -876,26 +873,17 @@ impl Launcher {
     }
 
     pub(super) fn mods_field(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let focused = self.fields.has_focus(Field::ModsSearch);
         let placeholder = self.mods_placeholder();
-        let content = line_edit::content_with(
-            self.fields.text(Field::ModsSearch),
-            focused,
-            false,
-            false,
+        self.field_with(
+            Field::ModsSearch,
+            Some(ui::field_icon("search-01")),
             placeholder,
-        );
-        let field = ui::field(focused, false)
-            .id("mods-search")
-            .gap(px(10.))
-            .w_full()
-            .h(px(ui::Size::Md.height()))
-            .pl(px(12.))
-            .cursor_text()
-            .child(ui::icon("search-01", ui::IconSize::Px16, white(ink::MUTED)))
-            .child(content)
-            .when(focused, |d| d.child(ui::focus_ring(radius::ROW)));
-        self.text_input(Field::ModsSearch, field, cx)
+            MODS_SEARCH_WIDTH,
+            ui::ButtonSize::Md,
+            None,
+            cx,
+        )
+        .w_full()
     }
 
     /// Reads what the browser installed in the selected instance (once per instance) and looks
@@ -917,7 +905,7 @@ impl Launcher {
             self.mods.installed = installed::Installed::load(&self.mods.home()).entries;
             self.mods.installed_list.reset();
             self.mods.updates.clear();
-            self.mods.confirm_remove = None;
+            self.stop_asking(|a| matches!(a, Asking::Mod(_)));
             self.mods.read_worlds();
             self.mods_check_updates();
             self.mods_taken_down();
@@ -962,7 +950,7 @@ impl Launcher {
         self.mods.message = Some(removed.clone());
         self.mods.installed = installed::Installed::load(&home).entries;
         self.mods.installed_list.reset();
-        self.mods.confirm_remove = None;
+        self.stop_asking(|a| matches!(a, Asking::Mod(_)));
         removed
     }
 
@@ -1017,7 +1005,7 @@ impl Launcher {
 
     pub(super) fn mods_new_fabric(&mut self, minecraft: String, cx: &mut Context<Self>) {
         self.open_instance_page(None);
-        self.pick_kind(new_instance::NewKind::Modded, cx);
+        self.pick_kind(instance_state::NewKind::Modded, cx);
         self.change(|j| {
             j.loader = eclipse_launcher::loaders::Kind::Fabric;
             j.version = Some(minecraft);
@@ -1064,8 +1052,8 @@ impl Launcher {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(6.))
-            .child(note(tr("World").to_string()).mr(px(6.)));
+            .gap(px(space::SM))
+            .child(note(tr("World").to_string()).mr(px(space::SM)));
         for (i, (path, name)) in self.mods.worlds.iter().enumerate() {
             let on = self.mods.world.as_ref() == Some(path);
             let path = path.clone();
@@ -1076,7 +1064,7 @@ impl Launcher {
                         None,
                         name.clone(),
                         ButtonKind::Ghost,
-                        ui::Size::Sm,
+                        ui::ButtonSize::Sm,
                     ),
                     on,
                 )
@@ -1097,16 +1085,23 @@ impl Launcher {
             ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
-                .gap(px(16.))
+                .gap(px(space::LG))
                 .p(px(ui::CARD_PADDING))
                 .child(ui::error_note(tr(native_status::NOTICE)))
                 .child(
                     div()
                         .flex()
-                        .gap(px(8.))
+                        .gap(px(space::SM))
                         .child(
-                            button("native-notice-install", "Install", ButtonKind::Primary)
-                                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            ui::button(
+                                "native-notice-install",
+                                None,
+                                tr("Install"),
+                                ButtonKind::Primary,
+                                ui::ButtonSize::Md,
+                            )
+                            .on_press(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
                                     this.settings.native_mods_noticed = true;
                                     this.save_settings();
                                     if let Some((source, id, known)) =
@@ -1115,14 +1110,23 @@ impl Launcher {
                                         this.mods_install(source, id, known);
                                     }
                                     cx.notify();
-                                })),
+                                },
+                            )),
                         )
                         .child(
-                            button("native-notice-cancel", "Cancel", ButtonKind::Secondary)
-                                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            ui::button(
+                                "native-notice-cancel",
+                                None,
+                                tr("Cancel"),
+                                ButtonKind::Secondary,
+                                ui::ButtonSize::Md,
+                            )
+                            .on_press(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
                                     this.mods.native_notice = None;
                                     cx.notify();
-                                })),
+                                },
+                            )),
                         ),
                 ),
         )
@@ -1141,13 +1145,13 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(8.))
+                    .gap(px(space::SM))
                     .child(
                         div()
                             .flex()
                             .items_center()
                             .justify_between()
-                            .gap(px(12.))
+                            .gap(px(space::MD))
                             .child(ui::label(caption))
                             .child(
                                 ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
@@ -1230,15 +1234,17 @@ impl Launcher {
             let e = entries[i];
             let key = (e.source, e.project.clone());
             let is_native = self.mods.java.is_none() && native_status::is_native_file(&e.file);
-            let mut right = div().flex().flex_none().items_center().gap(px(8.));
+            let mut right = div().flex().flex_none().items_center().gap(px(space::SM));
             if let Some(number) = self.mods.updates.get(&key) {
-                let mut update = button(
+                let mut update = ui::button(
                     SharedString::from(format!("mods-update-{}", e.project)),
-                    trf("Update to {version}", &[("version", number)]),
+                    None,
+                    tr(&trf("Update to {version}", &[("version", number)])),
                     ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
                 );
                 if busy {
-                    update = disabled(update);
+                    update = ui::disabled(update);
                 } else {
                     let (source, id) = key.clone();
                     update = update.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1248,15 +1254,20 @@ impl Launcher {
                 }
                 right = right.child(update);
             }
-            let confirming = self.mods.confirm_remove.as_deref() == Some(e.project.as_str());
+            let confirming = self.is_asking(&Asking::Mod(e.project.clone()));
             let remove_id = SharedString::from(format!("mods-remove-{}", e.project));
             let id = e.project.clone();
-            let remove = button(remove_id.clone(), "Remove…", ButtonKind::Ghost).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.mods.confirm_remove = Some(id.clone());
-                    cx.notify();
-                }),
-            );
+            let remove = ui::button(
+                remove_id.clone(),
+                None,
+                tr("Remove…"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.asking = Some(Asking::Mod(id.clone()));
+                cx.notify();
+            }));
             let on = match &self.mods.java {
                 _ if e.kind != PackKind::Mod => None,
                 Some(_) => Some(java_instance::is_on(&self.mods.home(), e)),
@@ -1288,7 +1299,8 @@ impl Launcher {
                         SharedString::from(format!("mods-folder-{}", e.project)),
                         "folder-01",
                         tr("Open folder"),
-                        ui::Size::Sm,
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Sm,
                         false,
                     )
                     .on_press(move |_, _, cx| {
@@ -1305,7 +1317,7 @@ impl Launcher {
                     trf("Remove {name}?", &[("name", &e.title)]),
                     tr("Remove"),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.mods.confirm_remove = None;
+                        this.asking = None;
                         cx.notify();
                     }),
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -1352,16 +1364,18 @@ impl Launcher {
         };
         // Every kind's updates at once, whichever tab is open.
         let update_all = (!self.mods.updates.is_empty()).then(|| {
-            let b = button(
+            let b = ui::button(
                 "mods-update-all",
-                trf(
+                None,
+                tr(&trf(
                     "Update all ({count})",
                     &[("count", &self.mods.updates.len().to_string())],
-                ),
+                )),
                 ButtonKind::Secondary,
+                ui::ButtonSize::Md,
             );
             if busy {
-                disabled(b)
+                ui::disabled(b)
             } else {
                 b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.mods_update_all();
@@ -1376,7 +1390,7 @@ impl Launcher {
             |index| {
                 entries
                     .get(index)
-                    .is_some_and(|e| self.mods.confirm_remove.as_ref() == Some(&e.project))
+                    .is_some_and(|e| self.is_asking(&Asking::Mod(e.project.clone())))
             },
             row,
         );
@@ -1384,13 +1398,13 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(12.))
+                .gap(px(space::MD))
                 .child(
                     div()
                         .flex()
                         .items_center()
                         .justify_between()
-                        .gap(px(12.))
+                        .gap(px(space::MD))
                         .child(ui::card_title(tr("Installed")))
                         .children(update_all),
                 )
@@ -1479,7 +1493,7 @@ impl Launcher {
         let mut detail = ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
             .flex()
             .flex_col()
-            .gap(px(4.))
+            .gap(px(space::XS))
             .child(status);
         if let Some(done) = self.native_done.as_ref().filter(|_| mine && step.is_none()) {
             detail = detail.child(div().text_color(white(ink::MUTED)).child(done.clone()));
@@ -1528,20 +1542,22 @@ impl Launcher {
             .flex()
             .flex_none()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .children(badge.map(|(tone, label)| {
                 ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
                     .child(ui::state_line(tone, label))
             }));
         if let Some(newer) = update.filter(|_| idle) {
             right = right.child(
-                button(
+                ui::button(
                     "native-update",
-                    trf(
+                    None,
+                    tr(&trf(
                         "Rebuild on Eclipse {version}",
                         &[("version", &native_status::eclipse_label(&newer))],
-                    ),
+                    )),
                     ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.native_update = Some(newer.clone());
@@ -1553,24 +1569,29 @@ impl Launcher {
         }
         if can_build {
             right = right.child(
-                button("native-build", "Build", ButtonKind::Primary).on_press(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.native_update = None;
-                        this.native_on_base = false;
-                        this.native_confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
-                        cx.notify();
-                    },
-                )),
+                ui::button(
+                    "native-build",
+                    None,
+                    tr("Build"),
+                    ButtonKind::Primary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.native_update = None;
+                    this.native_on_base = false;
+                    this.native_confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
+                    cx.notify();
+                })),
             );
         }
         let profile = native_mods::Profile::chosen(&self.settings);
         let picker = ui::segments(
             "native-profile",
-            &[
+            &ui::translated(&[
                 (native_mods::Profile::Performance, "Performance build"),
                 (native_mods::Profile::Dev, "Dev build"),
                 (native_mods::Profile::Release, "Release build"),
-            ],
+            ]),
             profile,
             {
                 let this = cx.entity().downgrade();
@@ -1595,8 +1616,8 @@ impl Launcher {
                 .flex()
                 .flex_wrap()
                 .items_center()
-                .gap(px(8.))
-                .mt(px(8.))
+                .gap(px(space::SM))
+                .mt(px(space::SM))
                 .child(picker)
                 .child(said),
         );
@@ -1611,17 +1632,17 @@ impl Launcher {
                 .id("native-build")
                 .flex()
                 .items_start()
-                .gap(px(16.))
+                .gap(px(space::LG))
                 .p(px(ui::PANEL_INSET))
                 .rounded(px(radius::ROW))
-                .bg(white(fill::WELL))
+                .bg(ui::inset())
                 .child(
                     div()
                         .flex()
                         .flex_col()
                         .flex_1()
                         .min_w_0()
-                        .gap(px(4.))
+                        .gap(px(space::XS))
                         .child(
                             ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
                                 .child(trf("Native build of {instance}", &name)),
@@ -1722,13 +1743,15 @@ impl Launcher {
                     &[("version", &native_status::eclipse_label(newer))],
                 ))
             }));
-        let mut buttons = div().flex().gap(px(8.)).mt(px(4.));
+        let mut buttons = div().flex().gap(px(space::SM)).mt(px(space::XS));
         if mods.is_ok() {
             buttons = buttons.child(
-                button(
+                ui::button(
                     "native-trust",
-                    "I trust these mods: build",
+                    None,
+                    tr("I trust these mods: build"),
                     ButtonKind::Primary,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.build_native(false);
@@ -1736,16 +1759,23 @@ impl Launcher {
                 })),
             );
         }
-        panel.child(buttons.child(
-            button("native-cancel", "Cancel", ButtonKind::Secondary).on_press(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
+        panel.child(
+            buttons.child(
+                ui::button(
+                    "native-cancel",
+                    None,
+                    tr("Cancel"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.native_confirm = None;
                     this.native_update = None;
                     this.native_on_base = false;
                     cx.notify();
-                },
-            )),
-        ))
+                })),
+            ),
+        )
     }
 
     /// Mods made for other Eclipse versions: which, and the version the build uses. They often
@@ -1758,10 +1788,10 @@ impl Launcher {
             .child(
                 div()
                     .flex()
-                    .gap(px(8.))
-                    .mt(px(4.))
+                    .gap(px(space::SM))
+                    .mt(px(space::XS))
                     .child(
-                        button("native-anyway", "Build anyway", ButtonKind::Primary).on_press(
+                        ui::button("native-anyway", None, tr("Build anyway"), ButtonKind::Primary, ui::ButtonSize::Md).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.build_native(true);
                                 cx.notify();
@@ -1769,7 +1799,7 @@ impl Launcher {
                         ),
                     )
                     .child(
-                        button("native-mismatch-cancel", "Cancel", ButtonKind::Secondary).on_press(
+                        ui::button("native-mismatch-cancel", None, tr("Cancel"), ButtonKind::Secondary, ui::ButtonSize::Md).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.native_mismatch = None;
                                 cx.notify();
@@ -1784,9 +1814,9 @@ pub(super) fn native_panel() -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .mt(px(12.))
-        .pt(px(12.))
+        .gap(px(space::SM))
+        .mt(px(space::MD))
+        .pt(px(space::MD))
         .border_t_1()
         .border_color(ui::white(eclipse_theme::glass::EDGE))
 }

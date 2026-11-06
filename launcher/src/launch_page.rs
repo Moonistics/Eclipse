@@ -4,7 +4,7 @@ use super::fields::Field;
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::launch;
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{fill, ink, radius, space, step};
 use gpui::{
     canvas, relative, Bounds, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point,
@@ -327,18 +327,18 @@ impl Launcher {
                 cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
             );
         let unit = ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child("MB");
-        let input = self.field(Field::MemoryLimit, "4096", 96., cx);
+        let input = self.field(Field::MemoryLimit, "4096", 96., ui::ButtonSize::Md, cx);
         let result = self.memory_slider.saved.as_ref().map(|s| match s {
             MemorySaved::Ok(mb) => div().child(trf(
                 "Saved: the next Play uses at most {mb} MB.",
                 &[("mb", &mb.to_string())],
             )),
-            MemorySaved::Error(e) => div().text_color(ui::danger()).child(e.clone()),
+            MemorySaved::Error(e) => ui::error_note(e.clone()),
         });
         let note = div()
             .flex()
             .flex_col()
-            .gap(px(4.))
+            .gap(px(space::XS))
             .child(tr(about))
             .children(result);
         Some(ui::setting_row(
@@ -348,7 +348,7 @@ impl Launcher {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.))
+                    .gap(px(space::MD))
                     .child(track)
                     .child(input)
                     .child(unit)
@@ -362,7 +362,7 @@ impl Launcher {
     fn linux_switches(&self, cx: &mut Context<Self>) -> Option<Div> {
         let found = self.launch.as_ref()?.found;
         let now = self.selected_instance()?.launch.clone();
-        let mut list = div().flex().flex_col().gap(px(10.));
+        let mut list = div().flex().flex_col().gap(px(space::MD));
         for (toggle, shown, on, label, about) in [
             (
                 Toggle::GameMode,
@@ -394,7 +394,7 @@ impl Launcher {
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(10.))
+                    .gap(px(space::MD))
                     .child(
                         ui::toggle_label(
                             SharedString::from(format!("launch-switch-{toggle:?}")),
@@ -417,7 +417,7 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .child(ui::label(tr("On this computer")))
                 .child(list)
         })
@@ -439,9 +439,9 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(6.))
+                .gap(px(space::SM))
                 .child(ui::label(tr(label)))
-                .child(this.field(field, tr(placeholder), FIELD_WIDTH, cx))
+                .child(this.field(field, tr(placeholder), FIELD_WIDTH, ui::ButtonSize::Md, cx))
                 .children(about.map(|about| {
                     ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr(about))
                 }))
@@ -478,12 +478,17 @@ impl Launcher {
             "For example ./backup.sh",
             None,
         );
-        let save = button("launch-save", "Save", ButtonKind::Secondary).on_press(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.save_launch();
-                cx.notify();
-            },
-        ));
+        let save = ui::button(
+            "launch-save",
+            None,
+            tr("Save"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.save_launch();
+            cx.notify();
+        }));
         let result = saved.map(|s| match s {
             Ok(Some(what)) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                 .child(trf("Saved: the next Play {what}.", &[("what", &what)])),
@@ -495,7 +500,8 @@ impl Launcher {
             "launch-close",
             "cancel-01",
             tr("Close"),
-            ui::Size::Sm,
+            ButtonKind::Ghost,
+            ui::ButtonSize::Sm,
             false,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -506,7 +512,7 @@ impl Launcher {
             ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
-                .gap(px(16.))
+                .gap(px(space::LG))
                 .p(px(ui::CARD_PADDING))
                 .child(
                     div()
@@ -526,7 +532,7 @@ impl Launcher {
                         .flex()
                         .flex_wrap()
                         .items_center()
-                        .gap(px(12.))
+                        .gap(px(space::MD))
                         .child(save)
                         .children(result),
                 ),

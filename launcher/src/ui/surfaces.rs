@@ -1,28 +1,29 @@
 use super::{
-    button, card_title, color, danger, icon, light, look, menu_keys, scroll_pane, text, tile, well,
-    white, ButtonKind, IconSize, Press, Size, PANEL_INSET,
+    card_title, color, copy_details, danger, hand_back_at_ends, icon, inset, light, look,
+    menu_keys, nested_list, primary, scroll_pane, text, tile, white, ButtonSize, IconSize, Press,
+    PANEL_INSET, TILE_LG,
 };
 use eclipse_theme::glass::{
-    fill, ink, radius, step, EDGE, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT, PAPER,
+    fill, ink, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT, PAPER,
 };
 use gpui::{
-    div, prelude::*, px, AnyElement, ClipboardItem, Div, FontWeight, Hsla, ScrollEvent,
-    ScrollHandle, SharedString, Stateful,
+    div, prelude::*, px, AnyElement, App, ClickEvent, Div, FontWeight, Hsla, ScrollHandle,
+    SharedString, Stateful, Window,
 };
 
 pub const POPOVER_WIDTH: f32 = 280.;
 
-pub const MENU_GAP: f32 = 8.;
+pub const MENU_GAP: f32 = space::SM;
 
-const EMPTY_TILE: f32 = 48.;
+const POPOVER_PAD: f32 = 6.;
 
 const EMPTY_NOTE_WIDTH: f32 = 520.;
 
-const FIELD_HEIGHT: f32 = 44.;
-
-const WIDE_FIELD_MAX: f32 = 560.;
+pub const WIDE_FIELD_MAX: f32 = 560.;
 
 const MORE_BELOW_FADE: f32 = 32.;
+
+const STATE_ACTIONS_GAP: f32 = 20.;
 
 const SCRIM: f32 = 0.5;
 
@@ -55,8 +56,12 @@ pub fn backdrop(kind: Surface, radius: f32) -> AnyElement {
         .rounded(px(radius))
         .bg(surface_colour(kind))
         .border_1()
-        .border_color(white(EDGE))
+        .border_color(edge())
         .into_any_element()
+}
+
+pub fn edge() -> Hsla {
+    white(if light() { EDGE_LIGHT } else { EDGE })
 }
 
 pub fn card(radius: f32) -> Div {
@@ -78,7 +83,7 @@ pub fn popover(id: impl Into<SharedString>) -> Stateful<Div> {
         float_card(radius::POPOVER)
             .shadow_lg()
             .w(px(POPOVER_WIDTH))
-            .p(px(6.))
+            .p(px(POPOVER_PAD))
             .flex()
             .flex_col()
             .id(id.into())
@@ -134,11 +139,11 @@ fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) 
         .p(px(PANEL_INSET))
         .text_center()
         .child(glyph)
-        .child(card_title(title).mt(px(16.)))
+        .child(card_title(title).mt(px(space::LG)))
         .when(!note.is_empty(), |d| {
             d.child(
                 empty_style()
-                    .mt(px(4.))
+                    .mt(px(space::XS))
                     .max_w(px(EMPTY_NOTE_WIDTH))
                     .child(note),
             )
@@ -152,8 +157,8 @@ fn actions(d: Stateful<Div>, actions: Vec<Stateful<Div>>) -> Stateful<Div> {
                 .flex()
                 .flex_wrap()
                 .justify_center()
-                .gap(px(8.))
-                .mt(px(20.))
+                .gap(px(space::SM))
+                .mt(px(STATE_ACTIONS_GAP))
                 .children(actions),
         )
     })
@@ -166,12 +171,14 @@ pub fn empty_state(
     note: impl Into<SharedString>,
     actions: Vec<Stateful<Div>>,
 ) -> Stateful<Div> {
-    let glyph = tile(EMPTY_TILE).child(icon(icon_name, IconSize::Px32, white(ink::MUTED)));
-    self::actions(state(id.into(), glyph, title.into(), note.into()), actions)
+    let note: SharedString = note.into();
+    debug_assert!(!note.is_empty(), "an empty state says what to do next");
+    let glyph = tile(TILE_LG).child(icon(icon_name, IconSize::Px32, white(ink::MUTED)));
+    self::actions(state(id.into(), glyph, title.into(), note), actions)
 }
 
 pub fn loading_state(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
-    let glyph = tile(EMPTY_TILE).child(icon("clock", IconSize::Px32, white(ink::MUTED)));
+    let glyph = tile(TILE_LG).child(icon("clock", IconSize::Px32, white(ink::MUTED)));
     state(id.into(), glyph, title.into(), SharedString::default())
 }
 
@@ -179,21 +186,17 @@ pub fn error_state(
     id: impl Into<SharedString>,
     title: impl Into<SharedString>,
     error: &str,
-    retry: Stateful<Div>,
+    on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let glyph = tile(EMPTY_TILE).child(icon("alert-circle", IconSize::Px32, danger()));
-    let details = error.to_owned();
-    let copy = button(
-        format!("{id}-copy"),
-        Some("copy-01"),
-        crate::tr("Copy details"),
-        ButtonKind::Ghost,
-        Size::Md,
+    let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px32, danger()));
+    let retry = primary(
+        format!("{id}-retry"),
+        crate::tr("Try again"),
+        ButtonSize::Md,
     )
-    .on_press(move |_, _, cx| {
-        crate::clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(details.clone()))
-    });
+    .on_press(on_retry);
+    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
     actions(
         state(id, glyph, title.into(), plain_error(error).into()),
         vec![retry, copy],
@@ -216,11 +219,41 @@ pub fn empty_card(state: Stateful<Div>) -> Div {
 
 /// An empty state inside an area that is already a card; the message goes in as a child.
 pub fn empty() -> Div {
-    empty_style().p(px(24.))
+    empty_style().p(px(space::XL))
 }
 
 fn empty_style() -> Div {
     text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+}
+
+/// A group of fields: its heading, anything `aside` at its right, then `body`.
+pub fn field_group(title: SharedString, aside: Option<Div>, body: impl IntoElement) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .flex_none()
+        .child(
+            div()
+                .flex()
+                .items_end()
+                .justify_between()
+                .gap(px(space::LG))
+                .mb(px(space::MD))
+                .child(super::label(title))
+                .children(aside),
+        )
+        .child(body)
+}
+
+pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
+    nested_list(id)
+        .flex()
+        .flex_col()
+        .max_h(px(max))
+        .p(px(POPOVER_PAD))
+        .rounded(px(radius::POPOVER))
+        .border_1()
+        .border_color(edge())
 }
 
 pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
@@ -238,24 +271,6 @@ pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
                 gpui::linear_color_stop(under, 1.),
             ))
     })
-}
-
-/// [`field`]'s look on a field built elsewhere (a line edit with its own handlers), up to
-/// 560 px wide.
-pub fn wide_field(field: Stateful<Div>, focused: bool) -> Stateful<Div> {
-    field
-        .w_full()
-        .max_w(px(WIDE_FIELD_MAX))
-        .h(px(FIELD_HEIGHT))
-        .px(px(16.))
-        .rounded(px(radius::ROW))
-        .bg(field_bg(focused))
-        .border_1()
-        .border_color(field_edge())
-        .font_family(eclipse_theme::glass::FONT)
-        .text_size(px(step::BODY.size))
-        .relative()
-        .when(focused, |d| d.child(focus_ring(radius::ROW)))
 }
 
 /// The focus ring (2 px of the accent's soft shade) over a focused field, inside its edge with
@@ -293,49 +308,49 @@ pub fn field_edge() -> Hsla {
 }
 
 pub(crate) fn danger_fill() -> Hsla {
-    danger().opacity(DANGER_FILL)
+    danger().opacity(fill::DANGER)
 }
 
-const DANGER_FILL: f32 = 0.12;
-
-/// A field: its own fill and edge, a stronger fill with the focus, red while what it holds is
-/// refused.
-pub fn field(focused: bool, invalid: bool) -> Div {
-    let bg = if invalid {
-        danger_fill()
+/// A field at `size`: its own fill and edge, a stronger fill and the focus ring with the
+/// focus, a red fill and edge while what it holds is refused.
+pub fn field(focused: bool, invalid: bool, size: ButtonSize) -> Div {
+    let large = matches!(size, ButtonSize::Lg | ButtonSize::Hero);
+    let (pad, text) = if large {
+        (space::LG, step::LEAD)
     } else {
-        field_bg(focused)
+        (space::MD, step::BODY)
     };
     div()
         .relative()
         .flex()
         .items_center()
-        .h(px(FIELD_HEIGHT))
-        .px(px(16.))
+        .gap(px(space::SM))
+        .h(px(size.height()))
+        .px(px(pad))
         .overflow_hidden()
         .rounded(px(radius::ROW))
-        .bg(bg)
+        .bg(if invalid {
+            danger_fill()
+        } else {
+            field_bg(focused)
+        })
         .border_1()
-        .border_color(field_edge())
+        .border_color(if invalid { danger() } else { field_edge() })
         .font_family(eclipse_theme::glass::FONT)
-        .text_size(px(step::BODY.size))
+        .text_size(px(text.size))
+        .when(focused, |d| d.child(focus_ring(radius::ROW)))
 }
 
-pub fn log_well(id: &'static str, handle: &ScrollHandle) -> Stateful<Div> {
-    let at = handle.clone();
-    scroll_pane(id, handle)
-        .on_scroll(move |ev: &ScrollEvent, window, cx| {
-            let dy = ev.delta.pixel_delta(window.line_height()).y;
-            let (offset, max) = (at.offset().y, at.max_offset().y);
-            let at_end = (dy > px(0.) && offset >= px(0.)) || (dy < px(0.) && -offset >= max);
-            if !at_end {
-                cx.stop_propagation();
-            }
-        })
+pub fn field_icon(name: &'static str) -> AnyElement {
+    icon(name, IconSize::Px16, white(ink::MUTED)).into_any_element()
+}
+
+pub fn log_well(id: impl Into<SharedString>, handle: &ScrollHandle) -> Stateful<Div> {
+    hand_back_at_ends(scroll_pane(id, handle), handle)
         .h(px(LOG_HEIGHT))
-        .p(px(16.))
+        .p(px(space::LG))
         .rounded(px(radius::ROW))
-        .bg(well())
+        .bg(inset())
         .font_family(crate::theme::MONO)
         .text_size(px(step::CAPTION.size))
         .line_height(px(step::BODY.line))

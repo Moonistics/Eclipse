@@ -15,7 +15,6 @@ pub(super) struct Worlds {
     reading: bool,
     /// The world being backed up, copied or deleted now.
     pub(super) busy: Option<String>,
-    confirm_delete: Option<String>,
     /// What the last action did (a backup's zip), or why it failed.
     pub(super) done: Option<Result<(String, Option<PathBuf>), String>>,
 }
@@ -74,7 +73,6 @@ impl Launcher {
             return;
         }
         self.worlds.busy = Some(world.folder.clone());
-        self.worlds.confirm_delete = None;
         self.worlds.done = None;
         let task = cx.background_executor().spawn(async move {
             match action {

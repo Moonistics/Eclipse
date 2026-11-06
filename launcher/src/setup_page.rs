@@ -8,7 +8,7 @@ use crate::ui::{self, ButtonKind, Press};
 use eclipse_launcher::backend::Settings;
 use eclipse_launcher::i18n::{self, tr};
 use eclipse_launcher::installer::{self, Mode, Options, Step};
-use eclipse_theme::glass::{ink, pixel_text, step};
+use eclipse_theme::glass::{ink, pixel_text, space, step};
 use gpui::{
     div, prelude::*, px, size, App, Bounds, ClickEvent, Context, Div, FontWeight,
     PathPromptOptions, Render, Task, Window, WindowBounds, WindowOptions,
@@ -220,7 +220,7 @@ impl Setup {
         div()
             .flex()
             .items_center()
-            .gap(px(14.))
+            .gap(px(space::LG))
             .child(
                 ui::toggle(id, on).on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     flip(&mut this.options);
@@ -243,7 +243,7 @@ impl Setup {
         div()
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .child(
                 div()
                     .flex()
@@ -262,13 +262,19 @@ impl Setup {
                     ),
             )
             .child(
-                crate::button("change", tr("Change…"), ButtonKind::Secondary)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_folder(cx))),
+                ui::button(
+                    "change",
+                    None,
+                    tr("Change…"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_folder(cx))),
             )
     }
 
     fn card(&self, cx: &mut Context<Self>) -> Div {
-        let mut body = div().flex().flex_col().gap(px(16.));
+        let mut body = div().flex().flex_col().gap(px(space::LG));
         match &self.stage {
             Stage::Welcome if self.mode == Mode::Install => {
                 body = body
@@ -287,14 +293,16 @@ impl Setup {
                     ))
                     .child(
                         div().flex().justify_end().child(
-                            crate::button(
+                            ui::button(
                                 "go",
-                                if self.update {
+                                None,
+                                tr(&if self.update {
                                     tr("Update").to_string()
                                 } else {
                                     tr("Install").to_string()
-                                },
+                                }),
                                 ButtonKind::Primary,
+                                ui::ButtonSize::Md,
                             )
                             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
                         ),
@@ -322,13 +330,13 @@ impl Setup {
                             .flex()
                             .items_center()
                             .justify_end()
-                            .gap(px(12.))
+                            .gap(px(space::MD))
                             .child(
-                                crate::button("cancel", tr("Cancel"), ButtonKind::Secondary)
+                                ui::button("cancel", None, tr("Cancel"), ButtonKind::Secondary, ui::ButtonSize::Md)
                                     .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                             )
                             .child(
-                                crate::button("go", tr("Uninstall"), ButtonKind::Primary)
+                                ui::button("go", None, tr("Uninstall"), ButtonKind::Primary, ui::ButtonSize::Md)
                                     .on_press(
                                         cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx)),
                                     ),
@@ -367,10 +375,14 @@ impl Setup {
                 if self.mode == Mode::Install {
                     body = body.child(
                         div().flex().items_center().justify_end().child(
-                            crate::button("launch", tr("Launch Eclipse"), ButtonKind::Primary)
-                                .on_press(
-                                    cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx)),
-                                ),
+                            ui::button(
+                                "launch",
+                                None,
+                                tr("Launch Eclipse"),
+                                ButtonKind::Primary,
+                                ui::ButtonSize::Md,
+                            )
+                            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx))),
                         ),
                     );
                 }
@@ -378,25 +390,27 @@ impl Setup {
             Stage::Failed(error) => {
                 body = body
                     .child(ui::card_title(tr("Something went wrong.").to_string()))
-                    .child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
-                            .text_color(ui::danger())
-                            .child(error.clone()),
-                    )
+                    .child(ui::error_note(error.clone()))
                     .child(
                         div().flex().justify_end().child(
-                            crate::button("close", tr("Close"), ButtonKind::Secondary)
-                                .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
+                            ui::button(
+                                "close",
+                                None,
+                                tr("Close"),
+                                ButtonKind::Secondary,
+                                ui::ButtonSize::Md,
+                            )
+                            .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                         ),
                     );
             }
         }
         ui::dialog_plate(eclipse_theme::glass::radius::MODAL)
             .w(px(560.))
-            .p(px(32.))
+            .p(px(space::XXL))
             .flex()
             .flex_col()
-            .gap(px(18.))
+            .gap(px(space::LG))
             .child(ui::entity_title("Eclipse", pixel_text::PAGE_TITLE))
             .child(body)
     }

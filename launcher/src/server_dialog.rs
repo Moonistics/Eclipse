@@ -3,9 +3,8 @@
 //! many players, who may join and whether accounts are checked; the EULA, Cancel and Create at
 //! the foot.
 use super::*;
-use crate::instance_page::{choice, list_box, list_choice, section, tick};
 use crate::ui::{self, white};
-use eclipse_theme::glass::{fill, ink, pixel_text, radius, step};
+use eclipse_theme::glass::{fill, ink, pixel_text, radius, space, step};
 use gpui::{img, ImageFormat};
 use std::sync::{Arc, LazyLock};
 
@@ -21,7 +20,8 @@ static COVERS: LazyLock<[Arc<gpui::Image>; 3]> = LazyLock::new(|| {
 
 const TICKBOX: f32 = 22.;
 
-const FRIEND_FACE: f32 = 30.;
+const FRIEND_FACE: f32 = ui::CHIP_FACE;
+const FRIEND_FIELD: f32 = 260.;
 
 const DIALOG_MAX: (f32, f32) = (1180., 840.);
 
@@ -88,7 +88,7 @@ impl Launcher {
                 .flex()
                 .items_center()
                 .justify_center()
-                .p(px(24.))
+                .p(px(space::XL))
                 .occlude()
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .child(ui::scrim_backdrop())
@@ -174,14 +174,14 @@ impl Launcher {
             .flex_none()
             .w(px(ASIDE_WIDTH))
             .h_full()
-            .p(px(28.))
+            .p(px(space::XL))
             .overflow_y_scroll()
             .rounded_l(px(radius::MODAL))
-            .bg(white(fill::WELL))
+            .bg(ui::inset())
             .child(ui::label(tr("New server")))
             .child(
                 div()
-                    .mt(px(24.))
+                    .mt(px(space::XL))
                     .w(px(304.))
                     .h(px(190.))
                     .flex_none()
@@ -191,17 +191,17 @@ impl Launcher {
             )
             .child(
                 ui::entity_title(title, pixel_text::CARD_TITLE)
-                    .mt(px(20.))
+                    .mt(px(space::XL))
                     .truncate(),
             )
             .child(
                 ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(8.))
+                    .mt(px(space::SM))
                     .child(rules),
             )
             .child(
                 ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(4.))
+                    .mt(px(space::XS))
                     .truncate()
                     .child(origin),
             )
@@ -222,10 +222,10 @@ impl Launcher {
             .flex_none()
             .items_start()
             .justify_between()
-            .gap(px(16.))
-            .px(px(36.))
-            .pt(px(32.))
-            .pb(px(20.))
+            .gap(px(space::LG))
+            .px(px(space::XXL))
+            .pt(px(space::XXL))
+            .pb(px(space::XL))
             .child(div().flex().flex_col().min_w_0().child(ui::entity_title(
                 tr("Create a server"),
                 pixel_text::CARD_TITLE,
@@ -235,7 +235,8 @@ impl Launcher {
                     "create-close",
                     "cancel-01",
                     tr("Close"),
-                    ui::Size::Md,
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
                     false,
                 )
                 .when(!creating, |b| {
@@ -249,10 +250,10 @@ impl Launcher {
 
         // The world: new (with a seed) or a copy of one of the player's.
         let card = |id: &'static str, on: bool, title: SharedString, note: String| {
-            choice(id, on)
+            ui::choice(id, on)
                 .flex_1()
                 .min_w_0()
-                .p(px(16.))
+                .p(px(space::LG))
                 .child(ui::item_text(title, note))
         };
         let count = if worlds.is_empty() {
@@ -270,13 +271,13 @@ impl Launcher {
             count,
         );
         copy_card = if worlds.is_empty() {
-            crate::disabled(copy_card)
+            ui::disabled(copy_card)
         } else {
             copy_card.on_press(set(cx, |c| c.new_world = false))
         };
         let kinds = div()
             .flex()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .child(
                 card(
                     "create-world-new",
@@ -288,12 +289,18 @@ impl Launcher {
             )
             .child(copy_card);
         let detail = if new_world {
-            self.field(Field::NewServerSeed, "Seed (optional)", 400., cx)
-                .w_full()
-                .into_any_element()
+            self.field(
+                Field::NewServerSeed,
+                tr("Seed (optional)"),
+                400.,
+                ui::ButtonSize::Lg,
+                cx,
+            )
+            .w_full()
+            .into_any_element()
         } else {
-            let mut list = list_box("create-worlds", 232.);
-            for (i, (name, path)) in worlds.into_iter().enumerate() {
+            let mut list = ui::list_box("create-worlds", 232.);
+            for (name, path) in worlds {
                 let on = copy.as_ref() == Some(&path);
                 let icon = path.join("icon.png");
                 let thumb = div()
@@ -307,16 +314,16 @@ impl Launcher {
                         d.child(img(icon).size_full().object_fit(gpui::ObjectFit::Cover))
                     });
                 list = list.child(
-                    list_choice(SharedString::from(format!("create-copy-{i}")), on)
-                        .p(px(8.))
-                        .pr(px(16.))
-                        .gap(px(14.))
+                    ui::list_choice(SharedString::from(format!("create-copy-{name}")), on)
+                        .p(px(space::SM))
+                        .pr(px(space::LG))
+                        .gap(px(space::LG))
                         .child(thumb)
                         .child(match details.get(&path) {
                             Some((name, line)) => ui::item_text(name.clone(), line.clone()),
                             None => ui::item_text(name, short(&path)),
                         })
-                        .child(tick(on))
+                        .child(ui::tick_slot(on))
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             if let Some(c) = &mut this.servers.create {
                                 c.copy = Some(path.clone());
@@ -327,13 +334,13 @@ impl Launcher {
             }
             list.into_any_element()
         };
-        let world = section(
+        let world = ui::field_group(
             tr("World").into(),
             None,
             div()
                 .flex()
                 .flex_col()
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .child(kinds)
                 .child(detail),
         );
@@ -341,12 +348,12 @@ impl Launcher {
         // The game mode, three cards.
         let modes = div()
             .flex()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .children(MODES.iter().enumerate().map(|(i, &(id, label))| {
-                choice(SharedString::from(format!("create-mode-{id}")), mode == id)
+                ui::choice(SharedString::from(format!("create-mode-{id}")), mode == id)
                     .flex_1()
                     .min_w_0()
-                    .p(px(16.))
+                    .p(px(space::LG))
                     .child(ui::item_text(tr(label), tr(MODE_NOTES[i]).to_string()))
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         if let Some(c) = &mut this.servers.create {
@@ -360,7 +367,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let difficulties = ui::segments(
             "create-difficulty",
-            &DIFFICULTIES,
+            &ui::translated(&DIFFICULTIES),
             difficulty,
             move |id, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -379,13 +386,13 @@ impl Launcher {
         let numbers = div()
             .flex()
             .justify_between()
-            .gap(px(36.))
-            .child(section(
+            .gap(px(space::XXL))
+            .child(ui::field_group(
                 tr("Difficulty").into(),
                 None,
                 div().flex().child(difficulties),
             ))
-            .child(section(
+            .child(ui::field_group(
                 tr("Max players").into(),
                 None,
                 div().flex().child(players),
@@ -395,7 +402,7 @@ impl Launcher {
         let mut who = div().flex().flex_col().child(
             div()
                 .flex()
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .child(
                     card(
                         "create-friends",
@@ -418,7 +425,7 @@ impl Launcher {
         if friends_only {
             who = who
                 .child(self.create_friends(&friends, cx))
-                .child(ui::card_note(tr("The first name becomes an operator.")).mt(px(10.)));
+                .child(ui::card_note(tr("The first name becomes an operator.")).mt(px(space::MD)));
         }
 
         let accounts = ui::toggle_row(
@@ -431,7 +438,7 @@ impl Launcher {
             ),
             check,
         )
-        .bg(white(fill::WELL))
+        .bg(ui::inset())
         .on_press(set(cx, |c| c.check_accounts = !c.check_accounts));
 
         let body = div()
@@ -440,20 +447,26 @@ impl Launcher {
             .flex_col()
             .flex_1()
             .min_h_0()
-            .gap(px(36.))
-            .px(px(36.))
-            .pb(px(32.))
+            .gap(px(space::XXL))
+            .px(px(space::XXL))
+            .pb(px(space::XXL))
             .overflow_y_scroll()
-            .child(section(
+            .child(ui::field_group(
                 tr("Name").into(),
                 None,
-                self.field(Field::NewServerName, "My server", 400., cx)
-                    .w_full(),
+                self.field(
+                    Field::NewServerName,
+                    tr("My server"),
+                    400.,
+                    ui::ButtonSize::Lg,
+                    cx,
+                )
+                .w_full(),
             ))
             .child(world)
-            .child(section(tr("Game mode").into(), None, modes))
+            .child(ui::field_group(tr("Game mode").into(), None, modes))
             .child(numbers)
-            .child(section(tr("Who can join").into(), None, who))
+            .child(ui::field_group(tr("Who can join").into(), None, who))
             .child(accounts);
         div()
             .flex()
@@ -481,7 +494,11 @@ impl Launcher {
             .accounts
             .selected()
             .map(|a| (a.name.clone(), a.uuid.clone()));
-        let mut chips = div().mt(px(12.)).flex().flex_wrap().gap(px(8.));
+        let mut chips = div()
+            .mt(px(space::MD))
+            .flex()
+            .flex_wrap()
+            .gap(px(space::SM));
         for (i, name) in friends.iter().enumerate() {
             let face = match &own {
                 Some((n, uuid)) if n == name => self.head(uuid, FRIEND_FACE),
@@ -491,42 +508,24 @@ impl Launcher {
                     white(ink::BODY),
                 )),
             };
-            let mut chip = div()
-                .flex()
-                .items_center()
-                .h(px(44.))
-                .rounded(px(radius::ROW))
-                .bg(white(fill::HOVER))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(10.))
-                        .pl(px(6.))
-                        .pr(px(12.))
-                        .child(face)
-                        .child(
-                            ui::text(step::BODY, FontWeight::MEDIUM, ink::FULL).child(name.clone()),
-                        )
-                        .when(i == 0, |d| {
-                            d.child(
-                                ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
-                                    .text_color(ui::color(ui::look().accent_soft))
-                                    .child(tr("Operator")),
-                            )
-                        }),
-                );
+            let mut chip = ui::person_chip(face, name.clone()).when(i == 0, |d| {
+                d.child(
+                    ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
+                        .text_color(ui::color(ui::look().accent_soft))
+                        .child(tr("Operator")),
+                )
+            });
             if i > 0 {
                 let gone = name.clone();
-                chip = chip.child(
+                chip = chip.pr(px(space::XS)).child(
                     ui::icon_button(
-                        SharedString::from(format!("create-friend-remove-{i}")),
+                        SharedString::from(format!("create-friend-remove-{name}")),
                         "cancel-01",
                         tr("Remove"),
-                        ui::Size::Sm,
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Sm,
                         false,
                     )
-                    .mr(px(6.))
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
                             if let Some(c) = &mut this.servers.create {
@@ -541,13 +540,12 @@ impl Launcher {
         }
         let typed = self.fields.value(Field::NewServerFriend).trim().to_string();
         let ok = valid_name(&typed) && !friends.contains(&typed);
-        let focused = self.fields.has_focus(Field::NewServerFriend);
         let add = ui::button(
             "create-friend-add",
             None,
             tr("Add"),
             ButtonKind::Secondary,
-            ui::Size::Sm,
+            ui::ButtonSize::Sm,
         );
         let add = if ok {
             add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -555,15 +553,19 @@ impl Launcher {
                 cx.notify();
             }))
         } else {
-            crate::disabled(add)
+            ui::disabled(add)
         };
         chips.child(
-            ui::field(focused, false)
-                .pl_0()
-                .pr(px(6.))
-                .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
-                .child(self.field(Field::NewServerFriend, "Add a friend's name", 170., cx))
-                .child(add),
+            self.field_with(
+                Field::NewServerFriend,
+                None,
+                tr("Add a friend's name"),
+                FRIEND_FIELD,
+                ui::ButtonSize::Lg,
+                Some(add.into_any_element()),
+                cx,
+            )
+            .pr(px(space::SM)),
         )
     }
 
@@ -610,7 +612,7 @@ impl Launcher {
             .id("create-eula")
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .cursor_pointer()
             .child(tickbox)
             .child(
@@ -632,12 +634,11 @@ impl Launcher {
             let last = self.servers.job_log.back().cloned().unwrap_or_default();
             Some(ui::card_note(last).truncate())
         } else if let Some(p) = &self.servers.problem {
-            Some(ui::card_note(p.message.clone()).text_color(ui::danger()))
+            Some(ui::error_note(p.message.clone()))
         } else if missing {
-            Some(
-                ui::card_note(tr("Tick the EULA box to create the server."))
-                    .text_color(ui::danger()),
-            )
+            Some(ui::error_note(tr(
+                "Tick the EULA box to create the server.",
+            )))
         } else {
             None
         };
@@ -650,31 +651,31 @@ impl Launcher {
             None,
             tr("Cancel"),
             ButtonKind::Ghost,
-            ui::Size::Lg,
+            ui::ButtonSize::Lg,
         );
         let buttons = if creating {
             div()
                 .flex()
-                .gap(px(8.))
-                .child(crate::disabled(cancel))
+                .gap(px(space::SM))
+                .child(ui::disabled(cancel))
                 .child(ui::primary_busy(
                     "create-go",
                     tr("Creating"),
                     None,
-                    ui::Size::Lg,
+                    ui::ButtonSize::Lg,
                 ))
         } else {
-            let create = ui::primary("create-go", tr("Create server"), ui::Size::Lg);
+            let create = ui::primary("create-go", tr("Create server"), ui::ButtonSize::Lg);
             div()
                 .flex()
-                .gap(px(8.))
+                .gap(px(space::SM))
                 .children(fix.map(|fix| {
                     ui::button(
                         "create-fix",
                         None,
                         tr("Prepare the game files"),
                         ButtonKind::Secondary,
-                        ui::Size::Lg,
+                        ui::ButtonSize::Lg,
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
@@ -697,24 +698,24 @@ impl Launcher {
             .flex()
             .flex_none()
             .flex_col()
-            .gap(px(12.))
-            .px(px(36.))
-            .py(px(20.))
+            .gap(px(space::MD))
+            .px(px(space::XXL))
+            .py(px(space::XL))
             .rounded_br(px(radius::MODAL))
             .when(!aside, |d| d.rounded_bl(px(radius::MODAL)))
-            .bg(white(fill::WELL))
+            .bg(ui::inset())
             .children(status.map(|s| s.min_w_0()))
             .child(
                 div()
                     .flex()
                     .flex_wrap()
                     .items_center()
-                    .gap(px(16.))
+                    .gap(px(space::LG))
                     .child(
                         div()
                             .flex()
                             .items_center()
-                            .gap(px(12.))
+                            .gap(px(space::MD))
                             .child(agree)
                             .child(read),
                     )

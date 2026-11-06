@@ -1,7 +1,7 @@
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
 use crate::ui;
-use eclipse_theme::glass::{radius, step};
+use eclipse_theme::glass::space;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(super) enum Field {
@@ -14,14 +14,14 @@ pub(super) enum Field {
     ServerPort,
     TailscaleToken,
     FriendEmail,
-    /// The New instance page's (`instance_state.rs`).
+    /// The New instance page's (`instance_page.rs`).
     InstanceName,
     InstanceGroup,
-    /// Its search in Mojang's versions (`new_instance.rs`).
+    /// Its search in Mojang's versions (`instance_versions.rs`).
     VersionSearch,
-    /// Home's Mods tab's filter (`instance_mods.rs`).
+    /// Home's Mods tab's filter (`home_mods.rs`).
     InstanceModsFilter,
-    /// Home's Multiplayer section's (`multiplayer_page.rs`).
+    /// Home's Multiplayer tab's (`home_lists.rs`).
     MultiplayerName,
     MultiplayerAddress,
     /// Home's Console's search (`console_page.rs`).
@@ -33,9 +33,9 @@ pub(super) enum Field {
     PostExit,
     /// Home's memory row (`launch_page.rs`).
     MemoryLimit,
-    /// Settings' new offline name (`switch_page.rs`).
+    /// Settings' new offline name (`settings_account.rs`).
     OfflineName,
-    /// Settings' accent as hex (`themes_page.rs`).
+    /// Settings' accent as hex (`settings_appearance.rs`).
     AccentHex,
     InviteCode,
     ModsSearch,
@@ -136,6 +136,10 @@ impl Fields {
         self.focused == Some(f)
     }
 
+    pub(super) fn any_focus(&self) -> bool {
+        self.focused.is_some()
+    }
+
     pub(super) fn handle(&mut self, f: Field, cx: &mut App) -> FocusHandle {
         self.focus
             .entry(f)
@@ -157,107 +161,66 @@ impl Fields {
     }
 }
 
+const GEIST_ADVANCE: f32 = 7.5;
+
+fn visible_chars(width: f32, size: ui::ButtonSize) -> usize {
+    let pad = if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
+        space::LG
+    } else {
+        space::MD
+    };
+    ((width - 2. * pad) / GEIST_ADVANCE).max(1.) as usize
+}
+
 impl Launcher {
     /// A one-line text field: typing, paste, Backspace, Enter to confirm, Escape, Tab to the next.
     pub(super) fn field(
         &mut self,
         f: Field,
-        placeholder: &'static str,
+        placeholder: impl Into<SharedString>,
         width: f32,
+        size: ui::ButtonSize,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        self.field_with(f, None, placeholder, width, size, None, cx)
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    pub(super) fn field_with(
+        &mut self,
+        f: Field,
+        lead: Option<AnyElement>,
+        placeholder: impl Into<SharedString>,
+        width: f32,
+        size: ui::ButtonSize,
+        trailing: Option<AnyElement>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let focused = self.fields.has_focus(f);
         let selected = focused && self.fields.selected == Some(f);
         let invalid = self.fields.invalid.is_some_and(|(g, _)| g == f);
-        self.fields.text(f).show(((width - 24.) / 7.5) as usize);
-        // The mods filter and the log search sit by buttons: small fields, as tall as they are.
-        let base = ui::field(focused, invalid)
-            .when(
-                matches!(
-                    f,
-                    Field::InstanceModsFilter
-                        | Field::ConsoleSearch
-                        | Field::ServerMotd
-                        | Field::ServerPort
-                        | Field::TailscaleToken
-                        | Field::ServerPlayer
-                ),
-                |d| {
-                    d.h(px(ui::Size::Md.height()))
-                        .px(px(12.))
-                        .rounded(px(radius::CONTROL))
-                },
-            )
-            // The instance and server dialogs' are large, with larger text.
-            .when(
-                !invalid
-                    && matches!(
-                        f,
-                        Field::InstanceName
-                            | Field::InstanceGroup
-                            | Field::VersionSearch
-                            | Field::NewServerName
-                            | Field::NewServerSeed
-                    ),
-                |d| d.h(px(48.)).text_size(px(step::LEAD.size)),
-            )
-            .when(f == Field::AccentHex, |d| {
-                d.h(px(ui::Size::Md.height()))
-                    .px(px(12.))
-                    .rounded(px(radius::CONTROL))
-                    .text_size(px(step::NOTE.size))
-                    .font_weight(FontWeight::MEDIUM)
-            })
-            // The friend field sits in its chip, on the chip's fill.
-            .when(f == Field::NewServerFriend, |d| {
-                d.h_full()
-                    .px(px(14.))
-                    .border_0()
-                    .bg(gpui::transparent_black())
-            })
-            // The server's command line: the field is the line's middle, on its fill, in mono.
-            .when(f == Field::ServerCommand, |d| {
-                d.h_full()
-                    .px_0()
-                    .rounded_none()
-                    .border_0()
-                    .bg(gpui::transparent_black())
-                    .font_family(theme::MONO)
-                    .text_size(px(step::NOTE.size))
-            })
-            // The focus ring on a field of its own, drawn inside its edge: GPUI has no outline.
-            .when(
-                focused && !invalid && !matches!(f, Field::NewServerFriend | Field::ServerCommand),
-                |d| {
-                    let small = matches!(
-                        f,
-                        Field::InstanceModsFilter
-                            | Field::ConsoleSearch
-                            | Field::AccentHex
-                            | Field::ServerMotd
-                            | Field::ServerPort
-                            | Field::TailscaleToken
-                            | Field::ServerPlayer
-                    );
-                    d.child(ui::focus_ring(if small {
-                        radius::CONTROL
-                    } else {
-                        radius::ROW
-                    }))
-                },
-            );
-        let content = line_edit::content(
+        self.fields.text(f).show(visible_chars(width, size));
+        let content = line_edit::content_with(
             self.fields.text(f),
             focused,
             selected,
             f == Field::TailscaleToken,
-            placeholder,
+            placeholder.into(),
         );
-        let field = base
+        let field = ui::field(focused, invalid, size)
             .id(SharedString::from(format!("field-{f:?}")))
             .w(px(width))
             .cursor_text()
-            .child(content);
+            .children(lead.map(|l| div().relative().flex_none().child(l)))
+            .child(
+                div()
+                    .relative()
+                    .flex_1()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .child(content),
+            )
+            .children(trailing.map(|t| div().relative().flex_none().child(t)));
         self.text_input(f, field, cx)
     }
 
@@ -278,13 +241,13 @@ impl Launcher {
                 window.focus(&this.fields.handle(f, cx), cx);
                 cx.notify();
             }))
-            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
+            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
                 if ev.keystroke.key != "enter" && this.fields.invalid.is_some_and(|(g, _)| g == f) {
                     this.fields.invalid = None;
                 }
                 // A suggestion is selected: what's typed or pasted replaces it.
                 let selected = this.fields.selected.take() == Some(f);
-                if selected {
+                if selected && ev.keystroke.key != "escape" {
                     this.fields.text(f).select_all();
                 }
                 match line_edit::handle(this.fields.text(f), ev, cx) {
@@ -293,12 +256,9 @@ impl Launcher {
                     }
                     Key::Enter => this.field_enter(f),
                     Key::Edited => this.field_edited(f),
+                    Key::Escape if selected => {}
                     Key::Escape => {
-                        if this.servers.create.is_some() && !this.servers.creating {
-                            this.servers.create = None;
-                        }
-                        this.instance_escape();
-                        window.blur(cx);
+                        this.servers_escape();
                     }
                     // Tab and the rest go on to the window: Tab moves the focus.
                     Key::Pass => return,
@@ -307,6 +267,7 @@ impl Launcher {
                 cx.stop_propagation();
                 cx.notify();
             }));
+        let el = ui::reveal_on_tab(el);
         line_edit::mouse(el, cx, move |this| this.fields.text(f))
     }
 

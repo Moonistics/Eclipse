@@ -6,6 +6,7 @@ pub const PAGE_GUTTER: f32 = 32.;
 pub const PAGE_MAX: f32 = 1120.;
 pub const PAGE_FOOT: f32 = 48.;
 pub const CONTENT_INSET: f32 = 14.;
+pub const CARD_GAP: f32 = 16.;
 
 pub const SHORT_WINDOW: f32 = 720.;
 pub const HOME_HEAD_WIDE: f32 = 1280.;

@@ -298,6 +298,10 @@ impl LineEdit {
         let (lo, hi) = self.range();
         let out = match key {
             "enter" => Key::Enter,
+            "escape" if lo != hi => {
+                self.move_to(self.caret, false);
+                Key::Moved
+            }
             "escape" => Key::Escape,
             "left" if !shift && lo != hi && !command => {
                 self.move_to(lo, false);

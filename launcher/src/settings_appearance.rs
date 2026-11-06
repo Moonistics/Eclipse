@@ -3,6 +3,7 @@ use super::*;
 use crate::fields::Field;
 use crate::ui;
 use eclipse_launcher::themes::{self, Accent};
+use eclipse_theme::glass::space;
 use gpui::{
     canvas, fill, point, size, Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
     Pixels, Point,
@@ -36,14 +37,19 @@ impl Launcher {
         let mut options: Vec<(Option<&'static str>, &'static str)> = vec![(None, "Eclipse")];
         options.extend(themes::THEMES.iter().map(|th| (Some(th.id), th.name)));
         let this = cx.entity().downgrade();
-        let picker = ui::segments("launcher-theme", &options, current, move |id, _, cx| {
-            let _ = this.update(cx, |this, cx| {
-                this.settings.theme = id.map(str::to_owned);
-                this.save_settings();
-                this.restyle = true;
-                cx.notify();
-            });
-        });
+        let picker = ui::segments(
+            "launcher-theme",
+            &ui::translated(&options),
+            current,
+            move |id, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.settings.theme = id.map(str::to_owned);
+                    this.save_settings();
+                    this.restyle = true;
+                    cx.notify();
+                });
+            },
+        );
         ui::setting_row(tr("Sky colours"), None, Some(picker.into_any_element()))
     }
 
@@ -77,7 +83,7 @@ impl Launcher {
                 .rounded(px(eclipse_theme::glass::radius::ROW))
                 .bg(gpui::rgb(rgb))
         };
-        let mut row = div().flex().flex_wrap().items_center().gap(px(4.));
+        let mut row = div().flex().flex_wrap().items_center().gap(px(space::XS));
         for (accent, rgb) in Accent::ALL.into_iter().zip(themes::SWATCHES) {
             row = row.child(
                 swatch(
@@ -111,15 +117,18 @@ impl Launcher {
                         cx.notify();
                     })),
             )
-            .child(self.field(Field::AccentHex, "#f5a524", 96., cx).ml(px(4.)));
+            .child(
+                self.field(Field::AccentHex, "#f5a524", 96., ui::ButtonSize::Md, cx)
+                    .ml(px(space::XS)),
+            );
         let control = div()
             .flex()
             .flex_col()
             .when(beside, |d| d.items_end())
-            .gap(px(10.))
+            .gap(px(space::MD))
             .child(row)
             .when(self.accent_strip, |d| d.child(self.hue_strip(cx)));
-        settings_page::wide_row(
+        ui::setting_row_fit(
             beside,
             tr("Accent colour"),
             None,
@@ -142,7 +151,7 @@ impl Launcher {
                     Some("refresh"),
                     tr("Reset to defaults"),
                     ButtonKind::Secondary,
-                    ui::Size::Md,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
                     let s = &mut this.settings;
@@ -331,29 +340,39 @@ impl Launcher {
 
     pub(super) fn home_background_row(&self, cx: &mut Context<Self>) -> Div {
         let custom = self.home_background().is_some();
-        let mut actions = div().flex().gap(px(4.)).child(
-            button("background-choose", "Choose image…", ButtonKind::Secondary).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.choose_background(cx);
-                    cx.notify();
-                }),
-            ),
+        let mut actions = div().flex().gap(px(space::XS)).child(
+            ui::button(
+                "background-choose",
+                None,
+                tr("Choose image…"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.choose_background(cx);
+                cx.notify();
+            })),
         );
         if custom {
             actions = actions.child(
-                button("background-reset", "Default background", ButtonKind::Ghost).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.settings.background = None;
-                        this.save_settings();
-                        cx.notify();
-                    }),
-                ),
+                ui::button(
+                    "background-reset",
+                    None,
+                    tr("Default background"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.settings.background = None;
+                    this.save_settings();
+                    cx.notify();
+                })),
             );
         }
         let detail = self
             .background_error
             .clone()
-            .map(|e| div().text_color(ui::danger()).child(e).into_any_element());
+            .map(|e| ui::error_note(e).into_any_element());
         ui::setting_row(
             tr("Home background"),
             detail,

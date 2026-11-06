@@ -1,4 +1,46 @@
 use super::*;
+use eclipse_launcher::packs::Kind as PackKind;
+
+#[derive(Clone, PartialEq, Debug)]
+pub(super) enum Menu {
+    Account,
+    InstanceRow(String),
+    Play,
+    Version,
+    Language,
+    ListRow(SharedString),
+    ModsTarget,
+    ModsSort,
+}
+
+#[derive(Clone, PartialEq, Debug)]
+pub(super) enum Asking {
+    Version(String),
+    OfflineName(String),
+    RegistryPack(String),
+    PortedPack(String),
+    Mod(String),
+    GamePack(PackKind, String),
+    SavedServer(usize),
+    WorldPack(String),
+    GithubMod(String),
+    Screenshot,
+    Collection,
+    ServerRestore(String),
+    ServerDelete,
+    InstanceDelete(String),
+    WorldDelete(SharedString),
+}
+
+const KEY_SCROLL_STEP: f32 = 40.;
+
+const KEY_SCROLL_OVERLAP: f32 = 48.;
+
+impl Asking {
+    fn in_a_menu(&self) -> bool {
+        matches!(self, Asking::InstanceDelete(_) | Asking::WorldDelete(_))
+    }
+}
 
 impl Launcher {
     /// Whether `event` is the press that just closed a menu from outside it (on the menu's
@@ -8,15 +50,20 @@ impl Launcher {
     }
 
     pub(super) fn menu_open(&self) -> bool {
-        self.account_menu
-            || self.row_menu.open.is_some()
-            || self.home_menu != home_head::HomeMenu::None
-            || self.picker_open
-            || self.language_menu
-            || self.list_menu.is_some()
-            || self.mods.target_menu
-            || self.mods.browse.sort_menu
-            || self.mod_detail_floats()
+        self.open_menu.is_some() || self.mod_detail_floats()
+    }
+
+    pub(super) fn menu_is(&self, menu: &Menu) -> bool {
+        self.open_menu.as_ref() == Some(menu)
+    }
+
+    /// Opens `menu`, or closes it when it is the one open, as its button's press does.
+    pub(super) fn toggle_menu(&mut self, menu: Menu, window: &Window, cx: &App) {
+        self.open_menu = menu_after_press(self.open_menu.take(), menu);
+        self.stop_asking(Asking::in_a_menu);
+        if self.open_menu.is_some() {
+            self.opened_menu(window, cx);
+        }
     }
 
     pub(super) fn mod_detail_floats(&self) -> bool {
@@ -25,44 +72,32 @@ impl Launcher {
             && self.window_width < layout::MODS_DETAIL_BESIDE
     }
 
+    pub(super) fn close_menu(&mut self) {
+        self.open_menu = None;
+        self.stop_asking(Asking::in_a_menu);
+    }
+
     pub(super) fn close_menus(&mut self) -> bool {
         let open = self.menu_open();
-        self.account_menu = false;
-        self.row_menu.open = None;
-        self.home_menu = home_head::HomeMenu::None;
-        self.picker_open = false;
-        self.language_menu = false;
-        self.list_menu = None;
-        self.mods.target_menu = false;
-        self.mods.browse.sort_menu = false;
+        self.close_menu();
         if self.mod_detail_floats() {
             self.mods.picked = None;
         }
         open
     }
 
+    pub(super) fn is_asking(&self, about: &Asking) -> bool {
+        self.asking.as_ref() == Some(about)
+    }
+
+    pub(super) fn stop_asking(&mut self, about: impl Fn(&Asking) -> bool) {
+        if self.asking.as_ref().is_some_and(about) {
+            self.asking = None;
+        }
+    }
+
     pub(super) fn confirm_escape(&mut self) -> bool {
-        let asking = self.confirm_remove.is_some()
-            || self.multiplayer.confirm_remove.is_some()
-            || self.game_packs.confirm_remove.is_some()
-            || self.mods.confirm_remove.is_some()
-            || self.github.confirm_remove.is_some()
-            || self.world_packs.confirm_remove.is_some()
-            || self.screenshots.confirm_delete
-            || self.collection.confirm_delete
-            || self.servers.confirm_restore.is_some()
-            || self.servers.confirm_delete;
-        self.confirm_remove = None;
-        self.multiplayer.confirm_remove = None;
-        self.game_packs.confirm_remove = None;
-        self.mods.confirm_remove = None;
-        self.github.confirm_remove = None;
-        self.world_packs.confirm_remove = None;
-        self.screenshots.confirm_delete = false;
-        self.collection.confirm_delete = false;
-        self.servers.confirm_restore = None;
-        self.servers.confirm_delete = false;
-        asking
+        self.asking.take().is_some()
     }
 
     pub(super) fn opened_menu(&mut self, window: &Window, cx: &App) {
@@ -99,6 +134,16 @@ impl Launcher {
                     window.focus_next(cx);
                 }
             }
+            "f6" => {
+                let to_sidebar = k.modifiers.shift;
+                let region = if to_sidebar {
+                    &self.side_focus
+                } else {
+                    &self.content_focus
+                };
+                window.focus(region, cx);
+                window.focus_next(cx);
+            }
             "escape" if self.close_menus() => {
                 if let Some(opener) = self.menu_opener.take() {
                     window.focus(&opener, cx);
@@ -111,10 +156,45 @@ impl Launcher {
             "escape" if self.screenshot_escape() => {}
             "left" if self.screenshot_step(false) => {}
             "right" if self.screenshot_step(true) => {}
+            key if self.scroll_by_key(key, window, cx) => {}
             _ => return,
         }
         cx.stop_propagation();
         cx.notify();
+    }
+
+    fn scroll_by_key(&mut self, key: &str, window: &Window, cx: &App) -> bool {
+        if self.fields.any_focus() || self.open_menu.is_some() {
+            return false;
+        }
+        let on_page = window.focused(cx).is_none_or(|f| {
+            f == self.root_focus || f == self.content_focus || f == self.side_focus
+        });
+        let pane = match self.page {
+            Page::Settings => &self.settings_pane,
+            Page::InstanceEditor => match &self.instances.draft {
+                Some(d) => &d.scroll,
+                None => &self.content_scroll.handle,
+            },
+            _ => &self.content_scroll.handle,
+        };
+        let view = f32::from(pane.bounds().size.height);
+        let max = f32::from(pane.max_offset().y);
+        let at = -f32::from(pane.offset().y);
+        let to = match key {
+            "pagedown" => at + view - KEY_SCROLL_OVERLAP,
+            "space" if on_page => at + view - KEY_SCROLL_OVERLAP,
+            "pageup" => at - view + KEY_SCROLL_OVERLAP,
+            "down" => at + KEY_SCROLL_STEP,
+            "up" => at - KEY_SCROLL_STEP,
+            "home" => 0.,
+            "end" => max,
+            _ => return false,
+        };
+        let mut offset = pane.offset();
+        offset.y = px(-to.clamp(0., max));
+        pane.set_offset(offset);
+        true
     }
 
     pub(super) fn palette_key_down(
@@ -143,16 +223,13 @@ pub(super) fn closed_by_press(closed_at: Option<Point<Pixels>>, event: &ClickEve
     matches!(event, ClickEvent::Mouse(click) if closed_at == Some(click.down.position))
 }
 
-/// The row menu a press on a sidebar row leaves open: that row's, or none when it was already
-/// that row's (the ⋯ and a right click on the row toggle the same way).
-pub(super) fn row_menu_after_press(
-    open: Option<(String, bool)>,
-    id: &str,
-) -> Option<(String, bool)> {
-    if open.as_ref().is_some_and(|(current, _)| current == id) {
+/// The menu a press on a menu's button leaves open: that menu, or none when it was already the
+/// one open (the sidebar's ⋯ and a right click on its row toggle the same way).
+pub(super) fn menu_after_press(open: Option<Menu>, pressed: Menu) -> Option<Menu> {
+    if open.as_ref() == Some(&pressed) {
         return None;
     }
-    Some((id.to_owned(), false))
+    Some(pressed)
 }
 
 #[cfg(test)]
@@ -181,24 +258,18 @@ mod tests {
     }
 
     #[test]
-    fn a_press_on_a_sidebar_row_opens_its_menu_or_closes_it() {
-        let open = |id: &str| Some((id.to_string(), false));
+    fn a_press_on_a_menu_button_opens_its_menu_or_closes_it() {
+        use super::{menu_after_press, Menu};
+        let row = |id: &str| Menu::InstanceRow(id.to_string());
+        assert_eq!(menu_after_press(None, row("Eclipse")), Some(row("Eclipse")));
         assert_eq!(
-            super::row_menu_after_press(None, "Eclipse"),
-            open("Eclipse")
+            menu_after_press(Some(row("Other")), row("Eclipse")),
+            Some(row("Eclipse"))
         );
+        assert_eq!(menu_after_press(Some(row("Eclipse")), row("Eclipse")), None);
         assert_eq!(
-            super::row_menu_after_press(open("Other"), "Eclipse"),
-            open("Eclipse")
-        );
-        assert_eq!(
-            super::row_menu_after_press(open("Eclipse"), "Eclipse"),
-            None
-        );
-        // A Delete… already pressed on another row does not carry over.
-        assert_eq!(
-            super::row_menu_after_press(Some(("Other".into(), true)), "Eclipse"),
-            open("Eclipse")
+            menu_after_press(Some(Menu::Play), Menu::Version),
+            Some(Menu::Version)
         );
     }
 }

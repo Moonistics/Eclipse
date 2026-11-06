@@ -36,7 +36,8 @@ impl Launcher {
             } else {
                 "Hide screenshots"
             }),
-            ui::Size::Sm,
+            ButtonKind::Ghost,
+            ui::ButtonSize::Sm,
             hidden,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

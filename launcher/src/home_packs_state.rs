@@ -2,6 +2,7 @@
 //! each turned on or off with one click, Remove (to the trash, after a confirmation), and
 //! Add (a file picker) or a .zip or .eshader dropped anywhere on the section.
 use super::*;
+use crate::menus::Asking;
 use eclipse_launcher::packs::{self, Kind as PackKind, Pack};
 use gpui::{Image, ImageFormat};
 use std::path::PathBuf;
@@ -13,8 +14,6 @@ pub(super) struct Packs {
     pub(super) resource: Vec<(Pack, Option<Arc<Image>>)>,
     pub(super) shader: Vec<Pack>,
     fresh: bool,
-    /// The pack waiting for its removal to be confirmed: its kind and file.
-    pub(super) confirm_remove: Option<(PackKind, String)>,
     /// What the last action did, or why it failed.
     pub(super) note: Option<Result<String, String>>,
 }
@@ -59,7 +58,7 @@ impl Launcher {
             return;
         };
         self.game_packs.note = Some(act(&home));
-        self.game_packs.confirm_remove = None;
+        self.stop_asking(|a| matches!(a, Asking::GamePack(..)));
         self.game_packs.stale();
     }
 

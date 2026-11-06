@@ -4,8 +4,15 @@ use gpui::{
     div, prelude::*, px, AnimationExt, AnyElement, Div, ElementId, Hsla, SharedString, Stateful,
     Window,
 };
+use std::cell::{Cell, RefCell};
+use std::collections::HashSet;
 use std::sync::Mutex;
 use std::time::Instant;
+
+thread_local! {
+    static OFF: RefCell<HashSet<SharedString>> = RefCell::default();
+    static LEFT_DISABLED: Cell<bool> = const { Cell::new(false) };
+}
 
 /// The element under the pointer and the one it just left, with when that happened. Hover
 /// backgrounds ease in and out from these rather than snapping.
@@ -74,6 +81,7 @@ pub fn hover_is(id: &SharedString) -> bool {
 /// Records that `id` is now hovered or not, for [`hover_fade`]: an element whose own hover
 /// listener does more calls it.
 pub fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
+    let hovered = hovered && !OFF.with_borrow(|off| off.contains(id));
     let mut state = HOVER.lock().unwrap();
     let is_on = state.on.as_ref().is_some_and(|(h, _)| h == id);
     if hovered && !is_on {
@@ -84,6 +92,30 @@ pub fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
         state.on = None;
     }
     window.refresh();
+}
+
+pub fn disabled(mut el: Stateful<Div>) -> Stateful<Div> {
+    if let Some(ElementId::Name(id)) = el.interactivity().element_id.clone() {
+        let mut state = HOVER.lock().unwrap();
+        if state.on.as_ref().is_some_and(|(h, _)| *h == id) {
+            state.on = None;
+            LEFT_DISABLED.set(true);
+        }
+        OFF.with_borrow_mut(|off| off.insert(id));
+    }
+    el.opacity(crate::theme::DISABLED)
+        .cursor_default()
+        .tab_stop(false)
+}
+
+pub(super) fn forget_disabled() {
+    OFF.with_borrow_mut(HashSet::clear);
+}
+
+pub fn end_frame(window: &mut Window) {
+    if LEFT_DISABLED.take() {
+        window.request_animation_frame();
+    }
 }
 
 /// A layer filling its parent, round at `r`, for hover fills.

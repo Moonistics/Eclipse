@@ -4303,7 +4303,7 @@ pub struct Settings {
     /// What the window does while the game runs. Stays by default.
     #[serde(default)]
     pub while_playing: WhilePlaying,
-    /// The accent colour on top of the appearance (`themes::Accent`). Eclipse's violet by default.
+    /// The accent colour on top of the appearance (`themes::Accent`). Eclipse's amber by default.
     #[serde(default)]
     pub accent: crate::themes::Accent,
     /// The launcher theme (`themes::theme`): its sky behind the light appearance. Unset is
@@ -5395,7 +5395,7 @@ pub fn {f}("
     }
 
     #[test]
-    fn the_accent_is_violet_unless_picked_and_an_unknown_one_keeps_the_rest() {
+    fn the_accent_is_amber_unless_picked_and_an_unknown_one_keeps_the_rest() {
         use crate::themes::Accent;
         assert_eq!(Settings::parse("{}").accent, Accent::AMBER);
         let teal =

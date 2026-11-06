@@ -6,15 +6,13 @@
 
 use super::*;
 use crate::fields::Field;
+use crate::menus::Asking;
 use crate::ui::{self, white, Tone};
 use account::Player;
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{fill, ink, radius, space, step};
 
 const HEAD: f32 = 80.;
 const MICROSOFT_MIN: f32 = 280.;
-const CHIP: f32 = 44.;
-const CHIP_INSET: f32 = 5.;
-const CHIP_HEAD: f32 = 30.;
 const MICROSOFT_LOGO: f32 = 36.;
 
 impl Launcher {
@@ -79,29 +77,39 @@ impl Launcher {
             .rounded(px(radius::PANEL))
             .overflow_hidden()
             .child(self.profile_heads.draw(face.as_deref(), HEAD, self.scale));
-        let header = div().flex().items_center().gap(px(20.)).child(head).child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .gap(px(10.))
-                .child(
-                    ui::entity_title(name, eclipse_theme::glass::pixel_text::CARD_TITLE).truncate(),
-                )
-                .child(
-                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                        .child(ui::state_line(status.0, status.1)),
-                ),
-        );
+        let header = div()
+            .flex()
+            .items_center()
+            .gap(px(space::XL))
+            .child(head)
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_w_0()
+                    .gap(px(space::MD))
+                    .child(
+                        ui::entity_title(name, eclipse_theme::glass::pixel_text::CARD_TITLE)
+                            .truncate(),
+                    )
+                    .child(
+                        ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+                            .child(ui::state_line(status.0, status.1)),
+                    ),
+            );
 
         // The chips: each offline name, the game's own name, then the field.
-        let mut chips = div().flex().flex_wrap().gap(px(8.)).mt(px(12.));
-        for (i, offline) in self.accounts.offline.clone().into_iter().enumerate() {
+        let mut chips = div()
+            .flex()
+            .flex_wrap()
+            .gap(px(space::SM))
+            .mt(px(space::MD));
+        for offline in self.accounts.offline.clone() {
             let plays = now == Player::Offline(offline.clone());
-            let asked = format!("offline-name:{offline}");
-            let forget_id = SharedString::from(format!("offline-forget-{i}"));
-            if self.confirm_remove.as_deref() == Some(asked.as_str()) {
+            let asked = Asking::OfflineName(offline.clone());
+            let forget_id = SharedString::from(format!("offline-forget-{offline}"));
+            if self.is_asking(&asked) {
                 let forget = offline.clone();
                 chips = chips.child(
                     ui::confirm(
@@ -109,16 +117,16 @@ impl Launcher {
                         trf("Remove {name}?", &[("name", &offline)]),
                         tr("Remove"),
                         cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.confirm_remove = None;
+                            this.asking = None;
                             cx.notify();
                         }),
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.confirm_remove = None;
+                            this.asking = None;
                             this.forget_offline(&forget);
                             cx.notify();
                         }),
                     )
-                    .h(px(CHIP))
+                    .h(px(ui::CHIP))
                     .px(px(ui::LIST_INSET))
                     .rounded(px(radius::ROW))
                     .bg(white(fill::HOVER)),
@@ -126,9 +134,10 @@ impl Launcher {
                 continue;
             }
             let (who, skin) = (offline.clone(), offline.clone());
+            let skin_id = format!("offline-skin-{offline}");
             chips = chips.child(
                 self.name_chip(
-                    SharedString::from(format!("offline-chip-{i}")),
+                    SharedString::from(format!("offline-chip-{offline}")),
                     offline,
                     plays,
                 )
@@ -140,10 +149,11 @@ impl Launcher {
                 })
                 .child(
                     ui::icon_button(
-                        format!("offline-skin-{i}"),
+                        skin_id,
                         "pencil-edit-02",
                         tr("Change skin"),
-                        ui::Size::Sm,
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Sm,
                         false,
                     )
                     .on_press(cx.listener(
@@ -156,12 +166,21 @@ impl Launcher {
                 )
                 .when(!plays, |d| {
                     d.child(
-                        ui::icon_button(forget_id, "cancel-01", tr("Remove…"), ui::Size::Sm, false)
-                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        ui::icon_button(
+                            forget_id,
+                            "cancel-01",
+                            tr("Remove…"),
+                            ButtonKind::Ghost,
+                            ui::ButtonSize::Sm,
+                            false,
+                        )
+                        .on_press(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| {
                                 cx.stop_propagation();
-                                this.confirm_remove = Some(asked.clone());
+                                this.asking = Some(asked.clone());
                                 cx.notify();
-                            })),
+                            },
+                        )),
                     )
                 }),
             );
@@ -181,7 +200,8 @@ impl Launcher {
                             "game-name-new",
                             "refresh",
                             tr("New name"),
-                            ui::Size::Sm,
+                            ButtonKind::Ghost,
+                            ui::ButtonSize::Sm,
                             false,
                         )
                         .on_press(cx.listener(
@@ -200,15 +220,21 @@ impl Launcher {
         let add = div()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .child(self.field(Field::OfflineName, tr("Add a name"), 150., cx))
+            .gap(px(space::SM))
+            .child(self.field(
+                Field::OfflineName,
+                tr("Add a name"),
+                150.,
+                ui::ButtonSize::Md,
+                cx,
+            ))
             .child(
                 ui::button(
                     "offline-add",
                     None,
                     tr("Add"),
                     ButtonKind::Secondary,
-                    ui::Size::Lg,
+                    ui::ButtonSize::Lg,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.offline_name_enter();
@@ -220,44 +246,23 @@ impl Launcher {
             .flex()
             .flex_col()
             .child(header)
-            .child(ui::label(tr("Offline names")).mt(px(32.)))
+            .child(ui::label(tr("Offline names")).mt(px(space::XXL)))
             .child(chips.when(can_add, |d| d.child(add)))
             .when(!can_add, |d| {
                 d.child(ui::card_note(tr(
                     "Sign in once with a Microsoft account that owns Minecraft: Java Edition to use offline names.",
                 )))
             })
-            .children(self.skin_panel(cx).map(|p| p.mt(px(16.))))
+            .children(self.skin_panel(cx).map(|p| p.mt(px(space::LG))))
     }
 
     /// An offline name's chip: its head and name, a tick and a stronger fill on the one playing.
     fn name_chip(&self, id: impl Into<SharedString>, name: String, plays: bool) -> Stateful<Div> {
         let face = profile_heads::offline_key(&name);
-        ui::selected(
-            ui::hoverable(id, radius::ROW, ui::Hover::Row)
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .h(px(CHIP))
-                .px(px(CHIP_INSET))
-                .when(!plays, |d| d.bg(white(fill::HOVER)).cursor_pointer()),
-            plays,
-        )
-        .child(
-            div()
-                .relative()
-                .flex_none()
-                .size(px(CHIP_HEAD))
-                .rounded(px(radius::ROW))
-                .overflow_hidden()
-                .child(self.profile_heads.draw(Some(&face), CHIP_HEAD, self.scale)),
-        )
-        .child(
-            ui::text(step::BODY, FontWeight::MEDIUM, ink::FULL)
-                .relative()
-                .child(name),
-        )
-        .when(plays, |d| d.child(ui::tick()))
+        let head = self
+            .profile_heads
+            .draw(Some(&face), ui::CHIP_FACE, self.scale);
+        ui::chip(id, head, name, plays).when(plays, |d| d.child(ui::tick()))
     }
 
     /// The Microsoft card: the accounts signed in here, then adding one; one muted line when this
@@ -289,8 +294,8 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(12.))
-                    .mt(px(24.))
+                    .gap(px(space::MD))
+                    .mt(px(space::XL))
                     .child(
                         microsoft::white_button("microsoft-card-sign-in")
                             .w_full()
@@ -306,7 +311,7 @@ impl Launcher {
                     .into_any_element(),
             )
         } else {
-            action.map(|a| div().mt(px(20.)).child(a).into_any_element())
+            action.map(|a| div().mt(px(space::XL)).child(a).into_any_element())
         };
         let pad = ui::SETTING_ROW_PADDING;
         div()
@@ -315,10 +320,10 @@ impl Launcher {
             .p(px(pad))
             .children(rows.map(|r| r.mx(px(-pad)).mt(px(-pad)).mb(px(pad))))
             .child(microsoft::logo(MICROSOFT_LOGO))
-            .child(ui::card_title(heading).mt(px(20.)))
+            .child(ui::card_title(heading).mt(px(space::XL)))
             .child(
                 ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(8.))
+                    .mt(px(space::SM))
                     .child(detail),
             )
             .children(button)
@@ -335,29 +340,41 @@ impl Launcher {
         for (i, a) in self.accounts.accounts.clone().into_iter().enumerate() {
             let plays = selected.as_ref() == Some(&a.uuid);
             let uuid = a.uuid.clone();
-            let mut actions = div().flex().gap(px(4.));
+            let mut actions = div().flex().gap(px(space::XS));
             if plays {
                 actions = actions.child(
-                    button(format!("offline-{i}"), "Play offline", ButtonKind::Ghost).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            let mut accounts = Accounts::load();
-                            accounts.selected = None;
-                            if accounts.save().is_ok() {
-                                this.accounts = accounts;
-                            }
-                            cx.notify();
-                        }),
-                    ),
+                    ui::button(
+                        format!("offline-{i}"),
+                        None,
+                        tr("Play offline"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        let mut accounts = Accounts::load();
+                        accounts.selected = None;
+                        if accounts.save().is_ok() {
+                            this.accounts = accounts;
+                        }
+                        cx.notify();
+                    })),
                 );
             } else {
                 let uuid = uuid.clone();
                 actions = actions.child(
-                    button(format!("select-{i}"), "Play as", ButtonKind::Secondary).on_press(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    ui::button(
+                        format!("select-{i}"),
+                        None,
+                        tr("Play as"),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
                             this.play_as(account::Player::Microsoft(uuid.clone()));
                             cx.notify();
-                        }),
-                    ),
+                        },
+                    )),
                 );
             }
             let sign_in_progress = self
@@ -377,19 +394,21 @@ impl Launcher {
             let needs_sign_in =
                 status.is_some_and(|s| s.state == account::session::State::SignInRequired);
             let refresh_id = uuid.clone();
-            let refresh = button(
+            let refresh = ui::button(
                 format!("refresh-{i}"),
-                if busy {
+                None,
+                tr(if busy {
                     "Checking…"
                 } else if needs_sign_in {
                     "Sign in again"
                 } else {
                     "Refresh"
-                },
+                }),
                 ButtonKind::Ghost,
+                ui::ButtonSize::Md,
             );
             actions = actions.child(if busy {
-                disabled(refresh)
+                ui::disabled(refresh)
             } else {
                 refresh.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if needs_sign_in {
@@ -400,9 +419,15 @@ impl Launcher {
                     cx.notify();
                 }))
             });
-            let sign_out = button(format!("sign-out-{i}"), "Sign out", ButtonKind::Ghost);
+            let sign_out = ui::button(
+                format!("sign-out-{i}"),
+                None,
+                tr("Sign out"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+            );
             actions = actions.child(if busy {
-                disabled(sign_out)
+                ui::disabled(sign_out)
             } else {
                 sign_out.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     let Some(generation) = this.begin_auth_job(&uuid) else {
@@ -469,7 +494,7 @@ impl Launcher {
             Some(SignInState::Code(code)) => div()
                 .flex()
                 .flex_col()
-                .gap(px(6.))
+                .gap(px(space::SM))
                 .child(trf(
                     "Open {link} in your browser and enter this code:",
                     &[("link", &code.verification_uri)],
@@ -486,7 +511,7 @@ impl Launcher {
             Some(SignInState::Done(Ok(a))) => {
                 div().child(trf("Signed in as {name}.", &[("name", &a.name)]))
             }
-            Some(SignInState::Done(Err(e))) => div().text_color(ui::danger()).child(e.clone()),
+            Some(SignInState::Done(Err(e))) => ui::error_note(e.clone()),
             None if self.accounts.accounts.is_empty() => div().child(tr(
                 "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
             )),
@@ -496,7 +521,7 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(4.))
+                .gap(px(space::XS))
                 .child(trf(
                     "Use the Microsoft account for {name}.",
                     &[("name", &target.name)],
@@ -509,7 +534,7 @@ impl Launcher {
             Some(said) if !self.accounts.accounts.is_empty() => div()
                 .flex()
                 .flex_col()
-                .gap(px(4.))
+                .gap(px(space::XS))
                 .child(detail)
                 .child(div().child(said)),
             _ => detail,
@@ -521,67 +546,105 @@ impl Launcher {
             Some(
                 div()
                     .flex()
-                    .gap(px(4.))
+                    .gap(px(space::XS))
                     .child(
-                        button("sign-in-copy", "Copy code", ButtonKind::Secondary).on_press(
-                            move |_, _, cx| {
-                                clipboard::copy_to_clipboard(
-                                    cx,
-                                    gpui::ClipboardItem::new_string(user_code.clone()),
-                                )
-                            },
-                        ),
+                        ui::button(
+                            "sign-in-copy",
+                            None,
+                            tr("Copy code"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(move |_, _, cx| {
+                            clipboard::copy_to_clipboard(
+                                cx,
+                                gpui::ClipboardItem::new_string(user_code.clone()),
+                            )
+                        }),
                     )
                     .child(
-                        button("sign-in-open", "Open link", ButtonKind::Secondary)
-                            .on_press(move |_, _, cx| cx.open_url(&uri)),
+                        ui::button(
+                            "sign-in-open",
+                            None,
+                            tr("Open link"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(move |_, _, cx| cx.open_url(&uri)),
                     )
                     .child(
-                        button("sign-in-cancel", "Cancel", ButtonKind::Ghost).on_press(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                        ui::button(
+                            "sign-in-cancel",
+                            None,
+                            tr("Cancel"),
+                            ButtonKind::Ghost,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
                                 this.cancel_sign_in();
                                 cx.notify();
-                            }),
-                        ),
+                            },
+                        )),
                     )
                     .into_any_element(),
             )
         } else if busy {
             Some(
-                button("sign-in-cancel-working", "Cancel", ButtonKind::Ghost)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.cancel_sign_in();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
+                ui::button(
+                    "sign-in-cancel-working",
+                    None,
+                    tr("Cancel"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.cancel_sign_in();
+                    cx.notify();
+                }))
+                .into_any_element(),
             )
         } else {
             let target = self.sign_in_target.as_ref().map(|a| a.uuid.clone());
             let targeted = target.is_some();
             // Re-signing one account names it; adding one is Microsoft's own button.
             let sign_in = if targeted {
-                button("sign-in", "Sign in again", ButtonKind::Secondary)
+                ui::button(
+                    "sign-in",
+                    None,
+                    tr("Sign in again"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
             } else {
                 microsoft::sign_in_button("sign-in", &t)
             };
-            let mut actions = div().flex().gap(px(4.)).child(sign_in.on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    if let Some(uuid) = &target {
-                        this.re_sign_in(uuid);
-                    } else {
-                        this.start_sign_in();
-                    }
-                    cx.notify();
-                },
-            )));
+            let mut actions = div()
+                .flex()
+                .gap(px(space::XS))
+                .child(
+                    sign_in.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        if let Some(uuid) = &target {
+                            this.re_sign_in(uuid);
+                        } else {
+                            this.start_sign_in();
+                        }
+                        cx.notify();
+                    })),
+                );
             if targeted {
                 actions = actions.child(
-                    button("sign-in-cancel-target", "Cancel", ButtonKind::Ghost).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.cancel_sign_in();
-                            cx.notify();
-                        }),
-                    ),
+                    ui::button(
+                        "sign-in-cancel-target",
+                        None,
+                        tr("Cancel"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.cancel_sign_in();
+                        cx.notify();
+                    })),
                 );
             }
             Some(actions.into_any_element())
@@ -623,7 +686,7 @@ pub(super) fn account_status_line(
     div()
         .flex()
         .items_center()
-        .gap(px(6.))
+        .gap(px(space::SM))
         .text_color(color)
         .child(ui::icon(icon, ui::IconSize::Px16, color))
         .child(tr(label).to_owned())
@@ -644,14 +707,14 @@ pub(super) fn account_row(
             div()
                 .flex()
                 .items_center()
-                .gap(px(14.))
-                .px(px(16.))
-                .py(px(12.))
+                .gap(px(space::LG))
+                .px(px(space::LG))
+                .py(px(space::MD))
                 .child(
                     slot.rounded(px(eclipse_theme::glass::radius::ROW))
                         .overflow_hidden(),
                 )
                 .child(ui::setting_row(name, detail, None).p_0().flex_1()),
         )
-        .child(actions.flex_wrap().px(px(16.)).pb(px(12.)))
+        .child(actions.flex_wrap().px(px(space::LG)).pb(px(space::MD)))
 }

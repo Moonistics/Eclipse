@@ -15,10 +15,12 @@ const RING_WIDTH: f32 = 4.;
 
 const RING_GAP: f32 = 1.5;
 
+const INSET_RING: f32 = 2.;
+
 const TIP_GAP: f32 = 6.;
 
 thread_local! {
-    static UNCLAIMED: RefCell<Vec<Rc<RefCell<Spot>>>> = const { RefCell::new(Vec::new()) };
+    static SPOTS: RefCell<Vec<Rc<RefCell<Spot>>>> = const { RefCell::new(Vec::new()) };
     static LISTS: RefCell<HashMap<SharedString, ScrollHandle>> = RefCell::default();
     static FOCUS_TIP: RefCell<Option<(SharedString, Bounds<Pixels>, FocusHandle)>> =
         const { RefCell::new(None) };
@@ -29,11 +31,11 @@ thread_local! {
 #[derive(Default)]
 struct Spot {
     bounds: Bounds<Pixels>,
-    pane: Option<ScrollHandle>,
+    panes: Vec<ScrollHandle>,
 }
 
 pub(super) fn forget_spots() {
-    UNCLAIMED.with_borrow_mut(Vec::clear);
+    SPOTS.with_borrow_mut(Vec::clear);
 }
 
 pub trait Press: Sized {
@@ -41,46 +43,84 @@ pub trait Press: Sized {
 }
 
 impl Press for Stateful<Div> {
-    fn on_press(self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
-        let spot: Rc<RefCell<Spot>> = Rc::default();
-        let seen = spot.clone();
-        self.tab_index(0)
-            .focus_visible(ring)
-            .on_click(f)
-            .child(measure(move |bounds| {
-                *seen.borrow_mut() = Spot { bounds, pane: None };
-                UNCLAIMED.with_borrow_mut(|u| u.push(seen));
-            }))
-            .on_key_up(move |ev: &KeyUpEvent, window, cx| {
-                if ev.keystroke.key != "tab" {
-                    return;
-                }
-                let spot = spot.borrow();
-                if let Some(pane) = &spot.pane {
-                    reveal(pane, spot.bounds);
-                    window.refresh();
-                }
-                cx.stop_propagation();
-            })
+    fn on_press(mut self, f: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static) -> Self {
+        let filled = self
+            .interactivity()
+            .base_style
+            .background
+            .as_ref()
+            .and_then(gpui::Fill::color)
+            .and_then(|fill| fill.as_solid())
+            .is_some_and(|c| c.a >= 1.);
+        let el = self.tab_index(0).on_click(f);
+        let el = if filled {
+            el.focus_visible(ring)
+        } else {
+            el.focus_visible(inset_ring)
+        };
+        reveal_on_tab(el)
     }
 }
 
-fn ring(s: StyleRefinement) -> StyleRefinement {
-    let gap = color(if light() { PAPER } else { PAGE });
-    let shadow = |color, spread: f32| gpui::BoxShadow {
+pub fn reveal_on_tab(el: Stateful<Div>) -> Stateful<Div> {
+    let spot: Rc<RefCell<Spot>> = Rc::default();
+    let seen = spot.clone();
+    el.child(measure(move |bounds| {
+        *seen.borrow_mut() = Spot {
+            bounds,
+            panes: Vec::new(),
+        };
+        SPOTS.with_borrow_mut(|spots| spots.push(seen));
+    }))
+    .on_key_up(move |ev: &KeyUpEvent, window, cx| {
+        if ev.keystroke.key != "tab" {
+            return;
+        }
+        let spot = spot.borrow();
+        let mut bounds = spot.bounds;
+        for pane in &spot.panes {
+            let before = pane.offset().y;
+            reveal(pane, bounds);
+            bounds.origin.y += pane.offset().y - before;
+            window.refresh();
+        }
+        cx.stop_propagation();
+    })
+}
+
+fn shadow(color: gpui::Hsla, spread: f32, inset: bool) -> gpui::BoxShadow {
+    gpui::BoxShadow {
         color,
         offset: point(px(0.), px(0.)),
-        blur_radius: px(0.5),
+        blur_radius: px(if inset { 0. } else { 0.5 }),
         spread_radius: px(spread),
-        inset: false,
-    };
+        inset,
+    }
+}
+
+fn gap_colour() -> gpui::Hsla {
+    color(if light() { PAPER } else { PAGE })
+}
+
+fn ring(s: StyleRefinement) -> StyleRefinement {
     s.shadow(vec![
-        shadow(color(look().accent_soft), RING_WIDTH),
-        shadow(gap, RING_GAP),
+        shadow(color(look().accent_soft), RING_WIDTH, false),
+        shadow(gap_colour(), RING_GAP, false),
     ])
 }
 
-fn measure(f: impl FnOnce(Bounds<Pixels>) + 'static) -> impl IntoElement {
+fn inset_ring(s: StyleRefinement) -> StyleRefinement {
+    s.shadow(vec![shadow(color(look().accent_soft), INSET_RING, true)])
+}
+
+pub fn gap_ring(s: StyleRefinement) -> StyleRefinement {
+    s.shadow(vec![
+        shadow(gap_colour(), INSET_RING + RING_GAP, true),
+        shadow(color(look().accent_soft), INSET_RING, true),
+    ])
+}
+
+pub fn measure(f: impl FnOnce(Bounds<Pixels>) + 'static) -> impl IntoElement {
     canvas(move |bounds, _, _| f(bounds), |_, _, _, _| {})
         .absolute()
         .top_0()
@@ -97,18 +137,17 @@ pub fn scroll_pane(id: impl Into<SharedString>, handle: &ScrollHandle) -> Statef
                 .map_while(|i| pane.bounds_for_item(i))
                 .map(|child| Bounds::new(child.origin + offset, child.size))
                 .collect();
-            UNCLAIMED.with_borrow_mut(|unclaimed| {
-                unclaimed.retain(|spot| {
+            SPOTS.with_borrow_mut(|spots| {
+                for spot in spots.iter() {
                     let mut spot = spot.borrow_mut();
                     let at = spot.bounds.center();
                     let inside = at.x >= view.left()
                         && at.x <= view.right()
                         && children.iter().any(|child| child.contains(&at));
                     if inside {
-                        spot.pane = Some(pane.clone());
+                        spot.panes.push(pane.clone());
                     }
-                    !inside
-                })
+                }
             })
         })
         .id(id.into())
@@ -119,8 +158,12 @@ pub fn scroll_pane(id: impl Into<SharedString>, handle: &ScrollHandle) -> Statef
 pub fn nested_list(id: impl Into<SharedString>) -> Stateful<Div> {
     let id: SharedString = id.into();
     let handle = LISTS.with_borrow_mut(|l| l.entry(id.clone()).or_default().clone());
+    hand_back_at_ends(scroll_pane(id, &handle), &handle)
+}
+
+pub fn hand_back_at_ends(pane: Stateful<Div>, handle: &ScrollHandle) -> Stateful<Div> {
     let at = handle.clone();
-    scroll_pane(id, &handle).on_scroll(move |ev: &ScrollEvent, window, cx| {
+    pane.on_scroll(move |ev: &ScrollEvent, window, cx| {
         let dy = ev.delta.pixel_delta(window.line_height()).y;
         let (offset, max) = (at.offset().y, at.max_offset().y);
         let at_end = (dy > px(0.) && offset >= px(0.)) || (dy < px(0.) && -offset >= max);

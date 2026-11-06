@@ -2,12 +2,13 @@
 //! address, manage who may join, change its settings, back it up and update it, all with buttons. Every
 //! action runs `eclipse-server` or calls the running server's control API (`eclipse_launcher::servers`).
 use super::*;
+use crate::menus::Asking;
 use crate::ui;
 use eclipse_launcher::heads;
 use eclipse_launcher::servers::{
     self, Applied, Backup, Entry, Fix, NewServer, Problem, Status, World,
 };
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{fill, ink, radius, space, step};
 use gpui::ScrollHandle;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
@@ -35,7 +36,6 @@ const DELETE_CONTROLS: f32 = 260.;
 
 #[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Tab {
-    Overview,
     Players,
     Settings,
     Backups,
@@ -166,8 +166,6 @@ pub(super) struct Servers {
     /// Settings saved while the server ran that wait for its next start.
     restart_needed: BTreeSet<String>,
     backups: Vec<Backup>,
-    pub(super) confirm_restore: Option<String>,
-    pub(super) confirm_delete: bool,
     service: Option<bool>,
     update: Option<Value>,
     /// `update --check` is under way.
@@ -186,7 +184,7 @@ impl Servers {
             list: Vec::new(),
             loaded: false,
             open: None,
-            tab: Tab::Overview,
+            tab: Tab::Players,
             statuses: HashMap::new(),
             modes: HashMap::new(),
             polling: false,
@@ -207,8 +205,6 @@ impl Servers {
             applying: false,
             restart_needed: BTreeSet::new(),
             backups: Vec::new(),
-            confirm_restore: None,
-            confirm_delete: false,
             service: None,
             update: None,
             checking: false,
@@ -379,11 +375,12 @@ impl Launcher {
         if self.servers.open.as_ref() == Some(&dir) {
             return;
         }
+        self.stop_asking(|a| matches!(a, Asking::ServerRestore(_) | Asking::ServerDelete));
         let s = &mut self.servers;
         s.open = Some(dir);
         // Its settings may have changed while it was open.
         s.modes.clear();
-        s.tab = Tab::Overview;
+        s.tab = Tab::Players;
         s.config = None;
         s.backups.clear();
         s.service = None;
@@ -391,8 +388,6 @@ impl Launcher {
         s.pvp = None;
         s.problem = None;
         s.note = None;
-        s.confirm_restore = None;
-        s.confirm_delete = false;
         s.restart_needed.clear();
         s.polled = None;
         self.fields.clear(Field::ServerMotd);
@@ -544,7 +539,9 @@ impl Launcher {
             }
             Event::Deleted { dir, result } => {
                 s.busy = None;
-                s.confirm_delete = false;
+                if self.asking == Some(Asking::ServerDelete) {
+                    self.asking = None;
+                }
                 let name = (s.list.iter().find(|entry| entry.dir == dir))
                     .map_or_else(|| tr("Server").to_string(), |entry| entry.name.clone());
                 s.list = servers::list();
@@ -721,7 +718,7 @@ impl Launcher {
                 }
             }
             Fix::ShowLog => {
-                self.servers.tab = Tab::Overview;
+                self.servers.tab = Tab::Players;
                 if let Some(dir) = &self.servers.open {
                     crate::toast::open(cx, &dir.join("logs"));
                 }
@@ -941,14 +938,14 @@ impl Launcher {
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self) + 'static,
     ) -> Stateful<Div> {
-        let b = ui::button(id, None, tr(label), ButtonKind::Ghost, ui::Size::Sm);
+        let b = ui::button(id, None, tr(label), ButtonKind::Ghost, ui::ButtonSize::Sm);
         if enabled {
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 action(this);
                 cx.notify();
             }))
         } else {
-            crate::disabled(b)
+            ui::disabled(b)
         }
     }
 
@@ -1023,19 +1020,19 @@ impl Launcher {
         let whitelist = servers::entries(dir, "whitelist.json");
         let banned = servers::names(dir, "banned-players.json");
         let is_op = |n: &str| ops.iter().any(|o| o.eq_ignore_ascii_case(n));
-        let mut tab = div().flex().flex_col().gap(px(28.));
+        let mut tab = div().flex().flex_col().gap(px(space::XL));
 
         // Online now.
         let mut online = div().flex().flex_col();
-        for (i, p) in status.players.clone().into_iter().enumerate() {
+        for p in status.players.clone() {
             let op = is_op(&p.name);
             let (n1, n2, n3) = (p.name.clone(), p.name.clone(), p.name.clone());
             let actions = div()
                 .flex()
                 .flex_none()
-                .gap(px(2.))
+                .gap(px(space::XXS))
                 .child(self.small(
-                    format!("online-op-{i}"),
+                    format!("online-op-{}", p.name),
                     if op {
                         "Remove operator"
                     } else {
@@ -1049,17 +1046,19 @@ impl Launcher {
                     },
                 ))
                 .child(self.small(
-                    format!("online-kick-{i}"),
+                    format!("online-kick-{}", p.name),
                     "Kick",
                     running,
                     cx,
                     move |this| this.api_command(format!("kick {n2}")),
                 ))
-                .child(
-                    self.small(format!("online-ban-{i}"), "Ban", running, cx, move |this| {
-                        this.api_command(format!("ban {n3}"))
-                    }),
-                );
+                .child(self.small(
+                    format!("online-ban-{}", p.name),
+                    "Ban",
+                    running,
+                    cx,
+                    move |this| this.api_command(format!("ban {n3}")),
+                ));
             let ping = p
                 .ping
                 .map(|ms| trf("{ms} ms ping", &[("ms", &ms.to_string())]));
@@ -1069,7 +1068,7 @@ impl Launcher {
                 (false, ping) => ping,
             };
             let face = self.head(&p.uuid, FACE);
-            online = online.child(self.list_row(
+            online = online.child(self.static_row(
                 Some(face),
                 p.name.clone(),
                 about,
@@ -1080,7 +1079,7 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .child(ui::label(trf(
                     "Online now ({count})",
                     &[("count", &status.players.len().to_string())],
@@ -1128,20 +1127,26 @@ impl Launcher {
             None,
             tr("Let in"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         );
         let add = div()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .child(self.field(Field::ServerPlayer, tr("A player's name"), 240., cx))
+            .gap(px(space::SM))
+            .child(self.field(
+                Field::ServerPlayer,
+                tr("A player's name"),
+                240.,
+                ui::ButtonSize::Md,
+                cx,
+            ))
             .child(if idle {
                 let_in.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.add_player();
                     cx.notify();
                 }))
             } else {
-                crate::disabled(let_in)
+                ui::disabled(let_in)
             });
         let mut people: Vec<(String, String)> = whitelist.clone();
         for op in &ops {
@@ -1150,27 +1155,31 @@ impl Launcher {
             }
         }
         let mut allowed = div().flex().flex_col();
-        for (i, (name, uuid)) in people.into_iter().enumerate() {
+        for (name, uuid) in people {
             let op = is_op(&name);
             let listed = whitelist.iter().any(|(n, _)| n == &name);
             let (n1, n2) = (name.clone(), name.clone());
-            let mut actions = div().flex().flex_none().gap(px(2.)).child(self.small(
-                format!("allowed-op-{i}"),
-                if op {
-                    "Remove operator"
-                } else {
-                    "Make operator"
-                },
-                idle,
-                cx,
-                move |this| {
-                    let verb = if op { "deop" } else { "op" };
-                    this.server_command("Changing operators", vec![verb.into(), n1.clone()]);
-                },
-            ));
+            let mut actions = div()
+                .flex()
+                .flex_none()
+                .gap(px(space::XXS))
+                .child(self.small(
+                    format!("allowed-op-{name}"),
+                    if op {
+                        "Remove operator"
+                    } else {
+                        "Make operator"
+                    },
+                    idle,
+                    cx,
+                    move |this| {
+                        let verb = if op { "deop" } else { "op" };
+                        this.server_command("Changing operators", vec![verb.into(), n1.clone()]);
+                    },
+                ));
             if listed {
                 actions = actions.child(self.small(
-                    format!("allowed-remove-{i}"),
+                    format!("allowed-remove-{name}"),
                     "Remove",
                     idle,
                     cx,
@@ -1194,21 +1203,22 @@ impl Launcher {
                 }
                 _ => None,
             };
-            allowed = allowed.child(self.list_row(
+            allowed = allowed.child(self.static_row(
                 Some(face),
                 name,
                 about,
                 Some(actions.into_any_element()),
             ));
         }
-        let refused = self.fields.invalid.and_then(|(f, e)| {
-            (f == Field::ServerPlayer).then(|| ui::card_note(tr(e)).text_color(ui::danger()))
-        });
+        let refused = self
+            .fields
+            .invalid
+            .and_then(|(f, e)| (f == Field::ServerPlayer).then(|| ui::error_note(tr(e))));
         tab = tab.child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .child(ui::label(tr("Who may join")))
                 .child(friends)
                 .child(add)
@@ -1219,18 +1229,20 @@ impl Launcher {
         // Banned.
         if !banned.is_empty() {
             let mut list = div().flex().flex_col();
-            for (i, name) in banned.into_iter().enumerate() {
+            for name in banned {
                 let n = name.clone();
-                let unban = self.small(format!("unban-{i}"), "Unban", running, cx, move |this| {
-                    this.api_command(format!("pardon {n}"))
-                });
-                list = list.child(self.list_row(None, name, None, Some(unban.into_any_element())));
+                let unban =
+                    self.small(format!("unban-{name}"), "Unban", running, cx, move |this| {
+                        this.api_command(format!("pardon {n}"))
+                    });
+                list =
+                    list.child(self.static_row(None, name, None, Some(unban.into_any_element())));
             }
             tab = tab.child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(10.))
+                    .gap(px(space::MD))
                     .child(ui::label(tr("Banned")))
                     .when(!running, |d| {
                         d.child(ui::card_note(tr("Start the server to unban someone.")))
@@ -1255,7 +1267,7 @@ impl Launcher {
         control: AnyElement,
     ) -> Div {
         let note = match error {
-            Some(e) => div().text_color(ui::danger()).child(tr(e)),
+            Some(e) => ui::error_note(tr(e)),
             None => div().child(about),
         };
         ui::setting_row(
@@ -1274,7 +1286,7 @@ impl Launcher {
         press: Option<impl Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
     ) -> AnyElement {
         let Some(press) = press else {
-            let switch = crate::disabled(ui::toggle(id, on));
+            let switch = ui::disabled(ui::toggle(id, on));
             return self
                 .setting_row(name, about, switch.into_any_element())
                 .into_any_element();
@@ -1317,12 +1329,17 @@ impl Launcher {
             .find(|(v, _)| *v == current)
             .map_or("", |(v, _)| v);
         let this = cx.entity().downgrade();
-        ui::segments(id, options, current, move |value, _, cx| {
-            let _ = this.update(cx, |this, cx| {
-                this.set_setting(key, value.to_string());
-                cx.notify();
-            });
-        })
+        ui::segments(
+            id,
+            &ui::translated(options),
+            current,
+            move |value, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.set_setting(key, value.to_string());
+                    cx.notify();
+                });
+            },
+        )
         .into_any_element()
     }
 
@@ -1350,25 +1367,36 @@ impl Launcher {
             self.fields.text(Field::ServerPort).set(port);
         }
         let save = |id: &'static str, f: Field, cx: &mut Context<Self>| {
-            button(id, "Save", ButtonKind::Secondary).on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    this.field_enter(f);
-                    cx.notify();
-                },
-            ))
+            ui::button(
+                id,
+                None,
+                tr("Save"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.field_enter(f);
+                cx.notify();
+            }))
         };
         let motd = div()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .child(self.field(Field::ServerMotd, tr("A Minecraft Server"), 260., cx))
+            .gap(px(space::SM))
+            .child(self.field(
+                Field::ServerMotd,
+                tr("A Minecraft Server"),
+                260.,
+                ui::ButtonSize::Md,
+                cx,
+            ))
             .child(save("motd-save", Field::ServerMotd, cx))
             .into_any_element();
         let port = div()
             .flex()
             .items_center()
-            .gap(px(8.))
-            .child(self.field(Field::ServerPort, "25565", 100., cx))
+            .gap(px(space::SM))
+            .child(self.field(Field::ServerPort, "25565", 100., ui::ButtonSize::Md, cx))
             .child(save("port-save", Field::ServerPort, cx))
             .into_any_element();
         let pvp_known = self.servers.pvp.filter(|_| running);
@@ -1504,18 +1532,18 @@ impl Launcher {
             .items_end()
             .flex_none()
             .w(px(DELETE_CONTROLS))
-            .gap(px(12.));
-        if self.servers.confirm_delete && ready {
+            .gap(px(space::MD));
+        if self.is_asking(&Asking::ServerDelete) && ready {
             controls = controls.child(ui::confirm(
                 "server-delete",
                 trf("Delete {name}?", &[("name", &name)]),
                 tr("Delete"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.servers.confirm_delete = false;
+                    this.asking = None;
                     cx.notify();
                 }),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.servers.confirm_delete = false;
+                    this.asking = None;
                     if let Some(dir) = this.servers.open.clone() {
                         this.servers.busy = Some("Moving server to trash".into());
                         let tx = this.servers.tx.clone();
@@ -1528,15 +1556,21 @@ impl Launcher {
                 }),
             ));
         } else {
-            let delete = button("server-delete", "Delete server…", ButtonKind::Secondary)
-                .text_color(ui::danger());
+            let delete = ui::button(
+                "server-delete",
+                None,
+                tr("Delete server…"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .text_color(ui::danger());
             let delete = if ready {
                 delete.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.servers.confirm_delete = true;
+                    this.asking = Some(Asking::ServerDelete);
                     cx.notify();
                 }))
             } else {
-                crate::disabled(delete)
+                ui::disabled(delete)
             };
             controls = controls.child(delete);
         }
@@ -1617,7 +1651,7 @@ impl Launcher {
         };
         let control = match available {
             Some(tag) => {
-                let b = ui::primary("update-now", tr("Update now"), ui::Size::Md);
+                let b = ui::primary("update-now", tr("Update now"), ui::ButtonSize::Md);
                 if idle {
                     b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.servers.update = None;
@@ -1631,34 +1665,45 @@ impl Launcher {
                         cx.notify();
                     }))
                 } else {
-                    crate::disabled(b)
+                    ui::disabled(b)
                 }
             }
-            None if self.servers.checking => {
-                crate::disabled(button("update-check", "Checking…", ButtonKind::Secondary))
-            }
-            None if !idle => crate::disabled(button(
+            None if self.servers.checking => ui::disabled(ui::button(
                 "update-check",
-                "Check for updates",
+                None,
+                tr("Checking…"),
                 ButtonKind::Secondary,
+                ui::ButtonSize::Md,
             )),
-            None => button("update-check", "Check for updates", ButtonKind::Secondary).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    if let Some(dir) = this.servers.open.clone() {
-                        this.servers.checking = true;
-                        let tx = this.servers.tx.clone();
-                        std::thread::spawn(move || {
-                            let result = servers::run(&dir, &["update", "--check", "--json"])
-                                .and_then(|out| {
-                                    serde_json::from_str(out.trim())
-                                        .map_err(|e| Problem::plain(e.to_string()))
-                                });
-                            let _ = tx.send(Event::UpdateCheck(result));
-                        });
-                    }
-                    cx.notify();
-                }),
-            ),
+            None if !idle => ui::disabled(ui::button(
+                "update-check",
+                None,
+                tr("Check for updates"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )),
+            None => ui::button(
+                "update-check",
+                None,
+                tr("Check for updates"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                if let Some(dir) = this.servers.open.clone() {
+                    this.servers.checking = true;
+                    let tx = this.servers.tx.clone();
+                    std::thread::spawn(move || {
+                        let result =
+                            servers::run(&dir, &["update", "--check", "--json"]).and_then(|out| {
+                                serde_json::from_str(out.trim())
+                                    .map_err(|e| Problem::plain(e.to_string()))
+                            });
+                        let _ = tx.send(Event::UpdateCheck(result));
+                    });
+                }
+                cx.notify();
+            })),
         };
         let mut rows = div()
             .flex()
@@ -1677,7 +1722,7 @@ impl Launcher {
         div()
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .child(ui::label(tr("Updates")))
             .child(rows)
     }
@@ -1694,37 +1739,37 @@ impl Launcher {
         let auto = !every.is_empty() && every != "0";
         let keep = self.servers.shown("backups", "keep");
         let now = {
-            let b = ui::primary("backup-now", tr("Back up now"), ui::Size::Md);
+            let b = ui::primary("backup-now", tr("Back up now"), ui::ButtonSize::Md);
             if idle {
                 b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.server_command("Backing up", vec!["backup".into()]);
                     cx.notify();
                 }))
             } else {
-                crate::disabled(b)
+                ui::disabled(b)
             }
         };
         let mut list = div().flex().flex_col();
-        for (i, b) in self.servers.backups.clone().into_iter().enumerate() {
+        for b in self.servers.backups.clone() {
             let (when, kind) = backup_label(&b);
-            let confirming = self.servers.confirm_restore.as_deref() == Some(b.name.as_str());
+            let confirming = self.is_asking(&Asking::ServerRestore(b.name.clone()));
             let name = b.name.clone();
             let restored = trf(
                 "The world is back as it was on {when}. The one it replaced is in the backups folder.",
                 &[("when", &when)],
             );
-            let restore_id = SharedString::from(format!("restore-{i}"));
+            let restore_id = SharedString::from(format!("restore-{}", b.name));
             let right = if confirming && idle {
                 ui::confirm(
                     restore_id,
                     trf("Restore {name}?", &[("name", &when)]),
                     tr("Restore"),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.servers.confirm_restore = None;
+                        this.asking = None;
                         cx.notify();
                     }),
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.servers.confirm_restore = None;
+                        this.asking = None;
                         if let Some(dir) = this.servers.open.clone() {
                             let (name, restored) = (name.clone(), restored.clone());
                             this.server_job("Restoring", move |log| {
@@ -1736,14 +1781,20 @@ impl Launcher {
                     }),
                 )
             } else {
-                let restore = button(restore_id, "Restore…", ButtonKind::Ghost);
+                let restore = ui::button(
+                    restore_id,
+                    None,
+                    tr("Restore…"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
+                );
                 let restore = if idle {
                     restore.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.servers.confirm_restore = Some(name.clone());
+                        this.asking = Some(Asking::ServerRestore(name.clone()));
                         cx.notify();
                     }))
                 } else {
-                    crate::disabled(restore)
+                    ui::disabled(restore)
                 };
                 div().flex().flex_none().items_center().child(restore)
             };
@@ -1752,14 +1803,18 @@ impl Launcher {
             } else {
                 format!("{kind} · {}", bytes(b.bytes))
             };
-            list =
-                list.child(self.list_row(None, when, Some(detail), Some(right.into_any_element())));
+            list = list.child(self.static_row(
+                None,
+                when,
+                Some(detail),
+                Some(right.into_any_element()),
+            ));
         }
         let mut tab = div()
             .flex()
             .flex_col()
-            .gap(px(20.))
-            .child(div().flex().items_center().gap(px(16.)).child(now));
+            .gap(px(space::XL))
+            .child(div().flex().items_center().gap(px(space::LG)).child(now));
         if self.older_eclipse() {
             return tab
                 .child(
@@ -1794,7 +1849,7 @@ impl Launcher {
                 cx.notify();
             })),
         );
-        if self.servers.confirm_restore.is_some() {
+        if matches!(self.asking, Some(Asking::ServerRestore(_))) {
             tab = tab.child(ui::notice_line(
                 ui::warn(),
                 tr("The current world moves to the backups folder, and a running server restarts."),

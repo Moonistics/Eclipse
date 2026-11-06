@@ -2,7 +2,7 @@
 //! and tabs, the crash notice) and the time a download has left.
 use super::*;
 use crate::ui::{self, Tone};
-use eclipse_theme::glass::{ink, step};
+use eclipse_theme::glass::{ink, space, step};
 
 const STEPS_WIDTH: f32 = 620.;
 
@@ -69,14 +69,19 @@ impl Launcher {
                 }
                 std::cmp::Ordering::Greater => (ui::dot(Tone::Off).into_any_element(), ink::MUTED),
             };
-            div().flex().items_center().gap(px(6.)).child(mark).child(
-                ui::text(step::CAPTION, FontWeight::MEDIUM, tone).child(tr(name).to_string()),
-            )
+            div()
+                .flex()
+                .items_center()
+                .gap(px(space::SM))
+                .child(mark)
+                .child(
+                    ui::text(step::CAPTION, FontWeight::MEDIUM, tone).child(tr(name).to_string()),
+                )
         };
         div()
             .flex()
             .flex_col()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .max_w(px(STEPS_WIDTH))
             .child(
                 div()
@@ -90,7 +95,7 @@ impl Launcher {
                 div()
                     .flex()
                     .justify_between()
-                    .gap(px(16.))
+                    .gap(px(space::LG))
                     .child(
                         ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                             .min_w_0()
@@ -107,7 +112,7 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_wrap()
-                    .gap(px(16.))
+                    .gap(px(space::LG))
                     .children(
                         backend::PrepareStep::ALL
                             .iter()
@@ -147,30 +152,35 @@ impl Launcher {
             .cloned()
             .or_else(|| java.is_some().then(String::new))
         else {
-            // No hero without a version: the page starts below the top bar like the others.
+            // No hero without a version: the page starts at its title like the others.
             let memory = self.memory_row(cx);
             // The first version, downloading since an instance was made to play it.
             let waiting = match &self.installing {
                 Some((_, p)) => format!("{} {:.0}%", tr("Installing"), p * 100.),
                 None => tr("No version installed").to_string(),
             };
-            let choose = button("go-versions", "Choose a version", ButtonKind::Primary).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.go(Page::Versions);
-                    cx.notify();
-                }),
-            );
+            let choose = ui::button(
+                "go-versions",
+                None,
+                tr("Choose a version"),
+                ButtonKind::Primary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.go(Page::Versions);
+                cx.notify();
+            }));
             return div()
                 .flex()
                 .flex_col()
-                .gap(px(24.))
-                .pt(px(28.))
-                .child(page_header("Play", ""))
+                .gap(px(space::XL))
+                .pt(px(space::XL))
+                .child(ui::page_head(tr("Play"), ""))
                 .child(ui::empty_card(ui::empty_state(
                     "play-no-version",
                     "package-01",
                     waiting,
-                    "",
+                    tr("Choose a version to play."),
                     vec![choose],
                 )))
                 .children(memory);
@@ -184,10 +194,10 @@ impl Launcher {
         let banner = div()
             .flex()
             .flex_col()
-            .gap(px(24.))
+            .gap(px(space::XL))
             .child(self.home_head(&tag, prepared, cx))
             .children(steps);
-        let mut page = div().flex().flex_col().gap(px(28.)).child(banner);
+        let mut page = div().flex().flex_col().gap(px(space::XL)).child(banner);
         if let Some(e) = self.prepare_error.clone() {
             page = page.child(ui::error_card(e));
         }
@@ -207,23 +217,35 @@ impl Launcher {
     /// "Eclipse crashed": the report and the logs, and where to report it.
     pub(super) fn crash_notice(&self, crash: Crash, cx: &mut Context<Self>) -> Div {
         use eclipse_theme::glass::{ink, pixel_text, step};
-        let mut actions = div().flex().flex_wrap().gap(px(8.)).mt(px(12.));
+        let mut actions = div()
+            .flex()
+            .flex_wrap()
+            .gap(px(space::SM))
+            .mt(px(space::MD));
         if let Some(report) = crash.report.clone() {
             let open = report.clone();
             actions = actions
                 .child(
-                    button("crash-open", "Open report", ButtonKind::Secondary)
-                        .on_press(move |_, _, cx| crate::toast::open(cx, &open)),
+                    ui::button(
+                        "crash-open",
+                        None,
+                        tr("Open report"),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| crate::toast::open(cx, &open)),
                 )
                 .child(
-                    button(
+                    ui::button(
                         "crash-copy",
-                        if crash.copied {
+                        None,
+                        tr(if crash.copied {
                             "Copied"
                         } else {
                             "Copy report"
-                        },
+                        }),
                         ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
@@ -242,35 +264,52 @@ impl Launcher {
                 );
         }
         actions = actions.child(
-            button("crash-logs", "Open logs folder", ButtonKind::Secondary).on_press(|_, _, cx| {
+            ui::button(
+                "crash-logs",
+                None,
+                tr("Open logs folder"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(|_, _, cx| {
                 let dir = backend::logs_dir();
                 let _ = std::fs::create_dir_all(&dir);
                 crate::toast::open(cx, &dir);
             }),
         );
         actions = actions.child(
-            button("crash-dismiss", "Dismiss", ButtonKind::Ghost).on_press(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    this.crash = None;
-                    cx.notify();
-                },
-            )),
+            ui::button(
+                "crash-dismiss",
+                None,
+                tr("Dismiss"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.crash = None;
+                cx.notify();
+            })),
         );
         let help = crash
             .report
             .is_none()
             .then(|| tr("The game ended without a crash report."));
-        let mut body = div().id("crash").flex().flex_col().gap(px(4.)).child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .child(ui::icon("alert-circle", ui::IconSize::Px16, ui::danger()))
-                .child(ui::entity_title(
-                    tr("Eclipse crashed"),
-                    pixel_text::CARD_TITLE,
-                )),
-        );
+        let mut body = div()
+            .id("crash")
+            .flex()
+            .flex_col()
+            .gap(px(space::XS))
+            .child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(space::MD))
+                    .child(ui::icon("alert-circle", ui::IconSize::Px16, ui::danger()))
+                    .child(ui::entity_title(
+                        tr("Eclipse crashed"),
+                        pixel_text::CARD_TITLE,
+                    )),
+            );
         if !crash.summary.is_empty() {
             body = body
                 .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(crash.summary));

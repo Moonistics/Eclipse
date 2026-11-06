@@ -1,8 +1,9 @@
 //! Home's head: the instance's icon and name, how long it was played, then Play with its menu,
 //! the version, the instance's folder, and joining a friend on the right.
 use super::*;
-use crate::ui::{self, white};
-use eclipse_theme::glass::{fill, ink, radius};
+use crate::menus::Menu;
+use crate::ui::{self};
+use eclipse_theme::glass::{ink, radius, space};
 use gpui::deferred;
 use std::time::Instant;
 
@@ -12,20 +13,12 @@ const PICKER: f32 = 170.;
 const PICKER_WIDE: f32 = 220.;
 const INVITE_MIN: f32 = 200.;
 const INVITE_MAX: f32 = 420.;
-const INVITE_ICON_INSET: f32 = 16.;
-const ICON: f32 = 48.;
+const INVITE_JOIN_INSET: f32 = 10.;
+const ICON: f32 = 40.;
 
 /// Play, the version and the big icons are this tall.
 fn tall() -> f32 {
-    ui::Size::Hero.height()
-}
-
-/// Which of Home's menus is open.
-#[derive(Clone, Copy, PartialEq, Default)]
-pub(super) enum HomeMenu {
-    #[default]
-    None,
-    Play,
+    ui::ButtonSize::Hero.height()
 }
 
 impl Launcher {
@@ -44,7 +37,7 @@ impl Launcher {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .child(self.play_group(tag, prepared || java.is_some(), cx))
             .children(java.is_none().then(|| self.version_picker(cx)))
             .children(self.folder_button())
@@ -79,7 +72,7 @@ impl Launcher {
         div()
             .flex()
             .items_center()
-            .gap(px(16.))
+            .gap(px(space::LG))
             .min_w_0()
             .child(ui::tip_on_focus(icon, tr("Edit instance").into()))
             .child(
@@ -120,7 +113,7 @@ impl Launcher {
             FontWeight::NORMAL,
             ink::STRONG,
         )
-        .mt(px(16.))
+        .mt(px(ui::TITLE_NOTE_GAP))
         .child(line)
     }
 
@@ -160,7 +153,7 @@ impl Launcher {
             (_, _, Some(_)) => Some((tr("Starting"), None)),
             _ => None,
         };
-        let open = self.home_menu == HomeMenu::Play;
+        let open = self.menu_is(&Menu::Play);
         let kind = if running && busy.is_none() {
             ButtonKind::Secondary
         } else {
@@ -174,30 +167,28 @@ impl Launcher {
             "play-more",
             trf("{name} options", &[("name", &name)]),
             kind,
-            ui::Size::Hero,
+            ui::ButtonSize::Hero,
             open,
         )
         .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
             if !this.closed_by_this_press(event) {
-                this.home_menu = match this.home_menu {
-                    HomeMenu::Play => HomeMenu::None,
-                    _ => HomeMenu::Play,
-                };
-                if this.home_menu == HomeMenu::Play {
-                    this.opened_menu(window, cx);
-                }
+                this.toggle_menu(Menu::Play, window, cx);
             }
             cx.notify();
         }));
+        let focus = self.play_focus.clone();
         let main = match busy {
-            Some((label, progress)) => ui::primary_busy("play", label, progress, ui::Size::Hero),
+            Some((label, progress)) => {
+                ui::primary_busy("play", label, progress, ui::ButtonSize::Hero)
+            }
             None if running => ui::button(
                 "play",
                 Some("stop"),
                 tr("Stop"),
                 ButtonKind::Secondary,
-                ui::Size::Hero,
+                ui::ButtonSize::Hero,
             )
+            .track_focus(&focus)
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 if let Some(client) = &this.client {
                     client.kill();
@@ -215,8 +206,12 @@ impl Launcher {
                     Some(icon),
                     label,
                     ButtonKind::Primary,
-                    ui::Size::Hero,
+                    ui::ButtonSize::Hero,
                 );
+                let main = match (&update, press) {
+                    (None, PlayPress::Nothing) => main,
+                    _ => main.track_focus(&focus),
+                };
                 match (&update, press) {
                     (Some(_), _) => main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.install_update();
@@ -224,20 +219,20 @@ impl Launcher {
                     })),
                     (None, PlayPress::Play) => {
                         main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.picker_open = false;
+                            this.close_menu();
                             this.play();
                             cx.notify();
                         }))
                     }
                     (None, PlayPress::PrepareThenPlay) => {
                         main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.picker_open = false;
+                            this.close_menu();
                             this.play_when_prepared = this.selected().cloned();
                             this.prepare(backend::MinecraftFrom::Install);
                             cx.notify();
                         }))
                     }
-                    (None, PlayPress::Nothing) => crate::disabled(main),
+                    (None, PlayPress::Nothing) => ui::disabled(main),
                 }
             }
         };
@@ -318,7 +313,7 @@ impl Launcher {
             }
             let mut menu = ui::popover("play-menu").on_mouse_down_out(cx.listener(
                 |this, event: &MouseDownEvent, _, cx| {
-                    this.home_menu = HomeMenu::None;
+                    this.close_menu();
                     this.menu_closed_at = Some(event.position);
                     cx.notify();
                 },
@@ -330,7 +325,7 @@ impl Launcher {
                     item
                 } else {
                     item.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.home_menu = HomeMenu::None;
+                        this.close_menu();
                         match what {
                             PlayItem::Prepare => this.prepare(backend::MinecraftFrom::Install),
                             PlayItem::Play => this.play(),
@@ -379,7 +374,7 @@ impl Launcher {
                     .unwrap_or_else(|| tag.clone())
             },
         );
-        let open = self.picker_open;
+        let open = self.menu_is(&Menu::Version);
         let value = div()
             .flex()
             .flex_col()
@@ -399,20 +394,17 @@ impl Launcher {
                 )
                 .child(label),
             );
-        let button = ui::dropdown("picker", None, value, open, tall())
-            .gap(px(24.))
+        let button = ui::dropdown("picker", None, value, open, ui::ButtonSize::Hero)
+            .gap(px(space::XL))
             .min_w(px(if self.window_width >= layout::HOME_HEAD_WIDE {
                 PICKER_WIDE
             } else {
                 PICKER
             }))
-            .pl(px(16.))
+            .pl(px(space::LG))
             .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
                 if !this.closed_by_this_press(event) {
-                    this.picker_open = !this.picker_open;
-                    if this.picker_open {
-                        this.opened_menu(window, cx);
-                    }
+                    this.toggle_menu(Menu::Version, window, cx);
                 }
                 cx.notify();
             }));
@@ -421,7 +413,7 @@ impl Launcher {
             let follows = self.launcher_version().cloned();
             let mut menu = ui::popover("picker-menu").on_mouse_down_out(cx.listener(
                 |this, event: &MouseDownEvent, _, cx| {
-                    this.picker_open = false;
+                    this.close_menu();
                     this.menu_closed_at = Some(event.position);
                     cx.notify();
                 },
@@ -443,7 +435,7 @@ impl Launcher {
                         .when(chosen, |d| d.child(ui::tick()))
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.pin_version((!latest).then(|| pick.clone()));
-                            this.picker_open = false;
+                            this.close_menu();
                             cx.notify();
                         })),
                 );
@@ -452,7 +444,7 @@ impl Launcher {
                 ui::menu_item("manage", tr("Manage versions").into(), String::new(), false)
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.go(Page::Versions);
-                        this.picker_open = false;
+                        this.close_menu();
                         cx.notify();
                     })),
             );
@@ -477,10 +469,10 @@ impl Launcher {
                 "home-folder",
                 "folder-01",
                 tr("Open folder"),
-                ui::Size::Hero,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Hero,
                 false,
             )
-            .bg(white(fill::BUTTON))
             .on_press(move |_, _, cx| {
                 let _ = std::fs::create_dir_all(&home);
                 crate::toast::open(cx, &home);
@@ -488,45 +480,17 @@ impl Launcher {
         )
     }
 
-    /// The invite code field: what its row leaves, up to [`INVITE_MAX`]; the icon inside on the
-    /// left, Join inside on the right.
-    fn invite_field(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
-        let focused = self.fields.has_focus(Field::InviteCode);
-        let join_label = tr("Join");
-        let pr = friend_code_padding_right(join_label);
-        let content = line_edit::content(
-            self.fields.text(Field::InviteCode),
-            focused,
-            false,
-            false,
-            "Paste a friend's invite code",
-        );
-        let field = ui::field(focused, false)
-            .id("friend-code")
-            .size_full()
-            .pl(px(2. * INVITE_ICON_INSET + ui::IconSize::Px16.px()))
-            .pr(px(pr))
-            .text_color(white(ink::FULL))
-            .cursor_text()
-            .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
-            .child(
-                div()
-                    .flex_1()
-                    .h_full()
-                    .flex()
-                    .items_center()
-                    .overflow_hidden()
-                    .child(content),
-            );
-        let field = self.text_input(Field::InviteCode, field, cx);
+    /// The invite code field: what its row leaves, up to [`INVITE_MAX`] below
+    /// [`layout::HOME_HEAD_WIDE`]; the icon inside on the left, Join inside on the right.
+    fn invite_field(&mut self, tag: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         let valid = eclipse_friends::invite::parse(self.fields.value(Field::InviteCode)).is_some();
         let can = valid && (tag.is_empty() || self.can_start(tag));
         let join = ui::button(
             "join-friend",
             None,
-            join_label,
+            tr("Join"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         );
         let join = if can {
             join.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -534,43 +498,23 @@ impl Launcher {
                 cx.notify();
             }))
         } else {
-            crate::disabled(join)
+            ui::disabled(join)
         };
-        div()
-            .relative()
-            .flex_1()
-            .min_w(px(INVITE_MIN))
-            .max_w(px(INVITE_MAX))
-            .h(px(tall()))
-            .child(field)
-            .child(
-                div()
-                    .absolute()
-                    .left(px(INVITE_ICON_INSET))
-                    .top(px((tall() - ui::IconSize::Px16.px()) / 2.))
-                    .child(ui::icon(
-                        "user-add-01",
-                        ui::IconSize::Px16,
-                        white(ink::MUTED),
-                    )),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .right(px(8.))
-                    .top(px((tall() - ui::Size::Md.height()) / 2.))
-                    .child(join),
-            )
+        let wide = self.window_width >= layout::HOME_HEAD_WIDE;
+        self.field_with(
+            Field::InviteCode,
+            Some(ui::field_icon("user-add-01")),
+            tr("Paste a friend's invite code"),
+            INVITE_MAX,
+            ui::ButtonSize::Hero,
+            Some(join.into_any_element()),
+            cx,
+        )
+        .flex_1()
+        .min_w(px(INVITE_MIN))
+        .when(!wide, |d| d.max_w(px(INVITE_MAX)))
+        .pr(px(INVITE_JOIN_INSET))
     }
-}
-
-/// Right padding for the invite code text field. In English ("Join"), the button is ~58 px wide,
-/// so 84 px leaves a clean margin from the button placed at right: 8 px. In locales with longer
-/// labels (French "Rejoindre", German "Beitreten", Ukrainian "Приєднатися"), the button is wider;
-/// expand the field's padding so the button never overlaps the entered text or placeholder.
-fn friend_code_padding_right(join_label: &str) -> f32 {
-    let btn_width = 28. + (join_label.chars().count() as f32 * 8.5).max(30.);
-    (8. + btn_width + 12.).max(84.)
 }
 
 /// How long an instance was played: "41 hours", "1 hour", "25 min".
@@ -614,7 +558,7 @@ fn since(ago: Duration, days: i64, date: &str) -> String {
         60..=119 => tr("1 hour ago").into(),
         m if m < 24 * 60 => trf("{count} hours ago", &[("count", &(m / 60).to_string())]),
         _ if days <= 1 => tr("yesterday").into(),
-        _ => versions_page::published(date, ""),
+        _ => dates::published(date, ""),
     }
 }
 
@@ -656,26 +600,5 @@ mod tests {
         assert_eq!(since(m(20 * 60), 1, "2026-11-02"), "20 hours ago");
         assert_eq!(since(m(30 * 60), 1, "2026-11-02"), "yesterday");
         assert_eq!(since(m(3 * 24 * 60), 3, "2026-10-31"), "Oct 31");
-    }
-
-    #[test]
-    fn friend_code_padding_right_clears_localized_join_button() {
-        for label in [
-            "Join",
-            "Rejoindre",
-            "Beitreten",
-            "Приєднатися",
-            "Unirse",
-            "Dołącz",
-            "Reunir-se",
-        ] {
-            let pr = friend_code_padding_right(label);
-            let btn_width = 28. + label.chars().count() as f32 * 8.5;
-            let btn_right_extent = 8. + btn_width;
-            assert!(
-                pr >= btn_right_extent + 10.,
-                "padding {pr} must clear button right extent {btn_right_extent} for label '{label}'"
-            );
-        }
     }
 }

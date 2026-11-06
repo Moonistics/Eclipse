@@ -62,13 +62,13 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         use crate::ui::{self, white};
-        use eclipse_theme::glass::{fill, ink, radius};
+        use eclipse_theme::glass::{ink, radius, space};
         let panel = || {
             div()
-                .mt(px(20.))
-                .p(px(20.))
+                .mt(px(space::XL))
+                .p(px(space::XL))
                 .rounded(px(radius::POPOVER))
-                .bg(white(fill::WELL))
+                .bg(ui::inset())
         };
         let mut card = ui::dialog_plate(radius::MODAL)
             .id("owner-card")
@@ -78,26 +78,31 @@ impl Launcher {
             // A set width: text measured at it wraps where it is drawn.
             .w(px(520.))
             .max_w_full()
-            .p(px(32.))
+            .p(px(space::XXL))
             .child(ui::label(tr("Microsoft account")))
             .child(
                 ui::entity_title(
                     tr("Sign in to play"),
                     eclipse_theme::glass::pixel_text::CARD_TITLE,
                 )
-                .mt(px(8.)),
+                .mt(px(space::SM)),
             )
             .child(
-                div().mt(px(12.)).flex().flex_col().gap(px(8.)).child(
-                    ui::text(
-                        eclipse_theme::glass::step::BODY,
-                        FontWeight::NORMAL,
-                        ink::BODY,
-                    )
-                    .child(tr(
-                        "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
-                    )),
-                ),
+                div()
+                    .mt(px(space::MD))
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::SM))
+                    .child(
+                        ui::text(
+                            eclipse_theme::glass::step::BODY,
+                            FontWeight::NORMAL,
+                            ink::BODY,
+                        )
+                        .child(tr(
+                            "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
+                        )),
+                    ),
             );
         card = match state {
             Shown::Code(uri, user_code) => {
@@ -107,14 +112,14 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .gap(px(16.))
+                        .gap(px(space::LG))
                         .child(
                             div()
                                 .flex_1()
                                 .min_w_0()
                                 .flex()
                                 .flex_col()
-                                .gap(px(4.))
+                                .gap(px(space::XS))
                                 .child(
                                     ui::text(
                                         eclipse_theme::glass::step::NOTE,
@@ -142,7 +147,7 @@ impl Launcher {
                                 None,
                                 tr("Copy code"),
                                 ButtonKind::Secondary,
-                                ui::Size::Md,
+                                ui::ButtonSize::Md,
                             )
                             .on_press(move |_, _, cx| {
                                 clipboard::copy_to_clipboard(
@@ -163,17 +168,7 @@ impl Launcher {
                     .child(tr(what)),
                 ),
             ),
-            Shown::Error(e) => card.child(
-                panel().child(
-                    ui::text(
-                        eclipse_theme::glass::step::BODY,
-                        FontWeight::NORMAL,
-                        ink::FULL,
-                    )
-                    .text_color(ui::danger())
-                    .child(e.to_string()),
-                ),
-            ),
+            Shown::Error(e) => card.child(panel().child(ui::error_note(e.to_string()))),
             Shown::Idle => card,
         };
         let main: Option<AnyElement> = match state {
@@ -185,9 +180,9 @@ impl Launcher {
                         None,
                         tr("Open link"),
                         ButtonKind::Primary,
-                        ui::Size::Lg,
+                        ui::ButtonSize::Lg,
                     )
-                    .px(px(24.))
+                    .px(px(space::XL))
                     .on_press(move |_, _, cx| cx.open_url(&uri))
                     .into_any_element(),
                 )
@@ -208,9 +203,9 @@ impl Launcher {
             None,
             tr("Not now"),
             ButtonKind::Ghost,
-            ui::Size::Lg,
+            ui::ButtonSize::Lg,
         )
-        .px(px(20.))
+        .px(px(space::XL))
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.close_owner_screen();
             cx.notify();
@@ -219,8 +214,8 @@ impl Launcher {
             div()
                 .flex()
                 .items_center()
-                .gap(px(8.))
-                .mt(px(24.))
+                .gap(px(space::SM))
+                .mt(px(space::XL))
                 .children(main)
                 .child(later),
         );
@@ -231,7 +226,7 @@ impl Launcher {
                     FontWeight::NORMAL,
                     ink::MUTED,
                 )
-                .mt(px(12.))
+                .mt(px(space::MD))
                 .child(tr("Waiting for Microsoft…")),
             );
         }
@@ -244,7 +239,7 @@ impl Launcher {
             .flex()
             .items_center()
             .justify_center()
-            .p(px(24.))
+            .p(px(space::XL))
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .occlude()
             .child(ui::scrim_backdrop())

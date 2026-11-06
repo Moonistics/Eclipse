@@ -4,7 +4,7 @@
 //! open tab. Changelog shows the changes in the Eclipse version the instance plays.
 use super::*;
 use crate::ui::{self, white};
-use eclipse_theme::glass::{ink, pixel_text, radius, step, MONOCRAFT_PIXEL};
+use eclipse_theme::glass::{ink, radius, space, step};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum HomeTab {
@@ -67,14 +67,12 @@ const NOTES_WIDTH: f32 = 720.;
 
 const BULLET: f32 = 5.;
 
-const MONOCRAFT_GLYPH: f32 = 6.;
-
 const COUNT_GAP: f32 = 8.;
 
 fn tab_width(label: &str, count: Option<usize>) -> f32 {
-    let advance = MONOCRAFT_GLYPH * pixel_text::PRESS / MONOCRAFT_PIXEL;
-    let width = |s: &str| s.chars().count() as f32 * advance;
-    2. * ui::TAB_PAD + width(label) + count.map_or(0., |n| COUNT_GAP + width(&n.to_string()))
+    2. * ui::TAB_PAD
+        + ui::press_width(label)
+        + count.map_or(0., |n| COUNT_GAP + ui::press_width(&n.to_string()))
 }
 
 impl Launcher {
@@ -104,15 +102,11 @@ impl Launcher {
         let room = layout::content_width(self.window_width) + 2. * ui::TAB_PAD;
         let counted: f32 = named.iter().map(|(_, name, n)| tab_width(name, *n)).sum();
         let counts = counted <= room;
-        let strip = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .mx(px(-ui::TAB_PAD))
-            .children(named.into_iter().map(|(tab, name, count)| {
+        let strip = ui::tab_strip(
+            "home-tabs",
+            named.into_iter().map(|(tab, name, count)| {
                 ui::count_tab(
                     format!("home-tab-{tab:?}"),
-                    None,
                     name,
                     count.filter(|_| counts),
                     tab == open,
@@ -121,7 +115,8 @@ impl Launcher {
                     this.home_tab = tab;
                     cx.notify();
                 }))
-            }));
+            }),
+        );
         let body: Option<AnyElement> = match open {
             HomeTab::Changelog => Some(self.changelog(cx).into_any_element()),
             HomeTab::Mods => Some(self.mods_tab(cx).into_any_element()),
@@ -131,7 +126,7 @@ impl Launcher {
             HomeTab::Screenshots => self.screenshots_tab(cx).map(IntoElement::into_any_element),
             HomeTab::Console => self.console_tab(cx).map(IntoElement::into_any_element),
         };
-        div().flex().flex_col().gap(px(16.)).child(strip).child(
+        div().flex().flex_col().child(strip).child(
             ui::card(radius::PANEL)
                 .flex()
                 .flex_col()
@@ -152,22 +147,14 @@ impl Launcher {
                 ))
             }
             Load::Failed(e) => {
-                let retry = ui::button(
-                    "changelog-retry",
-                    None,
-                    tr("Try again"),
-                    ButtonKind::Secondary,
-                    ui::Size::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.fetch_releases();
-                    cx.notify();
-                }));
                 return div().child(ui::error_state(
                     "changelog-failed",
                     tr("Couldn't load patch notes"),
                     e,
-                    retry,
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.fetch_releases();
+                        cx.notify();
+                    }),
                 ));
             }
             Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),
@@ -177,7 +164,7 @@ impl Launcher {
                 "changelog-empty",
                 "information-circle",
                 tr("No patch notes yet"),
-                "",
+                tr("Patch notes come with each Eclipse release."),
                 vec![],
             ));
         };
@@ -185,7 +172,7 @@ impl Launcher {
         let bullet = |item: String| {
             div()
                 .flex()
-                .gap(px(10.))
+                .gap(px(space::MD))
                 .child(
                     div()
                         .flex_none()
@@ -203,14 +190,14 @@ impl Launcher {
         let list = div()
             .flex()
             .flex_col()
-            .gap(px(16.))
-            .px(px(12.))
+            .gap(px(space::LG))
+            .px(px(space::MD))
             .max_w(px(NOTES_WIDTH))
             .children(sections.into_iter().map(|(section, items)| {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(6.))
+                    .gap(px(space::SM))
                     .children(many.then(|| ui::label(section)))
                     .children(items.into_iter().map(bullet))
             }));
@@ -225,7 +212,7 @@ impl Launcher {
                     },
                 )),
             ))
-            .child(list.pb(px(12.)))
+            .child(list.pb(px(space::MD)))
     }
 }
 
@@ -236,7 +223,7 @@ type Sections = Vec<(String, Vec<String>)>;
 /// lists changes, else the newest Nightly that does ("Nightly 2026-11-01 · 4aa6854");
 /// without a version played, the newest launcher release ("Launcher 0.2.37 · Nov 2").
 fn patch_source(releases: &[Release], played: Option<&str>) -> Option<(String, Sections)> {
-    let day = |r: &Release| versions_page::published(&r.date, "");
+    let day = |r: &Release| dates::published(&r.date, "");
     if let Some(played) = played {
         let nightly = releases
             .iter()

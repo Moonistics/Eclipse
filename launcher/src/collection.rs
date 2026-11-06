@@ -1,10 +1,11 @@
 //! Data collection in the window: the question asked once (and again when what is collected
 //! changes), and its section in Settings. Everything goes through `eclipse_launcher::telemetry`.
 use super::*;
+use crate::menus::Asking;
 use crate::ui;
 use eclipse_launcher::telemetry;
 use eclipse_telemetry::{Choices, Consent, Kind as DataKind};
-use eclipse_theme::glass::{ink, pixel_text, radius, step};
+use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
 
 /// What the window keeps about data collection.
 pub(crate) struct Collection {
@@ -17,7 +18,6 @@ pub(crate) struct Collection {
     pub view: Option<(String, String)>,
     /// What "Delete my data" did, or why it could not.
     pub note: Option<String>,
-    pub confirm_delete: bool,
 }
 
 impl Collection {
@@ -29,7 +29,6 @@ impl Collection {
             draft: Choices::NONE,
             view: None,
             note: None,
-            confirm_delete: false,
         }
     }
 }
@@ -56,7 +55,7 @@ fn json_view(view: &(String, String), scroll: &Scrollbar) -> Div {
     div()
         .flex()
         .flex_col()
-        .gap(px(8.))
+        .gap(px(space::SM))
         .child(ui::card_note(view.0.clone()))
         .child(
             scroll.wrap(
@@ -66,7 +65,7 @@ fn json_view(view: &(String, String), scroll: &Scrollbar) -> Div {
                     .overflow_y_scroll()
                     .p(px(ui::PANEL_INSET))
                     .rounded(px(radius::ROW))
-                    .bg(ui::well())
+                    .bg(ui::inset())
                     .font_family(theme::MONO)
                     .children(view.1.lines().map(|l| div().child(l.to_string()))),
             ),
@@ -128,7 +127,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .min_h_0()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .px(px(ui::CARD_PADDING))
             .pt(px(ui::CARD_PADDING))
             .pb(px(ui::PANEL_INSET))
@@ -169,24 +168,34 @@ impl Launcher {
             .flex()
             .flex_none()
             .justify_end()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .px(px(ui::CARD_PADDING))
             .pb(px(ui::CARD_PADDING))
             .child(
-                button("ask-none", "Send nothing", ButtonKind::Secondary).on_press(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.answer_consent(Choices::NONE);
-                        cx.notify();
-                    },
-                )),
+                ui::button(
+                    "ask-none",
+                    None,
+                    tr("Send nothing"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.answer_consent(Choices::NONE);
+                    cx.notify();
+                })),
             )
             .child(
-                button("ask-save", "Save choices", ButtonKind::Primary).on_press(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.answer_consent(this.collection.draft);
-                        cx.notify();
-                    },
-                )),
+                ui::button(
+                    "ask-save",
+                    None,
+                    tr("Save choices"),
+                    ButtonKind::Primary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.answer_consent(this.collection.draft);
+                    cx.notify();
+                })),
             );
         let card = ui::dialog_plate(radius::MODAL)
             .flex()
@@ -206,8 +215,8 @@ impl Launcher {
             .flex_col()
             .items_center()
             .justify_center()
-            .px(px(32.))
-            .py(px(24.))
+            .px(px(space::XXL))
+            .py(px(space::XL))
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .occlude()
             .child(ui::scrim_backdrop())
@@ -262,13 +271,13 @@ impl Launcher {
         } else {
             tr("Nothing is sent").into()
         };
-        let actions = if self.collection.confirm_delete {
+        let actions = if self.is_asking(&Asking::Collection) {
             ui::confirm(
                 "data-delete",
                 tr("Delete everything?").to_string(),
                 tr("Delete"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.collection.confirm_delete = false;
+                    this.asking = None;
                     cx.notify();
                 }),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -278,23 +287,25 @@ impl Launcher {
                     });
                     this.collection.consent = telemetry::consent();
                     this.collection.view = None;
-                    this.collection.confirm_delete = false;
+                    this.asking = None;
                     cx.notify();
                 }),
             )
         } else {
             div()
                 .flex()
-                .gap(px(8.))
+                .gap(px(space::SM))
                 .child(
-                    button(
+                    ui::button(
                         "data-view",
-                        if self.collection.view.is_some() {
+                        None,
+                        tr(if self.collection.view.is_some() {
                             "Hide"
                         } else {
                             "View what would be sent"
-                        },
+                        }),
                         ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.toggle_view();
@@ -302,12 +313,17 @@ impl Launcher {
                     })),
                 )
                 .child(
-                    button("data-delete", "Delete my data…", ButtonKind::Secondary).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.collection.confirm_delete = true;
-                            cx.notify();
-                        }),
-                    ),
+                    ui::button(
+                        "data-delete",
+                        None,
+                        tr("Delete my data…"),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.asking = Some(Asking::Collection);
+                        cx.notify();
+                    })),
                 )
         };
         list = list.child(ui::setting_row(
@@ -325,7 +341,7 @@ impl Launcher {
             .children(self.collection.note.clone().map(|n| {
                 inset(
                     ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                        .pt(px(12.))
+                        .pt(px(space::MD))
                         .child(n),
                 )
             }))
@@ -333,7 +349,7 @@ impl Launcher {
                 self.collection
                     .view
                     .as_ref()
-                    .map(|v| inset(json_view(v, &self.collection.json_scroll).pt(px(12.)))),
+                    .map(|v| inset(json_view(v, &self.collection.json_scroll).pt(px(space::MD)))),
             )
     }
 }

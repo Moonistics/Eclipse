@@ -11,7 +11,7 @@ use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::Project;
 use eclipse_launcher::instances::Kind as InstanceKind;
-use eclipse_theme::glass::{ink, radius};
+use eclipse_theme::glass::{ink, radius, space};
 use std::path::PathBuf;
 
 /// Commands listed at most.
@@ -221,9 +221,9 @@ impl Launcher {
             .track_focus(&focus)
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .h(px(SEARCH_HEIGHT))
-            .px(px(12.))
+            .px(px(space::MD))
             .cursor_text()
             .font_family(eclipse_theme::glass::FONT)
             .text_size(px(eclipse_theme::glass::step::LEAD.size))
@@ -287,7 +287,7 @@ impl Launcher {
             .id("palette-list")
             .flex()
             .flex_col()
-            .pt(px(4.))
+            .pt(px(space::XS))
             .max_h(px(h * LIST_HEIGHT))
             .overflow_y_scroll();
         for (i, (c, run)) in list.into_iter().zip(runs).enumerate() {
@@ -298,9 +298,9 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .gap(px(16.))
+                        .gap(px(space::LG))
                         .h(px(COMMAND_HEIGHT))
-                        .px(px(12.))
+                        .px(px(space::MD))
                         .cursor_pointer(),
                     i == index,
                 )
@@ -344,8 +344,8 @@ impl Launcher {
                     FontWeight::NORMAL,
                     ink::MUTED,
                 )
-                .px(px(12.))
-                .py(px(16.))
+                .px(px(space::MD))
+                .py(px(space::LG))
                 .child(trf("Nothing matches “{query}”.", &[("query", raw.trim())])),
             );
         }
@@ -354,7 +354,7 @@ impl Launcher {
             .id("palette")
             .occlude()
             .w(px(CARD_WIDTH.min(w - 32.)))
-            .p(px(8.))
+            .p(px(space::SM))
             .child(div().relative().child(field).child(rows))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
         Some(

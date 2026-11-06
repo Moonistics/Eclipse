@@ -5,7 +5,7 @@ use super::fields::Field;
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::game_log::{self, Shared};
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use gpui::{ClipboardItem, ScrollHandle};
 
 pub(super) struct Console {
@@ -158,10 +158,10 @@ impl Launcher {
             None,
             tr("Share log…"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         );
         let share = match self.console.sharing {
-            true => crate::disabled(share),
+            true => ui::disabled(share),
             false => share.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.console.confirm_share = true;
                 cx.notify();
@@ -171,11 +171,17 @@ impl Launcher {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(8.))
-            .px(px(12.))
-            .pb(px(12.))
-            .child(self.field(Field::ConsoleSearch, tr("Search the log"), 240., cx))
-            .child(div().ml(px(8.)).child(follow))
+            .gap(px(space::SM))
+            .px(px(space::MD))
+            .pb(px(space::MD))
+            .child(self.field(
+                Field::ConsoleSearch,
+                tr("Search the log"),
+                240.,
+                ui::ButtonSize::Md,
+                cx,
+            ))
+            .child(div().ml(px(space::SM)).child(follow))
             .child(div().flex_1())
             .child(
                 ui::button(
@@ -183,7 +189,7 @@ impl Launcher {
                     None,
                     tr("Copy"),
                     ButtonKind::Secondary,
-                    ui::Size::Md,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(copied.clone()));
@@ -197,7 +203,8 @@ impl Launcher {
                     "console-folder",
                     "folder-01",
                     tr("Open folder"),
-                    ui::Size::Md,
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
                     false,
                 )
                 .on_press(move |_, _, cx| {
@@ -216,12 +223,12 @@ impl Launcher {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(12.))
-                    .mx(px(12.))
-                    .mb(px(12.))
-                    .p(px(16.))
+                    .gap(px(space::MD))
+                    .mx(px(space::MD))
+                    .mb(px(space::MD))
+                    .p(px(space::LG))
                     .rounded(px(radius::ROW))
-                    .bg(white(fill::WELL))
+                    .bg(ui::inset())
                     .child(div().flex_1().min_w_0().child(
                         ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(tr(
                             "Upload this log to mclo.gs? Anyone with the link can read it.",
@@ -233,7 +240,7 @@ impl Launcher {
                             None,
                             tr("Cancel"),
                             ButtonKind::Secondary,
-                            ui::Size::Md,
+                            ui::ButtonSize::Md,
                         )
                         .on_press(cx.listener(
                             |this, _: &ClickEvent, _, cx| {
@@ -243,12 +250,11 @@ impl Launcher {
                         )),
                     )
                     .child(
-                        ui::primary("console-share-yes", tr("Upload"), ui::Size::Md).on_press(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                        ui::primary("console-share-yes", tr("Upload"), ui::ButtonSize::Md)
+                            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.share_log(cx);
                                 cx.notify();
-                            }),
-                        ),
+                            })),
                     ),
             );
         }
@@ -260,14 +266,14 @@ impl Launcher {
                     ui::list_head(trf("Shared: {url}", &[("url", &shared.url)])).child(
                         div()
                             .flex()
-                            .gap(px(8.))
+                            .gap(px(space::SM))
                             .child(
                                 ui::button(
                                     "console-link-copy",
                                     None,
                                     tr("Copy link"),
                                     ButtonKind::Secondary,
-                                    ui::Size::Md,
+                                    ui::ButtonSize::Md,
                                 )
                                 .on_press(move |_, _, cx| {
                                     clipboard::copy_to_clipboard(
@@ -282,7 +288,7 @@ impl Launcher {
                                     None,
                                     tr("Open"),
                                     ButtonKind::Secondary,
-                                    ui::Size::Md,
+                                    ui::ButtonSize::Md,
                                 )
                                 .on_press(move |_, _, cx| cx.open_url(&open_url)),
                             )
@@ -292,7 +298,7 @@ impl Launcher {
                                     None,
                                     tr("Delete upload"),
                                     ButtonKind::Secondary,
-                                    ui::Size::Md,
+                                    ui::ButtonSize::Md,
                                 )
                                 .on_press(cx.listener(
                                     |this, _: &ClickEvent, _, cx| {
@@ -305,9 +311,9 @@ impl Launcher {
                 )
             }
             Some(Err(e)) => Some(
-                ui::notice_line(ui::danger(), ui::plain_error(e).to_string())
-                    .mx(px(12.))
-                    .mb(px(12.)),
+                ui::error_note(ui::plain_error(e).to_string())
+                    .mx(px(space::MD))
+                    .mb(px(space::MD)),
             ),
             None => None,
         };

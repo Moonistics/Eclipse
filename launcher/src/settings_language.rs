@@ -2,6 +2,7 @@
 //! ones the launcher has, each named in itself. A list rather than a segment per language: nine
 //! segments took the row's whole width and left the row's own sentence a character wide.
 use super::*;
+use crate::menus::Menu;
 use crate::ui;
 use eclipse_launcher::i18n::Language;
 
@@ -23,7 +24,7 @@ impl Launcher {
         self.settings.language = choice;
         self.save_settings();
         i18n::set(self.settings.language());
-        self.language_menu = false;
+        self.close_menu();
         cx.notify();
     }
 
@@ -53,7 +54,7 @@ impl Launcher {
         let menu = ui::popover("language-menu")
             .bg(ui::surface_colour(ui::Surface::Float))
             .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-                this.language_menu = false;
+                this.close_menu();
                 this.menu_closed_at = Some(event.position);
                 cx.notify();
             }))
@@ -63,7 +64,7 @@ impl Launcher {
         gpui::deferred(
             div()
                 .absolute()
-                .top(px(ui::Size::Md.height() + ui::MENU_GAP))
+                .top(px(ui::ButtonSize::Md.height() + ui::MENU_GAP))
                 .right_0()
                 .child(gpui::anchored().anchor(gpui::Anchor::TopRight).child(menu)),
         )
@@ -76,21 +77,18 @@ impl Launcher {
                 "language-picker",
                 None,
                 choice_name(self.settings.language),
-                self.language_menu,
-                ui::Size::Md.height(),
+                self.menu_is(&Menu::Language),
+                ui::ButtonSize::Md,
             )
             .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
                 if this.closed_by_this_press(event) {
                     return;
                 }
-                this.language_menu = !this.language_menu;
-                if this.language_menu {
-                    this.opened_menu(window, cx);
-                }
+                this.toggle_menu(Menu::Language, window, cx);
                 cx.notify();
             })),
         );
-        if self.language_menu {
+        if self.menu_is(&Menu::Language) {
             wrap = wrap.child(self.language_list(cx));
         }
         ui::setting_row(tr("Language"), None, Some(wrap.into_any_element()))

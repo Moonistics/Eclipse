@@ -3,7 +3,7 @@
 use crate::theme::Theme;
 use crate::ui::{self, white};
 use eclipse_launcher::backend::Appearance;
-use eclipse_theme::glass::{fill, ink};
+use eclipse_theme::glass::{fill, ink, space};
 use gpui::{Div, ParentElement, Styled, TitlebarOptions, Window};
 
 fn wordmark() -> Div {
@@ -48,8 +48,8 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
         .flex_1()
         .h_full()
         .items_center()
-        .gap(px(8.))
-        .px(px(12.))
+        .gap(px(space::SM))
+        .px(px(space::MD))
         .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
         .child(mark(16., window.scale_factor()))
         .child(wordmark());
@@ -379,8 +379,8 @@ mod windows {
             .flex_1()
             .h_full()
             .items_center()
-            .gap(px(8.))
-            .px(px(12.))
+            .gap(px(space::SM))
+            .px(px(space::MD))
             .window_control_area(WindowControlArea::Drag)
             .child(mark(16., window.scale_factor()))
             .child(wordmark());

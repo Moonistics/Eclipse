@@ -3,9 +3,8 @@
 //! switch at the row's end.
 use super::*;
 use crate::ui::{self, white};
-use eclipse_theme::glass::{ink, radius};
+use eclipse_theme::glass::{ink, radius, space};
 use fields::Field;
-use home_lists::Listener;
 use instance_mods::ModRow;
 
 impl Launcher {
@@ -33,14 +32,14 @@ impl Launcher {
                 Some("search-01"),
                 tr("Find mods"),
                 ButtonKind::Secondary,
-                ui::Size::Md,
+                ui::ButtonSize::Md,
             )
             .on_press(find_mods(cx));
             return body.child(ui::empty_state(
                 "instance-mods-empty",
                 "puzzle",
                 tr("No mods yet"),
-                "",
+                tr("Find mods that run on this instance."),
                 vec![find],
             ));
         }
@@ -56,14 +55,20 @@ impl Launcher {
             .value(Field::InstanceModsFilter)
             .trim()
             .to_lowercase();
-        let field = self.field(Field::InstanceModsFilter, tr("Filter installed"), 220., cx);
+        let field = self.field(
+            Field::InstanceModsFilter,
+            tr("Filter installed"),
+            220.,
+            ui::ButtonSize::Md,
+            cx,
+        );
         let update_all = (updates > 0 && !busy).then(|| {
             ui::button(
                 "instance-mods-update-all",
                 None,
                 trf("Update all ({count})", &[("count", &updates.to_string())]),
                 ButtonKind::Secondary,
-                ui::Size::Md,
+                ui::ButtonSize::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.mods_update_all();
@@ -75,7 +80,7 @@ impl Launcher {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
+                    .gap(px(space::SM))
                     .child(field)
                     .children(update_all)
                     .child(
@@ -84,7 +89,7 @@ impl Launcher {
                             Some("plus-sign"),
                             tr("Find mods"),
                             ButtonKind::Secondary,
-                            ui::Size::Md,
+                            ui::ButtonSize::Md,
                         )
                         .on_press(find_mods(cx)),
                     ),
@@ -110,7 +115,7 @@ impl Launcher {
                 "instance-mods-no-match",
                 "search-01",
                 tr("No mod matches"),
-                "",
+                tr("Try another name."),
                 vec![],
             ));
         }
@@ -148,13 +153,13 @@ impl Launcher {
             div()
                 .relative()
                 .flex_none()
-                .size(px(home_lists::PICTURE))
+                .size(px(ui::TILE_MD))
                 .rounded(px(radius::ROW))
                 .overflow_hidden()
-                .child(self.mod_icon(row.entry.as_ref(), row.icon.clone(), home_lists::PICTURE))
+                .child(self.mod_icon(row.entry.as_ref(), row.icon.clone(), ui::TILE_MD))
                 .into_any_element()
         } else {
-            home_lists::picture(None, "puzzle")
+            ui::row_picture(None, "puzzle")
         };
         let source = if let Some(origin) = row.native.as_ref().and_then(|n| n.origin.as_ref()) {
             trf("from GitHub: {source}", &[("source", &origin.label())])
@@ -184,10 +189,10 @@ impl Launcher {
                 None,
                 trf("Update {version}", &[("version", &number)]),
                 ButtonKind::Secondary,
-                ui::Size::Sm,
+                ui::ButtonSize::Sm,
             );
             Some(match busy {
-                true => crate::disabled(chip),
+                true => ui::disabled(chip),
                 false => chip.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(source, id.clone(), None);
                     cx.notify();
@@ -228,7 +233,7 @@ impl Launcher {
 }
 
 /// Find mods: the Mods page, to add some to this instance.
-fn find_mods(cx: &mut Context<Launcher>) -> Listener<ClickEvent> {
+fn find_mods(cx: &mut Context<Launcher>) -> ui::Listener<ClickEvent> {
     Box::new(cx.listener(|this, _: &ClickEvent, _, cx| {
         this.go(Page::Mods);
         cx.notify();

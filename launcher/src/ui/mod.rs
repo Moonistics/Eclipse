@@ -17,7 +17,7 @@ pub use tiles::*;
 
 use crate::theme::Theme;
 use eclipse_theme::glass::{
-    ink, light_ink, pixel_text as pixel, step, Glass, TextStep, MONOCRAFT_PIXEL, ON_LIGHT,
+    ink, light_ink, pixel_text as pixel, space, step, Glass, TextStep, MONOCRAFT_PIXEL, ON_LIGHT,
 };
 use gpui::{
     div, prelude::*, px, rgb, svg, AnimationExt, App, Div, FontWeight, Hsla, SharedString, Svg,
@@ -33,6 +33,9 @@ thread_local! {
     static SHORT: Cell<bool> = const { Cell::new(false) };
 }
 
+/// A listener, boxed so a helper can return it.
+pub type Listener<E> = Box<dyn Fn(&E, &mut Window, &mut App)>;
+
 /// The light appearance's ink, at the opacities the dark look gives white.
 const INK: u32 = ON_LIGHT;
 
@@ -42,11 +45,13 @@ pub const SETTING_ROW_PADDING: f32 = 16.;
 
 pub const PANEL_INSET: f32 = CARD_PADDING / 2.;
 
-pub const LIST_INSET: f32 = 8.;
+pub const LIST_INSET: f32 = space::SM;
 
 pub const SIDEBAR_INSET: f32 = 20.;
 
 pub const SIDEBAR_PAD: f32 = 10.;
+
+pub const TITLE_NOTE_GAP: f32 = space::MD;
 
 const PAGE_TITLE_TOP: f32 = 40.;
 
@@ -54,17 +59,34 @@ const PAGE_TITLE_TOP_SHORT: f32 = 20.;
 
 const PAGE_HEAD_GAP: f32 = 28.;
 
-const PAGE_HEAD_GAP_SHORT: f32 = 16.;
+const PAGE_HEAD_GAP_SHORT: f32 = space::LG;
 
 const PAGE_NOTE_WIDTH: f32 = 615.;
 
-const TIP_PAD: f32 = 8.;
+const TIP_PAD: f32 = space::SM;
+
+const DOT: f32 = 7.;
+
+const BAR_HEIGHT: f32 = 4.;
+
+const SHUTTLE: std::time::Duration = std::time::Duration::from_millis(1600);
+
+const SHUTTLE_SHARE: f32 = 0.3;
+
+const STILL_SHUTTLE: f32 = 0.4;
+
+pub const TILE_SM: f32 = 24.;
+
+pub const TILE_MD: f32 = 36.;
+
+pub const TILE_LG: f32 = 48.;
 
 pub fn begin_frame(theme: &Theme, short: bool) {
     LOOK.set(theme.look);
     LIGHT.set(!theme.dark);
     SHORT.set(short);
     press::forget_spots();
+    hover::forget_disabled();
 }
 
 /// Whether the light appearance is drawn.
@@ -121,11 +143,12 @@ pub fn danger() -> Hsla {
     color(if light() { DANGER_LIGHT } else { DANGER })
 }
 
-pub fn well() -> Hsla {
+pub fn inset() -> Hsla {
+    use eclipse_theme::glass::fill;
     if light() {
-        white(eclipse_theme::glass::fill::FIELD)
+        white(fill::FIELD)
     } else {
-        gpui::black().opacity(0.25)
+        gpui::black().opacity(fill::WELL_SHADE)
     }
 }
 
@@ -200,7 +223,7 @@ pub fn page_head(title: impl Into<SharedString>, note: impl Into<SharedString>) 
         .when(!note.is_empty(), |d| {
             d.child(
                 text(step::LEAD, FontWeight::NORMAL, ink::BODY)
-                    .mt(px(12.))
+                    .mt(px(TITLE_NOTE_GAP))
                     .max_w(px(PAGE_NOTE_WIDTH))
                     .child(note),
             )
@@ -255,7 +278,7 @@ pub fn dot(tone: Tone) -> Div {
         Tone::Accent(soft) => color(soft),
         Tone::Off => white(ink::DIM),
     };
-    div().flex_none().size(px(7.)).rounded_full().bg(c)
+    div().flex_none().size(px(DOT)).rounded_full().bg(c)
 }
 
 /// The progress bar: a thin round track filled in the accent's soft shade.
@@ -268,22 +291,27 @@ pub fn bar(value: f32) -> Div {
 /// A thin bar. A known fraction eases from its previous value; an unknown one shuttles slowly.
 pub fn progress_bar(fraction: Option<(f32, f32)>) -> Div {
     let track = bar_track().flex_1();
+    let still = crate::motion::still();
     match fraction {
+        Some((_, to)) if still => {
+            track.child(bar_fill().left_0().w(gpui::relative(to.clamp(0.02, 1.))))
+        }
         Some((from, to)) => {
             let (from, to) = (from.clamp(0.02, 1.), to.clamp(0.02, 1.));
             track.child(bar_fill().left_0().with_animation(
                 gpui::ElementId::named_usize("bar", (to * 1000.) as usize),
-                gpui::Animation::new(crate::theme::MOVE).with_easing(gpui::ease_out_quint()),
+                crate::motion::eased(eclipse_theme::MOVE),
                 move |d, p| d.w(gpui::relative(from + (to - from) * p)),
             ))
         }
+        None if still => track.child(bar_fill().left_0().w_full().opacity(STILL_SHUTTLE)),
         None => track.child(
-            bar_fill().w(gpui::relative(0.3)).with_animation(
+            bar_fill().w(gpui::relative(SHUTTLE_SHARE)).with_animation(
                 "shuttle",
-                gpui::Animation::new(std::time::Duration::from_millis(1600))
+                gpui::Animation::new(SHUTTLE)
                     .repeat()
                     .with_easing(gpui::ease_in_out),
-                |d, p| d.left(gpui::relative(-0.3 + 1.3 * p)),
+                |d, p| d.left(gpui::relative(-SHUTTLE_SHARE + (1. + SHUTTLE_SHARE) * p)),
             ),
         ),
     }
@@ -292,7 +320,7 @@ pub fn progress_bar(fraction: Option<(f32, f32)>) -> Div {
 fn bar_track() -> Div {
     div()
         .relative()
-        .h(px(4.))
+        .h(px(BAR_HEIGHT))
         .rounded_full()
         .overflow_hidden()
         .bg(white(eclipse_theme::glass::fill::ACTIVE))
@@ -318,7 +346,7 @@ impl gpui::Render for Tip {
 fn tip_body(text: SharedString) -> Div {
     div()
         .px(px(TIP_PAD))
-        .py(px(4.))
+        .py(px(space::XS))
         .rounded(px(eclipse_theme::glass::radius::CONTROL))
         .bg(surface_colour(Surface::Float))
         .border_1()

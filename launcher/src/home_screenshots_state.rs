@@ -3,10 +3,11 @@
 //! Show in folder and Delete (to the trash, after a confirmation). Pictures are made at their
 //! shown size (`picture_cache`), never decoded whole.
 use super::*;
+use crate::menus::Asking;
 use crate::picture_cache::Look;
 use crate::ui;
 use eclipse_launcher::screenshots::{self, Shot};
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use gpui::{ClipboardItem, Image, ImageFormat};
 use std::path::PathBuf;
 
@@ -21,7 +22,6 @@ pub(super) struct Screenshots {
     pub(super) all: bool,
     /// The picture open in the viewer, by its place in `list`.
     pub(super) viewing: Option<usize>,
-    pub(super) confirm_delete: bool,
     /// What the last action did, or why it failed.
     pub(super) note: Option<Result<String, String>>,
 }
@@ -56,7 +56,7 @@ impl Launcher {
     /// Escape closes the viewer. Whether it did.
     pub(super) fn screenshot_escape(&mut self) -> bool {
         let open = self.screenshots.viewing.take().is_some();
-        self.screenshots.confirm_delete = false;
+        self.stop_asking(|a| *a == Asking::Screenshot);
         open
     }
 
@@ -71,7 +71,7 @@ impl Launcher {
         };
         if let Some(n) = next {
             self.screenshots.viewing = Some(n);
-            self.screenshots.confirm_delete = false;
+            self.stop_asking(|a| *a == Asking::Screenshot);
             self.screenshots.note = None;
         }
         true
@@ -98,7 +98,7 @@ impl Launcher {
     }
 
     fn delete_screenshot(&mut self, shot: &Shot) {
-        self.screenshots.confirm_delete = false;
+        self.stop_asking(|a| *a == Asking::Screenshot);
         self.screenshots.note = Some(
             screenshots::delete(shot)
                 .map(|()| trf("{name} moved to the trash.", &[("name", &shot.name)])),
@@ -127,25 +127,31 @@ impl Launcher {
             .or_else(|| self.pictures.made(&shot.path, thumb));
         let taken: chrono::DateTime<chrono::Local> = shot.taken.into();
         let step = |id: &'static str, label: &'static str, older: bool, can: bool| {
-            let b = button(id, label, ButtonKind::Secondary);
+            let b = ui::button(
+                id,
+                None,
+                tr(label),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            );
             if can {
                 b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.screenshot_step(older);
                     cx.notify();
                 }))
             } else {
-                disabled(b)
+                ui::disabled(b)
             }
         };
-        let mut actions = div().flex().items_center().gap(px(6.));
-        if self.screenshots.confirm_delete {
+        let mut actions = div().flex().items_center().gap(px(space::SM));
+        if self.is_asking(&Asking::Screenshot) {
             let gone = shot.clone();
             actions = actions.child(ui::confirm(
                 "screenshot-delete",
                 trf("Delete {name}?", &[("name", &shot.name)]),
                 tr("Delete"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.screenshots.confirm_delete = false;
+                    this.asking = None;
                     cx.notify();
                 }),
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -157,7 +163,14 @@ impl Launcher {
             let (copy, open, show) = (shot.clone(), shot.path.clone(), shot.path.clone());
             actions = actions
                 .child(
-                    button("screenshot-copy", "Copy", ButtonKind::Ghost).on_press(cx.listener(
+                    ui::button(
+                        "screenshot-copy",
+                        None,
+                        tr("Copy"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
                             this.copy_screenshot(&copy, cx);
                             cx.notify();
@@ -165,20 +178,37 @@ impl Launcher {
                     )),
                 )
                 .child(
-                    button("screenshot-open", "Open", ButtonKind::Ghost)
-                        .on_press(move |_, _, cx| crate::toast::open(cx, &open)),
+                    ui::button(
+                        "screenshot-open",
+                        None,
+                        tr("Open"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| crate::toast::open(cx, &open)),
                 )
                 .child(
-                    button("screenshot-show", "Show in folder", ButtonKind::Ghost)
-                        .on_press(move |_, _, cx| cx.reveal_path(&show)),
+                    ui::button(
+                        "screenshot-show",
+                        None,
+                        tr("Show in folder"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| cx.reveal_path(&show)),
                 )
                 .child(
-                    button("screenshot-delete", "Delete…", ButtonKind::Ghost).on_press(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.screenshots.confirm_delete = true;
-                            cx.notify();
-                        }),
-                    ),
+                    ui::button(
+                        "screenshot-delete",
+                        None,
+                        tr("Delete…"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.asking = Some(Asking::Screenshot);
+                        cx.notify();
+                    })),
                 );
         }
         let note = match &self.screenshots.note {
@@ -191,7 +221,7 @@ impl Launcher {
         let top = div()
             .flex()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .child(
                 div()
                     .flex()
@@ -221,7 +251,8 @@ impl Launcher {
                     "screenshot-close",
                     "cancel-01",
                     tr("Close"),
-                    ui::Size::Md,
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
                     false,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -233,7 +264,7 @@ impl Launcher {
             .flex()
             .items_center()
             .justify_between()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .child(div().children(note))
             .child(actions);
         Some(
@@ -245,9 +276,9 @@ impl Launcher {
                 .size_full()
                 .flex()
                 .flex_col()
-                .gap(px(14.))
-                .px(px(32.))
-                .py(px(24.))
+                .gap(px(space::LG))
+                .px(px(space::XXL))
+                .py(px(space::XL))
                 .bg(ui::surface_colour(ui::Surface::Float))
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .occlude()
@@ -260,7 +291,7 @@ impl Launcher {
                         .min_h_0()
                         .rounded(px(radius::ROW))
                         .overflow_hidden()
-                        .bg(ui::well())
+                        .bg(ui::inset())
                         .children(picture.map(|image| {
                             gpui::img(image)
                                 .absolute()

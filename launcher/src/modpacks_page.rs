@@ -1,11 +1,12 @@
 //! Imported modpacks, on the Mods page's Modpacks tab: import a pack, read its coverage report,
 //! port what this computer can and play it as its own profile (`eclipse_launcher::modpacks`).
 use super::*;
+use crate::menus::Asking;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::eclipse::pack as eclipse_pack;
 use eclipse_launcher::modpacks::{self, Imported};
 use eclipse_port_pack::report::Status;
-use eclipse_theme::glass::{fill, ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use std::path::PathBuf;
 
 /// The report's filter: every row, or one status.
@@ -157,9 +158,15 @@ impl Launcher {
         self.load_packs();
         let busy = self.pack_busy;
         let pick = |id: &'static str, label: &'static str, folder: bool| {
-            let b = button(id, label, ButtonKind::Secondary);
+            let b = ui::button(
+                id,
+                None,
+                tr(label),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            );
             if busy {
-                disabled(b)
+                ui::disabled(b)
             } else {
                 b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.choose_pack(folder, cx);
@@ -171,18 +178,18 @@ impl Launcher {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(8.))
+            .gap(px(space::SM))
             .child(pick("import-file", "Import a pack file…", false))
             .child(pick("import-folder", "Import an instance folder…", true));
         let mut page = div()
             .flex()
             .flex_col()
-            .gap(px(16.))
+            .gap(px(space::LG))
             .child(
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(4.))
+                    .gap(px(space::XS))
                     .child(ui::card_title(tr("Your modpacks")))
                     .child(ui::card_note(tr(
                         "A .mrpack, a CurseForge .zip, or a Prism, MultiMC or CurseForge instance.",
@@ -210,7 +217,8 @@ impl Launcher {
                 let open = self.pack_open.as_ref() == Some(&p.slug);
                 let slug = p.slug.clone();
                 list = list.child(
-                    ui::row(SharedString::from(format!("open-{slug}")), open, 12.)
+                    ui::row(SharedString::from(format!("open-{slug}")), open)
+                        .pr(px(space::MD))
                         .child(ui::item_text(p.title().to_string(), p.summary()))
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.pack_open = Some(slug.clone());
@@ -233,47 +241,63 @@ impl Launcher {
         for p in self.registry_packs.iter() {
             let (play, remove) = (p.work.clone(), p.work.clone());
             let id = p.id.clone();
-            let key = format!("eclipse:{id}");
-            let confirming = self.confirm_remove.as_deref() == Some(key.as_str());
+            let key = Asking::RegistryPack(id.clone());
+            let confirming = self.is_asking(&key);
             let remove_id = SharedString::from(format!("remove-pack-{id}"));
-            let right =
-                if confirming {
-                    div().flex_none().child(ui::confirm(
-                        remove_id,
-                        trf("Remove {name}?", &[("name", &p.name)]),
-                        tr("Remove"),
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.confirm_remove = None;
-                            cx.notify();
-                        }),
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            match eclipse_pack::remove(&remove) {
-                                Ok(()) => this.packs_loaded = None,
-                                Err(e) => this.pack_error = Some(e),
-                            }
-                            this.confirm_remove = None;
-                            cx.notify();
-                        }),
-                    ))
-                } else {
-                    div()
-                        .flex()
-                        .flex_none()
-                        .gap(px(8.))
-                        .child(
-                            button(format!("play-pack-{id}"), "Play", ButtonKind::Primary)
-                                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                    this.play_pack(play.clone());
-                                    cx.notify();
-                                })),
+            let right = if confirming {
+                div().flex_none().child(ui::confirm(
+                    remove_id,
+                    trf("Remove {name}?", &[("name", &p.name)]),
+                    tr("Remove"),
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.asking = None;
+                        cx.notify();
+                    }),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        match eclipse_pack::remove(&remove) {
+                            Ok(()) => this.packs_loaded = None,
+                            Err(e) => this.pack_error = Some(e),
+                        }
+                        this.asking = None;
+                        cx.notify();
+                    }),
+                ))
+            } else {
+                div()
+                    .flex()
+                    .flex_none()
+                    .gap(px(space::SM))
+                    .child(
+                        ui::button(
+                            format!("play-pack-{id}"),
+                            None,
+                            tr("Play"),
+                            ButtonKind::Primary,
+                            ui::ButtonSize::Md,
                         )
-                        .child(button(remove_id, "Remove…", ButtonKind::Ghost).on_press(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.confirm_remove = Some(key.clone());
+                        .on_press(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| {
+                                this.play_pack(play.clone());
                                 cx.notify();
-                            }),
-                        ))
-                };
+                            },
+                        )),
+                    )
+                    .child(
+                        ui::button(
+                            remove_id,
+                            None,
+                            tr("Remove…"),
+                            ButtonKind::Ghost,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| {
+                                this.asking = Some(key.clone());
+                                cx.notify();
+                            },
+                        )),
+                    )
+            };
             let detail = trf(
                 "{version} from Eclipse's registry, its own profile: {mods}",
                 &[("version", &p.version), ("mods", &p.mods.join(", "))],
@@ -296,10 +320,10 @@ impl Launcher {
         div()
             .flex()
             .flex_col()
-            .gap(px(4.))
+            .gap(px(space::XS))
             .p(px(ui::PANEL_INSET))
             .rounded(px(radius::ROW))
-            .bg(white(fill::WELL))
+            .bg(ui::inset())
             .child(
                 ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(
                     if self.pack_busy {
@@ -320,7 +344,7 @@ impl Launcher {
 
     fn pack_detail(&self, cx: &mut Context<Self>) -> Option<Div> {
         let p = self.open_pack()?;
-        let mut counts = div().flex().flex_wrap().gap(px(12.));
+        let mut counts = div().flex().flex_wrap().gap(px(space::MD));
         for (status, label) in FILTERS.iter().skip(1) {
             let status = status.expect("the first filter is All");
             let color = match status {
@@ -334,10 +358,10 @@ impl Launcher {
                     .flex_col()
                     .flex_1()
                     .min_w(px(COUNT_MIN))
-                    .gap(px(4.))
+                    .gap(px(space::XS))
                     .p(px(ui::PANEL_INSET))
                     .rounded(px(radius::ROW))
-                    .bg(white(fill::WELL))
+                    .bg(ui::inset())
                     .child(
                         ui::text(step::FIGURE, FontWeight::SEMIBOLD, ink::FULL)
                             .text_color(color)
@@ -348,7 +372,7 @@ impl Launcher {
         }
         // Prepared, nothing preparing or running (`play_pack` checks the same).
         let can_play = self.can_start_selected();
-        let mut buttons = div().flex().flex_wrap().items_center().gap(px(8.));
+        let mut buttons = div().flex().flex_wrap().items_center().gap(px(space::SM));
         let play_label = if p.mods.is_empty() {
             tr("Play").to_string()
         } else {
@@ -357,9 +381,15 @@ impl Launcher {
                 &[("count", &p.mods.len().to_string())],
             )
         };
-        let mut play = button("pack-play", play_label, ButtonKind::Primary);
+        let mut play = ui::button(
+            "pack-play",
+            None,
+            tr(&play_label),
+            ButtonKind::Primary,
+            ui::ButtonSize::Md,
+        );
         if !p.can_play() || !can_play || self.pack_busy {
-            play = disabled(play);
+            play = ui::disabled(play);
         } else {
             let work = p.work.clone();
             play = play.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -377,18 +407,30 @@ impl Launcher {
                 p.portable, p.indexed_resources
             )
         };
-        let mut port = button("pack-port", port_label, ButtonKind::Secondary);
-        let mut from = button("pack-from", "Use jars from my instance…", ButtonKind::Ghost);
+        let mut port = ui::button(
+            "pack-port",
+            None,
+            tr(&port_label),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
+        let mut from = ui::button(
+            "pack-from",
+            None,
+            tr("Use jars from my instance…"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        );
         if self.pack_busy || !p.can_port() {
-            port = disabled(port);
-            from = disabled(from);
+            port = ui::disabled(port);
+            from = ui::disabled(from);
         } else {
             port = port.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.port_pack(false, cx);
                 cx.notify();
             }));
             if p.portable == 0 {
-                from = disabled(from);
+                from = ui::disabled(from);
             } else {
                 from = from.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.port_pack(true, cx);
@@ -396,7 +438,7 @@ impl Launcher {
                 }));
             }
         }
-        let confirming = self.confirm_remove.as_deref() == Some(p.slug.as_str());
+        let confirming = self.is_asking(&Asking::PortedPack(p.slug.clone()));
         let slug = p.slug.clone();
         let remove = if confirming {
             let work = p.work.clone();
@@ -405,7 +447,7 @@ impl Launcher {
                 trf("Remove {name}?", &[("name", &p.pack.name)]),
                 tr("Remove"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.confirm_remove = None;
+                    this.asking = None;
                     cx.notify();
                 }),
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -417,18 +459,24 @@ impl Launcher {
                         }
                         Err(e) => this.pack_error = Some(e),
                     }
-                    this.confirm_remove = None;
+                    this.asking = None;
                     cx.notify();
                 }),
             )
             .into_any_element()
         } else {
-            button("pack-remove", "Remove…", ButtonKind::Ghost)
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.confirm_remove = Some(slug.clone());
-                    cx.notify();
-                }))
-                .into_any_element()
+            ui::button(
+                "pack-remove",
+                None,
+                tr("Remove…"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.asking = Some(Asking::PortedPack(slug.clone()));
+                cx.notify();
+            }))
+            .into_any_element()
         };
         buttons = buttons.child(play).child(port).child(from).child(remove);
         let mut notes = vec![trf(
@@ -459,16 +507,21 @@ impl Launcher {
             .filter(|r| self.pack_filter.is_none_or(|s| r.status == s))
             .collect();
         rows.sort_by(|a, b| (a.status, &a.key).cmp(&(b.status, &b.key)));
-        let filter = ui::segments("pack-filter", &FILTERS, self.pack_filter, {
-            let this = cx.entity().downgrade();
-            move |value, _, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    this.pack_filter = value;
-                    this.mods.report_list.reset();
-                    cx.notify();
-                });
-            }
-        });
+        let filter = ui::segments(
+            "pack-filter",
+            &ui::translated(&FILTERS),
+            self.pack_filter,
+            {
+                let this = cx.entity().downgrade();
+                move |value, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.pack_filter = value;
+                        this.mods.report_list.reset();
+                        cx.notify();
+                    });
+                }
+            },
+        );
         let row = |i: usize| {
             let r = rows[i];
             let (tone, status_label) = match r.status {
@@ -490,7 +543,7 @@ impl Launcher {
                 .flex_col()
                 .flex_1()
                 .min_w_0()
-                .gap(px(2.))
+                .gap(px(space::XXS))
                 .child(
                     ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
                         .truncate()
@@ -529,12 +582,12 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(24.))
+                .gap(px(space::XL))
                 .child(
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(4.))
+                        .gap(px(space::XS))
                         .child(ui::entity_title(
                             p.title().to_string(),
                             eclipse_theme::glass::pixel_text::CARD_TITLE,
@@ -545,7 +598,7 @@ impl Launcher {
                     div()
                         .flex()
                         .flex_col()
-                        .gap(px(6.))
+                        .gap(px(space::SM))
                         .max_w(px(NOTE_WIDTH))
                         .children(headline.into_iter().enumerate().map(|(i, line)| {
                             if i == 0 {

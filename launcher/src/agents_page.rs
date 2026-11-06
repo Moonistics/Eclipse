@@ -6,7 +6,7 @@
 use super::*;
 use crate::ui;
 use eclipse_launcher::agents;
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 
 #[derive(Default)]
 pub(crate) struct AgentsUi {
@@ -47,14 +47,19 @@ impl Launcher {
             .enumerate()
             .map(|(i, c)| (i, c.name))
             .collect();
-        let picker = ui::segments("agent-client", &options, pick, move |i, _, cx| {
-            let _ = this.update(cx, |this, cx| {
-                this.agents.client = i;
-                this.agents.copied = None;
-                this.agents.status = None;
-                cx.notify();
-            });
-        });
+        let picker = ui::segments(
+            "agent-client",
+            &ui::translated(&options),
+            pick,
+            move |i, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.agents.client = i;
+                    this.agents.copied = None;
+                    this.agents.status = None;
+                    cx.notify();
+                });
+            },
+        );
         let copy = |id: &'static str, text: String, cx: &mut Context<Self>| {
             let copied = self.agents.copied == Some(id);
             ui::button(
@@ -62,7 +67,7 @@ impl Launcher {
                 Some("copy-01"),
                 tr(if copied { "Copied" } else { "Copy" }),
                 ButtonKind::Secondary,
-                ui::Size::Md,
+                ui::ButtonSize::Md,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
@@ -73,9 +78,9 @@ impl Launcher {
         let say = |s: String| ui::card_note(s);
         let code = |s: &str| {
             div()
-                .p(px(12.))
+                .p(px(space::MD))
                 .rounded(px(radius::ROW))
-                .bg(ui::well())
+                .bg(ui::inset())
                 .font_family(theme::MONO)
                 .text_size(px(step::CAPTION.size))
                 .line_height(px(step::CAPTION.line))
@@ -86,7 +91,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .items_start()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .child(picker);
         if let Some((program, args)) = client.add.clone() {
             let line = client.add_line().unwrap_or_default();
@@ -99,7 +104,7 @@ impl Launcher {
                 } else {
                     label
                 },
-                ui::Size::Md,
+                ui::ButtonSize::Md,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if this.agents.busy {
@@ -128,7 +133,7 @@ impl Launcher {
                     &[("client", client.name)],
                 )))
                 .child(code(&line).w_full())
-                .child(div().flex().gap(px(8.)).child(add).child(copy(
+                .child(div().flex().gap(px(space::SM)).child(add).child(copy(
                     "agent-copy-command",
                     line.clone(),
                     cx,
@@ -139,7 +144,7 @@ impl Launcher {
             None,
             tr("Test the connection"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             if this.agents.busy {
@@ -178,16 +183,16 @@ impl Launcher {
             .child(
                 div()
                     .flex()
-                    .gap(px(8.))
+                    .gap(px(space::SM))
                     .child(copy("agent-copy-config", client.config.clone(), cx))
                     .child(test),
             );
         if let Some((ok, message)) = &self.agents.status {
-            steps = steps.child(
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
-                    .when(!*ok, |d| d.text_color(ui::danger()))
-                    .child(message.clone()),
-            );
+            steps = steps.child(if *ok {
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL).child(message.clone())
+            } else {
+                ui::error_note(message.clone())
+            });
         }
         steps = steps.child(
             ui::link("agent-docs", tr("Agent commands"))

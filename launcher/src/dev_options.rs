@@ -4,6 +4,7 @@
 //! (`backend::Settings::dev_offline`). The game still comes from the player's own install: the
 //! launcher downloads Mojang's files only for an owner (`backend::download_for_owner`).
 use super::*;
+use eclipse_theme::glass::space;
 
 /// Clicks on the launcher's version that reveal the section.
 const CLICKS: u8 = 7;
@@ -51,8 +52,8 @@ impl Launcher {
                 .child(
                     crate::ui::label(tr("Developer options"))
                         .px(px(crate::ui::SETTING_ROW_PADDING))
-                        .mt(px(20.))
-                        .mb(px(12.)),
+                        .mt(px(space::XL))
+                        .mb(px(space::MD)),
                 )
                 .child(toggle),
         )

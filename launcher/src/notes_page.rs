@@ -1,6 +1,6 @@
 use super::*;
 use crate::ui;
-use eclipse_theme::glass::{ink, radius};
+use eclipse_theme::glass::{ink, radius, space};
 
 impl Launcher {
     pub(super) fn notes_page(&mut self, cx: &mut Context<Self>) -> Div {
@@ -16,17 +16,14 @@ impl Launcher {
                 )))
             }
             Load::Failed(e) => {
-                let retry = ui::primary("notes-retry", tr("Try again"), ui::Size::Md).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.fetch_releases();
-                        cx.notify();
-                    }),
-                );
                 return page.child(ui::empty_card(ui::error_state(
                     "notes-failed",
                     tr("Couldn't load patch notes"),
                     e,
-                    retry,
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.fetch_releases();
+                        cx.notify();
+                    }),
                 )));
             }
             Load::Ready(r) if r.is_empty() => {
@@ -34,7 +31,7 @@ impl Launcher {
                     "notes-empty",
                     "information-circle",
                     tr("No patch notes yet"),
-                    "",
+                    tr("Patch notes come with each Eclipse release."),
                     vec![],
                 )));
             }
@@ -43,7 +40,7 @@ impl Launcher {
         let list = self.long_list.clone().column(
             &self.content_scroll.handle,
             releases.len(),
-            10.,
+            layout::CARD_GAP,
             |_| false,
             |i| {
                 let release = &releases[i];
@@ -57,11 +54,11 @@ impl Launcher {
                 } else {
                     title
                 };
-                let day = versions_page::published(&release.date, "");
+                let day = dates::published(&release.date, "");
                 ui::card(radius::PANEL)
                     .flex()
                     .flex_col()
-                    .gap(px(12.))
+                    .gap(px(space::MD))
                     .p(px(ui::CARD_PADDING))
                     .child(
                         ui::text(

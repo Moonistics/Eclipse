@@ -11,12 +11,11 @@ pub use tokens::night::{self, Night};
 pub const FONT: &str = tokens::FONT;
 pub const MONO: &str = tokens::MONO;
 
-/// Shapes and controls, shared with the game's menus and the website.
+/// A disabled control's opacity, shared with the game's menus and the website.
 pub use tokens::DISABLED;
 
 /// Motion: short and eased out, never bouncy.
 pub const QUICK: Duration = tokens::QUICK.duration();
-pub const MOVE: Duration = tokens::MOVE.duration();
 
 #[derive(Clone, Copy)]
 pub struct Theme {

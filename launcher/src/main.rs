@@ -3,6 +3,7 @@
 
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
+mod accounts_switch;
 mod agents_page;
 mod art;
 mod cli;
@@ -13,6 +14,7 @@ mod console;
 mod console_page;
 mod cull;
 mod datapacks_page;
+mod dates;
 mod dev_options;
 mod export_page;
 mod fields;
@@ -23,8 +25,13 @@ mod home;
 mod home_head;
 mod home_lists;
 mod home_mods;
+mod home_multiplayer_state;
 mod home_packs;
+mod home_packs_state;
+mod home_screenshots;
+mod home_screenshots_state;
 mod home_tabs;
+mod home_worlds_state;
 mod icons;
 mod import_page;
 mod instance_icons;
@@ -33,7 +40,6 @@ mod instance_page;
 mod instance_state;
 mod instance_versions;
 mod internet;
-mod language_page;
 mod launch_page;
 mod layout;
 mod line_edit;
@@ -47,21 +53,19 @@ mod modpacks_page;
 mod mods_page;
 mod mods_project;
 mod motion;
-mod multiplayer_page;
 mod native_log_page;
-mod new_instance;
 mod notes_page;
 mod owner_page;
-mod packs_page;
 mod palette;
 mod perf;
 mod picture_cache;
 mod profile_heads;
 mod scene;
-mod screenshots_page;
 mod scrollbar;
 mod servers_page;
 mod settings_account;
+mod settings_appearance;
+mod settings_language;
 mod settings_page;
 #[cfg(windows)]
 mod setup_page;
@@ -69,15 +73,12 @@ mod shortcut_page;
 mod shot_blur;
 mod skin_page;
 mod sticky;
-mod switch_page;
 mod theme;
-mod themes_page;
 mod titlebar;
 mod toast;
 mod ui;
 mod versions_page;
 mod while_playing;
-mod worlds_page;
 
 use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
 use eclipse_launcher::backend::{self, Job, Msg, Release, Running, Settings, Updates};
@@ -260,22 +261,18 @@ struct Launcher {
     /// The mods of a build made for other Eclipse versions (`native_mods::MISMATCH`): the build
     /// waits for "Build anyway".
     native_mismatch: Option<String>,
-    /// The top bar's Build log panel (`native_log_page.rs`).
+    /// The Mod build log panel, opened from the sidebar's foot (`native_log_page.rs`).
     native_log: native_log_page::NativeLog,
-    confirm_remove: Option<String>,
-    picker_open: bool,
     /// Settings' any-colour swatch shows the hue strip.
     accent_strip: bool,
-    /// Where the accent picker's hue strip is on screen (`themes_page.rs`), to map a click to a
+    /// Where the accent picker's hue strip is on screen (`settings_appearance.rs`), to map a click to a
     /// hue.
     hue_area: std::rc::Rc<std::cell::Cell<Option<Bounds<gpui::Pixels>>>>,
     /// A drag on that strip is in flight, so a release anywhere writes the accent down.
     hue_dragging: bool,
-    /// Settings > Language's dropdown (`language_page.rs`).
-    language_menu: bool,
-    /// The top bar's quick switch of who plays (`switch_page.rs`).
-    account_menu: bool,
-    /// The sidebar's ⋯ menu (`frame.rs`).
+    open_menu: Option<menus::Menu>,
+    asking: Option<menus::Asking>,
+    /// Where the sidebar's rows were drawn, for the ⋯ menu beside them (`frame.rs`).
     row_menu: frame::RowMenu,
     menu_opener: Option<FocusHandle>,
     /// Where the mouse went down to close a menu by pressing outside it, so that the
@@ -316,6 +313,10 @@ struct Launcher {
     /// The toast last drawn (`toast`), by its number.
     toast_seen: Option<u64>,
     root_focus: FocusHandle,
+    side_focus: FocusHandle,
+    content_focus: FocusHandle,
+    play_focus: FocusHandle,
+    focus_play: bool,
     /// Microsoft accounts (accounts.json), the sign-in under way and what it last showed.
     accounts: Accounts,
     auth_status: HashMap<String, account::session::Status>,
@@ -372,15 +373,11 @@ struct Launcher {
     prepare_started: Option<Instant>,
     /// The download under way as first seen (when, files done), for the time left.
     download_seen: Option<(Instant, usize)>,
-    /// The tab open under Home's hero (`home_tabs.rs`).
+    /// The tab open under Home's head (`home_tabs.rs`).
     home_tab: home_tabs::HomeTab,
-    /// Home's Play or folder menu, while open.
-    home_menu: home_head::HomeMenu,
     /// The list row under the pointer in Home's tabs (a world, a server): it shows its
     /// actions then.
     list_hover: Option<SharedString>,
-    /// A Home list row's ⋯ menu, while open, and whether its Delete… was clicked once.
-    list_menu: Option<(SharedString, bool)>,
     /// When the running game was first seen running, for Home's "Playing for…".
     client_since: Option<Instant>,
     /// The selected instance's mods, for Home's Mods tab (`instance_mods.rs`).
@@ -408,14 +405,14 @@ struct Launcher {
     github: github_mods_page::Github,
     /// The instances, for the sidebar and Play, and their dialog (`instance_state.rs`).
     instances: instance_state::Instances,
-    /// Home's Worlds section, of the selected instance (`worlds_page.rs`).
-    worlds: worlds_page::Worlds,
-    multiplayer: multiplayer_page::Multiplayer,
-    screenshots: screenshots_page::Screenshots,
+    /// Home's Worlds section, of the selected instance (`home_worlds_state.rs`).
+    worlds: home_worlds_state::Worlds,
+    multiplayer: home_multiplayer_state::Multiplayer,
+    screenshots: home_screenshots_state::Screenshots,
     shot_blur: shot_blur::ShotBlur,
     /// Pictures from disk made at their drawn size (`picture_cache`).
     pictures: picture_cache::Pictures,
-    game_packs: packs_page::Packs,
+    game_packs: home_packs_state::Packs,
     world_packs: datapacks_page::WorldPacks,
     export: Option<export_page::ExportPanel>,
     launch: Option<launch_page::LaunchPanel>,
@@ -427,7 +424,8 @@ struct Launcher {
     aside: while_playing::Aside,
     /// The selected instance's desktop shortcut (`shortcut_page.rs`).
     shortcuts: shortcut_page::Shortcuts,
-    /// The name the game made up for an offline player (`eclipse-player.txt`), for the top bar.
+    /// The name the game made up for an offline player (`eclipse-player.txt`), for the sidebar's
+    /// account chip.
     offline_name: Option<String>,
     /// The player's servers, for the sidebar until the Servers page has read them.
     side_servers: Vec<eclipse_launcher::servers::Entry>,
@@ -524,13 +522,11 @@ impl Launcher {
             native_builds: Default::default(),
             native_mismatch: None,
             native_log: Default::default(),
-            confirm_remove: None,
-            picker_open: false,
             accent_strip: false,
             hue_area: std::rc::Rc::new(std::cell::Cell::new(None)),
             hue_dragging: false,
-            language_menu: false,
-            account_menu: false,
+            open_menu: None,
+            asking: None,
             row_menu: Default::default(),
             menu_opener: None,
             menu_closed_at: None,
@@ -555,6 +551,10 @@ impl Launcher {
             servers: servers_page::Servers::new(),
             internet: internet::Internet::new(),
             root_focus: cx.focus_handle(),
+            side_focus: cx.focus_handle().tab_index(0).tab_stop(false),
+            content_focus: cx.focus_handle().tab_index(0).tab_stop(false),
+            play_focus: cx.focus_handle().tab_index(0).tab_stop(true),
+            focus_play: true,
             palette: None,
             toast_seen: None,
             accounts: Accounts::load(),
@@ -592,9 +592,7 @@ impl Launcher {
             prepare_started: None,
             download_seen: None,
             home_tab: home_tabs::HomeTab::from_env(),
-            home_menu: Default::default(),
             list_hover: None,
-            list_menu: None,
             client_since: None,
             instance_mods: Default::default(),
             project_icons: Default::default(),
@@ -612,12 +610,12 @@ impl Launcher {
             mods: mods_page::Mods::new(),
             github: github_mods_page::Github::new(),
             instances: instance_state::Instances::default(),
-            worlds: worlds_page::Worlds::default(),
-            multiplayer: multiplayer_page::Multiplayer::default(),
-            screenshots: screenshots_page::Screenshots::default(),
+            worlds: home_worlds_state::Worlds::default(),
+            multiplayer: home_multiplayer_state::Multiplayer::default(),
+            screenshots: home_screenshots_state::Screenshots::default(),
             shot_blur: Default::default(),
             pictures: Default::default(),
-            game_packs: packs_page::Packs::default(),
+            game_packs: home_packs_state::Packs::default(),
             world_packs: datapacks_page::WorldPacks::default(),
             export: None,
             launch: None,
@@ -671,9 +669,9 @@ impl Launcher {
         // `ECLIPSE_LAUNCHER_PAGE=new-instance`: the New instance page on Modded, for screenshots
         // (`new-instance-eclipse`, `new-instance-vanilla`: on those).
         let kind = match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
-            Ok("new-instance") => Some(new_instance::NewKind::Modded),
-            Ok("new-instance-eclipse") => Some(new_instance::NewKind::Eclipse),
-            Ok("new-instance-vanilla") => Some(new_instance::NewKind::Vanilla),
+            Ok("new-instance") => Some(instance_state::NewKind::Modded),
+            Ok("new-instance-eclipse") => Some(instance_state::NewKind::Eclipse),
+            Ok("new-instance-vanilla") => Some(instance_state::NewKind::Vanilla),
             _ => None,
         };
         if let Some(kind) = kind {
@@ -695,25 +693,25 @@ impl Launcher {
     }
 
     fn settings_save_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
-        use eclipse_theme::glass::{ink, radius, step};
+        use eclipse_theme::glass::{ink, radius, space, step};
         let error = self.settings_save_error.as_ref()?;
         Some(
             div()
                 .flex_none()
                 .px(px(layout::PAGE_GUTTER))
-                .py(px(12.))
+                .py(px(space::MD))
                 .child(
                     ui::card(radius::PANEL)
                         .flex()
                         .items_center()
-                        .gap(px(16.))
+                        .gap(px(space::LG))
                         .p(px(ui::PANEL_INSET))
                         .child(
                             div()
                                 .relative()
                                 .flex()
                                 .flex_col()
-                                .gap(px(4.))
+                                .gap(px(space::XS))
                                 .flex_1()
                                 .min_w_0()
                                 .child(ui::error_note(tr("Settings were not saved.")))
@@ -726,7 +724,7 @@ impl Launcher {
                                 ),
                         )
                         .child(
-                            button("settings-save-retry", "Retry", ButtonKind::Secondary)
+                            ui::button("settings-save-retry", None, tr("Retry"), ButtonKind::Secondary, ui::ButtonSize::Md)
                                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.save_settings();
                                     cx.notify();
@@ -756,6 +754,7 @@ impl Launcher {
         }
         if page != self.page {
             self.page = page;
+            self.focus_play = page == Page::Home;
             self.switches += 1;
             self.content_scroll = Scrollbar::default();
             self.long_list = cull::Cull::default();
@@ -764,10 +763,7 @@ impl Launcher {
                 self.mods.reset_lists();
             }
         }
-        self.picker_open = false;
-        self.language_menu = false;
-        self.mods.browse.sort_menu = false;
-        self.account_menu = false;
+        self.open_menu = None;
     }
 
     fn check_updates(&mut self) {
@@ -1033,7 +1029,7 @@ impl Launcher {
     /// Deletes an installed version on a background thread: a version is thousands of files and
     /// the window must keep drawing meanwhile. `Msg::Removed` ends it.
     fn remove(&mut self, tag: &str) {
-        self.confirm_remove = None;
+        self.stop_asking(|a| matches!(a, menus::Asking::Version(_)));
         let installing = self.installing.as_ref().map(|(t, _)| t.as_str());
         if !removable(&self.installed, installing, &self.removing, tag) {
             return;
@@ -1443,18 +1439,6 @@ impl Launcher {
 
 // ----- Building blocks ---------------------------------------------------------------------------
 
-/// A medium button with its label translated (`ui::button`).
-fn button(
-    id: impl Into<SharedString>,
-    label: impl Into<SharedString>,
-    kind: ButtonKind,
-) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let label: SharedString = label.into();
-    let label = SharedString::from(tr(&label).to_string());
-    ui::button(id, None, label, kind, ui::Size::Md)
-}
-
 /// What the Play button does for the selected version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlayPress {
@@ -1514,14 +1498,6 @@ fn selection_after_removal(installed: &[String], saved: Option<String>) -> Optio
         .or_else(|| installed.first().cloned())
 }
 
-fn disabled(b: Stateful<Div>) -> Stateful<Div> {
-    b.opacity(theme::DISABLED).cursor_default().tab_stop(false)
-}
-
-fn page_header(title: &str, description: &str) -> Div {
-    ui::page_head(tr(title), tr(description))
-}
-
 /// The name the game made up for a player without an account, once it has run.
 fn offline_name() -> Option<String> {
     player_name(&std::fs::read_to_string(backend::game_home().join("eclipse-player.txt")).ok()?)
@@ -1577,6 +1553,9 @@ impl Render for Launcher {
         }
         self.fields.note_focus(window, cx);
         self.return_focus_from_menu(window, cx);
+        if self.page == Page::Home && std::mem::take(&mut self.focus_play) {
+            window.focus(&self.play_focus, cx);
+        }
         self.window_width = f32::from(size.width);
         self.window_long_side = f32::from(size.width).max(f32::from(size.height));
         self.scale_factor = window.scale_factor();
@@ -1597,6 +1576,7 @@ impl Render for Launcher {
             // Let the page shrink inside the padded flex row so long notices can wrap.
             .min_w_0()
             .child(content)
+            .child(scene::track_content(&self.scene))
             .with_animation(
                 ElementId::named_usize("page", self.switches),
                 motion::eased(motion::POP),
@@ -1623,64 +1603,70 @@ impl Render for Launcher {
             .text_color(ui::white(eclipse_theme::glass::ink::FULL))
             .overflow_hidden()
             .child(
-                div().relative().flex().size_full().child(sidebar).child(
-                    div().flex().flex_col().flex_1().min_w_0().child(
-                        self.content_scroll
-                            .wrap(
-                                ui::scroll_pane("content", &self.content_scroll.handle)
-                                    .relative()
-                                    .flex_1()
-                                    .min_h_0()
-                                    // A scrolled page is drawn from its layer, not
-                                    // rendered: the Mods page's card asks, once the
-                                    // offset has moved, whether it must follow.
-                                    .on_scroll(cx.listener(
-                                        |this, _: &gpui::ScrollEvent, window, cx| {
-                                            if this.page != Page::Mods {
-                                                return;
-                                            }
-                                            cx.on_next_frame(window, |this, _, cx| {
-                                                if this
-                                                    .mods_sticky
-                                                    .moved(&this.content_scroll.handle)
-                                                {
-                                                    cx.notify();
+                div()
+                    .relative()
+                    .flex()
+                    .size_full()
+                    .child(sidebar.track_focus(&self.side_focus))
+                    .child(
+                        div().flex().flex_col().flex_1().min_w_0().child(
+                            self.content_scroll
+                                .wrap(
+                                    ui::scroll_pane("content", &self.content_scroll.handle)
+                                        .track_focus(&self.content_focus)
+                                        .relative()
+                                        .flex_1()
+                                        .min_h_0()
+                                        // A scrolled page is drawn from its layer, not
+                                        // rendered: the Mods page's card asks, once the
+                                        // offset has moved, whether it must follow.
+                                        .on_scroll(cx.listener(
+                                            |this, _: &gpui::ScrollEvent, window, cx| {
+                                                if this.page != Page::Mods {
+                                                    return;
                                                 }
-                                            });
-                                        },
-                                    ))
-                                    .child(
-                                        div()
-                                            .flex()
-                                            .w_full()
-                                            .min_w_0()
-                                            .px(px(layout::PAGE_GUTTER))
-                                            .pb(px(layout::PAGE_FOOT))
-                                            // Settings and the New instance page scroll
-                                            // their own pane under a still title.
-                                            .when(
-                                                matches!(
-                                                    self.page,
-                                                    Page::Settings | Page::InstanceEditor
+                                                cx.on_next_frame(window, |this, _, cx| {
+                                                    if this
+                                                        .mods_sticky
+                                                        .moved(&this.content_scroll.handle)
+                                                    {
+                                                        cx.notify();
+                                                    }
+                                                });
+                                            },
+                                        ))
+                                        .child(
+                                            div()
+                                                .flex()
+                                                .w_full()
+                                                .min_w_0()
+                                                .px(px(layout::PAGE_GUTTER))
+                                                .pb(px(layout::PAGE_FOOT))
+                                                // Settings and the New instance page scroll
+                                                // their own pane under a still title.
+                                                .when(
+                                                    matches!(
+                                                        self.page,
+                                                        Page::Settings | Page::InstanceEditor
+                                                    ),
+                                                    |d| d.h_full().pb(px(layout::CONTENT_INSET)),
+                                                )
+                                                .child(
+                                                    div()
+                                                        .flex()
+                                                        .flex_1()
+                                                        .min_w_0()
+                                                        .max_w(px(layout::PAGE_MAX))
+                                                        .mx_auto()
+                                                        .child(content),
                                                 ),
-                                                |d| d.h_full().pb(px(14.)),
-                                            )
-                                            .child(
-                                                div()
-                                                    .flex()
-                                                    .flex_1()
-                                                    .min_w_0()
-                                                    .max_w(px(layout::PAGE_MAX))
-                                                    .mx_auto()
-                                                    .child(content),
-                                            ),
-                                    ),
-                            )
-                            .flex_1()
-                            .min_h_0()
-                            .mt(px(layout::CONTENT_INSET)),
+                                        ),
+                                )
+                                .flex_1()
+                                .min_h_0()
+                                .mt(px(layout::CONTENT_INSET)),
+                        ),
                     ),
-                ),
             );
         root = root.children(row_menu);
         if self.page == Page::Servers {
@@ -1700,6 +1686,7 @@ impl Render for Launcher {
         }
         root = root.children(self.toast_float());
         root = root.children(ui::focus_tip(window));
+        ui::end_frame(window);
         if let Some(palette) = self.palette_overlay(window, cx) {
             root = root.child(palette);
         }
@@ -1838,6 +1825,7 @@ fn main() {
         .with_assets(icons::Assets)
         // `move`: the closure owns `setup_window`; `run` wants it to outlive this frame.
         .run(move |cx: &mut App| {
+            cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
             cx.text_system()
                 .add_fonts(vec![
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_MONO),

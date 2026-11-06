@@ -8,6 +8,7 @@ pub const BASE: u32 = 0x10131c;
 pub const FLOAT: u32 = 0x161a25;
 pub const PAPER: u32 = 0xffffff;
 pub const EDGE: f32 = 0.07;
+pub const EDGE_LIGHT: f32 = 0.12;
 pub const FIELD_EDGE: f32 = 0.34;
 pub const FIELD_EDGE_LIGHT: f32 = 0.48;
 pub const ON_LIGHT: u32 = 0x14151c;
@@ -17,18 +18,17 @@ pub const LIVE: u32 = 0x4ade80;
 pub const WARN: u32 = 0xff7059;
 /// Destructive menu rows, and the fill under one while hovered.
 pub const DANGER: u32 = 0xff8a8a;
-pub const LIVE_LIGHT: u32 = 0x15803d;
-pub const WARN_LIGHT: u32 = 0xb9361c;
-pub const DANGER_LIGHT: u32 = 0xdc2626;
-/// The Discord button and its hover.
-pub const DISCORD: u32 = 0x5865f2;
-pub const DISCORD_HOVER: u32 = 0x4752c4;
+pub const LIVE_LIGHT: u32 = 0x126e34;
+pub const WARN_LIGHT: u32 = 0xaf331a;
+pub const DANGER_LIGHT: u32 = 0xb91c1c;
 pub const SCRIM: u32 = 0x05060a;
 
 pub const FONT: &str = crate::FONT;
 pub const DISPLAY_FONT: &str = "Monocraft";
 
 pub const MONOCRAFT_PIXEL: f32 = 9.;
+
+pub const MONOCRAFT_ADVANCE: f32 = 6.;
 
 pub mod pixel_text {
     use super::MONOCRAFT_PIXEL;
@@ -75,6 +75,16 @@ pub mod step {
     };
 }
 
+pub mod space {
+    pub const XXS: f32 = 2.;
+    pub const XS: f32 = 4.;
+    pub const SM: f32 = 8.;
+    pub const MD: f32 = 12.;
+    pub const LG: f32 = 16.;
+    pub const XL: f32 = 24.;
+    pub const XXL: f32 = 32.;
+}
+
 pub mod radius {
     pub const MODAL: f32 = 14.;
     pub const PANEL: f32 = 12.;
@@ -117,6 +127,8 @@ pub mod fill {
     pub const SELECTED: f32 = 0.1;
     pub const ACTIVE: f32 = 0.12;
     pub const WELL: f32 = 0.04;
+    pub const WELL_SHADE: f32 = 0.25;
+    pub const DANGER: f32 = 0.12;
 }
 
 pub const FIELD_BG: u32 = 0x1a1e29;
@@ -128,27 +140,24 @@ pub struct Glass {
     /// The accent mixed half with white: progress bars, ticks, the focus ring, links.
     pub accent_soft: u32,
     pub mark: u32,
-    /// The charcoal with a trace of the accent: what the plates are filled with.
-    pub base: u32,
     /// Text on the accent: white, or [`ON_LIGHT`] on a light accent.
     pub on_accent: u32,
+    /// The charcoal with a trace of the accent: what the plates are filled with.
     pub plate: u32,
 }
 
 impl Glass {
     pub fn new(accent: u32) -> Glass {
-        let base = mix_oklab(accent, BASE, 0.03);
         Glass {
             accent,
             accent_soft: mix_oklab(accent, 0xffffff, 0.62),
             mark: accent,
-            base,
             on_accent: if luminance(accent) > 0.4 {
                 ON_LIGHT
             } else {
                 0xffffff
             },
-            plate: base,
+            plate: mix_oklab(accent, BASE, 0.03),
         }
     }
 
@@ -170,7 +179,7 @@ impl Glass {
         [
             ("accent", hex(self.accent)),
             ("accent-soft", hex(self.accent_soft)),
-            ("base", hex(self.base)),
+            ("base", hex(self.plate)),
             ("on-accent", hex(self.on_accent)),
             ("page", hex(PAGE)),
             ("live", hex(LIVE)),
@@ -333,9 +342,19 @@ mod tests {
                 assert!(ratio >= 4.5, "#{c:06x} on #{bg:06x}: {ratio:.2}");
             }
         }
+        use crate::night::{over, DAWN};
+        let plates = light_surfaces()
+            .into_iter()
+            .filter(|bg| !DAWN.sky.contains(bg));
         for c in [LIVE_LIGHT, WARN_LIGHT, DANGER_LIGHT] {
-            let ratio = crate::contrast(c, PAPER);
-            assert!(ratio >= 4.5, "#{c:06x} on the light plate: {ratio:.2}");
+            let hovered = [fill::HOVER, fill::SELECTED, fill::ACTIVE]
+                .map(|a| over(ON_LIGHT, a, PAPER))
+                .into_iter()
+                .chain([over(c, fill::DANGER, PAPER)]);
+            for bg in plates.clone().chain(hovered) {
+                let ratio = crate::contrast(c, bg);
+                assert!(ratio >= 4.5, "#{c:06x} on #{bg:06x}: {ratio:.2}");
+            }
         }
         let oklab_hue = |c: u32| {
             let [_, a, b] = oklab(c);
@@ -424,7 +443,7 @@ mod tests {
         );
         let light = look.light();
         assert_ne!(light.mark, ACCENT);
-        assert_eq!((light.base, light.on_accent), (look.base, look.on_accent));
+        assert_eq!((light.plate, light.on_accent), (look.plate, look.on_accent));
     }
 
     #[test]

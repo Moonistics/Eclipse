@@ -5,7 +5,7 @@
 
 use super::*;
 use crate::ui::{self, white};
-use eclipse_theme::glass::ink;
+use eclipse_theme::glass::{ink, space};
 use std::path::Path;
 use std::sync::Mutex;
 
@@ -68,8 +68,8 @@ impl Launcher {
                 .child(
                     ui::float_card(eclipse_theme::glass::radius::POPOVER)
                         .shadow_lg()
-                        .px(px(14.))
-                        .py(px(10.))
+                        .px(px(space::LG))
+                        .py(px(space::MD))
                         .child(
                             ui::text(
                                 eclipse_theme::glass::step::NOTE,

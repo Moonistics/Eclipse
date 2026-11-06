@@ -4,79 +4,22 @@
 //! errors, the confirmation before a removal.
 
 use super::*;
+use crate::menus::Asking;
 use crate::ui::{self, Tone};
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{radius, space};
 
 const PROGRESS_WIDTH: f32 = 180.;
 
-/// A release's day ("Nov 1", "Nov 1, 2025" in another year), with its time in UTC when known.
-pub(super) fn published(date: &str, time: &str) -> String {
-    let day = date
-        .get(8..10)
-        .map(|d| d.trim_start_matches('0').to_string())
-        .unwrap_or_default();
-    let args = [("day", day.as_str())];
-    let day = match date.get(5..7) {
-        Some("01") => trf("Jan {day}", &args),
-        Some("02") => trf("Feb {day}", &args),
-        Some("03") => trf("Mar {day}", &args),
-        Some("04") => trf("Apr {day}", &args),
-        Some("05") => trf("May {day}", &args),
-        Some("06") => trf("Jun {day}", &args),
-        Some("07") => trf("Jul {day}", &args),
-        Some("08") => trf("Aug {day}", &args),
-        Some("09") => trf("Sep {day}", &args),
-        Some("10") => trf("Oct {day}", &args),
-        Some("11") => trf("Nov {day}", &args),
-        Some("12") => trf("Dec {day}", &args),
-        _ => date.to_string(),
-    };
-    let this_year = chrono::Utc::now().format("%Y").to_string();
-    let day = match date.get(..4) {
-        Some(year) if year != this_year && day != date => {
-            trf("{day}, {year}", &[("day", &day), ("year", year)])
-        }
-        _ => day,
-    };
-    if time.is_empty() {
-        day
-    } else {
-        trf("{day}, {time} UTC", &[("day", &day), ("time", time)])
-    }
-}
-
-/// A version's state beside its name: a dot and a word.
-fn badge(tone: Tone, label: &str) -> Div {
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .child(ui::dot(tone))
-        .child(ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(tr(label).to_string()))
-}
-
 fn problem_line(id: String, error: &str) -> Div {
-    let details = error.to_owned();
-    ui::notice_line(ui::danger(), ui::plain_error(error).to_string()).when(
-        error.trim_end().contains('\n'),
-        |d| {
-            d.child(
-                ui::button(
-                    format!("{id}-copy"),
-                    Some("copy-01"),
-                    tr("Copy details"),
-                    ButtonKind::Ghost,
-                    ui::Size::Sm,
-                )
-                .on_press(move |_, _, cx| {
-                    clipboard::copy_to_clipboard(
-                        cx,
-                        gpui::ClipboardItem::new_string(details.clone()),
-                    )
-                }),
-            )
-        },
+    let copy = error
+        .trim_end()
+        .contains('\n')
+        .then(|| ui::copy_details(format!("{id}-copy"), error.to_owned(), ui::ButtonSize::Sm));
+    ui::error_line(
+        ui::plain_error(error).to_string(),
+        copy.into_iter()
+            .map(IntoElement::into_any_element)
+            .collect(),
     )
 }
 
@@ -97,7 +40,7 @@ impl Launcher {
                 None,
                 tr("Import a game build…"),
                 ButtonKind::Secondary,
-                ui::Size::Md,
+                ui::ButtonSize::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
             .into_any_element()
@@ -106,7 +49,7 @@ impl Launcher {
             .flex()
             .items_end()
             .justify_between()
-            .gap(px(16.))
+            .gap(px(space::LG))
             .mb(px(ui::page_gap()))
             .child(ui::page_head(tr("Eclipse versions"), "").mb_0())
             .child(import);
@@ -116,14 +59,14 @@ impl Launcher {
                     "Installed versions use {size}.",
                     &[("size", &megabytes(used))],
                 ))
-                .mb(px(10.)),
+                .mb(px(space::MD)),
             )
         });
         page = page
             .children(
                 self.import_error
                     .clone()
-                    .map(|e| problem_line("import-error".into(), &e).mb(px(10.))),
+                    .map(|e| problem_line("import-error".into(), &e).mb(px(space::MD))),
             )
             .children(self.local_builds(
                 "Native mod builds",
@@ -147,17 +90,14 @@ impl Launcher {
                 )))
             }
             Load::Failed(e) => {
-                let retry = ui::primary("releases-retry", tr("Try again"), ui::Size::Md).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.fetch_releases();
-                        cx.notify();
-                    }),
-                );
                 return page.child(ui::empty_card(ui::error_state(
                     "releases-failed",
                     tr("Couldn't load versions"),
                     e,
-                    retry,
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.fetch_releases();
+                        cx.notify();
+                    }),
                 )));
             }
             Load::Ready(r) if r.is_empty() => {
@@ -165,7 +105,7 @@ impl Launcher {
                     "releases-empty",
                     "package-01",
                     tr("No versions yet"),
-                    "",
+                    tr("Eclipse hasn't published a version yet."),
                     vec![],
                 )));
             }
@@ -175,13 +115,13 @@ impl Launcher {
             let tag = &releases[i].tag;
             self.installing.as_ref().is_some_and(|(t, _)| t == tag)
                 || self.install_error.as_ref().is_some_and(|(t, _)| t == tag)
-                || self.confirm_remove.as_ref() == Some(tag)
+                || self.is_asking(&Asking::Version(tag.clone()))
                 || self.removing.contains(tag)
         };
         let list = self.long_list.clone().column(
             &self.content_scroll.handle,
             releases.len(),
-            10.,
+            layout::CARD_GAP,
             keep,
             |i| {
                 let release = releases[i].clone();
@@ -195,7 +135,7 @@ impl Launcher {
                 } else {
                     title
                 };
-                let mut line = published(&release.date, &release.time);
+                let mut line = dates::published(&release.date, &release.time);
                 let right = self.release_action(&release, cx);
                 self.version_card(&release.tag, title, &mut line, i == 0, on_disk, right)
             },
@@ -246,31 +186,36 @@ impl Launcher {
         ui::card(radius::PANEL)
             .flex()
             .flex_col()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .p(px(ui::CARD_PADDING))
             .child(
                 div()
                     .relative()
                     .flex()
                     .items_center()
-                    .gap(px(16.))
+                    .gap(px(space::LG))
                     .child(
                         div()
                             .flex()
                             .flex_col()
                             .flex_1()
                             .min_w_0()
-                            .gap(px(2.))
+                            .gap(px(space::XXS))
                             .child(
                                 div()
                                     .flex()
                                     .items_center()
-                                    .gap(px(10.))
+                                    .gap(px(space::MD))
                                     .child(ui::card_title(title).truncate())
                                     .when(newest, |d| {
-                                        d.child(badge(Tone::Accent(look.accent_soft), "Newest"))
+                                        d.child(ui::state_line(
+                                            Tone::Accent(look.accent_soft),
+                                            tr("Newest"),
+                                        ))
                                     })
-                                    .when(in_use, |d| d.child(badge(Tone::Live, "In use"))),
+                                    .when(in_use, |d| {
+                                        d.child(ui::state_line(Tone::Live, tr("In use")))
+                                    }),
                             )
                             .child(ui::card_note(line.clone()).truncate()),
                     )
@@ -300,10 +245,10 @@ impl Launcher {
                     None,
                     tr("Install selected build"),
                     ButtonKind::Secondary,
-                    ui::Size::Md,
+                    ui::ButtonSize::Md,
                 );
                 if self.installing.is_some() {
-                    return crate::disabled(b).into_any_element();
+                    return ui::disabled(b).into_any_element();
                 }
                 let release = release.clone();
                 return b
@@ -323,10 +268,10 @@ impl Launcher {
             None,
             tr("Install"),
             ButtonKind::Secondary,
-            ui::Size::Md,
+            ui::ButtonSize::Md,
         );
         if self.installing.is_some() {
-            crate::disabled(b).into_any_element()
+            ui::disabled(b).into_any_element()
         } else {
             let release = release.clone();
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -346,7 +291,7 @@ impl Launcher {
         div()
             .flex()
             .items_center()
-            .gap(px(10.))
+            .gap(px(space::MD))
             .w(px(PROGRESS_WIDTH))
             .child(ui::progress_bar(fraction.map(|_| self.bar)))
             .child(ui::card_note(word).flex_none())
@@ -356,17 +301,17 @@ impl Launcher {
     /// again before it removes.
     fn version_actions(&self, tag: &str, cx: &mut Context<Self>) -> Div {
         let selected = self.selected().map(String::as_str) == Some(tag);
-        let confirming = self.confirm_remove.as_deref() == Some(tag);
+        let confirming = self.is_asking(&Asking::Version(tag.to_string()));
         let bin = SharedString::from(format!("bin-{tag}"));
         let (t1, t2, t3) = (tag.to_string(), tag.to_string(), tag.to_string());
-        let mut d = div().flex().items_center().gap(px(8.));
+        let mut d = div().flex().items_center().gap(px(space::SM));
         if confirming {
             return d.child(ui::confirm(
                 bin,
                 trf("Remove {name}?", &[("name", tag)]),
                 tr("Remove"),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.confirm_remove = None;
+                    this.asking = None;
                     cx.notify();
                 }),
                 cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -382,7 +327,7 @@ impl Launcher {
                     None,
                     tr("Use"),
                     ButtonKind::Secondary,
-                    ui::Size::Md,
+                    ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.settings.selected = Some(t1.clone());
@@ -392,12 +337,18 @@ impl Launcher {
             );
         }
         d.child(
-            ui::icon_button(bin, "delete-02", tr("Remove…"), ui::Size::Md, false).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.confirm_remove = Some(t3.clone());
-                    cx.notify();
-                }),
-            ),
+            ui::icon_button(
+                bin,
+                "delete-02",
+                tr("Remove…"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+                false,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.asking = Some(Asking::Version(t3.clone()));
+                cx.notify();
+            })),
         )
     }
 
@@ -422,8 +373,8 @@ impl Launcher {
             let mut d = div()
                 .flex()
                 .flex_col()
-                .gap(px(10.))
-                .mb(px(24.))
+                .gap(px(space::MD))
+                .mb(px(space::XL))
                 .child(ui::label(tr(title).to_string()))
                 .children(notice_.map(|n| ui::notice_line(ui::warn(), n.to_string())));
             for tag in tags {

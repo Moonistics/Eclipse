@@ -3,6 +3,7 @@
 //! into it), Remove after a confirmation, and a line to add one. The official server is put on top
 //! once, as the game does, at the address links.json gives (`server_list::add_official`).
 use super::*;
+use crate::menus::Asking;
 use eclipse_launcher::server_list::{self, Server};
 use fields::Field;
 use gpui::{Image, ImageFormat};
@@ -17,7 +18,6 @@ pub(super) struct Multiplayer {
     pub(super) list: Vec<(Server, Option<Arc<Image>>)>,
     fresh: bool,
     pub(super) adding: bool,
-    pub(super) confirm_remove: Option<usize>,
     pub(super) error: Option<String>,
     /// What each address answered to the status ping, asked once per list.
     pub(super) reach: HashMap<String, Reach>,
@@ -113,7 +113,7 @@ impl Launcher {
         };
         let mut list = server_list::List::load(&home);
         self.multiplayer.error = edit(&mut list).and_then(|()| list.save(&home)).err();
-        self.multiplayer.confirm_remove = None;
+        self.stop_asking(|a| matches!(a, Asking::SavedServer(_)));
         self.multiplayer.stale();
     }
 

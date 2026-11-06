@@ -1,4 +1,4 @@
-//! The top bar's Build log: the native-mods build's own log (`native_mods::log_path`), read on
+//! The sidebar's Mod build log: the native-mods build's own log (`native_mods::log_path`), read on
 //! a background thread when the panel opens or Refresh is pressed, never per frame. Copy log
 //! copies the whole file; Open full log and Show in folder point at the file itself, and only
 //! a bounded tail of it is shown, with a notice when there is more. Each build attempt starts
@@ -8,7 +8,7 @@
 use super::*;
 use crate::ui;
 use eclipse_launcher::native_mods;
-use eclipse_theme::glass::{ink, radius, step};
+use eclipse_theme::glass::{ink, radius, space, step};
 use gpui::{ClipboardItem, ScrollHandle, SharedString};
 
 /// How much of the log the panel shows: its last lines. Copy log still copies all of it.
@@ -38,7 +38,7 @@ pub(super) struct NativeLog {
     /// A read is wanted: the panel opened, or a build attempt began or ended. `drain` picks it
     /// up between frames, so `render` never reads the file.
     pub(super) stale: bool,
-    /// Whether a log exists at all, for the top bar's Build log button (checked in `drain`).
+    /// Whether a log exists at all, for the sidebar's Mod build log row (checked in `drain`).
     pub(super) available: bool,
     /// A read is under way.
     pub(super) reading: bool,
@@ -111,7 +111,7 @@ impl NativeLog {
 }
 
 impl Launcher {
-    /// The top bar's Build log opens the panel; its button shows only while a log exists.
+    /// The sidebar's Mod build log row opens the panel; the row shows only while a log exists.
     pub(super) fn native_log_open(&mut self) {
         self.native_log.open = true;
         self.native_log.note = None;
@@ -182,7 +182,13 @@ impl Launcher {
         let open = path.clone();
         let reveal = path.clone();
         let copy = {
-            let b = button("native-log-copy", "Copy log", ButtonKind::Ghost);
+            let b = ui::button(
+                "native-log-copy",
+                None,
+                tr("Copy log"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+            );
             match loaded {
                 Some(Ok(_)) => b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     // The whole file as it was read, never a stale or missing one.
@@ -196,38 +202,55 @@ impl Launcher {
                     this.native_log.note = Some(tr("Copied build log.").into());
                     cx.notify();
                 })),
-                _ => disabled(b),
+                _ => ui::disabled(b),
             }
         };
         let mut actions = div()
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(8.))
+            .gap(px(space::SM))
             .child(copy)
             .child({
-                let b = button("native-log-file", "Open full log", ButtonKind::Ghost);
+                let b = ui::button(
+                    "native-log-file",
+                    None,
+                    tr("Open full log"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
+                );
                 if gone {
-                    disabled(b)
+                    ui::disabled(b)
                 } else {
                     b.on_press(move |_, _, cx| crate::toast::open(cx, &open))
                 }
             })
             .child({
-                let b = button("native-log-reveal", "Show in folder", ButtonKind::Ghost);
+                let b = ui::button(
+                    "native-log-reveal",
+                    None,
+                    tr("Show in folder"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
+                );
                 if gone {
-                    disabled(b)
+                    ui::disabled(b)
                 } else {
                     b.on_press(move |_, _, cx| cx.reveal_path(&reveal))
                 }
             })
             .child(
-                button("native-log-refresh", "Refresh", ButtonKind::Ghost).on_press(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.native_log.stale = true;
-                        cx.notify();
-                    },
-                )),
+                ui::button(
+                    "native-log-refresh",
+                    None,
+                    tr("Refresh"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.native_log.stale = true;
+                    cx.notify();
+                })),
             );
         if let Some(note) = &self.native_log.note {
             actions = actions.child(
@@ -240,7 +263,7 @@ impl Launcher {
             .flex()
             .flex_wrap()
             .items_center()
-            .gap(px(12.))
+            .gap(px(space::MD))
             .child(
                 div()
                     .flex()
@@ -261,7 +284,8 @@ impl Launcher {
                     "native-log-close",
                     "cancel-01",
                     tr("Close"),
-                    ui::Size::Md,
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Md,
                     false,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -278,7 +302,7 @@ impl Launcher {
                 "native-log-empty",
                 "computer-terminal-01",
                 tr("No native build log yet"),
-                "",
+                tr("Build native mods on the Mods page to see one."),
                 Vec::new(),
             )),
             Some(Err(Missing::Failed(e))) => ui::error_note(trf(
@@ -288,7 +312,7 @@ impl Launcher {
             Some(Ok(log)) => div()
                 .flex()
                 .flex_col()
-                .gap(px(8.))
+                .gap(px(space::SM))
                 // Only the tail is laid out; the whole log stays one Copy away.
                 .children((log.lines > SHOWN).then(|| {
                     ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(trf(
@@ -305,7 +329,7 @@ impl Launcher {
                         .overflow_scroll()
                         .p(px(ui::PANEL_INSET))
                         .rounded(px(radius::ROW))
-                        .bg(ui::well())
+                        .bg(ui::inset())
                         .child(
                             ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                                 .font_family(theme::MONO)
@@ -324,9 +348,9 @@ impl Launcher {
                 .min_w_0()
                 .flex()
                 .flex_col()
-                .gap(px(14.))
-                .px(px(32.))
-                .py(px(24.))
+                .gap(px(space::LG))
+                .px(px(space::XXL))
+                .py(px(space::XL))
                 .bg(ui::surface_colour(ui::Surface::Float))
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .occlude()
