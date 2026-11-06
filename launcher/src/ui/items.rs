@@ -277,7 +277,7 @@ pub fn filter_chip(
             .cursor_pointer()
             .text_color(white(tone))
             .children(on.then(tick))
-            .child(super::press_text().relative().child(label.to_uppercase())),
+            .child(super::press_text().relative().child(label)),
         on,
     )
     .when(light() && !on, |d| d.border_color(edge()))
