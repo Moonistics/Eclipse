@@ -404,7 +404,7 @@ impl Launcher {
         // A chip: on or off, one value of a filter.
         let chip = |id: String, label: String, on: bool| {
             ui::selected(
-                ui::button(id, None, label, ButtonKind::Ghost, ui::ButtonSize::Sm),
+                ui::button(id, None, label, ButtonKind::Secondary, ui::ButtonSize::Sm),
                 on,
             )
         };
@@ -447,12 +447,12 @@ impl Launcher {
         for e in Environment::ALL {
             let on = f.environment == Some(e);
             environment = environment.child(
-                chip(format!("mods-env-{}", e.label()), e.label().into(), on).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                chip(format!("mods-env-{e:?}"), e.label().into(), on).on_press(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
                         this.mods_filter(|f| f.environment = if on { None } else { Some(e) });
                         cx.notify();
-                    }),
-                ),
+                    },
+                )),
             );
         }
         let mut categories = row("Categories");
@@ -498,7 +498,7 @@ impl Launcher {
             "mods-clear",
             None,
             tr("Clear filters"),
-            ButtonKind::Ghost,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -579,7 +579,7 @@ impl Launcher {
                 "mods-picked-clear",
                 None,
                 tr("Clear filters"),
-                ButtonKind::Ghost,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -605,7 +605,7 @@ impl Launcher {
             "mods-back",
             None,
             tr("Back to results"),
-            ButtonKind::Ghost,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -789,7 +789,7 @@ impl Launcher {
                             "mods-star",
                             None,
                             tr("Star on GitHub"),
-                            ButtonKind::Ghost,
+                            ButtonKind::Secondary,
                             ui::ButtonSize::Md,
                         )
                         .on_press(move |_, _, cx| cx.open_url(&repo))
@@ -838,7 +838,7 @@ impl Launcher {
                         format!("mods-link-{url}"),
                         None,
                         tr(&l.label.clone()),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(move |_, _, cx| cx.open_url(&url)),

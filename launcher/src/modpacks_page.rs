@@ -272,7 +272,7 @@ impl Launcher {
                             format!("play-pack-{id}"),
                             None,
                             tr("Play"),
-                            ButtonKind::Primary,
+                            ButtonKind::Secondary,
                             ui::ButtonSize::Md,
                         )
                         .on_press(cx.listener(
@@ -287,7 +287,7 @@ impl Launcher {
                             remove_id,
                             None,
                             tr("Remove…"),
-                            ButtonKind::Ghost,
+                            ButtonKind::Secondary,
                             ui::ButtonSize::Md,
                         )
                         .on_press(cx.listener(
@@ -385,7 +385,7 @@ impl Launcher {
             "pack-play",
             None,
             play_label,
-            ButtonKind::Primary,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
         if !p.can_play() || !can_play || self.pack_busy {
@@ -424,7 +424,7 @@ impl Launcher {
             "pack-from",
             None,
             tr("Use jars from my instance…"),
-            ButtonKind::Ghost,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
         if self.pack_busy || !p.can_port() {
@@ -475,7 +475,7 @@ impl Launcher {
                 "pack-remove",
                 None,
                 tr("Remove…"),
-                ButtonKind::Ghost,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {

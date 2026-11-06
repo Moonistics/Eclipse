@@ -25,6 +25,7 @@ impl Launcher {
                         cx.notify();
                     }),
                     Some(Self::proxy_settings_button("notes-failed", cx)),
+                    ButtonKind::Primary,
                 )));
             }
             Load::Ready(r) if r.is_empty() => {

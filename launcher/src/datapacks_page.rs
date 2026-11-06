@@ -102,16 +102,11 @@ impl Launcher {
             .p(px(ui::PANEL_INSET))
             .rounded(px(radius::ROW))
             .bg(ui::inset());
-        let (add_kind, folder_kind) = if empty {
-            (ButtonKind::Primary, ButtonKind::Secondary)
-        } else {
-            (ButtonKind::Ghost, ButtonKind::Ghost)
-        };
         let add = ui::button(
             "world-packs-add",
             None,
             tr("Add data pack…"),
-            add_kind,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -124,7 +119,7 @@ impl Launcher {
                 "world-packs-folder",
                 None,
                 tr("Open folder"),
-                folder_kind,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(move |_, _, cx| {
@@ -203,7 +198,7 @@ impl Launcher {
                         remove_id,
                         None,
                         tr("Delete…"),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(

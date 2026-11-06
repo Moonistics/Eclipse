@@ -1518,7 +1518,7 @@ pub enum Player {
 }
 
 const OFFLINE_NEEDS_OWNER: &str =
-    "Sign in once with a Microsoft account that owns Minecraft: Java Edition to use offline names.";
+    "Sign in once with an account that owns Java Edition to pick your own player name.";
 
 /// The secrets an account keeps in `store`, if it still has them there.
 fn secrets_in(store: &dyn SecretStore, uuid: &str) -> Option<Secrets> {

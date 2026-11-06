@@ -303,6 +303,20 @@ impl Launcher {
         });
     }
 
+    pub(super) fn proxy_settings_button(id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        ui::button(
+            format!("{id}-proxy"),
+            Some("globe-02"),
+            tr("Proxy settings"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.show_settings(SettingsSection::Network);
+            cx.notify();
+        }))
+    }
+
     fn settings_resting_at(&self, i: usize) -> bool {
         let pane = self.settings_pane.bounds();
         let Some(card) = self.settings_pane.bounds_for_item(i) else {
@@ -458,7 +472,10 @@ impl Launcher {
                 trf("{version} available", &[("version", update_name(r))]),
             )),
             (None, None)
-                if installed.is_some() && self.checked.is_some() && self.update_error.is_none() =>
+                if installed.is_some()
+                    && self.checked.is_some()
+                    && !self.checking_updates
+                    && self.update_error.is_none() =>
             {
                 Some(update_state(ui::Tone::Live, tr("Up to date")))
             }
@@ -526,7 +543,10 @@ impl Launcher {
                 Some(r) => Some(available(
                     backend::launcher_version(&r.tag).unwrap_or_default(),
                 )),
-                None if self.checked.is_some() && self.update_error.is_none() => {
+                None if self.checked.is_some()
+                    && !self.checking_updates
+                    && self.update_error.is_none() =>
+                {
                     Some(update_state(ui::Tone::Live, tr("Up to date")))
                 }
                 None => None,
@@ -575,18 +595,27 @@ impl Launcher {
     }
 
     fn check_updates_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let checking = self.checking_updates;
         let check = ui::button(
             "check-updates",
             None,
-            tr("Check for updates"),
+            tr(if checking {
+                "Checking…"
+            } else {
+                "Check for updates"
+            }),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.check_updates();
-            cx.notify();
-        }));
-        let failed = self.update_error.as_ref().map(|e| {
+        );
+        let check = if checking {
+            ui::disabled(check)
+        } else {
+            check.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.check_updates();
+                cx.notify();
+            }))
+        };
+        let failed = self.update_error.as_ref().filter(|_| !checking).map(|e| {
             ui::error_line(
                 tr("Couldn't check for updates"),
                 vec![
@@ -597,6 +626,7 @@ impl Launcher {
             .mt(px(space::SM))
         });
         let beside = match (&failed, self.checked) {
+            _ if checking => None,
             (Some(_), _) => {
                 Some(Self::proxy_settings_button("check-updates", cx).into_any_element())
             }

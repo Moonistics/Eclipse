@@ -241,6 +241,7 @@ impl Launcher {
                     cx.notify();
                 }),
                 Some(Self::proxy_settings_button("play-download-failed", cx)),
+                ButtonKind::Primary,
             );
         }
         let choose = |kind| {

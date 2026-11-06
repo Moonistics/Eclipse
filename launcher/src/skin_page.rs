@@ -184,15 +184,20 @@ impl Launcher {
             }))
         };
         let drop = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            ui::button(id, None, tr(label), ButtonKind::Ghost, ui::ButtonSize::Md).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let _ = this.save_look(|l| match cape {
-                        false => l.skin = false,
-                        true => l.cape = false,
-                    });
-                    cx.notify();
-                }),
+            ui::button(
+                id,
+                None,
+                tr(label),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
             )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let _ = this.save_look(|l| match cape {
+                    false => l.skin = false,
+                    true => l.cape = false,
+                });
+                cx.notify();
+            }))
         };
         let mut skin_buttons =
             div()

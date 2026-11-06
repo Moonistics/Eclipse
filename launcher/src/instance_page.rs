@@ -646,6 +646,7 @@ impl Launcher {
                     cx.notify();
                 }),
                 Some(Self::proxy_settings_button("eclipse-versions-failed", cx)),
+                ButtonKind::Secondary,
             )),
             (_, true) => list.child(ui::empty_state(
                 "eclipse-versions-empty",

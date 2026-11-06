@@ -1657,7 +1657,13 @@ impl Launcher {
         };
         let control = match available {
             Some(tag) => {
-                let b = ui::primary("update-now", tr("Update now"), ui::ButtonSize::Md);
+                let b = ui::button(
+                    "update-now",
+                    None,
+                    tr("Update now"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                );
                 if idle {
                     b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.servers.update = None;
@@ -1745,7 +1751,13 @@ impl Launcher {
         let auto = !every.is_empty() && every != "0";
         let keep = self.servers.shown("backups", "keep");
         let now = {
-            let b = ui::primary("backup-now", tr("Back up now"), ui::ButtonSize::Md);
+            let b = ui::button(
+                "backup-now",
+                None,
+                tr("Back up now"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            );
             if idle {
                 b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.server_command("Backing up", vec!["backup".into()]);
@@ -1791,7 +1803,7 @@ impl Launcher {
                     restore_id,
                     None,
                     tr("Restore…"),
-                    ButtonKind::Ghost,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
                 let restore = if idle {

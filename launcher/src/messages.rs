@@ -276,6 +276,7 @@ impl Launcher {
                     }
                 }
                 Msg::Updates(Ok(updates)) => {
+                    self.checking_updates = false;
                     self.update_error = None;
                     self.updates = *updates;
                     if self.settings.auto_install() {
@@ -285,7 +286,10 @@ impl Launcher {
                         self.update_launcher(release);
                     }
                 }
-                Msg::Updates(Err(e)) => self.update_error = Some(e),
+                Msg::Updates(Err(e)) => {
+                    self.checking_updates = false;
+                    self.update_error = Some(e);
+                }
                 Msg::NativeProgress(step) => self.native_step = Some(step),
                 Msg::Native(result) => {
                     // The last step of a build that worked says how it went.

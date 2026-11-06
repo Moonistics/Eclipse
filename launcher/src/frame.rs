@@ -604,7 +604,7 @@ impl Launcher {
                     "update-launcher",
                     None,
                     tr("Update launcher"),
-                    ButtonKind::Primary,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .w_full()

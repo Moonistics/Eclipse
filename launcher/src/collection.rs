@@ -304,7 +304,7 @@ impl Launcher {
                         } else {
                             "View what would be sent"
                         }),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

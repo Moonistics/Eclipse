@@ -1,7 +1,7 @@
 use super::{
-    card_title, color, copy_details, danger, hand_back_at_ends, icon, inset, light, look,
-    menu_keys, nested_list, primary, scroll_pane, text, tile, white, ButtonSize, IconSize, Press,
-    PANEL_INSET, TILE_LG,
+    button, card_title, color, copy_details, danger, hand_back_at_ends, icon, inset, light, look,
+    menu_keys, nested_list, scroll_pane, text, tile, white, ButtonKind, ButtonSize, IconSize,
+    Press, PANEL_INSET, TILE_LG,
 };
 use eclipse_theme::glass::{
     fill, ink, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT, PAPER,
@@ -188,7 +188,7 @@ pub fn error_state(
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    error_state_with(id, title, error, on_retry, None)
+    error_state_with(id, title, error, on_retry, None, ButtonKind::Primary)
 }
 
 pub fn error_state_with(
@@ -197,12 +197,15 @@ pub fn error_state_with(
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     extra: Option<Stateful<Div>>,
+    retry: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
     let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px32, danger()));
-    let retry = primary(
+    let retry = button(
         format!("{id}-retry"),
+        None,
         crate::tr("Try again"),
+        retry,
         ButtonSize::Md,
     )
     .on_press(on_retry);

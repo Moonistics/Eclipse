@@ -305,7 +305,7 @@ impl Launcher {
                     .flex_wrap()
                     .gap(px(space::SM))
                     .child(
-                        ui::button("github-trust", None, tr("I read it and trust it: install"), ButtonKind::Primary, ui::ButtonSize::Md)
+                        ui::button("github-trust", None, tr("I read it and trust it: install"), ButtonKind::Secondary, ui::ButtonSize::Md)
                             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.github_install(install.clone(), only.clone());
                                 cx.notify();
@@ -351,7 +351,7 @@ impl Launcher {
                 "github-pick-all",
                 None,
                 tr("Install all"),
-                ButtonKind::Primary,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -392,7 +392,7 @@ impl Launcher {
                     SharedString::from(format!("github-update-{id}")),
                     None,
                     trf("Update to {version}", &[("version", &latest.label())]),
-                    ButtonKind::Primary,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -427,7 +427,7 @@ impl Launcher {
                 SharedString::from(format!("github-src-{id}")),
                 None,
                 tr("Source"),
-                ButtonKind::Ghost,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(move |_, _, cx| cx.open_url(&url)),
@@ -501,7 +501,7 @@ impl Launcher {
             remove_id,
             None,
             tr("Remove…"),
-            ButtonKind::Ghost,
+            ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
         let file = row.file.clone();

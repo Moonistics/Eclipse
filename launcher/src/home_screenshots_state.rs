@@ -167,7 +167,7 @@ impl Launcher {
                         "screenshot-copy",
                         None,
                         tr("Copy"),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(
@@ -182,7 +182,7 @@ impl Launcher {
                         "screenshot-open",
                         None,
                         tr("Open"),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(move |_, _, cx| crate::toast::open(cx, &open)),
@@ -192,7 +192,7 @@ impl Launcher {
                         "screenshot-show",
                         None,
                         tr("Show in folder"),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(move |_, _, cx| cx.reveal_path(&show)),
@@ -202,7 +202,7 @@ impl Launcher {
                         "screenshot-delete",
                         None,
                         tr("Delete…"),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

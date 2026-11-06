@@ -360,7 +360,7 @@ impl Launcher {
                     "background-reset",
                     None,
                     tr("Default background"),
-                    ButtonKind::Ghost,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

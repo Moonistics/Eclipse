@@ -173,7 +173,7 @@ impl Launcher {
                                 "export-show",
                                 None,
                                 tr("Show in folder"),
-                                ButtonKind::Ghost,
+                                ButtonKind::Secondary,
                                 ui::ButtonSize::Md,
                             )
                             .on_press(move |_, _, cx| cx.reveal_path(&path)),

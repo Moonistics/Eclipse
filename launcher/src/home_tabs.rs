@@ -69,8 +69,8 @@ const BULLET: f32 = 5.;
 
 const COUNT_GAP: f32 = 8.;
 
-fn tab_width(label: &str, count: Option<usize>) -> f32 {
-    2. * ui::TAB_PAD
+fn tab_width(label: &str, count: Option<usize>, pad: f32) -> f32 {
+    2. * pad
         + ui::press_width(label)
         + count.map_or(0., |n| COUNT_GAP + ui::press_width(&n.to_string()))
 }
@@ -99,17 +99,30 @@ impl Launcher {
                 (tab, name, count.filter(|n| *n > 0))
             })
             .collect();
-        let room = layout::content_width(self.window_width) + 2. * ui::TAB_PAD;
-        let counted: f32 = named.iter().map(|(_, name, n)| tab_width(name, *n)).sum();
-        let counts = counted <= room;
-        let strip = ui::tab_strip(
+        let content = layout::content_width(self.window_width);
+        let fits = |pad: f32, counts: bool| {
+            let width: f32 = named
+                .iter()
+                .map(|(_, name, n)| tab_width(name, n.filter(|_| counts), pad))
+                .sum();
+            width <= content + 2. * pad
+        };
+        let counts = fits(ui::TAB_PAD, true);
+        let pad = if counts || fits(ui::TAB_PAD, false) {
+            ui::TAB_PAD
+        } else {
+            ui::TAB_PAD_TIGHT
+        };
+        let strip = ui::tab_strip_padded(
             "home-tabs",
+            pad,
             named.into_iter().map(|(tab, name, count)| {
                 ui::count_tab(
                     format!("home-tab-{tab:?}"),
                     name,
                     count.filter(|_| counts),
                     tab == open,
+                    pad,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.home_tab = tab;
@@ -156,6 +169,7 @@ impl Launcher {
                         cx.notify();
                     }),
                     Some(Self::proxy_settings_button("patch-notes-failed", cx)),
+                    ButtonKind::Secondary,
                 ));
             }
             Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),

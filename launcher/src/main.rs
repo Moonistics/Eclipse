@@ -209,6 +209,7 @@ struct Launcher {
     long_list: cull::Cull,
     updates: Updates,
     checked: Option<Instant>,
+    checking_updates: bool,
     update_error: Option<String>,
     self_update: SelfUpdate,
     self_update_hidden: bool,
@@ -495,6 +496,7 @@ impl Launcher {
             long_list: cull::Cull::default(),
             updates: Updates::default(),
             checked: None,
+            checking_updates: false,
             update_error: None,
             // The installer the last Update started could not put the new launcher in place.
             self_update: eclipse_launcher::update_handoff::take_failure()
@@ -770,6 +772,7 @@ impl Launcher {
 
     fn check_updates(&mut self) {
         self.checked = Some(Instant::now());
+        self.checking_updates = true;
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Updates(backend::check_updates().map(Box::new)));
@@ -942,6 +945,7 @@ impl Launcher {
 
     fn fetch_startup_releases(&mut self) {
         self.checked = Some(Instant::now());
+        self.checking_updates = true;
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let updates = backend::releases_and_updates(|releases| {

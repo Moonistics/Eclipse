@@ -32,7 +32,7 @@ impl Launcher {
                 "instance-mods-find",
                 Some("search-01"),
                 tr("Find mods"),
-                ButtonKind::Primary,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(find_on_mods_page(PackKind::Mod, cx));

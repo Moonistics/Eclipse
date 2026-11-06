@@ -186,7 +186,7 @@ impl Launcher {
                 "native-log-copy",
                 None,
                 tr("Copy log"),
-                ButtonKind::Ghost,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
             match loaded {
@@ -216,7 +216,7 @@ impl Launcher {
                     "native-log-file",
                     None,
                     tr("Open full log"),
-                    ButtonKind::Ghost,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
                 if gone {
@@ -230,7 +230,7 @@ impl Launcher {
                     "native-log-reveal",
                     None,
                     tr("Show in folder"),
-                    ButtonKind::Ghost,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
                 if gone {
@@ -244,7 +244,7 @@ impl Launcher {
                     "native-log-refresh",
                     None,
                     tr("Refresh"),
-                    ButtonKind::Ghost,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

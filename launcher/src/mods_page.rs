@@ -1091,7 +1091,7 @@ impl Launcher {
                         id,
                         None,
                         name.clone(),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Sm,
                     ),
                     on,
@@ -1125,7 +1125,7 @@ impl Launcher {
                                 "native-notice-install",
                                 None,
                                 tr("Install"),
-                                ButtonKind::Primary,
+                                ButtonKind::Secondary,
                                 ui::ButtonSize::Md,
                             )
                             .on_press(cx.listener(
@@ -1146,7 +1146,7 @@ impl Launcher {
                                 "native-notice-cancel",
                                 None,
                                 tr("Cancel"),
-                                ButtonKind::Secondary,
+                                ButtonKind::Ghost,
                                 ui::ButtonSize::Md,
                             )
                             .on_press(cx.listener(
@@ -1601,7 +1601,7 @@ impl Launcher {
                     "native-build",
                     None,
                     tr("Build"),
-                    ButtonKind::Primary,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -1752,7 +1752,7 @@ impl Launcher {
                     "native-trust",
                     None,
                     tr("I trust these mods: build"),
-                    ButtonKind::Primary,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -1767,7 +1767,7 @@ impl Launcher {
                     "native-cancel",
                     None,
                     tr("Cancel"),
-                    ButtonKind::Secondary,
+                    ButtonKind::Ghost,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -1793,7 +1793,7 @@ impl Launcher {
                     .gap(px(space::SM))
                     .mt(px(space::XS))
                     .child(
-                        ui::button("native-anyway", None, tr("Build anyway"), ButtonKind::Primary, ui::ButtonSize::Md).on_press(
+                        ui::button("native-anyway", None, tr("Build anyway"), ButtonKind::Secondary, ui::ButtonSize::Md).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.build_native(true);
                                 cx.notify();
@@ -1801,7 +1801,7 @@ impl Launcher {
                         ),
                     )
                     .child(
-                        ui::button("native-mismatch-cancel", None, tr("Cancel"), ButtonKind::Secondary, ui::ButtonSize::Md).on_press(
+                        ui::button("native-mismatch-cancel", None, tr("Cancel"), ButtonKind::Ghost, ui::ButtonSize::Md).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.native_mismatch = None;
                                 cx.notify();

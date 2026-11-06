@@ -412,8 +412,14 @@ impl Launcher {
     fn invite_section(&mut self, ip: &str, port: u16, cx: &mut Context<Self>) -> Div {
         let line = |s: String| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(s);
         let link = |id: &'static str, label: &'static str, url: &'static str| {
-            ui::button(id, None, tr(label), ButtonKind::Ghost, ui::ButtonSize::Md)
-                .on_press(move |_, _, cx| cx.open_url(url))
+            ui::button(
+                id,
+                None,
+                tr(label),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(move |_, _, cx| cx.open_url(url))
         };
         let token = self.internet.token();
         if token.is_none() {
@@ -470,7 +476,7 @@ impl Launcher {
                                 "ts-token",
                                 None,
                                 tr("Use an access token…"),
-                                ButtonKind::Ghost,
+                                ButtonKind::Secondary,
                                 ui::ButtonSize::Md,
                             )
                             .on_press(cx.listener(
@@ -560,7 +566,7 @@ impl Launcher {
                         } else {
                             "Withdraw"
                         }),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     );
                     let withdraw = if busy {
@@ -633,7 +639,7 @@ impl Launcher {
                                     .flex_wrap()
                                     .gap(px(space::SM))
                                     .child(
-                                        ui::button("ts-limit-go", None, tr("Change the access controls"), ButtonKind::Primary, ui::ButtonSize::Md)
+                                        ui::button("ts-limit-go", None, tr("Change the access controls"), ButtonKind::Secondary, ui::ButtonSize::Md)
                                             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                                 if let Some(new) = new.clone() {
                                                     this.change_policy(
@@ -676,7 +682,7 @@ impl Launcher {
                         "ts-unlimit",
                         None,
                         tr("Remove the limit"),
-                        ButtonKind::Ghost,
+                        ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     );
                     safety = safety.child(
@@ -748,7 +754,7 @@ impl Launcher {
                     "ts-forget",
                     None,
                     tr("Forget the access token"),
-                    ButtonKind::Ghost,
+                    ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

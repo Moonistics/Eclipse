@@ -47,6 +47,19 @@ enum Run {
     Remove(String),
 }
 
+impl Run {
+    fn key(&self) -> String {
+        match self {
+            Run::Play(id) => format!("play-{id}"),
+            Run::Go(page) => format!("go-{page:?}"),
+            Run::NewInstance => "new-instance".into(),
+            Run::Folder(_) => "folder".into(),
+            Run::Install(p) => format!("install-{}", p.id),
+            Run::Remove(id) => format!("remove-{id}"),
+        }
+    }
+}
+
 struct Command {
     label: String,
     hint: String,
@@ -291,10 +304,11 @@ impl Launcher {
             .max_h(px(h * LIST_HEIGHT))
             .overflow_y_scroll();
         for (i, (c, run)) in list.into_iter().zip(runs).enumerate() {
+            let id = SharedString::from(format!("palette-row-{}", run.key()));
             rows = rows.child(
                 ui::selected(
                     div()
-                        .id(("palette-row", i))
+                        .id(id)
                         .flex()
                         .items_center()
                         .justify_between()

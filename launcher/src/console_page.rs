@@ -239,7 +239,7 @@ impl Launcher {
                             "console-share-no",
                             None,
                             tr("Cancel"),
-                            ButtonKind::Secondary,
+                            ButtonKind::Ghost,
                             ui::ButtonSize::Md,
                         )
                         .on_press(cx.listener(
@@ -250,11 +250,19 @@ impl Launcher {
                         )),
                     )
                     .child(
-                        ui::primary("console-share-yes", tr("Upload"), ui::ButtonSize::Md)
-                            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        ui::button(
+                            "console-share-yes",
+                            None,
+                            tr("Upload"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
                                 this.share_log(cx);
                                 cx.notify();
-                            })),
+                            },
+                        )),
                     ),
             );
         }

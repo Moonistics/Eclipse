@@ -83,6 +83,7 @@ impl Launcher {
                         cx.notify();
                     }),
                     Some(Self::proxy_settings_button("mc-versions-failed", cx)),
+                    ButtonKind::Secondary,
                 ))
             }
             VersionList::Ready(versions) => {

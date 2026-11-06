@@ -3,10 +3,11 @@
 //! generated from [`css`] by `cargo run -p xtask -- tokens`, which the site's build reads from main). Change a value here and all three
 //! follow. The system is described in `docs/design-system.md`.
 //!
-//! Cool neutrals in two appearances and one violet accent; Geist and Geist Mono, bundled here
-//! under the SIL Open Font License (`fonts/OFL-Geist.txt`). The launcher's night look and its
-//! Bricolage Grotesque are in [`night`]. Colours are `0xRRGGBB`; sizes
-//! are in logical pixels.
+//! The launcher wears [`glass`] (Corona: charcoal cards, one amber accent, Monocraft and Geist)
+//! over a scene coloured from [`night`]; the website wears [`Blocks`]; the game's menus keep
+//! [`LIGHT`] and [`DARK`], cool neutrals with one violet accent. The fonts are bundled here under
+//! the SIL Open Font License (`fonts/OFL-*.txt`). Colours are `0xRRGGBB`; sizes are in logical
+//! pixels.
 use std::fmt::Write as _;
 use std::time::Duration;
 
@@ -15,8 +16,9 @@ pub const MONO: &str = "Geist Mono";
 pub mod glass;
 pub mod night;
 
-/// The launcher's and the website's display face (headings, navigation, buttons, badges only):
-/// Pixelify Sans, bundled under the SIL Open Font License (`fonts/OFL-PixelifySans.txt`).
+/// The website's display face (headings, navigation, buttons, badges only): Pixelify Sans,
+/// bundled under the SIL Open Font License (`fonts/OFL-PixelifySans.txt`). The launcher's is
+/// Monocraft ([`glass::DISPLAY_FONT`]).
 pub const PIXEL: &str = "Pixelify Sans";
 
 /// The bundled font files.
@@ -39,7 +41,6 @@ pub mod fonts {
     pub const BRICOLAGE_BOLD: &[u8] = include_bytes!("../fonts/BricolageGrotesque-Bold.ttf");
     pub const BRICOLAGE_DISPLAY_BOLD: &[u8] =
         include_bytes!("../fonts/BricolageGrotesqueDisplay-Bold.ttf");
-    /// The glass look's headings ([`crate::glass`]): SemiBold at optical sizes 56 and 28.
     pub const BRICOLAGE_DISPLAY_SEMIBOLD: &[u8] =
         include_bytes!("../fonts/BricolageGrotesqueDisplay-SemiBold.ttf");
     pub const BRICOLAGE_HEADING_SEMIBOLD: &[u8] =
@@ -109,8 +110,8 @@ pub mod glass_icons {
     }
 }
 
-/// The launcher's pixel icons, drawn like [`glass_icons`] on a 16 px grid in `currentColor`, by
-/// name (`"home"`, `"play"`…).
+/// Eclipse's first pixel icons, on a 16 px grid in `currentColor`, by name (`"home"`, `"play"`…).
+/// The launcher draws [`glass_icons`] instead.
 pub mod icons {
     macro_rules! icons {
         ($($name:literal),* $(,)?) => {
@@ -455,10 +456,10 @@ pub const DARK: Palette = Palette {
     dark: true,
 };
 
-/// The launcher's and the website's blocky look ("Blocks" in `docs/design-system.md`): stone-dark
-/// (or lavender-light) neutrals with a violet cast, panels with a dark outline, a light bevel on top
-/// and a darker lip below, and the violet `face` of the one big action. The game's menus keep
-/// [`LIGHT`] and [`DARK`].
+/// The website's blocky look ("Blocks" in `docs/design-system.md`), which the game's graphics
+/// settings screen also takes: stone-dark (or lavender-light) neutrals with a violet cast, panels
+/// with a dark outline, a light bevel on top and a darker lip below, and the violet `face` of the
+/// one big action. The game's other menus keep [`LIGHT`] and [`DARK`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Blocks {
     /// The window behind everything, tiled with a faint stone texture.
@@ -655,7 +656,7 @@ pub fn css() -> String {
         let t = format!("{v:.3}");
         t.trim_end_matches('0').trim_end_matches('.').to_string()
     };
-    // The website wears the launcher's Blocks look; the game's menus keep LIGHT and DARK.
+    // The website wears the Blocks look; the game's menus keep LIGHT and DARK.
     let colors = |s: &mut String, p: &Blocks| {
         for (name, c) in p.named() {
             let _ = writeln!(s, "  --{name}: #{c:06x};");
@@ -666,9 +667,9 @@ pub fn css() -> String {
             "  color-scheme: {};",
             if p.dark { "dark" } else { "light" }
         );
-        // The launcher's night look, for pages that wear it.
+        // The night scene's colours, for pages that wear it.
         s.push_str(&if p.dark { night::NIGHT } else { night::DAWN }.css());
-        // The launcher's glass look, the same in both appearances.
+        // The launcher's Corona look, the same in both appearances.
         s.push_str(&glass::Glass::default_look().css());
     };
     s.push_str(

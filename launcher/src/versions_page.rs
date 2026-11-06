@@ -24,20 +24,6 @@ fn problem_line(id: String, error: &str) -> Div {
 }
 
 impl Launcher {
-    pub(super) fn proxy_settings_button(id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
-        ui::button(
-            format!("{id}-proxy"),
-            Some("globe-02"),
-            tr("Proxy settings"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.show_settings(settings_page::SettingsSection::Network);
-            cx.notify();
-        }))
-    }
-
     /// The Versions page; `on_disk` and `used` as `versions_page` measured them.
     pub(super) fn versions_view(
         &self,
@@ -114,6 +100,7 @@ impl Launcher {
                         cx.notify();
                     }),
                     Some(Self::proxy_settings_button("releases-failed", cx)),
+                    ButtonKind::Primary,
                 )));
             }
             Load::Ready(r) if r.is_empty() => {

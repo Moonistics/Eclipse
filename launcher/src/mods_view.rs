@@ -905,11 +905,6 @@ impl Launcher {
                 .into_any_element()
             })
         };
-        let page_kind = if button.is_some() {
-            ButtonKind::Ghost
-        } else {
-            ButtonKind::Secondary
-        };
         let open = p.clone();
         Some(
             ui::card(radius::PANEL)
@@ -982,7 +977,7 @@ impl Launcher {
                                 "mods-page-link",
                                 None,
                                 tr(page_label(p.kind)),
-                                page_kind,
+                                ButtonKind::Secondary,
                                 ui::ButtonSize::Md,
                             )
                             .w_full()

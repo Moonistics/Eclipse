@@ -527,6 +527,15 @@ pub fn tab(
     text: impl Into<SharedString>,
     open: bool,
 ) -> Stateful<Div> {
+    padded_tab(id, text, open, TAB_PAD)
+}
+
+fn padded_tab(
+    id: impl Into<SharedString>,
+    text: impl Into<SharedString>,
+    open: bool,
+    pad: f32,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
     let tone = if open || hover_is(&id) {
         ink::FULL
@@ -540,7 +549,7 @@ pub fn tab(
         .items_center()
         .gap(px(space::SM))
         .h(px(ButtonSize::Md.height()))
-        .px(px(TAB_PAD))
+        .px(px(pad))
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
         .text_color(white(tone))
@@ -548,8 +557,8 @@ pub fn tab(
             d.child(
                 div()
                     .absolute()
-                    .left(px(TAB_PAD))
-                    .right(px(TAB_PAD))
+                    .left(px(pad))
+                    .right(px(pad))
                     .bottom_0()
                     .h(px(2.))
                     .bg(color(look().mark)),
@@ -563,10 +572,20 @@ pub fn tab(
 
 pub const TAB_PAD: f32 = 10.;
 
+pub const TAB_PAD_TIGHT: f32 = space::SM;
+
 pub const TAB_STRIP_GAP: f32 = space::LG;
 
 pub fn tab_strip(
     id: impl Into<SharedString>,
+    tabs: impl IntoIterator<Item = Stateful<Div>>,
+) -> Stateful<Div> {
+    tab_strip_padded(id, TAB_PAD, tabs)
+}
+
+pub fn tab_strip_padded(
+    id: impl Into<SharedString>,
+    pad: f32,
     tabs: impl IntoIterator<Item = Stateful<Div>>,
 ) -> Stateful<Div> {
     div()
@@ -574,7 +593,7 @@ pub fn tab_strip(
         .flex()
         .flex_wrap()
         .items_center()
-        .mx(px(-TAB_PAD))
+        .mx(px(-pad))
         .mb(px(TAB_STRIP_GAP))
         .children(tabs)
 }
@@ -585,9 +604,10 @@ pub fn count_tab(
     label: impl Into<SharedString>,
     count: Option<usize>,
     open: bool,
+    pad: f32,
 ) -> Stateful<Div> {
     let label: SharedString = label.into();
-    tab(id, label, open).children(count.map(|n| {
+    padded_tab(id, label, open, pad).children(count.map(|n| {
         press_text()
             .text_color(white(ink::DIM))
             .child(n.to_string())

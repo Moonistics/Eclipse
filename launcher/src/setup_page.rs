@@ -332,7 +332,7 @@ impl Setup {
                             .justify_end()
                             .gap(px(space::MD))
                             .child(
-                                ui::button("cancel", None, tr("Cancel"), ButtonKind::Secondary, ui::ButtonSize::Md)
+                                ui::button("cancel", None, tr("Cancel"), ButtonKind::Ghost, ui::ButtonSize::Md)
                                     .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                             )
                             .child(

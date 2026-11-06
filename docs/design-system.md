@@ -102,45 +102,62 @@ Geist (400, 500, 600) and Geist Mono (400), bundled under the SIL Open Font Lice
 
 ## Components
 
-- **Index list** (the signature): `micro` mono index in `muted` (left, 40 px column), the name
-  in `title` (or `ui`/`label` for dense lists such as settings), details in `micro` mono
-  `muted` on the right, a `rule` under every row. Hover: a `plate_soft` plate with radius 12
-  fades in, extending 16 px past the row on each side, and the index turns `ink`.
-- **Buttons**: pill shaped, `label` size, medium weight, 32 high (40 for the one large action).
-  *Primary* is accent with `on_accent` text, at most one per screen. *Secondary* is
-  `plate_soft` with `ink` text. *Ghost* is `muted` text that turns `ink` with a `plate_soft`
-  plate under the pointer. Pressed: `plate` (or the accent at 85 %). Disabled: 40 % opacity.
-- **Fields**: 36 high, `plate_soft`, radius 8, no border; focus draws a 1 px accent ring.
-  Monospace for paths and commands.
-- **Switch**: 36×20 pill, `plate` when off, accent when on, a white 16 px knob that slides over
-  `move`.
-- **Slider**: a 2 px `rule` track, the filled part `ink`, a 14 px `ink` knob. The value is
-  written in mono beside the label, not on the track.
-- **Segmented control / tabs**: a `plate_soft` pill; the selected segment is an `ink` pill with
-  `page` text that slides over `move`.
-- **Navigation**: text only. Launcher: a top bar with the mark and "Eclipse" on the left and
-  the pages on the right, `label` size, `muted`, the current one `ink` on a soft pill. Game
-  menus keep their sidebar layout (it suits a controller), but as a plain column of text items
-  under the mark, with no panel tint and no border: the current one `ink` on a soft pill that
-  slides to it.
-- **Page header**: `display` title, then one `body` line in `muted`, 56 characters at most.
-- **Notices and dialogs**: a `plate_soft` plate, radius 12, 16–24 padding, no border; a 6 px dot
-  in `danger` (or `accent`) leads the title. Actions are buttons in a row below.
-- **Progress**: a 2 px `rule` track and an `accent` fill; indeterminate work shuttles a 30 %
-  segment.
-- **Console**: `plate_soft` plate, radius 12, `micro`/`caption` mono in `ink_soft`, newest line
-  at the bottom, the command field inside the plate under a `rule`.
-- **Empty states**: a short `muted` sentence and one secondary button, centred in the space.
+The launcher's components live in `launcher/src/ui/` (one file per family: `buttons.rs`,
+`items.rs`, `tiles.rs`, `surfaces.rs`, `hover.rs`, `press.rs`) and are reached as `ui::…`. Each
+takes its text already translated and reads the frame's look itself; a screen is built from them,
+never from hand-made copies. The look they draw is § Corona's.
+
+- **Buttons** (`ui::button`, `ui::icon_button`, `ui::more_button`, `ui::split`): Monocraft,
+  uppercase, at 18; 32, 36, 44 or 56 tall (`ButtonSize`). *Primary* is the amber block with its
+  bevel, one per screen: Play on Home (Install Eclipse or Try again before the first install),
+  Create on New instance, Start on a stopped server, Install on a mod's card. Empty and error
+  states inside a screen that already has one use Secondary (`ui::error_state_with` takes the
+  kind of its Try again). *Secondary*, a faint fill, is every other action, in rows, cards and
+  headers. *Ghost*, text only, is for Cancel, Close, Dismiss and Not now; icon-only buttons (⋯,
+  the bin, a folder, Close) are Ghost too, their label the tooltip. Work under way keeps its
+  button and disables it with the label in progress ("Checking…", "Installing…"); Play fills its
+  block instead (`ui::primary_busy`). A disabled control is 40 % opaque (`ui::disabled`).
+- **Asking in place** (`ui::confirm`, `ui::menu_confirm`): Delete… and Remove… turn into a line
+  that names the thing in danger text, a Ghost Cancel and a Secondary verb: "Delete" when files go
+  to the trash, "Remove" when an entry leaves a list. One question at a time; Escape cancels it.
+- **Tabs** (`ui::tab_strip`, `ui::tab`, `ui::count_tab`): Monocraft labels, the open one
+  underlined in the mark, 16 above what they open. Home's strip shows counts when they fit and
+  tightens its tabs (`TAB_PAD_TIGHT`) before it would wrap. **Segments** (`ui::segments`) pick one
+  of a few values on an inset track.
+- **Switches** (`ui::toggle`, `ui::toggle_row`, `ui::toggle_label`): a blocky switch; in a row
+  the whole row is pressed.
+- **Rows and selection** (`ui::row`, `ui::list_row`, `ui::choice`, `ui::pick_row`, `ui::chip`):
+  selected is a raised fill with a hairline edge and the icon in the mark (`ui::selected`), never a
+  bar at the left.
+- **Fields** (`launcher/src/fields.rs`): one store holds every text field; a field takes the
+  button sizes, an icon before the text and its button inside, and turns its ring red when
+  invalid.
+- **Menus** (`ui::popover`): one open at a time, 280 wide, 8 under its button; the keyboard moves
+  into it, and Escape gives the focus back to the button.
+- **States** (`ui::empty_state`, `ui::loading_state`, `ui::error_state`), centred in a card: an
+  icon tile, a title, one sentence that ends with the next step, then the actions. An error shows
+  its first line, Try again and Copy details (the whole error).
+- **Notices** (`ui::notice`, `ui::notice_line`, `ui::error_note`, `ui::error_line`,
+  `ui::error_card`): an icon or a dot and a line on a faint fill; an error is never red text
+  alone.
+- **Progress** (`ui::bar`, `ui::progress_bar`): a 4 px track; unknown progress shuttles, and both
+  stand still under reduced motion.
+- **Keyboard**: anything pressable is a Tab stop with Enter and Space (`.on_press`); the focus ring
+  shows for the keyboard only; F6 moves between the page and the sidebar; Home opens with Play
+  focused.
+- **Element ids** are stable and descriptive: keyed by the enum (`home-tab-{tab:?}`) or by a list
+  item's name, path or id, never by an English label or a position.
 
 ## Surfaces
 
-- **Launcher** (`launcher/`): moving to the Night look below, screen by screen; screens not rebuilt
-  yet draw the Blocks parts in the night's colours (`Night::blocks`). A top bar (wordmark, the pages as
-  tabs, the account chip, Settings), a sidebar (the instances, the hosted servers, the launcher's
-  own version and channel at its foot), and the page over a stone texture. Home opens on a pixel
-  landscape banner with the hero, the version picker and Play; Mods holds the mod, resource pack
-  and modpack tabs; Versions and Patch notes are lists of panels; Settings is
-  grouped panels of rows. Dark by default, Light or System in Settings (Appearance).
+- **Launcher** (`launcher/`): § Corona. A sidebar (the account at the top, the pages, the
+  instances by group with New instance, Settings and the launcher's version at its foot) beside
+  the page, which is centred on a maximum width over the eclipse scene. Home is the selected
+  instance's head (its icon and name, Play, the version and the folder, a friend's invite code)
+  over its tabs; Mods holds the mod, modpack, resource pack, shader pack and data pack tabs, the
+  results beside a project's card on wide windows; Servers hosts worlds; Versions and Patch notes
+  are lists of cards; Settings is its sections as cards beside a list of them (tabs under the
+  title in a narrow window). Dark by default, Light or System in Settings (Appearance).
 - **Website** (horizon-rust/horizon-site): the Blocks look below. The same page structure as before (what it
   is, screenshots, parity, launcher, patch notes, community), headings in Pixelify Sans, lists as
   stacks of panels, the stone texture behind the page and Eclipse's pixel landscape (a dawn or a
@@ -152,8 +169,8 @@ Geist (400, 500, 600) and Geist Mono (400), bundled under the SIL Open Font Lice
 
 ## Blocks
 
-A blocky, Minecraft-like look in Eclipse's purple, for the website, the redesigned launcher and
-the game's graphics settings screen:
+A blocky, Minecraft-like look in Eclipse's purple, for the website and the game's graphics
+settings screen:
 Minecraft's inventory rather than a document. Its colours are `eclipse_theme::Blocks`
 (`BLOCKS_LIGHT`, `BLOCKS_DARK`), which `tokens.css` carries under the same names as before plus
 `--panel`, `--raised`, `--button`, `--well`, `--bevel`, `--lip`, `--outline` and the `--face`
@@ -173,17 +190,10 @@ than Pixelify. Hover and focus are vanilla's white edge.
 - **Blocks, not rounded cards.** Every surface is square: a 2 px dark outline, a 2 px light bevel
   along the top and a darker lip along the bottom. The main action is the violet face with its own
   bevel and a 4 px lip; it sinks a pixel when pressed. Code and fields are sunk wells.
-- **Inventory tabs** switch the kinds in Mods: the open tab joins the panel under it.
-- **Slots** hold pictures: a mod's or pack's own icon and gallery images from its source,
-  downloaded when first shown and kept on disk (`launcher/src/browser/images.rs`); the launcher
-  ships no third-party pictures. Plain Minecraft shows Eclipse's own grass block
-  (`tools/launcher_grass_block.py`), Eclipse the brand icon (`docs/media/brand/icon.svg`). Sources are named in text ("from Modrinth"): Modrinth's logo is
-  all rights reserved, so it is not shown.
 - **Pixel art drawn in code.** The stone behind the pages is close shades of the page colour
   (`TILE_SHADES`), never Minecraft's stone; the landscape is a banded sky, a sun cut in slices like
-  the mark, hills and square trees (a sunset in dark, a dawn in light). The launcher bakes them in
-  `launcher/src/art.rs` at the window's scale so each texel covers whole device pixels; the website
-  draws them in its `scripts/art.mjs`.
+  the mark, hills and square trees (a sunset in dark, a dawn in light). The website draws them in
+  its `scripts/art.mjs`.
 - **Icons**: Eclipse's 16 px pixel SVGs in `crates/eclipse-theme/icons/pixel/`, tinted with the
   text colour.
 - **Contrast**: every text colour meets WCAG AA (4.5:1) on the panels, the page and the lightest
@@ -191,111 +201,14 @@ than Pixelify. Hover and focus are vanilla's white edge.
 
 ## Night
 
-The launcher's look from 0.3: a pixel night sky that turns to a sunset at the horizon, with the
-content on top. Its tokens are `eclipse_theme::night` (`NIGHT`, and `DAWN` for players who pick
-Light); `tokens.css` carries them as `--night-*`. The game's menus don't use it.
-
-- **The sky is the brand, the content is the UI.** The sky, the stepped sun, the banded clouds and
-  the skyline are pixel art drawn in code on one grid per layer, edges crisp, never smoothed. On
-  top of it the screen is made of what the player owns: instance icons, world thumbnails, server
-  icons, their skin's head, mods and counts. No ornaments, no empty cards.
-- **Plates only where text needs them.** A plate is `card` at its opacity with a 1 px `stroke`;
-  `card_hi` for a selected or raised one. Text sits on the bare sky only over its upper stops
-  (`UNCARDED_STOPS`): the sunset is too bright for light text. A plate cuts each corner in two 4 px
-  steps (`PIXEL_CORNER`), like the art, and its stroke follows the steps. The main action cuts one
-  step; other controls round at 8 (at 1x a step vanishes on a pale fill and looks notched on a thin
-  ring: compared in the specimen).
-- **One accent.** `accent` fills the one main action (Play, Create, Install) and progress;
-  `accent_hi` is the accent as text and the 2 px focus ring. Everything else is ink on plates.
-- **Bricolage Grotesque** (SIL OFL 1.1, `fonts/OFL-BricolageGrotesque.txt`), cut from upstream's
-  variable font by `tools/bake_bricolage.py`: the UI family at optical size 14 (Regular, Medium,
-  SemiBold, Bold) and `Bricolage Grotesque Display` (Bold at optical size 72) for instance and page
-  names. Geist Mono stays for paths, codes and counts. Upstream has no Cyrillic, so the bake merges
-  Geist's (OFL, `fonts/OFL-Geist.txt`) into every cut: the letters drawn like Latin ones reuse
-  Bricolage's, the others are Geist's scaled to Bricolage's cap and x-heights at a matching weight.
-- **Two or three sizes per screen**, from `night::TYPE`:
-
-| Token           | App px | Line | Tracking (web) | Weight | Use |
-|-----------------|--------|------|----------------|--------|-----|
-| `night-display` | 56     | 1.0  | -0.035em       | 700    | instance and page names (display cut) |
-| `night-title`   | 20     | 1.25 | -0.01em        | 700    | section and card heads |
-| `night-ui`      | 14     | 1.45 | -0.005em       | 500    | text, rows, buttons, navigation |
-| `night-caption` | 12     | 1.4  | 0              | 400    | one-line states and details |
-
-- **Colour** (night / dawn). Every text colour reaches AA on both plates over every stop of the sky,
-  and on the upper stops, the page and the sidebar (`night_text_meets_wcag_aa_over_the_sky`).
-
-| Token       | Night     | Dawn      | Use |
-|-------------|-----------|-----------|-----|
-| `sky-0…5`   | `#07061a` `#140f38` `#2a1656` `#5b2a78` `#b0477d` `#f08a5d` | `#c9d3f2` `#dcd8f3` `#ead5ec` `#f5d3d8` `#f9d6bd` `#fbe4c6` | the sky, top to horizon |
-| `card`      | `#15112e` at 84 % | `#fdfcff` at 86 % | plates |
-| `card-hi`   | `#231c4a` at 90 % | `#ffffff` at 94 % | a selected or raised plate |
-| `stroke`, `rule` | `#b9acff` at 12 %, 10 % | `#3b2f78` at 12 %, 10 % | a plate's inner stroke, rules between rows |
-| `ink`       | `#f4f2ff` | `#1b1530` | text |
-| `ink-soft`  | `#cfc9ea` | `#3b3354` | secondary text |
-| `muted`     | `#a59fc6` | `#585071` | labels, details |
-| `accent`    | `#7656fa` | `#5b3fd6` | the main action, progress |
-| `accent-hi` | `#a08cff` | `#5333c9` | accent text, focus ring |
-| `success`, `warn`, `danger` | `#5fd39a` `#f5b45a` `#ff8a78` | `#136336` `#7a4f00` `#a3301d` | Ready, updates, errors |
-
-- **Motion that means something**: the sky drifts slowly and stops when the window is hidden or
-  unfocused; the interface moves only to show cause and effect (a row arrives where it was added,
-  progress fills). Reduced motion: nothing moves. The launcher's sky (`launcher/src/sky.rs`) moves
-  in whole texels on a half-second beat, so it asks for two frames a second at most;
-  `ECLIPSE_LAUNCHER_MOTION=off` stills it, `always` keeps it moving unfocused (for recordings).
-- **Copy says what happens** ("Downloads 26.3 and Java 21, about 600 MB"), never praises.
-- The specimen (`ECLIPSE_LAUNCHER_PAGE=specimen eclipse-launcher`) draws the type and colours in the
-  launcher itself.
-- **The frame** (`launcher/src/shell.rs`): the sidebar is one plate from the window's top to its
-  bottom (the wordmark, instances by group, servers, the launcher's version); the top bar over the
-  pages has no plate, only a rule. A selected row or tab sits on `card_hi` cut in steps (two for
-  rows, one for tabs and icon buttons); a hovered one gets the same shape at half its opacity,
-  eased in. A row's second line is its state, after a small square in the state's colour.
-- **Home** (`launcher/src/home.rs`): the selected instance's name in the display cut over the bare
-  sky, a caption above it naming what it plays and its state (the same square), and when it was
-  played below. Play is the main action (`night::PLAY` tall, cut in one step); the version picker
-  is a raised control of the same height; Mods and Folder are quiet buttons. A Eclipse instance
-  gets a plate on the right: a release's notes in one line (not a Nightly's) and Join a friend.
-  While it gets ready, Play names it ("Getting ready… 34%") beside Cancel, and below sit the
-  bar, what is happening with the time left, and the steps (game files, Java, sounds, prepare,
-  play), the current one lit, those done ticked: steps, never the log
-  (`ECLIPSE_LAUNCHER_PAGE=getting-ready` shows it for screenshots, nothing runs).
-- **Instance icons** (`launcher/src/instance_icons.rs`): the sidebar's rows, Home's hero (beside
-  the name) and the instance dialog show the same icon. Its own picture first (`icon.png` in its
-  game folder: one the player chose with Choose image…, scaled to 128 pixels, or its modpack's
-  icon from where it was installed), else the block or colour chosen in the dialog, else its
-  mark: the loader's logo (Fabric, Quilt, Forge, NeoForge), the grass block for plain Minecraft,
-  Eclipse's for Eclipse. The letter tile is the last resort. The New instance dialog's loader
-  cards show the same logos. Pixel-art logos are scaled by whole
-  pixels; each is decoded once per size.
-- **The instance's tabs** (`launcher/src/home_tabs.rs`): under Home's hero, one tab at a time
-  instead of one long page: Overview (what Play needs: the instance, the game or its resources,
-  the account), Worlds, Multiplayer, Packs, then Screenshots and Console once they have something.
-  A tab names how many it holds ("Worlds 3"); its own buttons (Add server, Open folder) sit at the
-  strip's end, where a list's header would put them (`ECLIPSE_LAUNCHER_PAGE=worlds`, `packs`...
-  opens one for screenshots).
-- **The Mods tab** (`launcher/src/instance_mods.rs`): the instance's mods on one nearly opaque
-  card, its loader in the header ("Fabric mods", "Eclipse mods") beside a filter. A row is the
-  mod's own icon (Modrinth's, else its jar's, else a glyph), its name and version, where it comes from (Modrinth,
-  "needed by another mod", or a local file by name), an update as an amber pill when the browser
-  found one, and a switch (a Java jar turned off is renamed `.disabled`). Update all and Add mods
-  sit at the strip's end (`ECLIPSE_LAUNCHER_PAGE=instance-mods`).
-- **Sign in with Microsoft** (`launcher/src/microsoft.rs`): every button that signs in is
-  Microsoft's own, drawn as Microsoft publishes it: 41 pixels tall, its four-square symbol, the text
-  semibold at 15 pixels, `#2F2F2F` with white text at night, white with `#5E5E5E` text and a
-  `#8C8C8C` border at dawn, square corners. Not one of the launcher's cut plates: Microsoft's
-  guidelines ask for the button as it is.
-- **The sign-in sheet** (`launcher/src/owner_page.rs`, the owner gate): an opaque plate over the
-  dimmed launcher, never instead of it. It says why (the account that owns Java Edition, no install
-  needed), the code in mono on a raised box with Copy, and Open link as the main action; the window
-  goes on by itself once Microsoft answers (`ECLIPSE_LAUNCHER_PAGE=sign-in` shows it with a made-up
-  code for screenshots).
-- **New instance** (`launcher/src/instance_page.rs`, its state in `instance_state.rs`): a page in
-  the frame, its title still while its cards scroll, with the instance as it will be, Cancel and
-  Create pinned at the foot. Cards for the kind (Eclipse, Vanilla, Modded); a Java kind lists
-  Mojang's versions (search, Snapshots, Old; the newest release chosen), Modded adds the loader
-  (Fabric, Quilt, Forge or NeoForge, with its logo, at its newest stable version), and the name
-  follows the choice ("Fabric 1.21.4") until the player types one. Create is the main action.
+The colours of the scene behind the launcher's pages (§ Corona): `eclipse_theme::night`, `NIGHT`
+for the dark appearance and `DAWN` for the light one. `launcher/src/scene.rs` paints the sky from
+its six bands (`sky`, top to horizon), and in light the page and the sidebar take `DAWN`'s `page`
+and `side`. `tokens.css` carries every value as `--night-*`, with the `night-*` type steps in
+Bricolage Grotesque (SIL OFL 1.1, `fonts/OFL-BricolageGrotesque.txt`), for website pages that wear
+the scene; the launcher sets no text in Bricolage. A test holds the module's text colours to AA
+over every band (`night_text_meets_wcag_aa_over_the_sky`). The values are in
+`crates/eclipse-theme/src/night.rs`.
 
 ## Corona
 
@@ -344,6 +257,40 @@ numbers `launcher/src/layout.rs`.
   progress bars stand still.
 - **Icons**: Eclipse's pixel set, drawn on an 8 px grid at 2 px a pixel and filled in the text
   colour (`crates/eclipse-theme/icons/glass/`, served as `icons/glass/<name>.svg`).
+- **Pictures**: a mod's or pack's own icon and gallery images from its source,
+  downloaded when first shown and kept on disk (`launcher/src/browser/images.rs`); the launcher
+  ships no third-party pictures. Plain Minecraft shows Eclipse's own grass block
+  (`tools/launcher_grass_block.py`), Eclipse the brand icon (`docs/media/brand/icon.svg`). Sources are named in text ("from Modrinth"): Modrinth's logo is
+  all rights reserved, so it is not shown.
+- **Sign in with Microsoft** (`launcher/src/microsoft.rs`): Microsoft's four-square symbol as
+  Microsoft publishes it, never recoloured. `microsoft::sign_in_button` is Microsoft's own button
+  (41 tall, `#2F2F2F` with white text in dark, white with `#5E5E5E` text and a `#8C8C8C` border in
+  light, square corners); the owner sheet and the account card use the white 48-tall block
+  (`microsoft::white_button`).
+- **The sign-in sheet** (`launcher/src/owner_page.rs`, the owner gate): an opaque plate over the
+  dimmed launcher, never instead of it. It says why (the account that owns Java Edition), the code
+  in mono with Copy code, Open link as the main action and Not now; the window goes on by itself
+  once Microsoft answers (`ECLIPSE_LAUNCHER_PAGE=sign-in` shows it with a made-up code).
+- **Instance icons** (`launcher/src/instance_icons.rs`): the sidebar's rows, Home's head and the
+  New instance page show the same icon: its own picture first (one the player chose, or its
+  modpack's), else the block or colour chosen for it, else its mark (the loader's logo, the grass
+  block for plain Minecraft, Eclipse's for Eclipse), the letter tile last. Pixel-art logos scale by
+  whole pixels; each is decoded once per size.
+- **Home's tabs** (`launcher/src/home_tabs.rs`): under the head, one at a time: Patch notes (an
+  Eclipse instance), Mods, Worlds, Multiplayer, Packs, Screenshots, and Console once the game has
+  said something. A tab names how many it holds when the strip has room ("Worlds 3")
+  (`ECLIPSE_LAUNCHER_PAGE=worlds`, `instance-mods`, `multiplayer`, `packs`, `screenshots`,
+  `console` opens one for screenshots).
+- **Getting ready** (`launcher/src/home.rs`): Play fills with the preparation ("Preparing 34%");
+  under it sit the bar, what is happening with the time left, and the steps (game files, Java,
+  sounds, prepare, then play when Play was pressed), the current one lit and those done ticked:
+  steps, never the log (`ECLIPSE_LAUNCHER_PAGE=getting-ready` shows it; nothing runs).
+- **New instance** (`launcher/src/instance_page.rs`, its state in `instance_state.rs`): a page in
+  the frame whose cards scroll under its title, with the instance as it will be, Cancel and Create
+  instance pinned at the foot. Cards for the kind (Eclipse, Vanilla, Modded); a Java kind lists
+  Mojang's versions (search, snapshots, old versions; the newest release chosen), Modded adds the
+  loader at its newest stable version, and the name follows the choice ("Fabric 1.21.4") until
+  the player types one. Create instance is the main action.
 
 ## The mark
 

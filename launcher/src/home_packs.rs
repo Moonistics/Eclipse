@@ -43,12 +43,12 @@ impl Launcher {
                 },
             ))
         };
-        let find = |kind| {
+        let find = || {
             ui::button(
                 "packs-find",
                 Some("search-01"),
                 tr("Find packs"),
-                kind,
+                ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
             .on_press(home_mods::find_on_mods_page(
@@ -62,7 +62,7 @@ impl Launcher {
                 "package-01",
                 tr("No resource packs or shader packs yet"),
                 tr("Resource packs change textures and sounds; shader packs change the lighting."),
-                vec![find(ButtonKind::Primary), add()],
+                vec![find(), add()],
             )));
         }
         let note = match count {
@@ -78,7 +78,7 @@ impl Launcher {
                 div()
                     .flex()
                     .gap(px(space::SM))
-                    .child(find(ButtonKind::Secondary))
+                    .child(find())
                     .child(add())
                     .child(
                         ui::icon_button(
