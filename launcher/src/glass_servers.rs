@@ -1,16 +1,24 @@
-//! The Servers page in the glass look (the mockup's `ServersView`, eclipse-site
-//! `components/launcher/launcher-views.tsx`): the open server's glass with its state, name, numbers,
-//! Start or Restart and Stop, its console and command line; beside it the list of servers and how
-//! friends reach the open one. Below, what the mockup has no room for: the server's Players,
-//! Settings and Backups, then Sculk's banner (sponsor). Dark appearance only.
+//! The Servers page: the open server's card with its state, name, numbers, Start or Restart and
+//! Stop, its console and command line; beside it the list of servers and how friends reach the
+//! open one. Below, the server's Players, Settings and Backups.
 use super::*;
 use crate::glass_ui::{self as ui, white, Tone};
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{fill, ink, pixel_text, radius, step, TextStep};
 
-/// The right column's width (`lg:grid-cols-[minmax(0,1fr)_320px]`).
+/// The right column's width.
 const SIDE: f32 = 320.;
 
-/// The tabs under the server's glass: the mockup shows the Overview's parts on the page itself.
+const COLUMN_GAP: f32 = 10.;
+
+const SERVER_CARD_MIN: f32 = 540.;
+
+const LIST_ROW_PAD: f32 = 10.;
+
+const NOTE_LINE_HEIGHT: f32 = 44.;
+
+const STEPPER_VALUE_WIDTH: f32 = 44.;
+
+/// The tabs under the server's card.
 const LOWER_TABS: [(Tab, &str); 3] = [
     (Tab::Players, "Players"),
     (Tab::Settings, "Settings"),
@@ -27,11 +35,32 @@ fn tone(status: &Status) -> Tone {
     }
 }
 
+pub(crate) fn notice_line(dot: Hsla, text: impl Into<SharedString>) -> Div {
+    div()
+        .relative()
+        .flex()
+        .items_center()
+        .gap(px(12.))
+        .min_h(px(NOTE_LINE_HEIGHT))
+        .px(px(16.))
+        .py(px(6.))
+        .rounded(px(radius::ROW))
+        .bg(white(fill::HOVER))
+        .child(div().flex_none().size(px(7.)).rounded_full().bg(dot))
+        .child(
+            ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                .flex_1()
+                .min_w_0()
+                .child(text.into()),
+        )
+}
+
 impl Launcher {
     pub(super) fn glass_servers_page(&mut self, cx: &mut Context<Self>) -> Div {
         let head = glass_ui::page_head(tr("Servers"), "");
-        // The mockup always shows a server: the open one, else the first.
-        if self.servers.open.is_none() {
+        // A server is always shown: the open one, else the first.
+        let listed = |d: &PathBuf| self.servers.list.iter().any(|e| &e.dir == d);
+        if !self.servers.open.as_ref().is_some_and(listed) {
             if let Some(first) = self.servers.list.first() {
                 let dir = first.dir.clone();
                 self.open_server(dir);
@@ -44,36 +73,64 @@ impl Launcher {
             .filter(|d| self.servers.list.iter().any(|e| &e.dir == d));
         let main = match &open {
             Some(dir) => self.glass_server(dir, cx),
-            None => self.glass_no_server(cx),
+            None => {
+                return div()
+                    .flex()
+                    .flex_col()
+                    .child(head)
+                    .child(self.glass_no_server(cx))
+            }
         };
         let status = self.servers.status();
-        let side = (!self.servers.list.is_empty()).then(|| {
+        let content =
+            (self.window_width - crate::layout::SIDEBAR - 2. * crate::layout::PAGE_GUTTER)
+                .min(crate::layout::PAGE_MAX);
+        let beside = content >= SERVER_CARD_MIN + COLUMN_GAP + SIDE;
+        let list = self.glass_server_list(cx);
+        let addresses = self.glass_addresses(&status, cx);
+        let side = if beside {
             div()
                 .flex()
                 .flex_col()
                 .flex_none()
                 .w(px(SIDE))
-                .gap(px(10.))
-                .child(self.glass_server_list(cx))
-                .children(open.is_some().then(|| self.glass_addresses(&status, cx)))
-        });
-        let mut page = div().flex().flex_col().child(head).child(
+                .gap(px(COLUMN_GAP))
+                .child(list)
+                .child(addresses)
+        } else {
             div()
                 .flex()
                 .items_start()
-                .gap(px(10.))
+                .gap(px(COLUMN_GAP))
+                .child(list.flex_1().min_w_0())
+                .child(addresses.flex_1().min_w_0())
+        };
+        let columns = if beside {
+            div()
+                .flex()
+                .items_start()
+                .gap(px(COLUMN_GAP))
                 .child(main.flex_1().min_w_0())
-                .children(side),
-        );
-        if let Some(dir) = &open {
-            page = page.child(self.glass_server_tabs(dir, &status, cx));
-        }
-        page
+                .child(side)
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(COLUMN_GAP))
+                .child(main)
+                .child(side)
+        };
+        let tabs = open.map(|dir| self.glass_server_tabs(&dir, &status, cx));
+        div()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(columns)
+            .children(tabs)
     }
 
-    /// The open server's glass: its state, name and numbers, its buttons, then its console.
+    /// The open server's card: its state, name and numbers, its buttons, then its console.
     fn glass_server(&mut self, dir: &Path, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let status = self.servers.status();
         let running = status.running();
         let idle = self.servers.busy.is_none();
@@ -128,26 +185,16 @@ impl Launcher {
             .join(" · ")
         };
 
-        // The web panel and the folder (not in the mockup): small icon buttons in the glass's top
-        // right corner, which the mockup leaves empty, so the head keeps its layout.
-        let mut corner = div()
-            .absolute()
-            .top(px(16.))
-            .right(px(16.))
-            .flex()
-            .gap(px(4.));
         let panel = ui::icon_button(
             "server-panel",
             "dashboard-square-01",
-            32.,
-            17.,
-            10.,
+            tr("Server panel"),
+            ui::Size::Sm,
             false,
-            &t,
         );
-        corner = corner.child(if running {
+        let panel = if running {
             let d = dir.to_path_buf();
-            panel.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            panel.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 match servers::Api::open(&d).map(|a| a.panel_link()) {
                     Some(Ok(url)) => cx.open_url(&url),
                     Some(Err(e)) => this.servers.problem = Some(Problem::plain(e)),
@@ -157,15 +204,18 @@ impl Launcher {
             }))
         } else {
             crate::disabled(panel)
-        });
+        };
         let folder = dir.to_path_buf();
-        corner = corner.child(
-            ui::icon_button("server-folder", "folder-01", 32., 17., 10., false, &t)
-                .on_click(move |_, _, cx| crate::glass_toast::open(cx, &folder)),
-        );
-        // Start, or Restart and Stop.
+        let folder = ui::icon_button(
+            "server-folder",
+            "folder-01",
+            tr("Open folder"),
+            ui::Size::Sm,
+            false,
+        )
+        .on_press(move |_, _, cx| crate::glass_toast::open(cx, &folder));
+
         let mut buttons = div().flex().flex_none().items_center().gap(px(8.));
-        let wait = |b: Stateful<Div>| crate::disabled(b);
         if running {
             let restart = ui::button(
                 "server-restart",
@@ -173,51 +223,42 @@ impl Launcher {
                 tr("Restart"),
                 Kind::Secondary,
                 ui::Size::Lg,
-                &t,
-            )
-            .px(px(20.));
+            );
             buttons = buttons.child(if idle {
-                restart.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.servers.restart_needed.clear();
                     this.server_command("Restarting", vec!["restart".into()]);
                     cx.notify();
                 }))
             } else {
-                wait(restart)
+                crate::disabled(restart)
             });
-            let stop = ui::solid("server-start", tr("Stop"), 44., 14., &t).px(px(24.));
+            let stop = ui::button(
+                "server-stop",
+                None,
+                tr("Stop"),
+                Kind::Secondary,
+                ui::Size::Lg,
+            );
             buttons = buttons.child(if idle {
-                stop.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                stop.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.server_command("Stopping", vec!["stop".into()]);
                     cx.notify();
                 }))
             } else {
-                wait(stop)
+                crate::disabled(stop)
             });
+        } else if self.servers.busy.as_deref() == Some("Starting") {
+            buttons = buttons.child(ui::primary_busy(
+                "server-start",
+                tr("Starting"),
+                None,
+                ui::Size::Lg,
+            ));
         } else {
-            let look = self.look;
-            let start = keyboard(
-                div()
-                    .id("server-start")
-                    .flex()
-                    .flex_none()
-                    .items_center()
-                    .justify_center()
-                    .h(px(44.))
-                    .px(px(28.))
-                    .rounded(px(radius::ROW))
-                    .bg(ui::color(look.accent))
-                    .text_color(ui::color(look.on_accent))
-                    .font_family(eclipse_theme::glass::FONT)
-                    .text_size(px(15.))
-                    .font_weight(FontWeight::SEMIBOLD)
-                    .cursor_pointer()
-                    .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-                    .child(tr("Start")),
-                &t,
-            );
-            buttons = buttons.child(if idle && status.phase == "stopped" {
-                start.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            let start = ui::primary("server-start", tr("Start"), ui::Size::Lg);
+            buttons = buttons.child(if idle {
+                start.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.start_server();
                     cx.notify();
                 }))
@@ -226,21 +267,37 @@ impl Launcher {
             });
         }
 
-        let mut glass = glass::plate(radius::PANEL)
+        let mut card = glass::plate(radius::PANEL)
             .flex()
             .flex_col()
-            .p(px(24.))
+            .p(px(ui::CARD_PADDING))
             .child(
                 div()
                     .relative()
                     .flex()
                     .items_center()
-                    .gap(px(8.))
-                    .child(ui::dot(tone(&status)))
+                    .justify_between()
+                    .gap(px(12.))
                     .child(
-                        ui::text(13., FontWeight::NORMAL, ink::BODY)
-                            .line_height(px(19.5))
-                            .child(state),
+                        div()
+                            .flex()
+                            .items_center()
+                            .gap(px(8.))
+                            .min_w_0()
+                            .child(ui::dot(tone(&status)))
+                            .child(
+                                ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                                    .truncate()
+                                    .child(state),
+                            ),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .gap(px(4.))
+                            .child(panel)
+                            .child(folder),
                     ),
             )
             .child(
@@ -248,30 +305,27 @@ impl Launcher {
                     .relative()
                     .mt(px(12.))
                     .flex()
-                    .items_end()
+                    .items_center()
                     .justify_between()
                     .gap(px(20.))
                     .child(
-                        div()
-                            .flex()
-                            .flex_col()
+                        ui::entity_title(name, pixel_text::CARD_TITLE)
                             .min_w_0()
-                            .child(ui::entity_title(name, 32.).truncate())
-                            .child(
-                                ui::text(14., FontWeight::NORMAL, ink::BODY)
-                                    .mt(px(12.))
-                                    .line_height(px(21.))
-                                    .truncate()
-                                    .child(numbers),
-                            ),
+                            .truncate(),
                     )
                     .child(buttons),
             )
-            .child(corner);
-        // What the launcher says besides (not in the mockup): a crash count, the action under way,
-        // a problem, a note, settings that wait for a restart.
+            .child(
+                ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
+                    .relative()
+                    .mt(px(8.))
+                    .truncate()
+                    .child(numbers),
+            );
+        // What the launcher says besides: a crash count, the action under way, a problem, a
+        // note, settings that wait for a restart.
         if status.crashes > 0 {
-            glass = glass.child(
+            card = card.child(
                 ui::card_note(trf(
                     "The server crashed {count} times and restarted itself.",
                     &[("count", &status.crashes.to_string())],
@@ -280,39 +334,17 @@ impl Launcher {
                 .mt(px(8.)),
             );
         }
-        glass = glass.children(self.glass_server_notes(running, idle, cx));
-        glass.child(self.glass_server_console(running, cx))
+        card = card.children(self.glass_server_notes(running, idle, cx));
+        card.child(self.glass_server_console(running, cx))
     }
 
-    /// The action under way, a problem, a note and settings waiting for a restart, each a line on
-    /// white at 6 % (not in the mockup).
+    /// The action under way, a problem, a note and settings waiting for a restart.
     fn glass_server_notes(
         &mut self,
         running: bool,
         idle: bool,
         cx: &mut Context<Self>,
     ) -> Vec<Div> {
-        let t = self.theme;
-        let line = |dot: Option<Hsla>, text: String| {
-            div()
-                .relative()
-                .mt(px(16.))
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .min_h(px(44.))
-                .px(px(16.))
-                .py(px(6.))
-                .rounded(px(radius::ROW))
-                .bg(white(fill::HOVER))
-                .children(dot.map(|c| div().flex_none().size(px(7.)).rounded_full().bg(c)))
-                .child(
-                    ui::text(14., FontWeight::NORMAL, ink::FULL)
-                        .flex_1()
-                        .min_w_0()
-                        .child(text),
-                )
-        };
         let mut out = Vec::new();
         if let Some(label) = self.servers.busy.clone() {
             let last = self.servers.job_log.back().cloned().unwrap_or_default();
@@ -330,7 +362,7 @@ impl Launcher {
             );
         }
         if let Some(p) = self.servers.problem.clone() {
-            let mut d = line(Some(ui::danger()), p.message.clone());
+            let mut d = notice_line(ui::danger(), p.message.clone()).mt(px(16.));
             if let Some(fix) = p.fix {
                 let label = match &fix {
                     Fix::UsePort(port) => trf("Use port {port}", &[("port", &port.to_string())]),
@@ -339,35 +371,32 @@ impl Launcher {
                     Fix::ShowLog => tr("Open the logs").into(),
                 };
                 d = d.child(
-                    ui::button(
-                        "problem-fix",
-                        None,
-                        label,
-                        Kind::Secondary,
-                        ui::Size::Sm,
-                        &t,
-                    )
-                    .on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
+                    ui::button("problem-fix", None, label, Kind::Secondary, ui::Size::Sm).on_press(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.fix(fix.clone(), cx);
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 );
             }
             out.push(
                 d.child(
-                    button("problem-dismiss", "Dismiss", Kind::Ghost, &t)
-                        .h(px(32.))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.servers.problem = None;
-                            cx.notify();
-                        })),
+                    ui::button(
+                        "problem-dismiss",
+                        None,
+                        tr("Dismiss"),
+                        Kind::Ghost,
+                        ui::Size::Sm,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.servers.problem = None;
+                        cx.notify();
+                    })),
                 ),
             );
         }
         if let Some(n) = self.servers.note.clone() {
-            out.push(line(Some(ui::live()), n));
+            out.push(notice_line(ui::live(), n).mt(px(16.)));
         }
         if running && !self.servers.restart_needed.is_empty() {
             let names: Vec<String> = self
@@ -382,18 +411,18 @@ impl Launcher {
                 tr("Restart now"),
                 Kind::Secondary,
                 ui::Size::Sm,
-                &t,
             );
             out.push(
-                line(
-                    Some(ui::color(self.look.accent_soft)),
+                notice_line(
+                    ui::color(ui::look().accent_soft),
                     trf(
                         "Saved. Restart to apply: {settings}.",
                         &[("settings", &names.join(", "))],
                     ),
                 )
+                .mt(px(16.))
                 .child(if idle {
-                    restart.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.servers.restart_needed.clear();
                         this.server_command("Restarting", vec!["restart".into()]);
                         cx.notify();
@@ -406,55 +435,45 @@ impl Launcher {
         out
     }
 
-    /// The console (`Logs`, 320 px) or its empty box, and the command line under it.
+    /// The console and the command line under it, or what a stopped server shows instead.
     fn glass_server_console(&mut self, running: bool, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let body = if self.servers.log.is_empty() {
-            div()
-                .flex()
-                .flex_col()
-                .items_start()
+        let console = div().relative().mt(px(24.)).flex().flex_col();
+        if !running {
+            return console.child(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .p(px(ui::CARD_PADDING))
+                    .rounded(px(radius::ROW))
+                    .bg(ui::well())
+                    .child(ui::icon(
+                        "computer-terminal-01",
+                        ui::IconSize::Px16,
+                        white(ink::MUTED),
+                    ))
+                    .child(
+                        ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+                            .child(tr("Start the server to see its console.")),
+                    ),
+            );
+        }
+        let log = crate::console_page::log_well("server-console", &self.servers.console_scroll);
+        let log = if self.servers.log.is_empty() {
+            log.flex()
+                .items_center()
                 .justify_center()
-                .gap(px(8.))
-                .h(px(320.))
-                .p(px(24.))
-                .rounded(px(radius::ROW))
-                .bg(ui::well())
-                .child(ui::icon("computer-terminal-01", 22., white(ink::MUTED)))
-                .child(
-                    ui::text(14., FontWeight::NORMAL, ink::MUTED).child(if running {
-                        tr("Waiting for the server's log…")
-                    } else {
-                        tr("Start the server to see its console.")
-                    }),
-                )
-                .into_any_element()
+                .font_family(eclipse_theme::glass::FONT)
+                .text_color(white(ink::MUTED))
+                .child(tr("Waiting for the server's log…"))
         } else {
-            let lines: Vec<Div> = self
-                .servers
-                .log
-                .iter()
-                .map(|l| {
+            let accent = ui::color(ui::look().accent_soft);
+            log.text_color(white(ink::BODY))
+                .children(self.servers.log.iter().map(|l| {
                     div()
-                        .when(l.starts_with("> "), |d| {
-                            d.text_color(ui::color(self.look.accent_soft))
-                        })
+                        .when(l.starts_with("> "), |d| d.text_color(accent))
                         .child(l.clone())
-                })
-                .collect();
-            let log = div()
-                .id("server-console")
-                .h(px(320.))
-                .p(px(16.))
-                .overflow_y_scroll()
-                .rounded(px(radius::ROW))
-                .bg(ui::well())
-                .font_family(theme::MONO)
-                .text_size(px(12.))
-                .line_height(px(21.))
-                .text_color(white(ink::BODY))
-                .children(lines);
-            self.servers.console_scroll.wrap(log).into_any_element()
+                }))
         };
         let send = ui::button(
             "server-send",
@@ -462,129 +481,84 @@ impl Launcher {
             tr("Send"),
             Kind::Secondary,
             ui::Size::Sm,
-            &t,
-        )
-        .px(px(12.))
-        .text_size(px(13.));
+        );
         let typed = !self.servers.value(Field::Command).trim().is_empty();
-        let send = if running && typed {
-            send.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+        let send = if typed {
+            send.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.field_enter(Field::Command);
                 cx.notify();
             }))
         } else {
             crate::disabled(send)
         };
-        let input = if running {
-            self.field(
+        let input = self
+            .field(
                 Field::Command,
                 "Type a command, like list or time set day",
                 520.,
                 cx,
             )
             .flex_1()
-            .min_w_0()
-            .into_any_element()
-        } else {
-            div()
-                .flex_1()
-                .min_w_0()
-                .truncate()
-                .text_color(white(ink::DIM))
-                .child(tr("Start the server to send commands"))
-                .into_any_element()
-        };
+            .min_w_0();
         let focused = self.servers.focused == Some(Field::Command);
-        div()
-            .relative()
-            .mt(px(24.))
-            .flex()
-            .flex_col()
-            .child(body)
-            .child(
-                div()
-                    .mt(px(8.))
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .h(px(44.))
-                    .pl(px(16.))
-                    .pr(px(6.))
-                    .rounded(px(radius::ROW))
-                    .bg(white(if focused { fill::SELECTED } else { fill::FIELD }))
-                    .font_family(theme::MONO)
-                    .text_size(px(13.))
-                    .child(div().text_color(white(ink::DIM)).child("/"))
-                    .child(input)
-                    .child(send),
-            )
+        console.child(log).child(
+            ui::field(focused, false)
+                .mt(px(8.))
+                .gap(px(8.))
+                .pr(px(6.))
+                .font_family(theme::MONO)
+                .text_size(px(step::NOTE.size))
+                .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
+                .child(div().text_color(white(ink::DIM)).child("/"))
+                .child(input)
+                .child(send),
+        )
     }
 
     fn glass_no_server(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let create = button("server-create-empty", "Create a server", Kind::Primary, &t).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
+        let create = ui::primary("server-create-empty", tr("Create a server"), ui::Size::Md)
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.open_create(cx);
                 cx.notify();
-            }),
-        );
+            }));
         let add = ui::button(
-            "server-add-empty",
+            "server-import-empty",
             Some("folder-01"),
-            tr("Add a server folder…"),
+            tr("Import a server…"),
             Kind::Secondary,
             ui::Size::Md,
-            &t,
         );
         let add = if self.servers.creating {
-            add.opacity(theme::DISABLED).cursor_default()
+            crate::disabled(add)
         } else {
-            add.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.add_server_folder(cx);
                 cx.notify();
             }))
         };
         let problem = self.servers.problem.clone().map(|p| {
-            ui::text(13., FontWeight::NORMAL, ink::FULL)
+            ui::card_note(p.message)
                 .mt(px(16.))
                 .text_color(ui::danger())
-                .child(p.message)
         });
         ui::empty_card(
             ui::empty_state(
                 "servers-empty",
                 "computer",
                 tr("No servers yet"),
-                tr("Create one to play with friends."),
+                tr("Host a world your friends can join."),
                 vec![create, add],
             )
             .children(problem),
         )
     }
 
-    /// The servers, the open one lit, then Create a server and (not in the mockup) adding a
-    /// server folder.
+    /// The servers, the open one lit, then Create a server and adding a server folder.
     fn glass_server_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let mut list = glass::plate(radius::PANEL).flex().flex_col().p(px(8.));
-        let row = |id: SharedString, current: bool| {
-            let d = div()
-                .id(id)
-                .relative()
-                .flex()
-                .items_center()
-                .gap(px(12.))
-                .w_full()
-                .px(px(12.))
-                .py(px(10.))
-                .rounded(px(radius::ROW))
-                .cursor_pointer();
-            if current {
-                d.bg(white(fill::SELECTED))
-            } else {
-                d.hover(|s| s.bg(white(fill::HOVER)))
-            }
-        };
+        let mut list = glass::plate(radius::PANEL)
+            .flex()
+            .flex_col()
+            .p(px(ui::LIST_INSET));
         for (i, e) in self.servers.list.clone().into_iter().enumerate() {
             let status = self
                 .servers
@@ -606,41 +580,40 @@ impl Launcher {
             };
             let dir = e.dir.clone();
             list = list.child(
-                keyboard(
-                    row(SharedString::from(format!("server-row-{i}")), current),
-                    &t,
-                )
-                .child(ui::list_text(e.name.clone(), line))
-                .child(ui::dot(tone(&status)))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.servers.polled = None;
-                    this.servers.problem = None;
-                    this.servers.note = None;
-                    this.open_server(dir.clone());
-                    cx.notify();
-                })),
+                ui::row(format!("server-row-{i}"), current, 12.)
+                    .child(ui::item_text(e.name.clone(), line))
+                    .child(ui::dot(tone(&status)).relative())
+                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.servers.polled = None;
+                        this.servers.problem = None;
+                        this.servers.note = None;
+                        this.open_server(dir.clone());
+                        cx.notify();
+                    })),
             );
         }
         let action = |id: &'static str, icon: &'static str, label: SharedString| {
-            keyboard(row(id.into(), false), &t)
-                .child(ui::icon(icon, 16., white(ink::BODY)))
-                .child(ui::text(14., FontWeight::NORMAL, ink::BODY).child(label))
+            ui::row(id, false, 12.)
+                .child(ui::icon(icon, ui::IconSize::Px16, white(ink::BODY)).relative())
+                .child(
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
+                        .relative()
+                        .child(label),
+                )
         };
-        if !self.servers.list.is_empty() {
-            list = list.child(
-                action("server-create", "plus-sign", tr("Create a server").into()).on_click(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.open_create(cx);
-                        cx.notify();
-                    }),
-                ),
-            );
-        }
-        let add = action("server-add", "folder-01", tr("Add a server folder…").into());
+        list = list.child(
+            action("server-create", "plus-sign", tr("Create a server").into()).on_press(
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.open_create(cx);
+                    cx.notify();
+                }),
+            ),
+        );
+        let add = action("server-import", "folder-01", tr("Import a server…").into());
         list.child(if self.servers.creating {
             crate::disabled(add)
         } else {
-            add.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.add_server_folder(cx);
                 cx.notify();
             }))
@@ -650,11 +623,7 @@ impl Launcher {
     /// How friends reach the open server: on this network, over the internet (Tailscale), and who
     /// is online now.
     fn glass_addresses(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
-        let port = self
-            .servers
-            .setting("server", "port")
-            .and_then(Value::as_u64)
-            .unwrap_or(25565) as u16;
+        let port = port_of(self);
         let lan = match servers::lan_address() {
             Some(ip) if port == 25565 => ip.to_string(),
             Some(ip) => format!("{ip}:{port}"),
@@ -664,23 +633,21 @@ impl Launcher {
             .servers
             .copied
             .is_some_and(|at| at.elapsed() < Duration::from_secs(2));
-        let copy = |this: &Self, id: &'static str, text: String, cx: &mut Context<Self>| {
+        let copy = |id: &'static str, text: String, cx: &mut Context<Self>| {
             ui::icon_button(
                 id,
                 if copied { "tick-02" } else { "copy-01" },
-                36.,
-                17.,
-                10.,
+                tr("Copy the address"),
+                ui::Size::Md,
                 false,
-                &this.theme,
             )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                 this.servers.copied = Some(Instant::now());
                 cx.notify();
             }))
         };
-        let address = |value: String, size: f32, button: Stateful<Div>| {
+        let address = |value: String, size: TextStep, button: Stateful<Div>| {
             div()
                 .mt(px(4.))
                 .flex()
@@ -698,11 +665,11 @@ impl Launcher {
         let here = div()
             .flex()
             .flex_col()
-            .child(ui::card_heading(tr("On this network")))
+            .child(ui::label(tr("On this network")))
             .child(address(
                 lan.clone(),
-                22.,
-                copy(self, "address-copy", lan, cx),
+                step::FIGURE,
+                copy("address-copy", lan, cx),
             ))
             .child(
                 ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))
@@ -713,7 +680,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(24.))
-            .p(px(20.))
+            .p(px(ui::CARD_PADDING))
             .child(here.relative())
             .child(internet.relative());
         if status.running() && !status.players.is_empty() {
@@ -731,15 +698,15 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .gap(px(12.))
-                        .child(self.head(&p.uuid, 28.).rounded(px(radius::ROW)))
+                        .child(self.head(&p.uuid, 28.))
                         .child(
-                            ui::text(14., FontWeight::NORMAL, ink::FULL)
+                            ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                                 .flex_1()
                                 .min_w_0()
                                 .truncate()
                                 .child(p.name.clone()),
                         )
-                        .child(ui::text(13., FontWeight::NORMAL, ink::MUTED).child(if op {
+                        .child(ui::card_note(if op {
                             tr("Operator")
                         } else {
                             tr("Player")
@@ -751,16 +718,15 @@ impl Launcher {
                     .relative()
                     .flex()
                     .flex_col()
-                    .child(ui::card_heading(tr("Online now")))
+                    .child(ui::label(tr("Online now")))
                     .child(people),
             );
         }
         card
     }
 
-    /// The server's Players, Settings and Backups (not in the mockup), on a glass under it.
+    /// The server's Players, Settings and Backups, on a card under it.
     fn glass_server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         if self.servers.tab == Tab::Overview {
             self.servers.tab = Tab::Players;
         }
@@ -768,14 +734,14 @@ impl Launcher {
             .flex()
             .items_center()
             .gap(px(4.))
+            .ml(px(-ui::TAB_PAD))
             .children(LOWER_TABS.iter().map(|&(tab, label)| {
                 ui::tab(
                     SharedString::from(format!("server-tab-{label}")),
                     tr(label),
                     self.servers.tab == tab,
-                    &t,
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.servers.tab = tab;
                     this.servers.confirm_restore = None;
                     cx.notify();
@@ -788,16 +754,91 @@ impl Launcher {
             _ => self.players_tab(dir, status, cx),
         };
         glass::plate(radius::PANEL)
-            .mt(px(10.))
+            .mt(px(COLUMN_GAP))
             .flex()
             .flex_col()
             .gap(px(24.))
-            .p(px(24.))
+            .p(px(ui::CARD_PADDING))
             .child(strip.relative())
             .child(body.relative())
             .when(players, |d| {
                 d.child(self.internet_invites(port_of(self), cx).relative())
             })
+    }
+
+    /// A row of a tab's list (players, backups): what leads it, the name over its detail, then
+    /// what is on its right.
+    pub(super) fn list_row(
+        &self,
+        lead: Option<Div>,
+        name: impl Into<SharedString>,
+        detail: Option<String>,
+        right: Option<AnyElement>,
+    ) -> Div {
+        let text = match detail {
+            Some(detail) => ui::item_text(name, detail),
+            None => div().flex_1().min_w_0().child(
+                ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                    .truncate()
+                    .child(name.into()),
+            ),
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(12.))
+            .py(px(LIST_ROW_PAD))
+            .children(lead)
+            .child(text)
+            .children(right)
+    }
+
+    /// − value + for a number within `range`; `set` takes the new value.
+    pub(super) fn glass_stepper(
+        &self,
+        id: &str,
+        value: i64,
+        range: std::ops::RangeInclusive<i64>,
+        cx: &mut Context<Self>,
+        set: impl Fn(&mut Self, i64) + Clone + 'static,
+    ) -> AnyElement {
+        let step_button = |side: &str, icon: &'static str, to: i64| {
+            let b = ui::icon_button(
+                SharedString::from(format!("{id}-{side}")),
+                icon,
+                tr(if to < value { "Decrease" } else { "Increase" }),
+                ui::Size::Md,
+                false,
+            );
+            if range.contains(&to) && to != value {
+                let set = set.clone();
+                b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    set(this, to);
+                    cx.notify();
+                }))
+            } else {
+                crate::disabled(b)
+            }
+        };
+        let less = step_button("less", "minus-sign", value - 1);
+        let more = step_button("more", "plus-sign", value + 1);
+        div()
+            .flex()
+            .items_center()
+            .gap(px(4.))
+            .p(px(4.))
+            .rounded(px(radius::ROW))
+            .bg(white(fill::WELL))
+            .child(less)
+            .child(
+                ui::text(step::LEAD, FontWeight::SEMIBOLD, ink::FULL)
+                    .w(px(STEPPER_VALUE_WIDTH))
+                    .flex()
+                    .justify_center()
+                    .child(value.to_string()),
+            )
+            .child(more)
+            .into_any_element()
     }
 }
 
@@ -807,137 +848,4 @@ fn port_of(this: &Launcher) -> u16 {
         .setting("server", "port")
         .and_then(Value::as_u64)
         .unwrap_or(25565) as u16
-}
-
-/// A settings row in the glass look, the mockup's `SettingRow`: the name in 15 px semibold, one
-/// line on it in 13 px at 60 % (or the refusal in red), the control on the right, 40 px apart.
-pub(super) fn glass_setting_row(
-    name: &str,
-    about: String,
-    error: Option<&'static str>,
-    control: AnyElement,
-) -> Div {
-    let note = match error {
-        Some(e) => ui::card_note(tr(e)).text_color(gpui::rgb(eclipse_theme::glass::DANGER)),
-        None => ui::card_note(about).text_color(white(ink::MUTED)),
-    };
-    div()
-        .flex()
-        .items_center()
-        .gap(px(40.))
-        .py(px(16.))
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .gap(px(4.))
-                .child(
-                    ui::text(15., FontWeight::SEMIBOLD, ink::FULL)
-                        .line_height(px(21.))
-                        .child(tr(name).to_string()),
-                )
-                .child(note),
-        )
-        .child(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .gap(px(8.))
-                .child(control),
-        )
-}
-
-impl Launcher {
-    /// A tab's section heading.
-    pub(super) fn tab_heading(&self, label: impl Into<SharedString>) -> Div {
-        ui::card_heading(label)
-    }
-
-    /// A switch with its name and note, as a Settings row.
-    pub(super) fn toggle_row(&self, name: &str, about: String, toggle: Stateful<Div>) -> Div {
-        glass_setting_row(name, about, None, toggle.into_any_element())
-    }
-
-    /// A row of a tab's list (backups, banned players): the name over its detail, with no plate
-    /// or rule.
-    pub(super) fn list_row(
-        &self,
-        lead: Option<Div>,
-        name: impl IntoElement,
-        detail: Option<AnyElement>,
-        right: Option<AnyElement>,
-    ) -> Div {
-        div()
-            .flex()
-            .items_center()
-            .gap(px(12.))
-            .py(px(10.))
-            .children(lead)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .child(ui::text(14., FontWeight::MEDIUM, ink::FULL).child(name))
-                    .children(
-                        detail.map(|d| ui::text(13., FontWeight::NORMAL, ink::MUTED).child(d)),
-                    ),
-            )
-            .children(right)
-    }
-
-    /// − value + in the glass look: the Create dialog's stepper (a strip with 40 px buttons).
-    pub(super) fn glass_stepper(
-        &self,
-        key: &'static str,
-        value: i64,
-        range: std::ops::RangeInclusive<i64>,
-        cx: &mut Context<Self>,
-    ) -> AnyElement {
-        let t = self.theme;
-        let step = |id: &'static str, icon: &'static str, to: i64, cx: &mut Context<Self>| {
-            let b = keyboard(
-                div()
-                    .id(SharedString::from(format!("{key}-{id}")))
-                    .flex()
-                    .items_center()
-                    .justify_center()
-                    .size(px(36.))
-                    .rounded(px(radius::CONTROL))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(white(fill::BUTTON)))
-                    .child(ui::icon(icon, 16., white(ink::FULL))),
-                &t,
-            );
-            if range.contains(&to) && to != value {
-                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.set_setting(key, to.to_string());
-                    cx.notify();
-                }))
-            } else {
-                crate::disabled(b)
-            }
-        };
-        div()
-            .flex()
-            .items_center()
-            .gap(px(4.))
-            .p(px(4.))
-            .rounded(px(radius::ROW))
-            .bg(white(fill::WELL))
-            .child(step("less", "minus-sign", value - 1, cx))
-            .child(
-                ui::text(15., FontWeight::SEMIBOLD, ink::FULL)
-                    .w(px(44.))
-                    .flex()
-                    .justify_center()
-                    .child(value.to_string()),
-            )
-            .child(step("more", "plus-sign", value + 1, cx))
-            .into_any_element()
-    }
 }

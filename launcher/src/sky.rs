@@ -6,8 +6,9 @@
 //! baked once per appearance and scale into tiles whose size doesn't depend on the window, and a
 //! frame is asked for only when something on screen changes (a cloud moves one texel, a group of
 //! stars steps to its next brightness): a few frames a second. The sky stands still under reduced
-//! motion, and stops 10 s after the window loses focus ([`motion`]).
+//! motion, and stops 10 s after the window loses focus.
 use crate::art::bake;
+use crate::motion::{self, Clock, Motion};
 use eclipse_theme::night::Night;
 use gpui::{div, img, prelude::*, px, rgb, Div, RenderImage};
 use std::sync::{Arc, LazyLock};
@@ -194,76 +195,6 @@ const STAR_LEVELS: [f32; 4] = [0.95, 0.6, 0.3, 0.6];
 /// different layers share frames: two a second at most.
 const STAR_PERIODS: [f32; 4] = [4., 6., 8., 10.];
 
-/// How the sky moves: not at all under the system's reduced motion (macOS) or with
-/// `ECLIPSE_LAUNCHER_MOTION=off`; while the window is in front (and 10 s after); or always, with
-/// `ECLIPSE_LAUNCHER_MOTION=always`, for recordings.
-#[derive(Clone, Copy, PartialEq)]
-pub(crate) enum Motion {
-    Still,
-    InFront,
-    Always,
-}
-
-pub(crate) fn motion() -> Motion {
-    static MOTION: LazyLock<Motion> = LazyLock::new(|| {
-        match std::env::var("ECLIPSE_LAUNCHER_MOTION").as_deref() {
-            Ok("off" | "reduced") => return Motion::Still,
-            Ok("always") => return Motion::Always,
-            Ok("full") => return Motion::InFront,
-            _ => {}
-        }
-        #[cfg(target_os = "macos")]
-        if objc2_app_kit::NSWorkspace::sharedWorkspace().accessibilityDisplayShouldReduceMotion() {
-            return Motion::Still;
-        }
-        #[cfg(windows)]
-        {
-            use windows_sys::Win32::UI::WindowsAndMessaging::{
-                SystemParametersInfoW, SPI_GETCLIENTAREAANIMATION,
-            };
-            let mut animate: i32 = 1;
-            let read = unsafe {
-                SystemParametersInfoW(
-                    SPI_GETCLIENTAREAANIMATION,
-                    0,
-                    (&mut animate as *mut i32).cast(),
-                    0,
-                )
-            };
-            if read != 0 && animate == 0 {
-                return Motion::Still;
-            }
-        }
-        Motion::InFront
-    });
-    *MOTION
-}
-
-/// The animation's own time: it runs only while the sky moves, so a window that comes back
-/// picks up where it stopped instead of jumping.
-#[derive(Default)]
-pub(crate) struct Clock {
-    banked: Duration,
-    running: Option<Instant>,
-}
-
-impl Clock {
-    pub(crate) fn at(&self, now: Instant) -> Duration {
-        self.banked + self.running.map_or(Duration::ZERO, |since| now - since)
-    }
-
-    pub(crate) fn set(&mut self, run: bool, now: Instant) {
-        match (run, self.running) {
-            (true, None) => self.running = Some(now),
-            (false, Some(since)) => {
-                self.banked += now - since;
-                self.running = None;
-            }
-            _ => {}
-        }
-    }
-}
-
 struct Layers {
     clouds: [Arc<RenderImage>; 3],
     far: Arc<RenderImage>,
@@ -296,7 +227,7 @@ impl Sky {
         } else {
             self.unfocused.get_or_insert(now);
         }
-        let run = match motion() {
+        let run = match motion::current() {
             Motion::Still => false,
             Motion::InFront => self.unfocused.is_none_or(|since| now - since < UNFOCUSED),
             Motion::Always => true,
@@ -400,14 +331,14 @@ impl Sky {
             }
         }
 
-        let next = self.clock.running.is_some().then(|| {
+        let next = run.then(|| {
             let clouds = CLOUDS.iter().map(|l| until_next(t * l.speed) / l.speed);
             let stars = STAR_PERIODS.iter().enumerate().map(|(g, p)| {
                 let quarter = p / STAR_LEVELS.len() as f32;
                 until_next(t / quarter + g as f32) * quarter
             });
             let mut soonest = clouds.chain(stars).fold(f32::MAX, f32::min);
-            if let (Some(since), Motion::InFront) = (self.unfocused, motion()) {
+            if let (Some(since), Motion::InFront) = (self.unfocused, motion::current()) {
                 soonest = soonest.min((UNFOCUSED - (now - since)).as_secs_f32());
             }
             // A little after the change, so the frame's clock is surely past it.
@@ -706,29 +637,17 @@ mod tests {
     }
 
     #[test]
-    fn the_clock_stops_and_resumes_without_a_jump() {
-        let start = Instant::now();
-        let mut clock = Clock::default();
-        clock.set(true, start);
-        let s = Duration::from_secs(1);
-        clock.set(false, start + 2 * s);
-        assert_eq!(clock.at(start + 10 * s), 2 * s);
-        clock.set(true, start + 10 * s);
-        assert_eq!(clock.at(start + 11 * s), 3 * s);
-    }
-
-    #[test]
     fn frames_come_only_when_something_moves() {
         assert!((until_next(0.) - 1.).abs() < 1e-6);
         let mut sky = Sky::default();
         let now = Instant::now();
         let (_, next) = sky.render(&NIGHT, (1280., 800.), 2., true, now);
-        if motion() != Motion::Still {
+        if motion::current() != Motion::Still {
             let next = next.expect("a moving sky asks for its next frame");
             assert!(next <= Duration::from_secs(1), "{next:?}");
         }
         // Unfocused for longer than UNFOCUSED: no more frames.
-        if motion() != Motion::InFront {
+        if motion::current() != Motion::InFront {
             return;
         }
         sky.render(&NIGHT, (1280., 800.), 2., false, now);

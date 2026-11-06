@@ -3,8 +3,10 @@
 //! Show in folder and Delete (to the trash, after a confirmation). Pictures are made at their
 //! shown size (`picture_cache`), never decoded whole.
 use super::*;
+use crate::glass_ui as ui;
 use crate::picture_cache::Look;
 use eclipse_launcher::screenshots::{self, Shot};
+use eclipse_theme::glass::{ink, radius, step};
 use gpui::{ClipboardItem, Image, ImageFormat};
 use std::path::PathBuf;
 
@@ -115,7 +117,6 @@ impl Launcher {
 
     /// The viewer over the whole window, while a picture is open.
     pub(super) fn screenshot_viewer(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let t = self.theme;
         let i = self.screenshots.viewing?;
         let shot = self.screenshots.list.get(i)?.clone();
         let count = self.screenshots.list.len();
@@ -126,9 +127,9 @@ impl Launcher {
             .or_else(|| self.pictures.made(&shot.path, thumb));
         let taken: chrono::DateTime<chrono::Local> = shot.taken.into();
         let step = |id: &'static str, label: &'static str, older: bool, can: bool| {
-            let b = button(id, label, Kind::Ghost, &t);
+            let b = button(id, label, Kind::Secondary);
             if can {
-                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.screenshot_step(older);
                     cx.notify();
                 }))
@@ -139,57 +140,60 @@ impl Launcher {
         let mut actions = div().flex().items_center().gap(px(6.));
         if self.screenshots.confirm_delete {
             let gone = shot.clone();
-            actions =
-                actions
-                    .child(
-                        text(theme::CAPTION)
-                            .text_color(t.danger)
-                            .child(tr("Move it to the trash?")),
-                    )
-                    .child(button("screenshot-keep", "Keep", Kind::Ghost, &t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
+            actions = actions
+                .child(
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                        .text_color(ui::danger())
+                        .child(tr("Move it to the trash?")),
+                )
+                .child(
+                    button("screenshot-keep", "Keep", Kind::Ghost).on_press(cx.listener(
+                        |this, _: &ClickEvent, _, cx| {
                             this.screenshots.confirm_delete = false;
                             cx.notify();
+                        },
+                    )),
+                )
+                .child(
+                    button("screenshot-trash", "Move to trash", Kind::Secondary).on_press(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.delete_screenshot(&gone);
+                            cx.notify();
                         }),
-                    ))
-                    .child(
-                        button("screenshot-trash", "Move to trash", Kind::Secondary, &t).on_click(
-                            cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.delete_screenshot(&gone);
-                                cx.notify();
-                            }),
-                        ),
-                    );
+                    ),
+                );
         } else {
             let (copy, open, show) = (shot.clone(), shot.path.clone(), shot.path.clone());
             actions =
                 actions
-                    .child(button("screenshot-copy", "Copy", Kind::Ghost, &t).on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.copy_screenshot(&copy, cx);
+                    .child(
+                        button("screenshot-copy", "Copy", Kind::Ghost).on_press(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| {
+                                this.copy_screenshot(&copy, cx);
+                                cx.notify();
+                            },
+                        )),
+                    )
+                    .child(
+                        button("screenshot-open", "Open", Kind::Ghost)
+                            .on_press(move |_, _, cx| crate::glass_toast::open(cx, &open)),
+                    )
+                    .child(
+                        button("screenshot-show", "Show in folder", Kind::Ghost)
+                            .on_press(move |_, _, cx| cx.reveal_path(&show)),
+                    )
+                    .child(button("screenshot-delete", "Delete", Kind::Ghost).on_press(
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.screenshots.confirm_delete = true;
                             cx.notify();
                         }),
-                    ))
-                    .child(
-                        button("screenshot-open", "Open", Kind::Ghost, &t)
-                            .on_click(move |_, _, cx| crate::glass_toast::open(cx, &open)),
-                    )
-                    .child(
-                        button("screenshot-show", "Show in folder", Kind::Ghost, &t)
-                            .on_click(move |_, _, cx| cx.reveal_path(&show)),
-                    )
-                    .child(
-                        button("screenshot-delete", "Delete", Kind::Ghost, &t).on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.screenshots.confirm_delete = true;
-                                cx.notify();
-                            }),
-                        ),
-                    );
+                    ));
         }
         let note = match &self.screenshots.note {
-            Some(Ok(m)) => Some(text(theme::CAPTION).text_color(t.muted).child(m.clone())),
-            Some(Err(e)) => Some(text(theme::CAPTION).text_color(t.danger).child(e.clone())),
+            Some(Ok(m)) => {
+                Some(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(m.clone()))
+            }
+            Some(Err(e)) => Some(error_note(e.clone())),
             None => None,
         };
         let top = div()
@@ -202,18 +206,11 @@ impl Launcher {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
+                    .child(ui::card_title(
+                        taken.format("%Y-%m-%d %H:%M:%S").to_string(),
+                    ))
                     .child(
-                        crate::glass_ui::text(
-                            17.,
-                            FontWeight::MEDIUM,
-                            eclipse_theme::glass::ink::FULL,
-                        )
-                        .text_color(t.ink)
-                        .child(taken.format("%Y-%m-%d %H:%M:%S").to_string()),
-                    )
-                    .child(
-                        text(theme::CAPTION)
-                            .text_color(t.muted)
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                             .truncate()
                             .child(trf(
                                 "{name} · {index} of {count}",
@@ -228,12 +225,17 @@ impl Launcher {
             .child(step("screenshot-newer", "← Newer", false, i > 0))
             .child(step("screenshot-older", "Older →", true, i + 1 < count))
             .child(
-                button("screenshot-close", "Close", Kind::Secondary, &t).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.screenshot_escape();
-                        cx.notify();
-                    },
-                )),
+                ui::icon_button(
+                    "screenshot-close",
+                    "cancel-01",
+                    tr("Close"),
+                    ui::Size::Md,
+                    false,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.screenshot_escape();
+                    cx.notify();
+                })),
             );
         let bottom = div()
             .flex()
@@ -254,7 +256,7 @@ impl Launcher {
                 .gap(px(14.))
                 .px(px(32.))
                 .py(px(24.))
-                .bg(t.page.opacity(0.96))
+                .bg(crate::glass::colour(crate::glass::Kind::Float))
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .occlude()
                 .child(top)
@@ -264,7 +266,9 @@ impl Launcher {
                         .relative()
                         .flex_1()
                         .min_h_0()
-                        .bg(t.plate_soft)
+                        .rounded(px(radius::ROW))
+                        .overflow_hidden()
+                        .bg(ui::well())
                         .children(picture.map(|image| {
                             gpui::img(image)
                                 .absolute()

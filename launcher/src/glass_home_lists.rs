@@ -1,12 +1,11 @@
-//! Home's Worlds and Multiplayer tabs in the glass look (the mockup's `Worlds` and
-//! `Multiplayer`, `launcher-views.tsx`): one `ROW` per world or server. A world's row plays it,
-//! its size turning into "Play →" under the pointer; its ⋯ menu holds what the launcher does
-//! besides (back up, copy, data packs, folder, delete). A server's row has Join, and Remove
-//! (clicked twice) under the pointer. Dark appearance only.
+//! Home's Worlds and Multiplayer tabs: one row per world or server. A world's row plays it, its
+//! size turning into "Play →" under the pointer; its ⋯ menu holds what the launcher does besides
+//! (back up, copy, data packs, folder, delete). A server's row has Join, and Remove under the
+//! pointer. Deleting or removing asks first, in place.
 use super::*;
 use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::worlds::World;
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{fill, ink, step};
 use gpui::{deferred, ExternalPaths};
 use std::path::Path;
 use worlds_page::Action;
@@ -14,9 +13,8 @@ use worlds_page::Action;
 /// A listener of the launcher's, boxed so a helper can return it.
 pub(super) type Listener<E> = Box<dyn Fn(&E, &mut Window, &mut App)>;
 
-/// The 36 px picture at a row's start (`PixelIcon` at 36), round at `round(36 · 0.26)`.
-const PICTURE: f32 = 36.;
-const PICTURE_RADIUS: f32 = 9.;
+/// The picture at a row's start.
+pub(super) const PICTURE: f32 = 36.;
 
 impl Launcher {
     /// Records whether the pointer is over the row `key`; the row then shows its actions.
@@ -37,12 +35,11 @@ impl Launcher {
 
     /// Home's Worlds tab: the selected instance's worlds, the last played first.
     pub(super) fn glass_worlds(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let home = self.selected_instance()?.home.clone();
         self.load_worlds(home.clone(), cx);
         let list = self.worlds.list.clone();
         let mut body = div().flex().flex_col();
-        // What the last back up, copy or delete did, where the mockup's toast would say it.
+        // What the last back up, copy or delete did.
         match self.worlds.done.clone() {
             Some(Ok((message, zip))) => {
                 let open = zip.map(|zip| {
@@ -53,9 +50,8 @@ impl Launcher {
                         tr("Open backups"),
                         Kind::Secondary,
                         ui::Size::Md,
-                        &t,
                     )
-                    .on_click(move |_, _, cx| crate::glass_toast::open(cx, &dir))
+                    .on_press(move |_, _, cx| crate::glass_toast::open(cx, &dir))
                 });
                 body = body.child(ui::list_head(message).children(open));
             }
@@ -70,9 +66,8 @@ impl Launcher {
                 tr("Open folder"),
                 Kind::Secondary,
                 ui::Size::Md,
-                &t,
             )
-            .on_click(move |_, _, cx| {
+            .on_press(move |_, _, cx| {
                 let _ = std::fs::create_dir_all(&saves);
                 crate::glass_toast::open(cx, &saves);
             });
@@ -94,7 +89,6 @@ impl Launcher {
     }
 
     fn glass_world_row(&mut self, w: &World, pictures: bool, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let key = SharedString::from(format!("world-{}", w.folder));
         let hovered = self.list_hover.as_ref() == Some(&key);
         let menu_open = self.list_menu.as_ref().is_some_and(|(k, _)| *k == key);
@@ -105,12 +99,12 @@ impl Launcher {
         facts.extend(w.version.clone());
         facts.push(glass_home::last_played(w.last_played));
         let hover = self.list_hover_listener(key.clone(), cx);
-        let mut row = ui::list_row(key.clone(), hovered || menu_open, hover, &t);
+        let mut row = ui::list_row(key.clone(), hovered || menu_open, hover);
         if can_play {
             let folder = w.folder.clone();
             row = row
                 .cursor_pointer()
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.quick_play("--world", folder.clone());
                     cx.notify();
                 }));
@@ -131,47 +125,68 @@ impl Launcher {
             ));
         }
         let size = if this_busy {
-            ui::text(13., FontWeight::NORMAL, ink::MUTED).child(tr("Working…"))
+            ui::text(
+                eclipse_theme::glass::step::NOTE,
+                FontWeight::NORMAL,
+                ink::MUTED,
+            )
+            .child(tr("Working…"))
         } else if hovered && can_play {
             div()
                 .flex()
                 .items_center()
                 .gap(px(4.))
-                .child(ui::text(13., FontWeight::MEDIUM, ink::FULL).child(tr("Play")))
-                .child(ui::icon("arrow-right-01", 15., white(ink::FULL)))
+                .child(
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::MEDIUM,
+                        ink::FULL,
+                    )
+                    .child(tr("Play")),
+                )
+                .child(ui::icon(
+                    "arrow-right-01",
+                    ui::IconSize::Px16,
+                    white(ink::FULL),
+                ))
         } else {
-            ui::text(13., FontWeight::NORMAL, ink::MUTED).child(megabytes(w.size))
+            ui::text(
+                eclipse_theme::glass::step::NOTE,
+                FontWeight::NORMAL,
+                ink::MUTED,
+            )
+            .child(megabytes(w.size))
         };
         let more = ui::icon_button(
             SharedString::from(format!("{key}-more")),
             "more-horizontal",
-            36.,
-            17.,
-            radius::CONTROL,
+            tr("More"),
+            ui::Size::Md,
             menu_open,
-            &t,
         )
-        .on_click(cx.listener({
+        .on_press(cx.listener({
             let key = key.clone();
-            move |this, event: &ClickEvent, _, cx| {
+            move |this, event: &ClickEvent, window, cx| {
                 if !this.closed_by_this_press(event) {
                     this.list_menu = match this.list_menu.take() {
                         Some((k, _)) if k == key => None,
                         _ => Some((key.clone(), false)),
                     };
+                    if this.list_menu.is_some() {
+                        this.opened_menu(window, cx);
+                    }
                 }
                 cx.stop_propagation();
                 cx.notify();
             }
         }));
-        // Under the pointer only, as the mockup's row actions: the size keeps the row's end.
         let mut more = div().relative().child(more);
         if menu_open {
             more = more.child(
                 deferred(
                     div()
                         .absolute()
-                        .top(px(44.))
+                        .top(px(ui::Size::Md.height() + ui::MENU_GAP))
                         .right_0()
                         .child(self.world_menu(w, cx)),
                 )
@@ -179,16 +194,16 @@ impl Launcher {
             );
         }
         div().child(
-            row.child(ui::list_text(w.name.clone(), facts.join(" · ")))
+            row.child(ui::item_text(w.name.clone(), facts.join(" · ")))
                 .child(size.relative())
-                .when(hovered || menu_open, |r| r.child(more)),
+                .child(more),
         )
     }
 
-    /// A world's ⋯ menu: Back up, Copy, its data packs, Open folder, then Delete… (asked twice).
+    /// A world's ⋯ menu: Back up, Copy, its data packs, Open folder, then Delete… (then asked to
+    /// confirm).
     fn world_menu(&mut self, w: &World, cx: &mut Context<Self>) -> Stateful<Div> {
-        let t = self.theme;
-        let confirm = self.list_menu.as_ref().is_some_and(|(_, c)| *c);
+        let confirming = self.list_menu.as_ref().is_some_and(|(_, c)| *c);
         let act = |this: &mut Self, action: Action, w: &World, cx: &mut Context<Self>| {
             this.list_menu = None;
             this.world_action(action, w.clone(), cx);
@@ -201,47 +216,56 @@ impl Launcher {
         } else {
             tr("Data packs")
         };
-        let delete = ui::menu_row(
-            "world-menu-delete",
-            "delete-02",
-            if confirm {
-                tr("Click again to delete")
-            } else {
-                tr("Delete…")
-            },
-            true,
-            &t,
-        )
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            match this.list_menu.as_mut() {
-                Some((_, confirm)) if !*confirm => *confirm = true,
-                _ => act(this, Action::Delete, &gone, cx),
-            }
-            cx.notify();
-        }));
-        ui::popover(230.)
-            .id("world-menu")
-            .occlude()
+        let delete = if confirming {
+            confirm(
+                "world-menu-delete",
+                trf("Delete {name}?", &[("name", &w.name)]),
+                tr("Delete"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    if let Some((_, confirm)) = this.list_menu.as_mut() {
+                        *confirm = false;
+                    }
+                    cx.notify();
+                }),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    act(this, Action::Delete, &gone, cx)
+                }),
+            )
+            .px(px(ui::PANEL_INSET))
+            .py(px(ui::LIST_INSET))
+            .into_any_element()
+        } else {
+            ui::menu_row("world-menu-delete", "delete-02", tr("Delete…"), true)
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    if let Some((_, confirm)) = this.list_menu.as_mut() {
+                        *confirm = true;
+                    }
+                    cx.notify();
+                }))
+                .into_any_element()
+        };
+        ui::popover("world-menu")
             .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
                 this.list_menu = None;
                 this.menu_closed_at = Some(event.position);
                 cx.notify();
             }))
             .child(
-                ui::menu_row("world-menu-backup", "download-04", tr("Back up"), false, &t)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                ui::menu_row("world-menu-backup", "download-04", tr("Back up"), false).on_press(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
                         act(this, Action::Backup, &backup, cx)
-                    })),
+                    }),
+                ),
             )
             .child(
-                ui::menu_row("world-menu-copy", "copy-01", tr("Copy"), false, &t).on_click(
+                ui::menu_row("world-menu-copy", "copy-01", tr("Copy"), false).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         act(this, Action::Copy, &copy, cx)
                     }),
                 ),
             )
             .child(
-                ui::menu_row("world-menu-packs", "package-01", packs_label, false, &t).on_click(
+                ui::menu_row("world-menu-packs", "package-01", packs_label, false).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.list_menu = None;
                         this.toggle_world_packs(&packs);
@@ -250,18 +274,13 @@ impl Launcher {
                 ),
             )
             .child(
-                ui::menu_row(
-                    "world-menu-folder",
-                    "folder-01",
-                    tr("Open folder"),
-                    false,
-                    &t,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.list_menu = None;
-                    crate::glass_toast::open(cx, &folder);
-                    cx.notify();
-                })),
+                ui::menu_row("world-menu-folder", "folder-01", tr("Open folder"), false).on_press(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.list_menu = None;
+                        crate::glass_toast::open(cx, &folder);
+                        cx.notify();
+                    }),
+                ),
             )
             .child(div().mt(px(4.)).child(delete))
     }
@@ -269,7 +288,6 @@ impl Launcher {
     /// Home's Multiplayer tab: the selected instance's saved servers (the game's own list), and
     /// a line to add one.
     pub(super) fn glass_multiplayer(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let instance = self.selected_instance()?;
         let (home, name) = (instance.home.clone(), instance.name.clone());
         self.load_servers(home);
@@ -282,11 +300,10 @@ impl Launcher {
                 "server-add",
                 Some("plus-sign"),
                 tr("Add server"),
-                Kind::Primary,
+                Kind::Secondary,
                 ui::Size::Md,
-                &t,
             )
-            .on_click(toggle_add(cx));
+            .on_press(toggle_add(cx));
             return Some(body.child(ui::empty_state(
                 "multiplayer-empty",
                 "globe-02",
@@ -297,6 +314,7 @@ impl Launcher {
         }
         let count = list.len().to_string();
         let note = match list.len() {
+            0 => tr("No servers saved").into(),
             1 => trf("1 server in {name}", &[("name", &name)]),
             _ => trf(
                 "{count} servers in {name}",
@@ -311,9 +329,8 @@ impl Launcher {
                     tr("Add server"),
                     Kind::Secondary,
                     ui::Size::Md,
-                    &t,
                 )
-                .on_click(toggle_add(cx)),
+                .on_press(toggle_add(cx)),
             ),
         );
         if let Some(e) = self.multiplayer.error.clone() {
@@ -339,12 +356,21 @@ impl Launcher {
                         300.,
                         cx,
                     ))
-                    .child(ui::solid("server-save", tr("Add"), 44., 14., &t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.add_server();
-                            cx.notify();
-                        }),
-                    )),
+                    .child(
+                        ui::button(
+                            "server-save",
+                            None,
+                            tr("Add"),
+                            Kind::Secondary,
+                            ui::Size::Lg,
+                        )
+                        .on_press(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.add_server();
+                                cx.notify();
+                            },
+                        )),
+                    ),
             );
         }
         let pictures = list.iter().any(|(_, icon)| icon.is_some());
@@ -362,13 +388,12 @@ impl Launcher {
         pictures: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let t = self.theme;
         let key = SharedString::from(format!("server-{i}"));
         let hovered = self.list_hover.as_ref() == Some(&key);
         let confirming = self.multiplayer.confirm_remove == Some(i);
         let hover = self.list_hover_listener(key.clone(), cx);
         let ip = server.ip.clone();
-        // The mockup's dot and "address · 3 of 10", or "Offline" with Join off.
+        // The dot and "address · 3 of 10", or "Offline" with Join off.
         let reach = self
             .multiplayer
             .reach
@@ -399,57 +424,47 @@ impl Launcher {
             tr("Join"),
             Kind::Secondary,
             ui::Size::Md,
-            &t,
         );
         let join = if self.can_join_selected() && !offline {
-            join.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            join.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.quick_play("--server", ip.clone());
                 cx.notify();
             }))
         } else {
             crate::disabled(join)
         };
-        let remove = (hovered || confirming).then(|| {
-            if confirming {
-                danger_button(
-                    SharedString::from(format!("{key}-remove")),
-                    tr("Click again to remove").into(),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let remove = SharedString::from(format!("{key}-remove"));
+        let end = if confirming {
+            confirm(
+                remove,
+                trf("Remove {name}?", &[("name", &server.name)]),
+                tr("Remove"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.multiplayer.confirm_remove = None;
+                    cx.notify();
+                }),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.edit_servers(|list| list.remove(i).map(|_| ()));
                     cx.notify();
-                }))
-                .into_any_element()
-            } else {
-                div()
-                    .child(
-                        ui::icon_button(
-                            SharedString::from(format!("{key}-delete")),
-                            "delete-02",
-                            36.,
-                            17.,
-                            radius::CONTROL,
-                            false,
-                            &t,
-                        )
-                        .on_click(cx.listener(
-                            move |this, _: &ClickEvent, _, cx| {
-                                this.multiplayer.confirm_remove = Some(i);
-                                cx.notify();
-                            },
-                        )),
-                    )
-                    .into_any_element()
-            }
-        });
-        ui::list_row(key, hovered || confirming, hover, &t)
+                }),
+            )
+        } else {
+            div().flex().items_center().gap(px(8.)).child(join).child(
+                ui::icon_button(remove, "delete-02", tr("Remove…"), ui::Size::Md, false).on_press(
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.multiplayer.confirm_remove = Some(i);
+                        cx.notify();
+                    }),
+                ),
+            )
+        };
+        ui::list_row(key, hovered || confirming, hover)
             .child(div().relative().flex_none().child(ui::dot(tone)))
             .when(pictures, |r| {
                 r.child(picture(icon.map(gpui::ImageSource::from), "globe-02"))
             })
-            .child(ui::list_text(server.name, line))
-            .child(join.relative())
-            .children(remove.map(|r| div().relative().child(r)))
+            .child(ui::item_text(server.name, line))
+            .child(end.relative().flex_none())
     }
 }
 
@@ -468,22 +483,10 @@ fn toggle_add(cx: &mut Context<Launcher>) -> Listener<ClickEvent> {
 /// A row's 36 px picture, or a plain tile with `fallback`'s icon.
 pub(super) fn picture(image: Option<gpui::ImageSource>, fallback: &'static str) -> AnyElement {
     match image {
-        Some(image) => gpui::img(image)
+        Some(image) => ui::image_tile(image, PICTURE),
+        None => ui::tile(PICTURE)
             .relative()
-            .flex_none()
-            .size(px(PICTURE))
-            .rounded(px(PICTURE_RADIUS))
-            .into_any_element(),
-        None => div()
-            .relative()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(PICTURE))
-            .rounded(px(PICTURE_RADIUS))
-            .bg(white(fill::BUTTON))
-            .child(ui::icon(fallback, 17., white(ink::MUTED)))
+            .child(ui::icon(fallback, ui::IconSize::Px16, white(ink::MUTED)))
             .into_any_element(),
     }
 }
@@ -491,28 +494,66 @@ pub(super) fn picture(image: Option<gpui::ImageSource>, fallback: &'static str) 
 /// Why an action failed, in the menu's Delete red, over the list.
 pub(super) fn danger_line(message: String) -> Div {
     div().px(px(12.)).pb(px(8.)).child(
-        ui::text(13., FontWeight::NORMAL, ink::FULL)
-            .text_color(ui::danger())
-            .child(message),
+        ui::text(
+            eclipse_theme::glass::step::NOTE,
+            FontWeight::NORMAL,
+            ink::FULL,
+        )
+        .text_color(ui::danger())
+        .child(message),
     )
 }
 
-/// A destructive button's second step (the menu's "Click again to delete"): its red text on
-/// red at 12 % under the pointer.
-pub(super) fn danger_button(id: SharedString, label: SharedString) -> Stateful<Div> {
+pub(super) fn confirm(
+    id: impl Into<SharedString>,
+    question: String,
+    verb: &'static str,
+    cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+) -> Div {
+    let id: SharedString = id.into();
     div()
-        .id(id)
         .flex()
-        .flex_none()
+        .flex_wrap()
         .items_center()
-        .h(px(36.))
-        .px(px(12.))
-        .rounded(px(radius::CONTROL))
-        .cursor_pointer()
-        .hover(|s| s.bg(gpui::rgba(eclipse_theme::glass::DANGER_HOVER << 8 | 0x1f)))
+        .justify_end()
+        .gap(px(8.))
         .child(
-            ui::text(13., FontWeight::MEDIUM, ink::FULL)
+            ui::text(step::NOTE, FontWeight::MEDIUM, ink::FULL)
+                .flex_grow_1()
                 .text_color(ui::danger())
-                .child(label),
+                .child(question),
         )
+        .child(
+            div()
+                .flex()
+                .gap(px(8.))
+                .child(
+                    ui::button(id.clone(), None, tr("Cancel"), Kind::Ghost, ui::Size::Sm)
+                        .on_press(cancel),
+                )
+                .child(
+                    ui::button(
+                        format!("{id}-confirm"),
+                        None,
+                        verb,
+                        Kind::Secondary,
+                        ui::Size::Sm,
+                    )
+                    .text_color(ui::danger())
+                    .on_press(sure),
+                ),
+        )
+}
+
+impl Launcher {
+    pub(super) fn confirm_escape(&mut self) -> bool {
+        let asking = self.confirm_remove.is_some()
+            || self.multiplayer.confirm_remove.is_some()
+            || self.game_packs.confirm_remove.is_some();
+        self.confirm_remove = None;
+        self.multiplayer.confirm_remove = None;
+        self.game_packs.confirm_remove = None;
+        asking
+    }
 }

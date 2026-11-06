@@ -1,28 +1,33 @@
-//! The Settings page in the glass look: the mockup's `SettingsView`. A list of the sections on
-//! the left, and the sections as glass cards in a pane that scrolls on its own under the title;
-//! the list follows the scroll and takes the pane to a section. The rows inside are the mockup's
-//! `SettingRow`s ([`glass_ui::flat_rows`]).
-//!
-//! Not in the mockup, kept in its patterns: the appearance, the Home background, the logs folder
-//! and the applications menu (rows under About's tiles), the AI clients, data collection (its own
-//! entry in the list) and the hidden developer options. The mockup's Native mods switch is the
-//! native mods' build profile here: they are always on.
+//! The Settings page: the sections as cards in a pane that scrolls on its own under the title,
+//! and a list of the sections beside them (a row of tabs under the title in a narrow window);
+//! the list follows the scroll and takes the pane to a section.
 
 use super::*;
 use crate::glass_ui::{self as ui, white};
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{fill, ink, radius, step};
 
-/// The list's entries: name and icon. The mockup's seven, then data collection.
-const SECTIONS: [(&str, &str); 8] = [
-    ("Account", "user"),
-    ("Updates", "refresh"),
-    ("Launcher", "computer"),
-    ("Network", "globe-02"),
-    ("Game", "game-controller-01"),
-    ("AI", "ai-chat-02"),
-    ("About", "information-circle"),
-    ("Data collection", "view"),
+const SECTIONS: [(&str, &str, &str); 8] = [
+    ("account", "Account", "user"),
+    ("updates", "Updates", "refresh"),
+    ("appearance", "Appearance", "color-picker"),
+    ("network", "Network", "globe-02"),
+    ("game", "Game", "game-controller-01"),
+    ("ai", "AI", "ai-chat-02"),
+    ("about", "About", "information-circle"),
+    ("data-collection", "Data collection", "view"),
 ];
+
+const SECTION_TABS_BELOW: f32 = 1100.;
+
+const SECTION_LIST_WIDTH: f32 = 184.;
+
+const SECTION_LIST_GAP: f32 = 12.;
+
+const SECTION_ROW: f32 = 32.;
+
+const SECTION_ROW_SHORT: f32 = 28.;
+
+const WIDE_CONTROL_BESIDE: f32 = 840.;
 
 /// What `settings_page` builds before it knows which look draws it.
 pub(super) struct Built {
@@ -36,16 +41,14 @@ pub(super) struct Built {
     pub launcher_action: Option<AnyElement>,
 }
 
-/// A section's card (`hzl-glass rounded-[20px] p-2`).
 fn card() -> Div {
     crate::glass::plate(radius::PANEL)
         .flex()
         .flex_col()
-        .p(px(8.))
+        .p(px(ui::LIST_INSET))
 }
 
-/// An About tile (`rounded-[14px] bg-white/[0.045] p-5`): its lead, name, a line under it and
-/// what it does.
+/// An About tile: its lead, name, a line under it and what it does.
 fn about_tile(lead: AnyElement, title: String, note: String, action: AnyElement) -> Div {
     div()
         .flex()
@@ -57,25 +60,31 @@ fn about_tile(lead: AnyElement, title: String, note: String, action: AnyElement)
         .p(px(20.))
         .child(div().child(lead))
         .child(
-            ui::text(15., FontWeight::SEMIBOLD, ink::FULL)
+            ui::text(step::LEAD, FontWeight::SEMIBOLD, ink::FULL)
                 .mt(px(16.))
                 .child(title),
         )
         .child(
-            ui::text(13., FontWeight::NORMAL, ink::MUTED)
+            ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                 .mt(px(2.))
                 .truncate()
                 .child(note),
         )
-        .child(div().mt(px(16.)).flex().items_start().child(action))
+        .child(
+            div()
+                .mt(px(16.))
+                .flex()
+                .flex_col()
+                .items_start()
+                .child(action),
+        )
 }
 
 /// The scroll spy: which section is being read, given each section's top from the pane's top
 /// (`tops`, in order), the pane's `height`, how far it is `scrolled` and how far it can be (`max`).
-/// The last section whose top passed a reading line, which sits at 30 % of the pane (the mockup's)
-/// and slides down to the pane's bottom over the last 70 % of a pane of scroll: the short last
-/// sections, which never reach 30 %, each come in turn as the end nears, instead of the mockup's
-/// jump from wherever it was to the last one at the very end.
+/// The last section whose top passed a reading line, which sits at 30 % of the pane and slides
+/// down to the pane's bottom over the last 70 % of a pane of scroll: the short last sections,
+/// which never reach 30 %, each come in turn as the end nears.
 fn spy(tops: &[f32], height: f32, scrolled: f32, max: f32) -> usize {
     if scrolled <= 0. {
         return 0;
@@ -91,40 +100,80 @@ fn spy(tops: &[f32], height: f32, scrolled: f32, max: f32) -> usize {
     tops.iter().rposition(|&top| top <= line + 0.5).unwrap_or(0)
 }
 
+fn section_row(
+    id: String,
+    icon: &'static str,
+    label: &'static str,
+    current: bool,
+) -> Stateful<Div> {
+    let height = if ui::short_window() {
+        SECTION_ROW_SHORT
+    } else {
+        SECTION_ROW
+    };
+    ui::selected(
+        ui::hoverable(id, radius::ROW, ui::Hover::Row)
+            .flex()
+            .flex_none()
+            .items_center()
+            .gap(px(10.))
+            .h(px(height))
+            .px(px(10.))
+            .cursor_pointer()
+            .child(ui::icon(icon, ui::IconSize::Px16, white(ink::MUTED)).relative())
+            .child(
+                ui::text(
+                    step::BODY,
+                    FontWeight::MEDIUM,
+                    if current { ink::FULL } else { ink::BODY },
+                )
+                .relative()
+                .min_w_0()
+                .truncate()
+                .child(label),
+            ),
+        current,
+    )
+}
+
+pub(super) fn wide_row(
+    beside: bool,
+    title: impl IntoElement,
+    note: Option<AnyElement>,
+    control: AnyElement,
+) -> Div {
+    if beside {
+        ui::setting_row(title, note, Some(control))
+    } else {
+        ui::setting_row_stacked(title, note, div().flex().child(control).into_any_element())
+    }
+}
+
 impl Launcher {
     pub(super) fn glass_settings(&mut self, b: Built, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let sections = ui::flat_rows(|| self.glass_settings_sections(b, cx));
+        let sections = self.glass_settings_sections(b, cx);
         let shown = sections.len();
         let active = self.settings_section(shown);
         self.settings_marked = active;
-        let nav = card().flex_none().w(px(210.)).gap(px(4.)).children(
-            SECTIONS[..shown]
-                .iter()
-                .enumerate()
-                .map(|(i, &(label, icon))| {
-                    ui::nav_row(
-                        format!("settings-nav-{i}"),
-                        icon,
-                        tr(label),
-                        i == active,
-                        &t,
-                    )
-                    .on_click(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.settings_pane.scroll_to_top_of_item(i);
-                            cx.notify();
-                        },
-                    ))
-                }),
-        );
-        let pane = div()
-            .id("settings-pane")
-            .flex_1()
-            .min_w_0()
-            .h_full()
-            .overflow_y_scroll()
-            .track_scroll(&self.settings_pane)
+        let tabs = self.window_width < SECTION_TABS_BELOW;
+        let entries: Vec<Stateful<Div>> = SECTIONS[..shown]
+            .iter()
+            .enumerate()
+            .map(|(i, &(id, label, icon))| {
+                let id = format!("settings-section-{id}");
+                let entry = if tabs {
+                    ui::tab(id, tr(label), i == active)
+                } else {
+                    section_row(id, icon, tr(label), i == active)
+                };
+                entry.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.settings_pane.scroll_to_top_of_item(i);
+                    cx.notify();
+                }))
+            })
+            .collect();
+        let pane = ui::scroll_pane("settings-pane", &self.settings_pane)
+            .size_full()
             // A scroll redraws the pane from its layer without rendering the page again, so the
             // list follows it here: on the next frame, once the offset has moved, and only when
             // the section changed.
@@ -141,21 +190,65 @@ impl Launcher {
             .gap(px(16.))
             .pb(px(8.))
             .children(sections);
+        let pane = div()
+            .relative()
+            .flex_1()
+            .min_w_0()
+            .min_h_0()
+            .child(pane)
+            .children(ui::more_below_fade(&self.settings_pane, self.theme.page));
+        let body = if tabs {
+            div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_h_0()
+                .child(
+                    div()
+                        .id("settings-sections")
+                        .flex()
+                        .flex_wrap()
+                        .items_center()
+                        .ml(px(-ui::TAB_PAD))
+                        .mb(px(SECTION_LIST_GAP))
+                        .children(entries),
+                )
+                .child(pane)
+        } else {
+            div()
+                .flex()
+                .gap(px(SECTION_LIST_GAP))
+                .flex_1()
+                .min_h_0()
+                .child(
+                    card()
+                        .id("settings-sections")
+                        .flex_none()
+                        .self_start()
+                        .w(px(SECTION_LIST_WIDTH))
+                        .gap(px(2.))
+                        .children(entries),
+                )
+                .child(pane)
+        };
         div()
             .flex()
             .flex_col()
             .w_full()
             .h_full()
             .child(ui::page_head(tr("Settings"), ""))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(12.))
-                    .flex_1()
-                    .min_h_0()
-                    .child(nav)
-                    .child(pane),
-            )
+            .child(body)
+    }
+
+    pub(super) fn wide_controls_beside(&self) -> bool {
+        let content =
+            (self.window_width - layout::SIDEBAR - 2. * layout::PAGE_GUTTER).min(layout::PAGE_MAX);
+        let list = if self.window_width < SECTION_TABS_BELOW {
+            0.
+        } else {
+            SECTION_LIST_WIDTH + SECTION_LIST_GAP
+        };
+        content - list >= WIDE_CONTROL_BESIDE
     }
 
     /// The section the list marks, from where the pane's sections are now ([`spy`]). A section's
@@ -177,45 +270,34 @@ impl Launcher {
         )
     }
 
-    /// The Game card's switch for registry mods' automatic updates (`eclipse::auto`).
-    fn mods_auto_update_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
+    /// The Updates card's switch for registry mods' automatic updates (`eclipse::auto`).
+    fn mods_auto_update_row(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let on = self.settings.auto_updates_mods();
-        ui::setting_row(
+        ui::toggle_row(
+            "mods-auto-update",
             tr("Update Eclipse mods automatically"),
-            Some(
-                div()
-                    .child(tr(
-                        "An update that would remove blocks or items waits for you.",
-                    ))
-                    .into_any_element(),
-            ),
-            Some(
-                crate::switch("mods-auto-update", on, &t)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.settings.mods_auto_update = Some(!this.settings.auto_updates_mods());
-                        this.save_settings();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            ),
+            None,
+            on,
         )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.mods_auto_update = Some(!this.settings.auto_updates_mods());
+            this.save_settings();
+            cx.notify();
+        }))
     }
 
-    /// The Game card's Native mods row. The mockup has an on/off switch; native mods are always
-    /// on here, so the row picks the profile they build with, as the Mods page does.
+    /// The Game card's Native mods row: native mods are always on, so the row picks the profile
+    /// they build with, as the Mods page does.
     fn native_mods_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let profile = native_mods::Profile::chosen(&self.settings);
-        let picker = segments(
+        let picker = ui::segments(
             "settings-native-profile",
             &[
-                (native_mods::Profile::Performance, "Performance build"),
-                (native_mods::Profile::Dev, "Dev build"),
-                (native_mods::Profile::Release, "Release build"),
+                (native_mods::Profile::Performance, "Performance"),
+                (native_mods::Profile::Dev, "Dev"),
+                (native_mods::Profile::Release, "Release"),
             ],
             profile,
-            &t,
             {
                 let this = cx.entity().downgrade();
                 move |choice, _, cx| {
@@ -234,19 +316,44 @@ impl Launcher {
             native_mods::Profile::Dev => tr("For mod authors: faster rebuilds, slower game"),
             native_mods::Profile::Release => tr("Slower to build, slightly faster game"),
         };
-        ui::setting_row(
+        wide_row(
+            self.wide_controls_beside(),
             tr("Native mod build"),
             Some(
                 div()
                     .child(format!("{} {said}.", tr("Experimental.")))
                     .into_any_element(),
             ),
-            Some(picker.into_any_element()),
+            picker.into_any_element(),
         )
     }
 
-    /// About's three tiles (the mockup's `AboutTile`s): Eclipse and its update, the launcher and
-    /// its own, and the data folder.
+    fn reduce_motion_row(&mut self, cx: &mut Context<Self>) -> Div {
+        let system = if crate::motion::system_reduces_motion() {
+            "System (On)"
+        } else {
+            "System (Off)"
+        };
+        let picker = ui::segments(
+            "reduce-motion",
+            &[(None, system), (Some(true), "On"), (Some(false), "Off")],
+            self.settings.reduce_motion,
+            {
+                let this = cx.entity().downgrade();
+                move |choice, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings.reduce_motion = choice;
+                        crate::motion::set_reduce_motion(choice);
+                        this.save_settings();
+                        cx.notify();
+                    });
+                }
+            },
+        );
+        ui::setting_row(tr("Reduce motion"), None, Some(picker.into_any_element()))
+    }
+
+    /// About's three tiles: Eclipse and its update, the launcher and its own, and the data folder.
     fn about_tiles(
         &mut self,
         eclipse: String,
@@ -254,7 +361,6 @@ impl Launcher {
         launcher: String,
         launcher_action: Option<AnyElement>,
     ) -> Div {
-        let t = self.theme;
         let installed = self
             .settings
             .selected
@@ -275,28 +381,28 @@ impl Launcher {
         } else {
             ui::Tone::Busy
         };
-        let ink = match tone {
+        let colour = match tone {
             ui::Tone::Live => ui::live(),
             ui::Tone::Warn => ui::warn(),
             _ => white(ink::BODY),
         };
-        let status = div()
+        let status = ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
             .flex()
-            .items_center()
+            .w_full()
             .gap(px(8.))
-            .text_size(px(13.))
-            .text_color(ink)
-            .child(ui::dot(tone))
-            .child(div().min_w_0().truncate().child(eclipse));
+            .text_color(colour)
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .h(px(step::NOTE.line))
+                    .child(ui::dot(tone)),
+            )
+            .child(div().min_w_0().child(eclipse));
         let square = |icon: &'static str| {
-            div()
-                .flex()
-                .items_center()
-                .justify_center()
-                .size(px(42.))
-                .rounded(px(radius::PANEL))
-                .bg(white(fill::BUTTON))
-                .child(ui::icon(icon, 21., white(ink::STRONG)))
+            ui::tile(42.)
+                .child(ui::icon(icon, ui::IconSize::Px16, white(ink::STRONG)))
                 .into_any_element()
         };
         let open = ui::button(
@@ -305,9 +411,8 @@ impl Launcher {
             tr("Open"),
             Kind::Secondary,
             ui::Size::Md,
-            &t,
         )
-        .on_click(|_, _, cx| crate::glass_toast::open(cx, &backend::data_dir()))
+        .on_press(|_, _, cx| crate::glass_toast::open(cx, &backend::data_dir()))
         .into_any_element();
         div()
             .flex()
@@ -320,6 +425,7 @@ impl Launcher {
                     .flex()
                     .flex_col()
                     .items_start()
+                    .w_full()
                     .gap(px(12.))
                     .child(status)
                     .children(eclipse_action)
@@ -340,85 +446,57 @@ impl Launcher {
     }
 
     /// The cards, one per entry of [`SECTIONS`], in its order.
-    fn glass_settings_sections(&mut self, b: Built, cx: &mut Context<Self>) -> Vec<Div> {
-        let t = self.theme;
-        let titled = |i: usize| card().child(ui::label(tr(SECTIONS[i].0)).px(px(16.)).pt(px(16.)));
-        let account = titled(0).child(self.glass_account(cx));
-        let updates = titled(1)
-            .child(index_row(
-                tr("Install new versions automatically"),
-                None,
-                Some(b.install.into_any_element()),
-                &t,
-            ))
-            .child(index_row(
-                tr("Delete old versions automatically"),
-                Some(
-                    div()
-                        .child(trf(
-                            "Keeps the {count} newest and any your instances use.",
-                            &[("count", &self.settings.keep_newest().to_string())],
-                        ))
-                        .into_any_element(),
-                ),
-                Some(b.prune.into_any_element()),
-                &t,
-            ));
-        let launcher = titled(2)
-            .child(index_row(tr("Appearance"), None, Some(b.appearance), &t))
-            .child(self.launcher_theme_row(cx))
+    fn glass_settings_sections(&mut self, b: Built, cx: &mut Context<Self>) -> Vec<Stateful<Div>> {
+        let section = |i: usize| card().id(format!("settings-{}", SECTIONS[i].0));
+        let account = section(0).child(self.glass_account(cx));
+        let updates = section(1)
+            .child(b.install)
+            .child(b.prune)
+            .child(self.mods_auto_update_row(cx));
+        let appearance = section(2)
+            .child(ui::setting_row(tr("Colour mode"), None, Some(b.appearance)))
             .child(self.glass_accent_row(cx))
+            .child(self.launcher_theme_row(cx))
             .child(self.home_background_row(cx))
+            .child(self.reduce_motion_row(cx))
             .child(self.language_row(cx))
-            .child(self.while_playing_row(cx))
             .child(self.reset_look_row(cx));
-        let network = titled(3).child(self.proxy_row(cx));
-        let game = titled(4)
+        let network = section(3).child(self.proxy_row(cx));
+        let game = section(4)
+            .child(self.while_playing_row(cx))
             .child(self.game_architecture_row(cx))
             .child(self.game_args_row(cx))
-            .child(self.mods_auto_update_row(cx))
             .child(self.native_mods_row(cx));
-        let ai = titled(5)
-            .child(self.no_ai_row(cx))
+        let ai = section(5)
+            .child(self.ai_features_row(cx))
             .children(self.agents_section(cx));
         let mono = |s: String| {
             div()
                 .font_family(theme::MONO)
-                .text_size(px(12.))
+                .text_size(px(step::CAPTION.size))
                 .child(s)
                 .into_any_element()
         };
-        let about = titled(6)
-            .child(
-                self.about_tiles(b.eclipse, b.eclipse_action, b.launcher, b.launcher_action)
-                    .mt(px(12.)),
-            )
-            .child(index_row(
+        let about = section(6)
+            .child(self.about_tiles(b.eclipse, b.eclipse_action, b.launcher, b.launcher_action))
+            .child(ui::setting_row(
                 tr("Logs"),
                 Some(mono(short(&backend::logs_dir()))),
                 Some(
-                    button("open-logs", "Open", Kind::Secondary, &t)
-                        .on_click(|_, _, cx| {
+                    button("open-logs", "Open", Kind::Secondary)
+                        .on_press(|_, _, cx| {
                             let dir = backend::logs_dir();
                             let _ = std::fs::create_dir_all(&dir);
                             crate::glass_toast::open(cx, &dir);
                         })
                         .into_any_element(),
                 ),
-                &t,
             ))
-            .when(cfg!(target_os = "linux"), |d| {
-                d.child(index_row(
-                    tr("Show in applications menu"),
-                    None,
-                    Some(b.menu_entry.into_any_element()),
-                    &t,
-                ))
-            })
+            .when(cfg!(target_os = "linux"), |d| d.child(b.menu_entry))
             .children(self.dev_options_section(cx));
-        let mut cards = vec![account, updates, launcher, network, game, ai, about];
+        let mut cards = vec![account, updates, appearance, network, game, ai, about];
         if eclipse_telemetry::endpoint().is_some() {
-            cards.push(titled(7).child(self.collection_section(cx)));
+            cards.push(section(7).child(self.collection_section(cx)));
         }
         cards
     }
@@ -428,8 +506,8 @@ impl Launcher {
 mod tests {
     use super::spy;
 
-    /// A 600 px pane over the mockup's eight cards: tall ones, then About and Data collection,
-    /// too short for their tops ever to reach 30 % of the pane.
+    /// A 600 px pane over eight cards: tall ones, then About and Data collection, too short for
+    /// their tops ever to reach 30 % of the pane.
     const TOPS: [f32; 8] = [0., 420., 700., 1000., 1300., 1600., 1900., 2100.];
     const HEIGHT: f32 = 600.;
     const MAX: f32 = 2300. - HEIGHT;

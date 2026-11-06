@@ -1,7 +1,7 @@
-//! New instance's kinds (docs/design-system.md, "Night"; plan R0, screen 4): Eclipse, Vanilla
-//! (Minecraft: Java Edition as Mojang ships it) and Modded (with Fabric, Quilt, Forge or NeoForge). A Java kind picks
-//! its version from Mojang's public list (`minecraft_versions`), fetched once when the page first
-//! needs it; the game itself comes with the first Play, for an account that owns it.
+//! New instance's kinds: Eclipse, Vanilla (Minecraft: Java Edition as Mojang ships it) and Modded
+//! (with Fabric, Quilt, Forge or NeoForge). A Java kind picks its version from Mojang's public
+//! list (`minecraft_versions`), fetched once when the page first needs it; the game itself comes
+//! with the first Play, for an account that owns it.
 use super::*;
 use eclipse_launcher::loaders::{self, Kind as Loader};
 use eclipse_launcher::minecraft_versions::Versions;
@@ -111,8 +111,8 @@ impl Launcher {
         self.instances.draft.as_mut().map(|d| &mut d.java)
     }
 
-    /// The name a new instance gets for what it plays now (the mockup's `defaultName`): "My
-    /// Eclipse", "Vanilla 1.21.4", "Fabric 1.21.4", numbered past the ones already taken.
+    /// The name a new instance gets for what it plays now: "My Eclipse", "Vanilla 1.21.4",
+    /// "Fabric 1.21.4", numbered past the ones already taken.
     fn default_name(&self) -> Option<String> {
         let j = &self.instances.draft.as_ref()?.java;
         let versions = match &self.instances.versions {
@@ -230,8 +230,6 @@ impl Launcher {
         .detach();
     }
 }
-
-impl Launcher {}
 
 /// Makes a Java instance: `name`, playing `minecraft`, with the loader version chosen for Modded
 /// (none: its newest stable one), asked of its service now, so a version it doesn't support

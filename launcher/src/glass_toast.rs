@@ -1,6 +1,4 @@
-//! What the launcher just did, said for 4.2 s (the mockup's `say`): on a wide window (1280 px
-//! and more) a line in the top bar between the pages and the account, right-aligned at 70 %;
-//! narrower, a glass toast along the window's bottom (`hzl-float`, 20 px corners).
+//! What the launcher just did, said for 4.2 s in a toast at the window's bottom right.
 //!
 //! Any handler can say something, even one with only `&mut App`: the line waits here and the
 //! launcher's drain (every 80 ms) draws it, then lets it go.
@@ -11,7 +9,7 @@ use eclipse_theme::glass::ink;
 use std::path::Path;
 use std::sync::Mutex;
 
-/// How long a line stays (`setTimeout(…, 4200)`).
+/// How long a line stays.
 const SHOWN: Duration = Duration::from_millis(4200);
 
 /// The line, when it was said, and its number (a new one restarts the 4.2 s).
@@ -33,7 +31,7 @@ fn current() -> Option<(String, u64)> {
     line.as_ref().map(|l| (l.0.clone(), l.2))
 }
 
-/// `/Users/me/x` as `~/x`, as the mockup writes folders.
+/// `/Users/me/x` as `~/x`.
 pub(super) fn tilde(path: &Path) -> String {
     let shown = path.display().to_string();
     match std::env::var("HOME") {
@@ -73,10 +71,14 @@ impl Launcher {
                         .px(px(14.))
                         .py(px(10.))
                         .child(
-                            ui::text(13., FontWeight::NORMAL, ink::FULL)
-                                .relative()
-                                .text_color(white(ink::FULL))
-                                .child(text),
+                            ui::text(
+                                eclipse_theme::glass::step::NOTE,
+                                FontWeight::NORMAL,
+                                ink::FULL,
+                            )
+                            .relative()
+                            .text_color(white(ink::FULL))
+                            .child(text),
                         )
                         .with_animation(
                             ElementId::named_usize("toast", n as usize),

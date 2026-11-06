@@ -534,9 +534,50 @@ pub(crate) fn get(url: &str) -> Result<ureq::Response, String> {
         {
             "GitHub's rate limit was reached. Try again in a few minutes.".into()
         }
-        ureq::Error::Status(code, _) => format!("{url} answered {code}"),
-        ureq::Error::Transport(t) => format!("No connection: {t}"),
+        other => network_error(url, other),
     })
+}
+
+pub fn network_error(url: &str, e: ureq::Error) -> String {
+    use crate::i18n::trf;
+    let host = url
+        .split("://")
+        .nth(1)
+        .and_then(|rest| rest.split(['/', ':']).next())
+        .unwrap_or(url);
+    let host = if host == "github.com"
+        || host.ends_with(".github.com")
+        || host.ends_with(".githubusercontent.com")
+    {
+        "GitHub"
+    } else {
+        host
+    };
+    let (plain, detail) = match e {
+        ureq::Error::Status(code, _) => (
+            trf(
+                "{host} isn't answering right now. Try again later.",
+                &[("host", host)],
+            ),
+            format!("{url} answered {code}"),
+        ),
+        ureq::Error::Transport(t) => {
+            let detail = t.to_string();
+            let plain = if detail.to_lowercase().contains("certificate") {
+                trf(
+                    "{host}'s certificate couldn't be checked. A firewall or proxy may be in the way.",
+                    &[("host", host)],
+                )
+            } else {
+                trf(
+                    "Couldn't reach {host}. Check your internet connection.",
+                    &[("host", host)],
+                )
+            };
+            (plain, detail)
+        }
+    };
+    format!("{plain}\n{detail}")
 }
 
 /// A Eclipse game tag: `v` then a digit (`v2026.10.13`). Launcher tags never match.
@@ -4265,14 +4306,6 @@ pub struct Settings {
     /// The accent colour on top of the appearance (`themes::Accent`). Eclipse's violet by default.
     #[serde(default)]
     pub accent: crate::themes::Accent,
-    /// How much white the glass look's plates take, in percent (the mockup's Glass, 0 to 16).
-    /// Unset is the mockup's 6.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub glass: Option<f32>,
-    /// How much the glass look's plates blur the scene behind them, in px (0 to 48). Unset is
-    /// the mockup's 24.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub blur: Option<f32>,
     /// The launcher theme (`themes::theme`): its sky behind the light appearance. Unset is
     /// Eclipse's own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4284,6 +4317,8 @@ pub struct Settings {
     /// The window's language. Unset follows the system's (`i18n::Language::system`).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub language: Option<crate::i18n::Language>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub reduce_motion: Option<bool>,
     /// Whether what the browser installed from Eclipse's registry updates by itself, at start
     /// and before Play (`browser::eclipse::auto`). Unset is on.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -4344,12 +4379,6 @@ impl Settings {
             }) {
                 fields.remove("accent");
             }
-            // A glass or blur that isn't a number is the default, not a reason to lose the rest.
-            for key in ["glass", "blur"] {
-                if fields.get(key).is_some_and(|v| !v.is_number()) {
-                    fields.remove(key);
-                }
-            }
             // A language this launcher doesn't have yet follows the system's.
             if fields.get("language").is_some_and(|l| {
                 serde_json::from_value::<Option<crate::i18n::Language>>(l.clone()).is_err()
@@ -4374,18 +4403,6 @@ impl Settings {
     /// Whether old versions are deleted after an install.
     pub fn auto_prune(&self) -> bool {
         self.prune_old_versions.unwrap_or(true)
-    }
-    /// The plates' white as a fraction (0 to 0.16): [`glass`](Self::glass) in percent.
-    pub fn glass_tint(&self) -> f32 {
-        self.glass
-            .filter(|v| v.is_finite())
-            .map_or(eclipse_theme::glass::TINT, |v| v.clamp(0., 16.) / 100.)
-    }
-    /// The plates' blur in px (0 to 48).
-    pub fn glass_blur(&self) -> f32 {
-        self.blur
-            .filter(|v| v.is_finite())
-            .map_or(eclipse_theme::glass::BLUR, |v| v.clamp(0., 48.))
     }
     /// Registry mods update by themselves ([`Settings::mods_auto_update`]): on unless turned off.
     pub fn auto_updates_mods(&self) -> bool {
@@ -5370,23 +5387,11 @@ pub fn {f}("
     }
 
     #[test]
-    fn glass_and_blur_default_to_the_mockups_and_stay_in_range() {
-        let unset = Settings::parse("{}");
-        assert_eq!((unset.glass_tint(), unset.glass_blur()), (0.06, 24.));
-        let set = Settings::parse(r#"{"glass": 12, "blur": 8.5}"#);
-        assert_eq!((set.glass_tint(), set.glass_blur()), (0.12, 8.5));
-        let wild = Settings::parse(r#"{"glass": 90, "blur": -3}"#);
-        assert_eq!((wild.glass_tint(), wild.glass_blur()), (0.16, 0.));
-        // Not a number: the default, and the other settings survive.
-        let wrong = Settings::parse(r#"{"glass": "frosty", "blur": null, "game_args": "--x"}"#);
-        assert_eq!(
-            (
-                wrong.glass_tint(),
-                wrong.glass_blur(),
-                wrong.game_args.as_str()
-            ),
-            (0.06, 24., "--x")
-        );
+    fn an_older_files_glass_and_blur_are_dropped_and_the_rest_kept() {
+        let old = Settings::parse(r#"{"glass": "frosty", "blur": 8.5, "game_args": "--x"}"#);
+        assert_eq!(old.game_args, "--x");
+        let saved = serde_json::to_value(&old).unwrap();
+        assert!(saved.get("glass").is_none() && saved.get("blur").is_none());
     }
 
     #[test]

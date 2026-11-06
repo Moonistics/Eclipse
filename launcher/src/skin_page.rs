@@ -1,7 +1,9 @@
 //! Settings > Account's skin panel for an offline name (`eclipse_launcher::skins`): the front
 //! of the skin and the cape, choosing either from a PNG, and the model.
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::skins::{self, Model};
+use eclipse_theme::glass::{fill, ink, radius, step};
 use gpui::RenderImage;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -133,7 +135,6 @@ impl Launcher {
 
     /// The panel, under the offline names while open.
     pub(super) fn skin_panel(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let name = self.skin.as_ref()?.name.clone();
         if !self.accounts.offline.iter().any(|n| n == &name) {
             self.skin = None;
@@ -148,21 +149,20 @@ impl Launcher {
                 .justify_center()
                 .w(px(w + 24.))
                 .h(px(h + 24.))
-                .bg(t.plate_soft)
+                .rounded(px(radius::ROW))
+                .bg(ui::well())
                 .child(match image {
                     Some(i) => gpui::img(i).w(px(w)).h(px(h)).into_any_element(),
-                    None => text(theme::CAPTION)
-                        .text_color(t.muted)
+                    None => ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                         .child(tr(empty))
                         .into_any_element(),
                 })
         };
         let weak = cx.entity().downgrade();
-        let model = segments(
+        let model = ui::segments(
             "skin-model",
             &[(Model::Classic, "Classic arms"), (Model::Slim, "Slim arms")],
             look.model,
-            &t,
             move |m, _, cx| {
                 let _ = weak.update(cx, |this, cx| {
                     let _ = this.save_look(|l| l.model = m);
@@ -171,7 +171,7 @@ impl Launcher {
             },
         );
         let pick = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            button(id, label, Kind::Secondary, &t).on_click(cx.listener(
+            button(id, label, Kind::Secondary).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.choose_look_file(cape, cx);
                     cx.notify();
@@ -179,7 +179,7 @@ impl Launcher {
             ))
         };
         let drop = |id: &'static str, label: &'static str, cape: bool, cx: &mut Context<Self>| {
-            button(id, label, Kind::Ghost, &t).on_click(cx.listener(
+            button(id, label, Kind::Ghost).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     let _ = this.save_look(|l| match cape {
                         false => l.skin = false,
@@ -207,12 +207,13 @@ impl Launcher {
         }
         let note = self.skin.as_ref().and_then(|p| p.note.clone());
         Some(
-            plate()
+            div()
                 .flex()
+                .flex_wrap()
                 .gap(px(20.))
-                .px(px(16.))
-                .py(px(14.))
-                .ml(px(40.))
+                .p(px(ui::PANEL_INSET))
+                .rounded(px(radius::ROW))
+                .bg(white(fill::WELL))
                 .child(frame(16. * TEXEL, 32. * TEXEL, skin, "Default"))
                 .child(frame(10. * TEXEL, 16. * TEXEL, cape, "No cape"))
                 .child(
@@ -222,15 +223,17 @@ impl Launcher {
                         .flex_1()
                         .min_w_0()
                         .gap(px(12.))
-                        .child(caps(trf("{name}'s skin", &[("name", &name)])).text_color(t.muted))
+                        .child(ui::label(trf("{name}'s skin", &[("name", &name)])))
                         .child(skin_buttons)
                         .child(model)
                         .child(cape_buttons)
                         .children(note.map(|n| match n {
-                            Ok(said) => text(theme::CAPTION).text_color(t.muted).child(said),
-                            Err(e) => text(theme::CAPTION).text_color(t.danger).child(e),
+                            Ok(said) => {
+                                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(said)
+                            }
+                            Err(e) => error_note(e),
                         }))
-                        .child(text(theme::CAPTION).text_color(t.muted).child(tr(
+                        .child(ui::card_note(tr(
                             "Skins are 64×64 PNGs, capes 64×32. The game doesn't show them yet.",
                         ))),
                 ),

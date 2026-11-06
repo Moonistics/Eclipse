@@ -1,22 +1,20 @@
-//! Home's Mods tab (docs/design-system.md, "Night"; plan R0, screens 5 and 6): every mod of the
-//! selected instance, the browser's and those put in its folder by hand, with its version, where
-//! it comes from, an update when the browser found one, and a switch. A Java instance turns a mod
-//! off by renaming its jar (`.disabled`, as `java_instance` does); a Eclipse instance's mods are
-//! the registry's, switched as the game's Options > Mods does. Adding mods is the Mods page's.
+//! Home's Mods tab: every mod of the selected instance, the browser's and those put in its
+//! folder by hand, with its version, where it comes from, an update when the browser found one,
+//! and a switch. A Java instance turns a mod off by renaming its jar (`.disabled`, as
+//! `java_instance` does); a Eclipse instance's mods are the registry's, switched as the game's
+//! Options > Mods does. Adding mods is the Mods page's.
 //!
 //! Each row shows the mod's own icon: Modrinth's for what the browser installed from it (the URLs
 //! asked for in one request and kept beside the image cache, the images through the Mods page's
 //! cache at the row's size), else the one its jar names, else a generic glyph.
 use super::*;
-use crate::plate::alpha;
-use crate::shell::c;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::browser::{
     eclipse, images, installed, java, modrinth, Kind as PackKind, SourceId,
 };
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
-use theme::night;
 
 /// A turned-off jar's suffix, which the loaders don't read.
 const OFF: &str = ".disabled";
@@ -291,22 +289,16 @@ impl Launcher {
         jar: Option<Arc<gpui::Image>>,
         side: f32,
     ) -> Div {
-        let n = self.theme.night;
         let remote = entry.and_then(|e| self.project_icon(e));
-        let tile = div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .size(px(side))
-            .rounded(px(night::RADIUS_CONTROL))
-            .overflow_hidden();
+        let tile = ui::tile(side);
         match (remote, jar) {
             (Some(path), _) => tile.child(gpui::img(path).size(px(side))),
             (None, Some(image)) => tile.child(gpui::img(image).size(px(side))),
-            (None, None) => tile
-                .bg(alpha(n.card_hi, n.card_hi_alpha))
-                .child(blocks::icon("box", side * 0.5, c(n.muted))),
+            (None, None) => tile.child(ui::icon(
+                "puzzle",
+                ui::IconSize::Px16,
+                white(eclipse_theme::glass::ink::MUTED),
+            )),
         }
     }
 

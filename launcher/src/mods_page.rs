@@ -1,6 +1,6 @@
 //! The Mods page: its tabs are the kinds (mods, modpacks, resource packs, shader packs, data
-//! packs). Search Eclipse's own registry for what was made for Eclipse, or Modrinth (CurseForge:
-//! coming soon) for Java mods, modpacks, resource packs and data packs (a Java instance's files
+//! packs). Search Eclipse's own registry for what was made for Eclipse, or Modrinth for Java
+//! mods, modpacks, resource packs and data packs (a Java instance's files
 //! always come from Modrinth, for its version), see where each comes
 //! from and how well it runs (a Java mod's jar is checked first; a Eclipse mod says whether it is
 //! signed and what it may do), install it with its checksum checked, turn Eclipse mods on and
@@ -8,6 +8,7 @@
 //! are listed on its Modpacks tab.
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::browser::{
     self, eclipse, installed, java, java_instance, Kind as PackKind, Project, Query, SourceId,
     Support,
@@ -15,6 +16,7 @@ use eclipse_launcher::browser::{
 use eclipse_launcher::modpacks;
 use eclipse_launcher::native_status;
 use eclipse_port_pack::check::Check;
+use eclipse_theme::glass::{fill, ink, radius, step};
 use java_instance::Target;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -24,18 +26,18 @@ const KINDS: [(PackKind, &str, &str); 5] = [
     (PackKind::Mod, "Mods", "box"),
     (PackKind::Modpack, "Modpacks", "archive"),
     (PackKind::ResourcePack, "Resource packs", "image"),
-    (PackKind::Shader, "Shader packs", "zap"),
+    (PackKind::Shader, "Shaders", "zap"),
     (PackKind::DataPack, "Data packs", "notes"),
 ];
 /// Java mods checked at once.
 const CHECKING: usize = 2;
-/// The sources to pick from on the tabs that have both ([`switches`]); CurseForge is shown
-/// beside them as coming soon.
+/// The sources to pick from on the tabs that have both ([`switches`]).
 pub(super) const SOURCES: [(SourceId, &str); 2] = [
     (SourceId::Eclipse, "Eclipse"),
     (SourceId::Modrinth, "Modrinth"),
 ];
 const PAGE: usize = 20;
+pub(super) const MOD_TILE: f32 = 40.;
 
 #[path = "glass_mods.rs"]
 mod glass_mods;
@@ -110,7 +112,7 @@ pub(super) struct Mods {
     pub(super) picked: Option<String>,
     /// The project the glass detail card showed last.
     pub(super) shown: Option<Project>,
-    target_menu: bool,
+    pub(super) target_menu: bool,
     /// A native mod's Install waiting for the one-time trust notice (`native_status::NOTICE`).
     native_notice: Option<(SourceId, String, Option<Project>)>,
     /// The selected instance's native build state, and the `native_status::fingerprint` it was
@@ -273,20 +275,23 @@ fn count(n: u64) -> String {
 
 /// A registry project's rating: five pixel stars, the mean's nearest whole number of them lit, the
 /// mean and how many; None while the ratings aren't known.
-pub(super) fn stars(id: &str, t: &theme::Theme) -> Option<Div> {
-    let row = div().flex().items_center().gap(px(2.));
+pub(super) fn stars(id: &str) -> Option<Div> {
+    let row = ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+        .flex()
+        .items_center()
+        .gap(px(2.));
     Some(match eclipse::rating(id)? {
-        None => row.text_color(t.muted).child(tr("No ratings yet")),
+        None => row.child(tr("No ratings yet")),
         Some(r) => {
             let lit = r.average.round() as usize;
             row.children((0..5).map(|i| {
                 blocks::icon(
                     "star",
-                    12.,
+                    16.,
                     if i < lit {
-                        t.warn
+                        ui::color(ui::look().mark)
                     } else {
-                        t.muted.opacity(0.6)
+                        white(ink::DIM)
                     },
                 )
             }))
@@ -297,15 +302,6 @@ pub(super) fn stars(id: &str, t: &theme::Theme) -> Option<Div> {
             )))
         }
     })
-}
-
-/// A checksum as the page shows it: the algorithm and the first and last hex digits.
-fn short_sum(checksum: &str) -> String {
-    let (algo, hex) = checksum.split_once(':').unwrap_or(("", checksum));
-    if hex.len() <= 20 {
-        return checksum.to_string();
-    }
-    format!("{algo} {}…{}", &hex[..12], &hex[hex.len() - 8..])
 }
 
 impl Launcher {
@@ -889,38 +885,26 @@ impl Launcher {
     }
 
     pub(super) fn mods_field(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let t = self.theme;
         let m = &self.mods;
         let focused = m.focused;
         let placeholder = self.mods_placeholder();
-        let field = div()
+        let field = ui::field(focused, false)
             .id("mods-search")
             .track_focus(&m.focus)
-            .flex()
-            .items_center()
             .gap(px(10.))
             .w_full()
-            .h(px(crate::glass_ui::Size::Md.height()))
-            .px(px(14.))
-            .overflow_hidden()
-            .rounded(px(eclipse_theme::glass::radius::ROW))
-            .bg(crate::glass_ui::field_bg(focused))
-            .font_family(eclipse_theme::glass::FONT)
-            .text_size(px(14.))
+            .h(px(ui::Size::Md.height()))
+            .pl(px(12.))
             .cursor_text()
-            .child(crate::glass_ui::icon(
-                "search-01",
-                17.,
-                crate::glass_ui::white(eclipse_theme::glass::ink::DIM),
-            ))
+            .child(ui::icon("search-01", ui::IconSize::Px16, white(ink::MUTED)))
             .child(line_edit::content_with(
                 &m.text,
-                &t,
                 focused,
                 false,
                 false,
                 placeholder,
             ))
+            .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 window.focus(&this.mods.focus, cx);
                 cx.notify();
@@ -1037,6 +1021,50 @@ impl Launcher {
         });
     }
 
+    pub(super) fn mods_status(
+        &self,
+        p: &Project,
+        instance: &str,
+    ) -> Option<(ui::Tone, String, Option<String>)> {
+        let support = self.mods.support(p);
+        let reason = support.reason().map(str::to_owned);
+        if self.mods.java_for(p.kind).is_some() {
+            return Some(match support {
+                Support::Works => (
+                    ui::Tone::Live,
+                    trf("Works in {instance}", &[("instance", instance)]),
+                    None,
+                ),
+                _ => (ui::Tone::Warn, reason.unwrap_or_default(), None),
+            });
+        }
+        if self.mods.java.is_some() && p.kind != PackKind::Modpack {
+            return None;
+        }
+        let in_eclipse = trf("{support} in Eclipse", &[("support", tr(support.label()))]);
+        Some(match support {
+            Support::Works => (ui::Tone::Live, in_eclipse, None),
+            Support::Partial(_) => (ui::Tone::Warn, in_eclipse, reason),
+            Support::No(_) => (ui::Tone::Off, in_eclipse, reason),
+        })
+    }
+
+    pub(super) fn mods_new_fabric(&mut self, minecraft: String, cx: &mut Context<Self>) {
+        self.open_instance_page(None);
+        self.pick_kind(new_instance::NewKind::Modded, cx);
+        self.change(|j| {
+            j.loader = eclipse_launcher::loaders::Kind::Fabric;
+            j.version = Some(minecraft);
+        });
+    }
+
+    pub(super) fn mods_vanilla_target(&self) -> Option<String> {
+        self.mods
+            .java_for(self.mods.kind)
+            .filter(|t| t.loader.is_none() && self.mods.kind == PackKind::Mod)
+            .map(|t| t.minecraft.clone())
+    }
+
     /// Whether the selected instance has `p` (the palette's Install or Remove).
     pub(super) fn mods_has(&self, p: &Project) -> bool {
         self.mods.entry(p).is_some()
@@ -1059,64 +1087,59 @@ impl Launcher {
 
     /// The world data packs go into: one of the instance's, picked here.
     fn mods_world_picker(&self, instance: &str, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let caption = |s: String| text(theme::CAPTION).text_color(t.muted).child(s);
+        let note = |s: String| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(s);
         if self.mods.worlds.is_empty() {
-            return div().child(caption(trf(
-                "Data packs go into a world, and {instance} has none yet. Create a world in the game first.",
+            return div().child(note(trf(
+                "{instance} has no worlds yet. Create one in the game first.",
                 &[("instance", instance)],
             )));
         }
-        let mut chips = div().flex().flex_wrap().items_center().gap(px(6.));
+        let mut chips = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(6.))
+            .child(note(tr("World").to_string()).mr(px(6.)));
         for (i, (path, name)) in self.mods.worlds.iter().enumerate() {
             let on = self.mods.world.as_ref() == Some(path);
             let path = path.clone();
             chips = chips.child(
-                button(
-                    SharedString::from(format!("mods-world-{i}")),
-                    name.clone(),
-                    if on { Kind::Secondary } else { Kind::Ghost },
-                    &t,
+                ui::selected(
+                    ui::button(
+                        SharedString::from(format!("mods-world-{i}")),
+                        None,
+                        name.clone(),
+                        Kind::Ghost,
+                        ui::Size::Sm,
+                    ),
+                    on,
                 )
-                .when(on, |b| b.border_color(t.accent))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods.world = Some(path.clone());
                     cx.notify();
                 })),
             );
         }
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(8.))
-            .child(caption(trf(
-                "Installs into a world of {instance}.",
-                &[("instance", instance)],
-            )))
-            .child(chips)
+        chips
     }
 
-    /// The install under way and the last install's answer.
     /// The one-time notice before the first native mod is installed: native mods aren't
     /// sandboxed, and what the build takes. Its button installs the mod.
     fn native_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
         self.mods.native_notice.as_ref()?;
-        let t = self.theme;
         Some(
-            plate()
+            crate::glass::plate(radius::PANEL)
                 .flex()
                 .flex_col()
-                .gap(px(10.))
-                .p(px(16.))
-                .text_size(px(theme::UI.px))
-                .text_color(t.ink)
-                .child(tr(native_status::NOTICE).to_string())
+                .gap(px(16.))
+                .p(px(ui::CARD_PADDING))
+                .child(error_note(tr(native_status::NOTICE)))
                 .child(
                     div()
                         .flex()
                         .gap(px(8.))
                         .child(
-                            button("native-notice-install", "Install", Kind::Primary, &t).on_click(
+                            button("native-notice-install", "Install", Kind::Primary).on_press(
                                 cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.settings.native_mods_noticed = true;
                                     this.save_settings();
@@ -1130,7 +1153,7 @@ impl Launcher {
                             ),
                         )
                         .child(
-                            button("native-notice-cancel", "Cancel", Kind::Secondary, &t).on_click(
+                            button("native-notice-cancel", "Cancel", Kind::Secondary).on_press(
                                 cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.mods.native_notice = None;
                                     cx.notify();
@@ -1141,8 +1164,8 @@ impl Launcher {
         )
     }
 
+    /// The install under way and the last install's answer.
     pub(super) fn mods_busy_plate(&self) -> Vec<Div> {
-        let t = self.theme;
         let mut out = Vec::new();
         if let Some((what, line, f)) = &self.mods.busy {
             let caption = if what == "all" {
@@ -1151,30 +1174,35 @@ impl Launcher {
                 tr("Installing")
             };
             out.push(
-                plate()
+                div()
                     .flex()
                     .flex_col()
                     .gap(px(8.))
-                    .p(px(16.))
-                    .child(caps(caption).text_color(t.accent))
                     .child(
-                        text(theme::CAPTION)
-                            .font_family(theme::MONO)
-                            .text_color(t.ink_soft)
+                        div()
+                            .flex()
+                            .items_center()
+                            .justify_between()
+                            .gap(px(12.))
+                            .child(ui::label(caption))
+                            .child(
+                                ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
+                                    .child(format!("{:.0}%", f * 100.)),
+                            ),
+                    )
+                    .child(ui::bar(*f, ui::look().accent_soft))
+                    .child(
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                             .truncate()
-                            .child(format!("{line}  {:.0}%", f * 100.)),
+                            .child(line.clone()),
                     ),
             );
         }
         match &self.mods.message {
-            Some(Ok(done)) => out.push(
-                plate()
-                    .p(px(16.))
-                    .text_size(px(theme::UI.px))
-                    .text_color(t.ink)
-                    .child(done.clone()),
-            ),
-            Some(Err(e)) => out.push(notice(e.clone(), &t)),
+            Some(Ok(done)) => {
+                out.push(ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(done.clone()))
+            }
+            Some(Err(e)) => out.push(error_note(e.clone())),
             None => {}
         }
         out
@@ -1193,7 +1221,6 @@ impl Launcher {
     }
 
     fn mods_installed_list(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let kind = self.mods.kind;
         // Each project's own icon (Modrinth's, asked for once), at the row's size.
         let ids = self
@@ -1232,7 +1259,6 @@ impl Launcher {
                 && entries
                     .iter()
                     .any(|e| native_status::is_native_file(&e.file));
-        let instance = self.selected_instance().map(|i| i.name.clone());
         let row = |i: usize| {
             if i >= entries.len() {
                 return self.native_mod_row(&native_entries[i - entries.len()], busy, cx);
@@ -1240,19 +1266,18 @@ impl Launcher {
             let e = entries[i];
             let key = (e.source, e.project.clone());
             let is_native = self.mods.java.is_none() && native_status::is_native_file(&e.file);
-            let mut right = div().flex().items_center().gap(px(8.));
+            let mut right = div().flex().flex_none().items_center().gap(px(8.));
             if let Some(number) = self.mods.updates.get(&key) {
                 let mut update = button(
                     SharedString::from(format!("mods-update-{}", e.project)),
                     trf("Update to {version}", &[("version", number)]),
                     Kind::Secondary,
-                    &t,
                 );
                 if busy {
                     update = disabled(update);
                 } else {
                     let (source, id) = key.clone();
-                    update = update.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    update = update.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.mods_install(source, id.clone(), None);
                         cx.notify();
                     }));
@@ -1273,10 +1298,9 @@ impl Launcher {
                 } else {
                     Kind::Ghost
                 },
-                &t,
             )
-            .when(confirming, |b| b.text_color(t.danger))
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            .when(confirming, |b| b.text_color(ui::danger()))
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.mods_remove_click(id.clone());
                 cx.notify();
             }));
@@ -1291,87 +1315,71 @@ impl Launcher {
             if let Some(on) = on {
                 let entry = e.clone();
                 right = right.child(
-                    div()
-                        .id(SharedString::from(format!("mods-switch-{}", e.project)))
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .cursor_pointer()
-                        // Its id sits under the row's own, so one name serves every row.
-                        .child(switch("mods-switch-knob", on, &t))
-                        .child(text(theme::LABEL).text_color(t.ink_soft).child(if on {
-                            tr("On")
-                        } else {
-                            tr("Off")
-                        }))
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    ui::toggle_label(
+                        SharedString::from(format!("mods-switch-{}", e.project)),
+                        if on { tr("On") } else { tr("Off") },
+                        on,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
                             this.mods_switch(&entry);
                             cx.notify();
-                        })),
+                        },
+                    )),
                 );
             }
             if is_native {
                 let folder = self.mods.home().join(native_mods::INSTALLED);
                 right = right.child(
-                    button(
+                    ui::icon_button(
                         SharedString::from(format!("mods-folder-{}", e.project)),
-                        "Open folder",
-                        Kind::Ghost,
-                        &t,
+                        "folder-01",
+                        tr("Open folder"),
+                        ui::Size::Sm,
+                        false,
                     )
-                    .on_click(move |_, _, cx| {
+                    .on_press(move |_, _, cx| {
                         let _ = std::fs::create_dir_all(&folder);
                         crate::glass_toast::open(cx, &folder);
                     }),
                 );
             }
             right = right.child(remove);
-            let detail = div()
-                .flex()
-                .flex_col()
-                .child({
-                    let from = e
-                        .source
-                        .shown_for(&e.project)
-                        .map(|s| trf("from {source}", &[("source", s)]));
-                    let needed = e
-                        .dependency
-                        .then(|| tr("needed by another pack").to_string());
-                    let origin: Vec<String> = from.into_iter().chain(needed).collect();
-                    e.verdict
-                        .iter()
-                        .map(|v| tr(v).to_string())
-                        .chain([e.number.clone()])
-                        .chain((!origin.is_empty()).then(|| origin.join(", ")))
-                        .chain([e.file.clone()])
-                        .collect::<Vec<_>>()
-                        .join(" · ")
-                })
-                .children(instance.as_ref().filter(|_| is_native).map(|name| {
-                    div()
-                        .text_color(t.ink)
-                        .child(trf("Installed in {instance}", &[("instance", name)]))
-                }))
-                .children(e.skipped.iter().map(|s| {
-                    div()
-                        .text_color(t.ink_soft)
-                        .child(trf("Not ported: {item}", &[("item", s)]))
-                }))
-                .child(div().font_family(theme::MONO).child(trf(
-                    "checked: {checksum}",
-                    &[("checksum", &short_sum(&e.checksum))],
-                )));
-            slot_row(
-                Some(blocks::slot(
-                    icons[i].clone().map(gpui::ImageSource::from),
-                    &e.title,
-                    40.,
-                )),
-                e.title.clone(),
-                Some(detail.into_any_element()),
-                Some(right.into_any_element()),
-                &t,
+            let from = e
+                .source
+                .shown_for(&e.project)
+                .map(|s| trf("from {source}", &[("source", s)]));
+            let needed = e
+                .dependency
+                .then(|| tr("needed by another pack").to_string());
+            let note = e
+                .verdict
+                .iter()
+                .map(|v| tr(v).to_string())
+                .chain([e.number.clone()])
+                .chain(from)
+                .chain(needed)
+                .collect::<Vec<_>>()
+                .join(" · ");
+            let skipped = (!e.skipped.is_empty()).then(|| {
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(ui::state_line(
+                    ui::Tone::Warn,
+                    trf("Not ported: {item}", &[("item", &e.skipped.join(", "))]),
+                ))
+            });
+            let icon = blocks::slot(
+                icons[i].clone().map(gpui::ImageSource::from),
+                &e.title,
+                MOD_TILE,
+            );
+            ui::list_row(
+                SharedString::from(format!("mods-installed-{}", e.project)),
+                confirming,
+                |_, _, _| {},
             )
+            .child(icon)
+            .child(ui::item_text(e.title.clone(), note).children(skipped))
+            .child(right)
         };
         // Every kind's updates at once, whichever tab is open.
         let update_all = (!self.mods.updates.is_empty()).then(|| {
@@ -1382,12 +1390,11 @@ impl Launcher {
                     &[("count", &self.mods.updates.len().to_string())],
                 ),
                 Kind::Secondary,
-                &t,
             );
             if busy {
                 disabled(b)
             } else {
-                b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.mods_update_all();
                     cx.notify();
                 }))
@@ -1396,7 +1403,7 @@ impl Launcher {
         let list = self.mods.installed_list.column(
             &self.content_scroll.handle,
             entries.len() + native_entries.len(),
-            8.,
+            0.,
             |index| {
                 entries
                     .get(index)
@@ -1414,7 +1421,8 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(caps(tr("Installed")).text_color(t.muted))
+                        .gap(px(12.))
+                        .child(ui::card_title(tr("Installed")))
                         .children(update_all),
                 )
                 .children(native.then(|| self.native_build(cx)).flatten())
@@ -1427,9 +1435,8 @@ impl Launcher {
     /// Needs rebuild, Not built), with Build, and Update when a newer Eclipse is installed. Both
     /// open the trust warning first (`native_warning`). A build under way, or its error, shows
     /// only on the instance it is for.
-    pub(super) fn native_build(&self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn native_build(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         use native_status::State;
-        let t = self.theme;
         let instance = self.selected_instance()?;
         let version = self.version_of(instance).cloned();
         let home = self.mods.home();
@@ -1476,33 +1483,37 @@ impl Launcher {
                         self.native_started.map_or(0, |(s, _)| s.elapsed().as_secs())
                     )
                 ))
-                .text_color(t.accent),
-                Some((tr("Building"), t.accent)),
+                .text_color(ui::color(ui::look().accent_soft)),
+                Some((ui::Tone::Busy, tr("Building"))),
             ),
-            (None, Some(e), _) => (line(e.clone()).text_color(t.danger), None),
+            (None, Some(e), _) => (error_note(e.clone()), None),
             (None, None, State::NoMods) => (line(tr("No native mod is turned on.").into()), None),
             (None, None, State::NotBuilt) => (
                 line(trf(
                     "{instance} doesn't play its native mods yet: build the game with them.",
                     &name,
                 )),
-                Some((tr("Not built"), t.warn)),
+                Some((ui::Tone::Warn, tr("Not built"))),
             ),
             (None, None, State::Outdated) => (
                 line(trf(
                     "The native mods turned on changed since {instance} was built: build again to play them.",
                     &name,
                 )),
-                Some((tr("Needs rebuild"), t.warn)),
+                Some((ui::Tone::Warn, tr("Needs rebuild"))),
             ),
             (None, None, State::UpToDate) => (
                 line(trf("Up to date: {instance} plays these mods.", &name)),
-                Some((tr("Up to date"), t.success)),
+                Some((ui::Tone::Live, tr("Up to date"))),
             ),
         };
-        let mut detail = div().flex().flex_col().gap(px(4.)).child(status);
+        let mut detail = ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+            .flex()
+            .flex_col()
+            .gap(px(4.))
+            .child(status);
         if let Some(done) = self.native_done.as_ref().filter(|_| mine && step.is_none()) {
-            detail = detail.child(div().text_color(t.muted).child(done.clone()));
+            detail = detail.child(div().text_color(white(ink::MUTED)).child(done.clone()));
         }
         if let (Some(tag), Some(build)) = (&version, &build) {
             let said = match pinned.is_empty() {
@@ -1520,9 +1531,9 @@ impl Launcher {
                     ],
                 ),
             };
-            detail = detail.child(div().text_color(t.muted).child(said));
+            detail = detail.child(div().text_color(white(ink::MUTED)).child(said));
             for left in &build.left_out {
-                detail = detail.child(div().text_color(t.warn).child(left.label()));
+                detail = detail.child(div().text_color(ui::warn()).child(left.label()));
             }
         }
         if self.native_step.is_some() && !mine {
@@ -1530,7 +1541,7 @@ impl Launcher {
                 .native_for
                 .as_deref()
                 .and_then(|id| self.instances.list.iter().find(|i| i.id == id));
-            detail = detail.child(div().text_color(t.muted).child(trf(
+            detail = detail.child(div().text_color(white(ink::MUTED)).child(trf(
                 "{instance} is building. Wait for it to finish.",
                 &[("instance", other.map_or("", |i| i.name.as_str()))],
             )));
@@ -1546,9 +1557,13 @@ impl Launcher {
             idle && (error.is_some() || matches!(state, State::NotBuilt | State::Outdated));
         let mut right = div()
             .flex()
+            .flex_none()
             .items_center()
-            .gap(px(8.))
-            .children(badge.map(|(label, color)| blocks::badge(label.to_string(), color)));
+            .gap(px(12.))
+            .children(badge.map(|(tone, label)| {
+                ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
+                    .child(ui::state_line(tone, label))
+            }));
         if let Some(newer) = update.filter(|_| idle) {
             right = right.child(
                 button(
@@ -1558,9 +1573,8 @@ impl Launcher {
                         &[("version", &native_status::eclipse_label(&newer))],
                     ),
                     Kind::Secondary,
-                    &t,
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.native_update = Some(newer.clone());
                     this.native_on_base = true;
                     this.native_confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
@@ -1569,7 +1583,7 @@ impl Launcher {
             );
         }
         if can_build {
-            right = right.child(button("native-build", "Build", Kind::Primary, &t).on_click(
+            right = right.child(button("native-build", "Build", Kind::Primary).on_press(
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.native_update = None;
                     this.native_on_base = false;
@@ -1579,7 +1593,7 @@ impl Launcher {
             ));
         }
         let profile = native_mods::Profile::chosen(&self.settings);
-        let picker = segments(
+        let picker = ui::segments(
             "native-profile",
             &[
                 (native_mods::Profile::Performance, "Performance build"),
@@ -1587,7 +1601,6 @@ impl Launcher {
                 (native_mods::Profile::Release, "Release build"),
             ],
             profile,
-            &t,
             {
                 let this = cx.entity().downgrade();
                 move |choice, _, cx| {
@@ -1609,8 +1622,10 @@ impl Launcher {
         detail = detail.child(
             div()
                 .flex()
+                .flex_wrap()
                 .items_center()
                 .gap(px(8.))
+                .mt(px(8.))
                 .child(picker)
                 .child(said),
         );
@@ -1620,12 +1635,30 @@ impl Launcher {
         if let Some(mods) = &self.native_confirm {
             detail = detail.child(self.native_warning(mods, cx));
         }
-        Some(index_row(
-            trf("Native build of {instance}", &name),
-            Some(detail.into_any_element()),
-            Some(right.into_any_element()),
-            &t,
-        ))
+        Some(
+            div()
+                .id("native-build")
+                .flex()
+                .items_start()
+                .gap(px(16.))
+                .p(px(ui::PANEL_INSET))
+                .rounded(px(radius::ROW))
+                .bg(white(fill::WELL))
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .gap(px(4.))
+                        .child(
+                            ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                                .child(trf("Native build of {instance}", &name)),
+                        )
+                        .child(detail),
+                )
+                .child(right),
+        )
     }
 }
 
@@ -1696,12 +1729,9 @@ mod tests {
     use super::*;
 
     #[test]
-    fn counts_and_checksums_read_short() {
+    fn counts_read_short() {
         assert_eq!(count(999), "999");
         assert_eq!(count(1_500), "1.5k");
         assert_eq!(count(51_404_735), "51.4M");
-        let sum = format!("SHA-512:{}", "ab".repeat(64));
-        assert_eq!(short_sum(&sum), "SHA-512 abababababab…abababab");
-        assert_eq!(short_sum("SHA-1:abcd"), "SHA-1:abcd");
     }
 }

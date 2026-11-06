@@ -3,25 +3,22 @@
 //! the titles, navigation and buttons.
 
 pub const ACCENT: u32 = 0xf5a524;
-pub const TINT: f32 = 0.06;
-pub const BLUR: f32 = 24.;
 pub const PAGE: u32 = 0x08090f;
 pub const BASE: u32 = 0x10131c;
-pub const PLATE_ALPHA: f32 = 1.;
-pub const LIGHT_PLATE_ALPHA: f32 = 0.84;
-pub const LIGHT_FLOAT_ALPHA: f32 = 0.94;
 pub const FLOAT: u32 = 0x161a25;
+pub const PAPER: u32 = 0xffffff;
 pub const EDGE: f32 = 0.07;
+pub const FIELD_EDGE: f32 = 0.34;
+pub const FIELD_EDGE_LIGHT: f32 = 0.48;
 pub const ON_LIGHT: u32 = 0x14151c;
 /// A running game or server, and a ready instance.
 pub const LIVE: u32 = 0x4ade80;
 /// Busy (pulsing) and partly-working states: a red-orange well off the accent's amber.
-pub const WARN: u32 = 0xff9a6c;
+pub const WARN: u32 = 0xff7059;
 /// Destructive menu rows, and the fill under one while hovered.
 pub const DANGER: u32 = 0xff8a8a;
-pub const DANGER_HOVER: u32 = 0xff6b6b;
 pub const LIVE_LIGHT: u32 = 0x15803d;
-pub const WARN_LIGHT: u32 = 0xc2410c;
+pub const WARN_LIGHT: u32 = 0xb9361c;
 pub const DANGER_LIGHT: u32 = 0xdc2626;
 /// The Discord button and its hover.
 pub const DISCORD: u32 = 0x5865f2;
@@ -30,8 +27,53 @@ pub const SCRIM: u32 = 0x05060a;
 
 pub const FONT: &str = crate::FONT;
 pub const DISPLAY_FONT: &str = "Monocraft";
-pub const HEADING_FONT: &str = "Monocraft";
-pub const LABEL_FONT: &str = "Monocraft";
+
+pub const MONOCRAFT_PIXEL: f32 = 9.;
+
+pub mod pixel_text {
+    use super::MONOCRAFT_PIXEL;
+    pub const PRESS: f32 = 2. * MONOCRAFT_PIXEL;
+    pub const CARD_TITLE: f32 = 3. * MONOCRAFT_PIXEL;
+    pub const PAGE_TITLE: f32 = 4. * MONOCRAFT_PIXEL;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextStep {
+    pub size: f32,
+    pub line: f32,
+}
+
+pub mod step {
+    use super::TextStep;
+    pub const LABEL: TextStep = TextStep {
+        size: 11.,
+        line: 14.,
+    };
+    pub const CAPTION: TextStep = TextStep {
+        size: 12.,
+        line: 18.,
+    };
+    pub const NOTE: TextStep = TextStep {
+        size: 13.,
+        line: 20.,
+    };
+    pub const BODY: TextStep = TextStep {
+        size: 14.,
+        line: 21.,
+    };
+    pub const LEAD: TextStep = TextStep {
+        size: 15.,
+        line: 22.,
+    };
+    pub const TITLE: TextStep = TextStep {
+        size: 16.,
+        line: 22.,
+    };
+    pub const FIGURE: TextStep = TextStep {
+        size: 22.,
+        line: 28.,
+    };
+}
 
 pub mod radius {
     pub const MODAL: f32 = 14.;
@@ -48,10 +90,28 @@ pub mod ink {
     pub const BODY: f32 = 0.72;
     pub const MUTED: f32 = 0.6;
     pub const DIM: f32 = 0.5;
+    pub const LEVELS: [f32; 5] = [FULL, STRONG, BODY, MUTED, DIM];
+}
+
+pub mod ink_light {
+    pub const FULL: f32 = 1.;
+    pub const STRONG: f32 = 0.9;
+    pub const BODY: f32 = 0.82;
+    pub const MUTED: f32 = 0.74;
+    pub const DIM: f32 = 0.68;
+    pub const LEVELS: [f32; 5] = [FULL, STRONG, BODY, MUTED, DIM];
+}
+
+pub fn light_ink(a: f32) -> f32 {
+    ink::LEVELS
+        .iter()
+        .position(|&level| level == a)
+        .map_or(a, |i| ink_light::LEVELS[i])
 }
 
 pub mod fill {
     pub const HOVER: f32 = 0.05;
+    pub const PRIMARY_HOVER: f32 = 0.14;
     pub const FIELD: f32 = 0.07;
     pub const BUTTON: f32 = 0.08;
     pub const SELECTED: f32 = 0.1;
@@ -62,7 +122,6 @@ pub mod fill {
 pub const FIELD_BG: u32 = 0x1a1e29;
 pub const FIELD_BG_FOCUS: u32 = 0x222735;
 
-/// The look's colours for one accent and glass setting.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glass {
     pub accent: u32,
@@ -73,15 +132,11 @@ pub struct Glass {
     pub base: u32,
     /// Text on the accent: white, or [`ON_LIGHT`] on a light accent.
     pub on_accent: u32,
-    /// A plate's fill and its opacity.
     pub plate: u32,
-    pub plate_alpha: f32,
-    pub tint: f32,
-    pub blur: f32,
 }
 
 impl Glass {
-    pub fn new(accent: u32, tint: f32, blur: f32) -> Glass {
+    pub fn new(accent: u32) -> Glass {
         let base = mix_oklab(accent, BASE, 0.03);
         Glass {
             accent,
@@ -94,14 +149,11 @@ impl Glass {
                 0xffffff
             },
             plate: base,
-            plate_alpha: PLATE_ALPHA,
-            tint,
-            blur,
         }
     }
 
     pub fn default_look() -> Glass {
-        Glass::new(ACCENT, TINT, BLUR)
+        Glass::new(ACCENT)
     }
 
     pub fn light(self) -> Glass {
@@ -124,17 +176,7 @@ impl Glass {
             ("live", hex(LIVE)),
             ("warn", hex(WARN)),
             ("danger", hex(DANGER)),
-            (
-                "plate",
-                format!(
-                    "rgba({}, {}, {}, {:.3})",
-                    self.plate >> 16 & 255,
-                    self.plate >> 8 & 255,
-                    self.plate & 255,
-                    self.plate_alpha
-                ),
-            ),
-            ("blur", format!("{}px", self.blur)),
+            ("plate", hex(self.plate)),
         ]
         .into_iter()
         .map(|(name, value)| format!("  --glass-{name}: {value};\n"))
@@ -144,18 +186,31 @@ impl Glass {
 
 pub fn light_surfaces() -> Vec<u32> {
     use crate::night::{over, DAWN};
-    let selected = |under| over(ON_LIGHT, fill::SELECTED, under);
-    let mut out = vec![DAWN.side, selected(DAWN.side)];
-    for sky in DAWN.sky {
-        let plate = over(0xffffff, LIGHT_PLATE_ALPHA, sky);
-        out.extend([
-            sky,
-            plate,
-            selected(plate),
-            over(0xffffff, LIGHT_FLOAT_ALPHA, sky),
-        ]);
-    }
+    let tinted = |a, under| over(ON_LIGHT, a, under);
+    let mut out = vec![
+        DAWN.side,
+        tinted(fill::SELECTED, DAWN.side),
+        DAWN.page,
+        PAPER,
+        tinted(fill::SELECTED, PAPER),
+        tinted(fill::FIELD, PAPER),
+    ];
+    out.extend(DAWN.sky);
     out
+}
+
+pub fn dark_surfaces(look: &Glass) -> Vec<u32> {
+    use crate::night::over;
+    let raised = |under| over(0xffffff, fill::SELECTED, under);
+    vec![
+        PAGE,
+        look.plate,
+        raised(look.plate),
+        FLOAT,
+        raised(FLOAT),
+        FIELD_BG,
+        FIELD_BG_FOCUS,
+    ]
 }
 
 fn on_light(accent: u32, ratio: f32) -> u32 {
@@ -266,32 +321,77 @@ mod tests {
     #[test]
     fn a_light_accent_takes_dark_labels() {
         assert_eq!(Glass::default_look().on_accent, ON_LIGHT);
-        assert_eq!(Glass::new(0x6b4bff, TINT, BLUR).on_accent, 0xffffff);
+        assert_eq!(Glass::new(0x6b4bff).on_accent, 0xffffff);
     }
 
     #[test]
     fn states_read_and_warn_is_not_the_accent() {
-        let plate = Glass::default_look().plate;
+        let look = Glass::default_look();
         for c in [LIVE, WARN, DANGER] {
-            for bg in [plate, FLOAT, FIELD_BG, FIELD_BG_FOCUS] {
+            for bg in dark_surfaces(&look) {
                 let ratio = crate::contrast(c, bg);
                 assert!(ratio >= 4.5, "#{c:06x} on #{bg:06x}: {ratio:.2}");
             }
         }
-        let light_plate =
-            crate::night::over(0xffffff, LIGHT_PLATE_ALPHA, crate::night::DAWN.sky[3]);
         for c in [LIVE_LIGHT, WARN_LIGHT, DANGER_LIGHT] {
-            let ratio = crate::contrast(c, light_plate);
+            let ratio = crate::contrast(c, PAPER);
             assert!(ratio >= 4.5, "#{c:06x} on the light plate: {ratio:.2}");
         }
-        let hue = |c: u32| {
+        let oklab_hue = |c: u32| {
             let [_, a, b] = oklab(c);
             b.atan2(a).to_degrees()
         };
+        let hsl_hue = |c: u32| {
+            let [r, g, b] = [16, 8, 0].map(|s| ((c >> s) & 255) as f32);
+            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+            let h = if max == r {
+                (g - b) / (max - min)
+            } else if max == g {
+                2. + (b - r) / (max - min)
+            } else {
+                4. + (r - g) / (max - min)
+            };
+            (h * 60.).rem_euclid(360.)
+        };
         for warn in [WARN, WARN_LIGHT] {
-            let off = (hue(warn) - hue(ACCENT)).abs();
-            assert!(off >= 15., "#{warn:06x} is {off:.0}° from the accent");
+            for hue in [oklab_hue, hsl_hue] {
+                let off = (hue(warn) - hue(ACCENT)).abs();
+                assert!(off >= 25., "#{warn:06x} is {off:.0}° from the accent");
+            }
         }
+    }
+
+    #[test]
+    fn every_ink_level_reads_on_every_surface() {
+        use crate::night::over;
+        for level in ink::LEVELS {
+            let a = light_ink(level);
+            for bg in light_surfaces() {
+                let ratio = crate::contrast(over(ON_LIGHT, a, bg), bg);
+                assert!(ratio >= 4.5, "light ink {a} on #{bg:06x}: {ratio:.2}");
+            }
+            for bg in dark_surfaces(&Glass::default_look()) {
+                let ratio = crate::contrast(over(0xffffff, level, bg), bg);
+                assert!(ratio >= 4.5, "ink {level} on #{bg:06x}: {ratio:.2}");
+            }
+        }
+        assert_eq!(
+            light_ink(fill::SELECTED),
+            fill::SELECTED,
+            "fills keep their weight"
+        );
+    }
+
+    #[test]
+    fn a_field_edge_stands_out_from_its_card() {
+        use crate::night::over;
+        let look = Glass::default_look();
+        for card in [look.plate, FLOAT] {
+            let ratio = crate::contrast(over(0xffffff, FIELD_EDGE, card), card);
+            assert!(ratio >= 3., "field edge on #{card:06x}: {ratio:.2}");
+        }
+        let ratio = crate::contrast(over(ON_LIGHT, FIELD_EDGE_LIGHT, PAPER), PAPER);
+        assert!(ratio >= 3., "light field edge: {ratio:.2}");
     }
 
     #[test]
@@ -302,7 +402,7 @@ mod tests {
                 .fold(0, |c, n| c << 8 | n * 0x33)
         });
         for accent in [ACCENT].into_iter().chain(typed) {
-            let look = Glass::new(accent, TINT, BLUR).light();
+            let look = Glass::new(accent).light();
             for bg in light_surfaces() {
                 let icon = crate::contrast(look.mark, bg);
                 assert!(icon >= 3., "#{accent:06x}'s mark on #{bg:06x}: {icon:.2}");

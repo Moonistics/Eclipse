@@ -1,6 +1,5 @@
-//! A Java instance's part of the New instance page (`glass_instance.rs`; the mockup's
-//! `InstanceModal` for Vanilla and Modded): Mojang's versions to pick from, then for Modded the
-//! loaders, each with its logo, as many as `loaders::Kind` knows.
+//! A Java instance's part of the New instance page (`glass_instance.rs`): Mojang's versions to
+//! pick from, and for Modded the loaders, each with its logo, as many as `loaders::Kind` knows.
 use super::*;
 use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::instances::{self, Instance, Plays, Unkept};
@@ -8,8 +7,7 @@ use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
 use eclipse_theme::glass::{fill, ink, radius};
 use glass_instance::{
-    choice, choice_text, letter_tile, list_box, list_choice, loaders, section_card, tick,
-    tile_image,
+    choice, list_box, list_choice, loaders, mark_tile, section_card, tick, MARK, MARK_TILE,
 };
 use new_instance::{JavaChoice, LoaderVersions, NewKind, VersionList};
 use servers_page::Field;
@@ -17,11 +15,20 @@ use servers_page::Field;
 /// Mojang versions listed at most: the search finds the others.
 const ROWS: usize = 60;
 const LIST: f32 = 206.;
+const LIST_SHORT: f32 = 154.;
+
+fn released(time: &str) -> String {
+    let date = time.get(..10).unwrap_or_default();
+    let day = glass_versions::published(date, "");
+    let this_year = chrono::Utc::now().format("%Y").to_string();
+    match date.get(..4) {
+        Some(year) if year != this_year => trf("{day}, {year}", &[("day", &day), ("year", year)]),
+        _ => day,
+    }
+}
 
 impl Launcher {
     pub(super) fn minecraft_versions(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let t = self.theme;
-        let soft = self.look.accent_soft;
         let Some(choice) = self.instances.draft.as_ref().map(|d| d.java.clone()) else {
             return div().id("instance-minecraft-version");
         };
@@ -32,7 +39,6 @@ impl Launcher {
             .to_string();
         let search = typed.to_lowercase();
         let chosen = self.draft_minecraft();
-        let look = self.look;
         let filter = |id: &'static str,
                       label: &'static str,
                       on: bool,
@@ -42,20 +48,7 @@ impl Launcher {
                     this.change(flip);
                     cx.notify();
                 };
-            div()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .child(
-                    ui::toggle(id, on, look.accent, look.on_accent, &t).on_click(cx.listener(flip)),
-                )
-                .child(
-                    ui::text(13., FontWeight::NORMAL, ink::BODY)
-                        .id(SharedString::from(format!("{id}-label")))
-                        .cursor_pointer()
-                        .child(tr(label))
-                        .on_click(cx.listener(flip)),
-                )
+            ui::toggle_label(id, tr(label), on).on_press(cx.listener(flip))
         };
         let filters = div()
             .flex()
@@ -86,20 +79,27 @@ impl Launcher {
                     .h_full()
                     .flex()
                     .items_center()
-                    .child(ui::icon("search-01", 17., white(ink::DIM))),
+                    .child(ui::icon("search-01", ui::IconSize::Px16, white(ink::DIM))),
             );
-        let line = |s: String, a: f32| {
-            ui::text(14., FontWeight::NORMAL, a)
-                .px(px(16.))
-                .py(px(24.))
-                .child(s)
-        };
+        let height = if ui::short_window() { LIST_SHORT } else { LIST };
         let list = match &self.instances.versions {
-            VersionList::NotAsked | VersionList::Loading => list_box("mc-versions", LIST).child(
-                line(tr("Asking Mojang for its versions…").into(), ink::MUTED),
+            VersionList::NotAsked | VersionList::Loading => list_box("mc-versions", height).child(
+                ui::loading_state("mc-versions-loading", tr("Loading Minecraft versions…")),
             ),
-            VersionList::Failed(e) => list_box("mc-versions", LIST)
-                .child(line(e.clone(), ink::FULL).text_color(ui::danger())),
+            VersionList::Failed(e) => {
+                let retry = ui::primary("mc-versions-retry", tr("Try again"), ui::Size::Md)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.instances.versions = VersionList::NotAsked;
+                        this.load_versions(cx);
+                        cx.notify();
+                    }));
+                list_box("mc-versions", height).child(ui::error_state(
+                    "mc-versions-failed",
+                    tr("Couldn't load Minecraft versions"),
+                    e,
+                    retry,
+                ))
+            }
             VersionList::Ready(versions) => {
                 let rows: Vec<_> = versions
                     .of(choice.snapshots, choice.old)
@@ -114,33 +114,41 @@ impl Launcher {
                             VersionKind::OldBeta => "Beta",
                             VersionKind::OldAlpha => "Alpha",
                         };
-                        list_choice(format!("mc-{}", v.id), on, &t)
+                        list_choice(format!("mc-{}", v.id), on)
                             .py(px(8.))
                             .child(
-                                ui::text(15., FontWeight::SEMIBOLD, ink::FULL)
-                                    .w(px(160.))
-                                    .flex_none()
-                                    .truncate()
-                                    .child(v.id.clone()),
+                                ui::text(
+                                    eclipse_theme::glass::step::LEAD,
+                                    FontWeight::SEMIBOLD,
+                                    ink::FULL,
+                                )
+                                .w(px(160.))
+                                .flex_none()
+                                .truncate()
+                                .child(v.id.clone()),
                             )
                             .child(
-                                ui::text(13., FontWeight::NORMAL, ink::MUTED)
-                                    .flex_1()
-                                    .child(format!(
-                                        "{} · {}",
-                                        tr(kind),
-                                        v.released.get(..10).unwrap_or("")
-                                    )),
+                                ui::text(
+                                    eclipse_theme::glass::step::NOTE,
+                                    FontWeight::NORMAL,
+                                    ink::MUTED,
+                                )
+                                .flex_1()
+                                .child(format!(
+                                    "{} · {}",
+                                    tr(kind),
+                                    released(&v.released)
+                                )),
                             )
-                            .child(tick(on, soft))
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            .child(tick(on))
+                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.change(|j| j.version = Some(id.clone()));
                                 cx.notify();
                             }))
                     })
                     .collect();
                 if rows.is_empty() {
-                    list_box("mc-versions", LIST).child(ui::empty_state(
+                    list_box("mc-versions", height).child(ui::empty_state(
                         "mc-versions-no-match",
                         "search-01",
                         trf("No version matches “{search}”", &[("search", &typed)]),
@@ -148,7 +156,7 @@ impl Launcher {
                         vec![],
                     ))
                 } else {
-                    list_box("mc-versions", LIST).children(rows)
+                    list_box("mc-versions", height).children(rows)
                 }
             }
         };
@@ -161,14 +169,13 @@ impl Launcher {
     }
 
     pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let t = self.theme;
         let now = self.draft_loader();
         let version = self.loader_version_shown(cx);
         let mut grid = div().grid().grid_cols(2).gap(px(10.));
         for loader in loaders() {
-            let logo = match self.loader_logo(loader.id(), 32.) {
-                Some(image) => tile_image(image, 32.),
-                None => letter_tile(white(fill::BUTTON), loader.name(), 32.).into_any_element(),
+            let logo = match self.loader_logo(loader.id(), MARK) {
+                Some(image) => mark_tile(ui::image_tile(image, MARK)),
+                None => ui::letter_tile(white(fill::BUTTON), loader.name(), MARK_TILE),
             };
             let title = match &version {
                 Some(v) if loader == now => format!("{} {v}", loader.name()),
@@ -182,20 +189,20 @@ impl Launcher {
                 _ => "",
             };
             grid = grid.child(
-                choice(format!("loader-{}", loader.id()), loader == now, &t)
+                choice(format!("loader-{}", loader.id()), loader == now)
                     .items_center()
-                    .gap(px(12.))
+                    .gap(px(14.))
                     .p(px(12.))
                     .min_w_0()
                     .child(logo)
-                    .child(choice_text(title, note))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    .child(ui::item_text(title, note))
+                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.change(|j| j.loader = loader);
                         cx.notify();
                     })),
             );
         }
-        section_card("instance-loader", tr("Loader").into(), None, grid)
+        section_card("instance-loader", tr("Mod loader").into(), None, grid)
     }
 
     fn loader_version_shown(&mut self, cx: &mut Context<Self>) -> Option<String> {
@@ -287,7 +294,7 @@ impl Launcher {
                 .p(px(16.))
                 .rounded(px(radius::POPOVER))
                 .bg(warn.opacity(fill::SELECTED))
-                .child(ui::icon("information-circle", 20., warn))
+                .child(ui::icon("information-circle", ui::IconSize::Px16, warn))
                 .child(
                     div()
                         .flex()
@@ -295,13 +302,20 @@ impl Launcher {
                         .gap(px(6.))
                         .min_w_0()
                         .child(
-                            ui::text(15., FontWeight::SEMIBOLD, ink::FULL)
-                                .child(tr("Before you switch")),
+                            ui::text(
+                                eclipse_theme::glass::step::LEAD,
+                                FontWeight::SEMIBOLD,
+                                ink::FULL,
+                            )
+                            .child(tr("Before you switch")),
                         )
                         .children(lines.into_iter().map(|l| {
-                            ui::text(13., FontWeight::NORMAL, ink::BODY)
-                                .line_height(px(19.))
-                                .child(l)
+                            ui::text(
+                                eclipse_theme::glass::step::NOTE,
+                                FontWeight::NORMAL,
+                                ink::BODY,
+                            )
+                            .child(l)
                         })),
                 ),
         )

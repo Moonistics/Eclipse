@@ -1,62 +1,236 @@
 use crate::art;
-use crate::sky::{motion, Clock, Motion};
+use crate::motion::{self, Clock, Motion};
+use eclipse_theme::night::{over, Night, DAWN, NIGHT};
 use gpui::{
     canvas, div, fill, img, point, prelude::*, px, size, Bounds, Context, Pixels, RenderImage,
     Window,
 };
+use std::f32::consts::{FRAC_PI_4, TAU};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 type Rgb = [f32; 3];
 
-const SKY_STOPS: [(f32, Rgb); 7] = [
-    (0., [5., 7., 14.]),
-    (0.4, [9., 12., 26.]),
-    (0.66, [16., 19., 42.]),
-    (0.82, [28., 27., 58.]),
-    (0.92, [52., 38., 62.]),
-    (0.97, [98., 60., 54.]),
-    (1., [150., 92., 48.]),
-];
+const SKY_AT: [f32; 6] = [0., 0.4, 0.66, 0.82, 0.92, 1.];
 const SKY_BAND: usize = 3;
+const HORIZON: f32 = 0.8;
+const THEME_SKY_WASH: f32 = 0.75;
+
 const SUN_SIZE: f32 = 0.055;
-const SUN_LOW: (f32, Option<f32>, f32) = (0.84, None, 0.7);
-type Ridge = (u32, (Rgb, Rgb), f32, f32, f32);
-const RIDGES: [Ridge; 2] = [(3, FAR, 0.86, 0.3, 70.), (8, MID, 0.92, 0.2, 46.)];
 const SUN_HIGH: f32 = 0.38;
-const STAR_BRIGHT: Rgb = [176., 182., 222.];
-const STAR_MID: Rgb = [104., 110., 160.];
-const STAR_DIM: Rgb = [62., 67., 108.];
-const CORONA: Rgb = [255., 176., 72.];
-const STREAMER: Rgb = [255., 196., 110.];
-const RIM: Rgb = [255., 226., 170.];
-const BEAD: Rgb = [255., 248., 230.];
-const MOON: Rgb = [7., 8., 13.];
-const FAR: (Rgb, Rgb) = ([30., 32., 62.], [64., 56., 86.]);
-const MID: (Rgb, Rgb) = ([14., 16., 32.], [14., 16., 32.]);
-const GRASS: Rgb = [22., 40., 30.];
-const GRASS_LIT: Rgb = [30., 54., 38.];
-const DIRT: Rgb = [24., 19., 16.];
-const DIRT_DEEP: Rgb = [17., 14., 12.];
-const STONE: Rgb = [28., 28., 32.];
-const TRUNK: Rgb = [34., 24., 18.];
-const LEAVES: Rgb = [14., 30., 22.];
-const LEAVES_SHADE: Rgb = [10., 22., 16.];
-const LEAVES_LIT: Rgb = [22., 44., 30.];
-const STICK: Rgb = [60., 44., 30.];
-const FLAME: Rgb = [255., 200., 90.];
-const GLOW: Rgb = [255., 179., 71.];
+const SUN_REACH: f32 = 2.4;
+const GUTTER_MARGIN: f32 = 48.;
+const SMALLEST_HIGH_SUN: f32 = 0.6;
+const SETTING_RADIUS: f32 = 12.;
+const CONTENT_BOTTOM: f32 = 516.;
+const SETTING_BELOW: f32 = 0.72;
+const SETTING_ACROSS: (f32, f32) = (0.7, 0.92);
+const DIP_REACH: f32 = 2.8;
+const DIP_CALM: f32 = 0.5;
+const DIP_TILT: f32 = 0.12;
+const FAR_SINK: f32 = 0.6;
+const MID_SINK: f32 = 0.85;
+const GROUND_SINK: f32 = 1.;
+
+const CORONA_ALPHAS: [f32; 4] = [0.14, 0.09, 0.06, 0.035];
+const CORONA_RING: f32 = 0.26;
+const STREAMERS: usize = 12;
+const STREAMER_ALPHA: f32 = 0.45;
+const SHORT_STREAMER: f32 = 0.55;
+const STREAMER_TWIST: f32 = 0.3;
+const STREAMER_LENGTH: (f32, f32) = (0.9, 1.1);
+const BEAD_ANGLE: f32 = FRAC_PI_4 * 5.;
+const BEAD_SPARKLE: f32 = 0.35;
+const BEAD_SPARKLE_FROM: f32 = 10.;
+
+const STAR_EVERY: f32 = 700.;
+const STAR_HIGH_BIAS: f32 = 1.7;
+const STAR_REACH: f32 = 0.72;
+const SUN_CLEARANCE: f32 = 2.6;
+const BRIGHT_STAR: f32 = 0.9;
+const MID_STAR: f32 = 0.55;
+const TWINKLING: f32 = 0.18;
+const TWINKLE_SPEED: (f32, f32) = (0.6, 2.);
+const TWINKLE_LOW: f32 = 0.35;
+const STAR_DOT: f32 = 0.5;
+const SMALLEST_STAR_DOT: f32 = 1.5;
+
+const CLOUD_EVERY: f32 = 48.;
+const CLOUD_BAND: (f32, f32) = (0.45, 0.85);
+const CLOUD_LENGTH: (f32, f32) = (14., 34.);
+const CLOUD_ALPHA: f32 = 0.7;
+const CLOUD_ROWS: [(f32, f32); 4] = [(0.3, 0.35), (0.1, 0.75), (0., 1.), (0.15, 0.65)];
+
+const RIDGED: f32 = 0.62;
+const PEAK_DETAIL: [(f32, f32); 2] = [(2.6, 0.26), (7., 0.12)];
+const ROLLING_OCTAVES: [(f32, f32); 2] = [(1., 0.7), (3., 0.3)];
+
+const GROUND_FOOT: f32 = 0.975;
+const GROUND_RISE: f32 = 0.08;
+const GROUND_SPAN: f32 = 90.;
+const GROUND_BLOCK: i32 = 4;
+const GRASS_ROWS: i32 = 2;
+const DIRT_ROWS: i32 = 4;
+const LIT_GRASS: f32 = 0.18;
+const BURIED_STONE: f32 = 0.05;
+const TREE_EVERY: f32 = 22.;
+const LIT_LEAVES: f32 = 0.12;
+const TORCHES: [f32; 2] = [0.34, 0.63];
+const TORCH_GLOW: f32 = 0.1;
+
+struct Ridge {
+    seed: u32,
+    foot: f32,
+    rise: f32,
+    span: f32,
+}
+
+const FAR_RIDGE: Ridge = Ridge {
+    seed: 3,
+    foot: 0.86,
+    rise: 0.3,
+    span: 70.,
+};
+const MID_RIDGE: Ridge = Ridge {
+    seed: 8,
+    foot: 0.92,
+    rise: 0.2,
+    span: 46.,
+};
+
+struct Shape {
+    body: Rgb,
+    edge: Rgb,
+}
+
+struct Palette {
+    page: u32,
+    stars: Option<[Rgb; 3]>,
+    clouds: Option<Shape>,
+    corona: Rgb,
+    streamer: Rgb,
+    rim: Rgb,
+    bead: Rgb,
+    moon: Rgb,
+    far: Shape,
+    mid: Shape,
+    grass: Rgb,
+    grass_lit: Rgb,
+    dirt: Rgb,
+    dirt_deep: Rgb,
+    stone: Rgb,
+    trunk: Rgb,
+    leaves: Rgb,
+    leaves_shade: Rgb,
+    leaves_lit: Rgb,
+    stick: Rgb,
+    flame: Rgb,
+    glow: Rgb,
+}
+
+const AT_NIGHT: Palette = Palette {
+    page: eclipse_theme::glass::PAGE,
+    stars: Some([[176., 182., 222.], [104., 110., 160.], [62., 67., 108.]]),
+    clouds: None,
+    corona: [255., 176., 72.],
+    streamer: [255., 196., 110.],
+    rim: [255., 226., 170.],
+    bead: [255., 248., 230.],
+    moon: [7., 8., 13.],
+    far: Shape {
+        body: [20., 21., 42.],
+        edge: [64., 56., 86.],
+    },
+    mid: Shape {
+        body: [14., 16., 32.],
+        edge: [14., 16., 32.],
+    },
+    grass: [22., 40., 30.],
+    grass_lit: [30., 54., 38.],
+    dirt: [24., 19., 16.],
+    dirt_deep: [17., 14., 12.],
+    stone: [28., 28., 32.],
+    trunk: [34., 24., 18.],
+    leaves: [14., 30., 22.],
+    leaves_shade: [10., 22., 16.],
+    leaves_lit: [22., 44., 30.],
+    stick: [60., 44., 30.],
+    flame: [255., 200., 90.],
+    glow: [255., 179., 71.],
+};
+
+const BY_DAY: Palette = Palette {
+    page: DAWN.page,
+    stars: None,
+    clouds: Some(Shape {
+        body: [255., 255., 255.],
+        edge: [226., 222., 220.],
+    }),
+    corona: [248., 170., 60.],
+    streamer: [242., 158., 52.],
+    rim: [245., 165., 36.],
+    bead: [255., 250., 236.],
+    moon: [40., 44., 56.],
+    far: Shape {
+        body: [185., 193., 208.],
+        edge: [210., 216., 226.],
+    },
+    mid: Shape {
+        body: [154., 163., 181.],
+        edge: [170., 178., 195.],
+    },
+    grass: [116., 140., 112.],
+    grass_lit: [136., 160., 126.],
+    dirt: [130., 112., 94.],
+    dirt_deep: [112., 97., 84.],
+    stone: [140., 140., 146.],
+    trunk: [104., 86., 72.],
+    leaves: [94., 118., 96.],
+    leaves_shade: [80., 102., 84.],
+    leaves_lit: [114., 138., 110.],
+    stick: [120., 94., 68.],
+    flame: [255., 200., 90.],
+    glow: [255., 179., 71.],
+};
 
 const TICK: Duration = Duration::from_millis(250);
 const UNFOCUSED: Duration = Duration::from_secs(10);
 
 fn texel(width: f64) -> f32 {
-    if width < 760. {
+    if width < 1100. {
         3.
     } else if width < 1800. {
         4.
     } else {
         5.
+    }
+}
+
+#[derive(Clone, Copy, PartialEq)]
+struct Look {
+    sky: [u32; 6],
+    dark: bool,
+}
+
+impl Look {
+    fn of(night: &Night) -> Look {
+        let sky = if night.dark || night.sky == DAWN.sky {
+            night.sky
+        } else {
+            night.sky.map(|c| over(0xffffff, THEME_SKY_WASH, c))
+        };
+        Look {
+            sky,
+            dark: night.dark,
+        }
+    }
+
+    fn palette(self) -> &'static Palette {
+        if self.dark {
+            &AT_NIGHT
+        } else {
+            &BY_DAY
+        }
     }
 }
 
@@ -69,6 +243,10 @@ impl Rng {
         t = (t ^ (t >> 15)).wrapping_mul(1 | t);
         t = (t.wrapping_add((t ^ (t >> 7)).wrapping_mul(61 | t))) ^ t;
         (t ^ (t >> 14)) as f32 / 4294967296.
+    }
+
+    fn between(&mut self, (low, high): (f32, f32)) -> f32 {
+        low + self.next() * (high - low)
     }
 }
 
@@ -88,13 +266,64 @@ fn smooth(seed: u32, x: f32) -> f32 {
 
 fn peaks(seed: u32, x: f32, span: f32) -> f32 {
     let ridged = 1. - (smooth(seed, x / span) * 2. - 1.).abs();
-    ridged * 0.62
-        + smooth(seed + 1, x / (span / 2.6)) * 0.26
-        + smooth(seed + 2, x / (span / 7.)) * 0.12
+    PEAK_DETAIL
+        .iter()
+        .zip(1..)
+        .fold(ridged * RIDGED, |sum, (&(split, weight), n)| {
+            sum + smooth(seed + n, x / (span / split)) * weight
+        })
 }
 
 fn rolling(seed: u32, x: f32, span: f32) -> f32 {
-    smooth(seed, x / span) * 0.7 + smooth(seed + 1, x / (span / 3.)) * 0.3
+    ROLLING_OCTAVES
+        .iter()
+        .zip(0..)
+        .map(|(&(split, weight), n)| smooth(seed + n, x / (span / split)) * weight)
+        .sum()
+}
+
+fn even(y: f32) -> i32 {
+    ((y / 2.).round() * 2.) as i32
+}
+
+impl Ridge {
+    fn top(&self, x: i32, h: f32) -> i32 {
+        even(h * self.foot - peaks(self.seed, x as f32, self.span) * h * self.rise)
+    }
+}
+
+#[derive(Clone, Copy)]
+struct Dip {
+    x: i32,
+    centre: f32,
+    radius: f32,
+}
+
+#[derive(Clone, Copy)]
+struct Lowered {
+    middle: f32,
+    depth: f32,
+}
+
+impl Dip {
+    fn lowered(&self, top: impl Fn(i32) -> i32, sink: f32) -> Lowered {
+        let span = self.radius as i32;
+        let tops = (self.x - span..=self.x + span).map(top);
+        let middle = tops.sum::<i32>() as f32 / (2 * span + 1) as f32;
+        Lowered {
+            middle,
+            depth: (self.centre + self.radius * sink - middle).max(0.),
+        }
+    }
+
+    fn lower(&self, top: i32, x: i32, by: Lowered) -> i32 {
+        let aside = ((x - self.x).abs() as f32 - self.radius) / (self.radius * (DIP_REACH - 1.));
+        let t = aside.clamp(0., 1.);
+        let near = 1. - t * t * (3. - 2. * t);
+        let calmer = by.middle + (top as f32 - by.middle) * (1. - DIP_CALM * near);
+        let tilt = (x - self.x) as f32 * DIP_TILT * near;
+        even(calmer + tilt + by.depth * near)
+    }
 }
 
 struct Canvas {
@@ -119,9 +348,13 @@ impl Canvas {
     }
 
     fn rect(&mut self, x: i32, y: i32, w: i32, h: i32, c: Rgb) {
+        self.veil(x, y, w, h, c, 1.);
+    }
+
+    fn veil(&mut self, x: i32, y: i32, w: i32, h: i32, c: Rgb, a: f32) {
         for yy in y..y + h {
             for xx in x..x + w {
-                self.set(xx, yy, c);
+                self.blend(xx, yy, c, a);
             }
         }
     }
@@ -137,17 +370,20 @@ impl Canvas {
     }
 }
 
-fn sky(position: f32) -> Rgb {
-    let next = SKY_STOPS
+fn rgb(c: u32) -> Rgb {
+    [16, 8, 0].map(|shift| ((c >> shift) & 255) as f32)
+}
+
+fn sky(stops: &[u32; 6], position: f32) -> Rgb {
+    let next = SKY_AT
         .iter()
-        .position(|(stop, _)| *stop >= position)
-        .unwrap_or(SKY_STOPS.len() - 1);
+        .position(|&at| at >= position)
+        .unwrap_or(SKY_AT.len() - 1);
     if next == 0 {
-        return SKY_STOPS[0].1;
+        return rgb(stops[0]);
     }
-    let (a, from) = SKY_STOPS[next - 1];
-    let (b, to) = SKY_STOPS[next];
-    let t = (position - a) / (b - a);
+    let (from, to) = (rgb(stops[next - 1]), rgb(stops[next]));
+    let t = (position - SKY_AT[next - 1]) / (SKY_AT[next] - SKY_AT[next - 1]);
     [0, 1, 2].map(|i| from[i] + (to[i] - from[i]) * t)
 }
 
@@ -166,94 +402,164 @@ struct Picture {
     stars: Vec<Star>,
 }
 
-fn sun_at(width: f32, height: f32) -> (f32, Option<f32>, f32) {
+#[derive(Clone, Copy)]
+enum Sun {
+    Beside { x: f32, scale: f32 },
+    Setting { below: f32 },
+}
+
+fn sun_at(width: f32, height: f32, texel: f32) -> Sun {
     let avail = width - crate::frame::SIDEBAR;
     let column = (avail - 2. * crate::theme::PAGE_GUTTER).min(crate::theme::PAGE_MAX);
     let gutter = (avail - column) / 2.;
-    let reach = width.min(height) * SUN_SIZE * 2.4;
-    let fit = ((gutter - 48.) / (2. * reach)).min(1.);
-    if fit >= 0.6 {
-        ((width - gutter / 2.) / width, Some(SUN_HIGH), fit)
+    let reach = width.min(height) * SUN_SIZE * SUN_REACH;
+    let fit = ((gutter - GUTTER_MARGIN) / (2. * reach)).min(1.);
+    if fit >= SMALLEST_HIGH_SUN {
+        Sun::Beside {
+            x: (width - gutter / 2.) / width,
+            scale: fit,
+        }
     } else {
-        SUN_LOW
+        Sun::Setting {
+            below: (CONTENT_BOTTOM / texel).max(height / texel * SETTING_BELOW),
+        }
     }
 }
 
-fn ridge_top(seed: u32, base: f32, rise: f32, span: f32, x: i32, h: f32) -> i32 {
-    let shape = peaks(seed, x as f32, span);
-    (((h * base - shape * h * rise) / 2.).round() * 2.) as i32
+fn corona_ring(r: f32) -> f32 {
+    (r * CORONA_RING).ceil()
 }
 
-fn paint(cols: usize, rows: usize, sun: (f32, Option<f32>, f32)) -> Picture {
+fn paint(cols: usize, rows: usize, sidebar: i32, sun: Sun, look: Look) -> Picture {
+    let palette = look.palette();
     let mut c = Canvas {
         w: cols,
         h: rows,
         px: vec![[0.; 3]; cols * rows],
     };
     let (w, h) = (cols as f32, rows as f32);
-    let horizon = (h * 0.8).round();
 
-    for y in (0..rows).step_by(SKY_BAND) {
-        let colour = sky((y as f32 / horizon).min(1.));
-        c.rect(0, y as i32, cols as i32, SKY_BAND as i32, colour);
-    }
+    let hills = |x: i32| -> i32 {
+        let block = x.div_euclid(GROUND_BLOCK) * GROUND_BLOCK;
+        even(h * GROUND_FOOT - rolling(91, block as f32, GROUND_SPAN) * h * GROUND_RISE)
+    };
 
-    let r = (w.min(h) * SUN_SIZE * sun.2).round().max(4.);
-    let (sx, sy) = match sun.1 {
-        Some(y) => ((w * sun.0).round() as i32, (h * y).round() as i32),
-        None => {
-            let skyline = |x: i32| {
-                RIDGES
-                    .iter()
-                    .map(|&(seed, _, base, rise, span)| ridge_top(seed, base, rise, span, x, h))
+    let (r, sx, sy, dip) = match sun {
+        Sun::Beside { x, scale } => (
+            (w.min(h) * SUN_SIZE * scale).round().max(4.),
+            (w * x).round() as i32,
+            (h * SUN_HIGH).round() as i32,
+            None,
+        ),
+        Sun::Setting { below } => {
+            let r = SETTING_RADIUS;
+            let reach = r + CORONA_ALPHAS.len() as f32 * corona_ring(r);
+            let cy = (below + 1. + r).min(h - r / 2.).round();
+            let from = (w * SETTING_ACROSS.0) as i32;
+            let to = ((w * SETTING_ACROSS.1).min(w - reach) as i32).max(from);
+            let highest_ground = |x: i32| {
+                (x - r as i32..=x + r as i32)
+                    .step_by(2)
+                    .map(hills)
                     .min()
                     .unwrap_or(rows as i32)
             };
-            let from = (w * (sun.0 - 0.3)) as i32;
-            let to = (w * (sun.0 + 0.1)).min(w - r * 2.) as i32;
-            let x = (from..=to.max(from))
+            let x = (from..=to)
                 .step_by(2)
-                .max_by_key(|&x| skyline(x))
+                .max_by_key(|&x| highest_ground(x))
                 .unwrap_or(from);
-            (x, skyline(x) - (r * 0.8).round() as i32)
+            let dip = Dip {
+                x,
+                centre: cy,
+                radius: r,
+            };
+            (r, x, cy as i32, Some(dip))
         }
     };
-    let mut rng = Rng(11);
-    let mut stars = Vec::new();
-    for _ in 0..((w * horizon) / 700.).round() as usize {
-        let x = rng.next() * w;
-        let y = rng.next().powf(1.7) * horizon * 0.72;
-        let dim = rng.next();
-        let twinkles = rng.next() < 0.18;
-        let speed = 0.6 + rng.next() * 1.4;
-        let phase = rng.next() * std::f32::consts::TAU;
-        let near = ((x - sx as f32).powi(2) + (y - sy as f32).powi(2)).sqrt() < r * 2.6;
-        if near {
-            continue;
-        }
-        let colour = if dim > 0.9 {
-            STAR_BRIGHT
-        } else if dim > 0.55 {
-            STAR_MID
-        } else {
-            STAR_DIM
-        };
-        stars.push(Star {
-            x,
-            y,
-            colour,
-            speed: if twinkles && dim > 0.55 { speed } else { 0. },
-            phase,
-        });
+
+    let horizon = match dip {
+        Some(dip) => (h * HORIZON).max(dip.centre + r),
+        None => h * HORIZON,
+    }
+    .round();
+    for y in (0..rows).step_by(SKY_BAND) {
+        let colour = sky(&look.sky, (y as f32 / horizon).min(1.));
+        c.rect(0, y as i32, cols as i32, SKY_BAND as i32, colour);
     }
 
-    for ring in (1..=4).rev() {
-        c.disc(sx, sy, r + ring as f32 * (r * 0.26).ceil(), CORONA, 0.045);
+    let mut stars = Vec::new();
+    if let Some([bright, mid, dim]) = palette.stars {
+        let mut rng = Rng(11);
+        for _ in 0..((w * horizon) / STAR_EVERY).round() as usize {
+            let x = rng.next() * w;
+            let y = rng.next().powf(STAR_HIGH_BIAS) * horizon * STAR_REACH;
+            let shine = rng.next();
+            let twinkles = rng.next() < TWINKLING;
+            let speed = rng.between(TWINKLE_SPEED);
+            let phase = rng.next() * TAU;
+            let near =
+                ((x - sx as f32).powi(2) + (y - sy as f32).powi(2)).sqrt() < r * SUN_CLEARANCE;
+            if near {
+                continue;
+            }
+            let colour = if shine > BRIGHT_STAR {
+                bright
+            } else if shine > MID_STAR {
+                mid
+            } else {
+                dim
+            };
+            stars.push(Star {
+                x,
+                y,
+                colour,
+                speed: if twinkles && shine > MID_STAR {
+                    speed
+                } else {
+                    0.
+                },
+                phase,
+            });
+        }
+    }
+
+    if let Some(cloud) = &palette.clouds {
+        let mut drift = Rng(29);
+        for _ in 0..(w / CLOUD_EVERY).round() as usize {
+            let x = drift.next() * w;
+            let y = drift.between(CLOUD_BAND) * horizon;
+            let len = drift.between(CLOUD_LENGTH);
+            let near_sun = (x + len / 2. - sx as f32).abs() < len / 2. + r * SUN_CLEARANCE
+                && (y - sy as f32).abs() < r * SUN_CLEARANCE;
+            if near_sun || (x as i32) < sidebar {
+                continue;
+            }
+            let (x, y) = (x as i32, y as i32);
+            let part = |share: f32| (len * share).round() as i32;
+            for (row, &(from, share)) in CLOUD_ROWS.iter().enumerate() {
+                let underside = row == CLOUD_ROWS.len() - 1;
+                let colour = if underside { cloud.edge } else { cloud.body };
+                c.veil(
+                    x + part(from),
+                    y + row as i32,
+                    part(share),
+                    1,
+                    colour,
+                    CLOUD_ALPHA,
+                );
+            }
+        }
+    }
+
+    let ring = corona_ring(r);
+    for (i, alpha) in CORONA_ALPHAS.iter().enumerate().rev() {
+        c.disc(sx, sy, r + (i + 1) as f32 * ring, palette.corona, *alpha);
     }
     let mut rays = Rng(37);
-    for i in 0..12 {
-        let angle = (i as f32 + rays.next() * 0.3) * std::f32::consts::TAU / 12.;
-        let len = r * if i % 2 == 0 { 1. } else { 0.55 } * (0.9 + rays.next() * 0.2);
+    for i in 0..STREAMERS {
+        let angle = (i as f32 + rays.next() * STREAMER_TWIST) * TAU / STREAMERS as f32;
+        let length = if i % 2 == 0 { 1. } else { SHORT_STREAMER };
+        let len = r * length * rays.between(STREAMER_LENGTH);
         let (dx, dy) = (angle.cos(), angle.sin());
         let mut d = r;
         while d < r + len {
@@ -261,88 +567,96 @@ fn paint(cols: usize, rows: usize, sun: (f32, Option<f32>, f32)) -> Picture {
             c.blend(
                 sx + (dx * d).round() as i32,
                 sy + (dy * d).round() as i32,
-                STREAMER,
-                0.28 * fade,
+                palette.streamer,
+                STREAMER_ALPHA * fade,
             );
             d += 0.5;
         }
     }
-    c.disc(sx, sy, r + 1., RIM, 1.);
-    c.disc(sx, sy, r, MOON, 1.);
-    let bead = std::f32::consts::FRAC_PI_4 * 5.;
+    c.disc(sx, sy, r + 1., palette.rim, 1.);
+    c.disc(sx, sy, r, palette.moon, 1.);
     let (bx, by) = (
-        sx + (bead.cos() * r).round() as i32,
-        sy + (bead.sin() * r).round() as i32,
+        sx + (BEAD_ANGLE.cos() * r).round() as i32,
+        sy + (BEAD_ANGLE.sin() * r).round() as i32,
     );
-    c.rect(bx - 1, by - 1, 2, 2, BEAD);
-    for (dx, dy) in [
-        (-3, 0),
-        (2, 0),
-        (0, -3),
-        (0, 2),
-        (-2, 0),
-        (1, 0),
-        (0, -2),
-        (0, 1),
-    ] {
-        c.blend(
-            bx + dx - (dx < 0) as i32,
-            by + dy - (dy < 0) as i32,
-            BEAD,
-            0.35,
-        );
-    }
-
-    for (seed, (rock, rim), base, rise, span) in RIDGES {
-        for x in (0..cols as i32).step_by(2) {
-            let top = ridge_top(seed, base, rise, span, x, h);
-            c.rect(x, top, 2, rows as i32 - top, rock);
-            c.rect(x, top, 2, 1, rim);
+    c.rect(bx - 1, by - 1, 2, 2, palette.bead);
+    if r >= BEAD_SPARKLE_FROM {
+        for (dx, dy) in [
+            (-3, 0),
+            (2, 0),
+            (0, -3),
+            (0, 2),
+            (-2, 0),
+            (1, 0),
+            (0, -2),
+            (0, 1),
+        ] {
+            c.blend(
+                bx + dx - (dx < 0) as i32,
+                by + dy - (dy < 0) as i32,
+                palette.bead,
+                BEAD_SPARKLE,
+            );
         }
     }
 
-    let ground_base = h * 0.975;
-    let ground_rise = h * 0.08;
-    let ground = |x: i32| -> i32 {
-        let block = (x.div_euclid(4) * 4) as f32;
-        let y = ground_base - rolling(91, block, 90.) * ground_rise;
-        ((y / 2.).round() * 2.) as i32
-    };
+    for (ridge, shape, sink) in [
+        (&FAR_RIDGE, &palette.far, FAR_SINK),
+        (&MID_RIDGE, &palette.mid, MID_SINK),
+    ] {
+        let natural = |x: i32| ridge.top(x, h);
+        let dip = dip.map(|dip| (dip, dip.lowered(natural, sink)));
+        let top = |x: i32| dip.map_or(natural(x), |(dip, by)| dip.lower(natural(x), x, by));
+        for x in (0..cols as i32).step_by(2) {
+            let (here, before, after) = (top(x), top(x - 2), top(x + 2));
+            c.rect(x, here, 2, rows as i32 - here, shape.body);
+            c.rect(x, here, 2, 1, shape.edge);
+            c.rect(x, here, 1, (before - here).max(0) + 1, shape.edge);
+            c.rect(x + 1, here, 1, (after - here).max(0) + 1, shape.edge);
+        }
+    }
+
+    let ground_dip = dip.map(|dip| (dip, dip.lowered(hills, GROUND_SINK)));
+    let ground = |x: i32| ground_dip.map_or(hills(x), |(dip, by)| dip.lower(hills(x), x, by));
     let mut soil = Rng(53);
     for x in 0..cols as i32 {
         let top = ground(x);
-        c.rect(x, top, 1, 2, GRASS);
-        if soil.next() < 0.18 {
-            c.set(x, top, GRASS_LIT);
+        c.rect(x, top, 1, GRASS_ROWS, palette.grass);
+        if soil.next() < LIT_GRASS {
+            c.set(x, top, palette.grass_lit);
         }
-        c.rect(x, top + 2, 1, 4, DIRT);
-        c.rect(x, top + 6, 1, rows as i32 - top - 6, DIRT_DEEP);
-        if soil.next() < 0.05 {
-            c.set(x, top + 4 + (soil.next() * 8.) as i32, STONE);
+        c.rect(x, top + GRASS_ROWS, 1, DIRT_ROWS, palette.dirt);
+        let deep = top + GRASS_ROWS + DIRT_ROWS;
+        c.rect(x, deep, 1, rows as i32 - deep, palette.dirt_deep);
+        if soil.next() < BURIED_STONE {
+            c.set(x, top + 4 + (soil.next() * 8.) as i32, palette.stone);
         }
     }
 
-    let torches = [(w * 0.34) as i32, (w * 0.63) as i32];
+    let torches = TORCHES.map(|at| (w * at) as i32);
     let mut trees = Rng(61);
-    for _ in 0..(w / 22.).round() as usize {
+    for _ in 0..(w / TREE_EVERY).round() as usize {
         let x = (trees.next() * w) as i32;
         let tall = 3 + (trees.next() * 3.) as i32;
         let wide = if trees.next() < 0.5 { 2 } else { 3 };
-        if torches.iter().any(|t| (x - t).abs() < wide + 4) {
+        let before_sun =
+            dip.is_some_and(|dip| ((x - dip.x).abs() as f32) < dip.radius + wide as f32);
+        let under_sidebar = x + wide < sidebar;
+        if before_sun || under_sidebar || torches.iter().any(|t| (x - t).abs() < wide + 4) {
             continue;
         }
         let foot = ground(x);
-        c.rect(x, foot - tall, 1, tall, TRUNK);
+        c.rect(x, foot - tall, 1, tall, palette.trunk);
         let (top, height) = (foot - tall - wide * 2 + 1, wide * 2);
         for yy in 0..height {
             let inset = (yy == 0 || yy == height - 1) as i32;
             for xx in -wide + inset..=wide - inset {
                 let colour = if xx > 0 {
-                    LEAVES_SHADE
-                } else if trees.next() < 0.12 {
-                    LEAVES_LIT
+                    palette.leaves_shade
+                } else if trees.next() < LIT_LEAVES {
+                    palette.leaves_lit
                 } else {
-                    LEAVES
+                    palette.leaves
                 };
                 c.set(x + xx, top + yy, colour);
             }
@@ -352,10 +666,10 @@ fn paint(cols: usize, rows: usize, sun: (f32, Option<f32>, f32)) -> Picture {
     for x in torches {
         let foot = ground(x);
         for ring in (1..=2).rev() {
-            c.disc(x, foot - 4, 1.5 + ring as f32, GLOW, 0.1);
+            c.disc(x, foot - 4, 1.5 + ring as f32, palette.glow, TORCH_GLOW);
         }
-        c.rect(x, foot - 3, 1, 3, STICK);
-        c.set(x, foot - 4, FLAME);
+        c.rect(x, foot - 3, 1, 3, palette.stick);
+        c.set(x, foot - 4, palette.flame);
     }
 
     let texels =
@@ -374,7 +688,7 @@ fn paint(cols: usize, rows: usize, sun: (f32, Option<f32>, f32)) -> Picture {
 }
 
 struct Baked {
-    key: (u32, u32, u32),
+    key: (u32, u32, u32, Look),
     image: Arc<RenderImage>,
     texel: f32,
     cols: usize,
@@ -383,13 +697,20 @@ struct Baked {
 }
 
 impl Baked {
-    fn new(width: f64, height: f64, scale: f32) -> Baked {
+    fn new(width: f64, height: f64, scale: f32, look: Look) -> Baked {
         let t = texel(width);
         let cols = (width as f32 / t).ceil().max(1.) as usize;
         let rows = (height as f32 / t).ceil().max(1.) as usize;
-        let picture = paint(cols, rows, sun_at(width as f32, height as f32));
+        let sidebar = (crate::frame::SIDEBAR / t) as i32;
+        let picture = paint(
+            cols,
+            rows,
+            sidebar,
+            sun_at(width as f32, height as f32, t),
+            look,
+        );
         Baked {
-            key: key(width, height, scale),
+            key: key(width, height, scale, look),
             image: art::bake(&picture.texels, picture.cols, picture.rows, t, scale),
             texel: t,
             cols: picture.cols,
@@ -399,15 +720,17 @@ impl Baked {
     }
 }
 
-fn key(width: f64, height: f64, scale: f32) -> (u32, u32, u32) {
+fn key(width: f64, height: f64, scale: f32, look: Look) -> (u32, u32, u32, Look) {
     (
         width.round() as u32,
         height.round() as u32,
         (scale * 100.).round() as u32,
+        look,
     )
 }
 
 pub struct Scene {
+    look: Look,
     baked: Option<Baked>,
     replaced: Vec<Arc<RenderImage>>,
     clock: Clock,
@@ -418,12 +741,17 @@ pub struct Scene {
 impl Scene {
     pub fn new() -> Scene {
         Scene {
+            look: Look::of(&NIGHT),
             baked: None,
             replaced: Vec::new(),
             clock: Clock::default(),
             unfocused: None,
             waking: false,
         }
+    }
+
+    pub fn set_look(&mut self, night: &Night) {
+        self.look = Look::of(night);
     }
 
     fn wake(&mut self, cx: &mut Context<Self>) {
@@ -453,23 +781,30 @@ impl Render for Scene {
             f64::from(f32::from(viewport.height)),
         );
         let scale = window.scale_factor();
-        if self.baked.as_ref().map(|b| b.key) != Some(key(width, height, scale)) {
-            if let Some(old) = self.baked.replace(Baked::new(width, height, scale)) {
+        let look = self.look;
+        if self.baked.as_ref().map(|b| b.key) != Some(key(width, height, scale, look)) {
+            if let Some(old) = self.baked.replace(Baked::new(width, height, scale, look)) {
                 self.replaced.push(old.image);
             }
         }
 
         let now = Instant::now();
-        if window.is_window_active() {
-            self.unfocused = None;
-        } else {
+        if !window.is_window_active() {
             self.unfocused.get_or_insert(now);
+        } else if self.unfocused.take().is_some() {
+            motion::reread_system();
+            self.wake(cx);
         }
-        let run = match motion() {
-            Motion::Still => false,
-            Motion::InFront => self.unfocused.is_none_or(|since| now - since < UNFOCUSED),
-            Motion::Always => true,
-        };
+        let twinkles = self
+            .baked
+            .as_ref()
+            .is_some_and(|b| b.stars.iter().any(|s| s.speed > 0.));
+        let run = twinkles
+            && match motion::current() {
+                Motion::Still => false,
+                Motion::InFront => self.unfocused.is_none_or(|since| now - since < UNFOCUSED),
+                Motion::Always => true,
+            };
         self.clock.set(run, now);
         if run {
             self.wake(cx);
@@ -478,13 +813,14 @@ impl Render for Scene {
 
         let baked = self.baked.as_ref().expect("baked above");
         let t = baked.texel;
-        let dot = (t * 0.5).max(1.5);
+        let dot = (t * STAR_DOT).max(SMALLEST_STAR_DOT);
         let stars: Vec<(Bounds<Pixels>, gpui::Hsla)> = baked
             .stars
             .iter()
             .map(|s| {
                 let a = if s.speed > 0. {
-                    0.35 + 0.65 * (0.5 + 0.5 * (time * s.speed + s.phase).sin())
+                    TWINKLE_LOW
+                        + (1. - TWINKLE_LOW) * (0.5 + 0.5 * (time * s.speed + s.phase).sin())
                 } else {
                     1.
                 };
@@ -504,7 +840,7 @@ impl Render for Scene {
             .left_0()
             .size_full()
             .overflow_hidden()
-            .bg(gpui::rgb(eclipse_theme::glass::PAGE))
+            .bg(gpui::rgb(look.palette().page))
             .child(
                 img(baked.image.clone())
                     .absolute()
@@ -543,12 +879,20 @@ mod tests {
         c[0] as u32 + c[1] as u32 + c[2] as u32
     }
 
+    fn window(width: f32, height: f32, look: Look) -> Picture {
+        let t = texel(width as f64);
+        let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
+        let sidebar = (crate::frame::SIDEBAR / t) as i32;
+        paint(cols, rows, sidebar, sun_at(width, height, t), look)
+    }
+
     #[test]
     fn the_moon_covers_the_sun_and_the_corona_shows_around_it() {
-        let p = paint(295, 190, (0.86, Some(0.38), 1.));
+        let sun = Sun::Beside { x: 0.86, scale: 1. };
+        let p = paint(295, 190, 0, sun, Look::of(&NIGHT));
         let (sx, sy) = (
             (295. * 0.86f32).round() as usize,
-            (190. * 0.38f32).round() as usize,
+            (190. * SUN_HIGH).round() as usize,
         );
         let r = (190. * SUN_SIZE).round() as usize;
         assert!(light(at(&p, sx, sy)) < 40);
@@ -556,8 +900,34 @@ mod tests {
     }
 
     #[test]
+    fn a_small_window_shows_the_whole_top_of_the_eclipse_below_the_content() {
+        for (width, height) in [(960., 600.), (1180., 760.), (1440., 900.)] {
+            for night in [NIGHT, DAWN] {
+                let look = Look::of(&night);
+                let p = window(width, height, look);
+                let t = texel(width as f64);
+                let moon = look.palette().moon.map(|v| v as u8);
+                let rows_with_moon: Vec<usize> = (0..p.rows)
+                    .filter(|&y| (0..p.cols).any(|x| at(&p, x, y)[..3] == moon))
+                    .collect();
+                let first = *rows_with_moon.first().expect("the moon shows");
+                assert!(
+                    first as f32 * t >= CONTENT_BOTTOM,
+                    "{width}x{height}: the moon's top at {} px",
+                    first as f32 * t
+                );
+                assert!(
+                    rows_with_moon.len() as f32 >= SETTING_RADIUS - 1.,
+                    "{width}x{height}: {} rows of the moon show",
+                    rows_with_moon.len()
+                );
+            }
+        }
+    }
+
+    #[test]
     fn the_ground_reaches_the_bottom_of_every_column() {
-        let p = paint(240, 150, SUN_LOW);
+        let p = window(960., 600., Look::of(&NIGHT));
         for x in 0..p.cols {
             assert!(light(at(&p, x, p.rows - 1)) < 150, "column {x}");
         }
@@ -565,8 +935,26 @@ mod tests {
 
     #[test]
     fn a_size_always_paints_the_same_picture() {
-        let (a, b) = (paint(180, 120, SUN_LOW), paint(180, 120, SUN_LOW));
+        let (a, b) = (
+            window(960., 600., Look::of(&NIGHT)),
+            window(960., 600., Look::of(&NIGHT)),
+        );
         assert!(a.texels == b.texels);
         assert_eq!(a.stars.len(), b.stars.len());
+    }
+
+    #[test]
+    fn the_day_has_no_stars_and_keeps_its_own_sky() {
+        let day = Look::of(&DAWN);
+        assert_eq!(day.sky, DAWN.sky);
+        assert!(window(1920., 1080., day).stars.is_empty());
+        let themed = Night {
+            sky: eclipse_launcher::themes::FIRST_LIGHT.sky,
+            ..DAWN
+        };
+        let washed = Look::of(&themed).sky;
+        for (theme, shown) in themed.sky.iter().zip(washed) {
+            assert!(rgb(shown).iter().sum::<f32>() > rgb(*theme).iter().sum::<f32>());
+        }
     }
 }

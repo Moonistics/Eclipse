@@ -40,7 +40,7 @@ impl Multiplayer {
 
 impl Launcher {
     /// Asks each listed server for its players once, as the game's Multiplayer list does when it
-    /// opens; the rows show the answer (the mockup's dot and "3 of 10" or "Offline").
+    /// opens; the rows show the answer (a dot and "3 of 10" or "Offline").
     pub(super) fn ping_servers(&mut self, cx: &mut Context<Self>) {
         let asks: Vec<String> = self
             .multiplayer

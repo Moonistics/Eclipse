@@ -2,7 +2,9 @@
 //! (`eclipse_launcher::launch`): a command before it, a wrapper, and environment variables.
 use super::servers_page::Field;
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::launch;
+use eclipse_theme::glass::{fill, ink, radius, step};
 use gpui::{
     canvas, relative, Bounds, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point,
@@ -48,6 +50,8 @@ impl MemorySlider {
         *self.total.get_or_insert_with(launch::total_memory_mb)
     }
 }
+
+const FIELD_WIDTH: f32 = 520.;
 
 /// A Linux switch: which one, its label, and what it does.
 #[derive(Clone, Copy)]
@@ -243,124 +247,19 @@ impl Launcher {
         }
     }
 
-    /// The maximum Java heap size for the selected Java instance.
+    /// The maximum Java heap size for the selected Java instance, as a card on Home.
     pub(super) fn memory_row(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
-        let instance = self.selected_instance()?.clone();
-        instance.java.as_ref()?;
-        let total = self.memory_slider.total();
-        let area = self.memory_slider.area.clone();
-        let saved = Self::saved_memory(&instance)?;
-        let memory = self.memory_slider.dragging.unwrap_or(saved);
-        self.sync_memory_box(&instance.id, memory);
-        let typed = launch::parse_memory(self.servers.value(Field::MemoryLimit));
-        // While typing, the slider follows a value it can read.
-        let memory = match (self.servers.has_focus(Field::MemoryLimit), typed) {
-            (true, Ok(typed)) => typed.unwrap_or(instances::DEFAULT_MEMORY_MB),
-            _ => memory,
-        };
-        let unit = text(theme::LABEL).text_color(t.ink_soft).child("MB");
-        let input = self.field(Field::MemoryLimit, "4096", 120., cx);
-        let about = "Too little and the game can crash.";
-        let track = div()
-            .id("launch-memory")
-            .relative()
-            .w_full()
-            .h(px(20.))
-            .bg(t.plate_soft)
-            .cursor_pointer()
-            .child(
-                canvas(
-                    move |bounds, _, _| {
-                        area.set(Some(bounds));
-                    },
-                    |_, _, _, _| {},
-                )
-                .absolute()
-                .size_full(),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left_0()
-                    .top_0()
-                    .bottom_0()
-                    .w(relative(launch::memory_fraction(memory, total)))
-                    .bg(crate::glass_ui::color(t.look.accent)),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, ev: &MouseDownEvent, _, cx| {
-                    this.pick_memory(ev.position, cx);
-                }),
-            )
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
-                // Only a press that began on the track drags it: a button held down elsewhere, for a
-                // scrollbar say, can pass over it without changing what's saved.
-                if ev.pressed_button == Some(MouseButton::Left)
-                    && this.memory_slider.dragging.is_some()
-                {
-                    this.pick_memory(ev.position, cx);
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
-            )
-            // `on_mouse_up` fires only while the track is hovered: a drag released off it saves too.
-            .on_mouse_up_out(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
-            );
-        let result = self.memory_slider.saved.as_ref().map(|s| match s {
-            MemorySaved::Ok(mb) => text(theme::CAPTION).text_color(t.muted).child(trf(
-                "Saved: the next Play uses at most {mb} MB.",
-                &[("mb", &mb.to_string())],
-            )),
-            MemorySaved::Error(e) => text(theme::CAPTION).text_color(t.danger).child(e.clone()),
-        });
+        let row = self.glass_memory_row(cx)?;
         Some(
-            plate()
-                .flex()
-                .flex_col()
-                .gap(px(8.))
-                .mb(px(8.))
-                .px(px(16.))
-                .py(px(12.))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(
-                            crate::glass_ui::text(
-                                16.,
-                                FontWeight::MEDIUM,
-                                eclipse_theme::glass::ink::FULL,
-                            )
-                            .text_color(t.ink)
-                            .child(tr("Maximum memory")),
-                        )
-                        .child(
-                            div()
-                                .flex()
-                                .items_center()
-                                .gap(px(8.))
-                                .child(input)
-                                .child(unit),
-                        ),
-                )
-                .child(track)
-                .child(text(theme::CAPTION).text_color(t.muted).child(tr(about)))
-                .children(result),
+            crate::glass::plate(radius::PANEL)
+                .p(px(ui::LIST_INSET))
+                .child(row),
         )
     }
 
-    /// Maximum memory in the glass look: a `SettingRow` of the instance's Edit page, the name
-    /// and what it does on the left, the mockup's `Slider` (as Settings' Glass and Blur) and the
-    /// box in MB on the right. Saved to the instance as it is set, as on Home.
+    /// Maximum memory as a setting row: the name and what it does on the left, the slider and
+    /// the box in MB on the right. Saved to the instance as it is set.
     pub(super) fn glass_memory_row(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        use crate::glass_ui as ui;
         const TRACK: f32 = 208.;
         let instance = self.memory_instance()?;
         let total = self.memory_slider.total();
@@ -395,7 +294,7 @@ impl Launcher {
                     .w_full()
                     .rounded_full()
                     .overflow_hidden()
-                    .bg(ui::white(0.12))
+                    .bg(white(fill::ACTIVE))
                     .child(
                         div()
                             .h_full()
@@ -431,7 +330,7 @@ impl Launcher {
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
             );
-        let unit = ui::text(13., FontWeight::NORMAL, 0.6).child("MB");
+        let unit = ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child("MB");
         let input = self.field(Field::MemoryLimit, "4096", 96., cx);
         let result = self.memory_slider.saved.as_ref().map(|s| match s {
             MemorySaved::Ok(mb) => div().child(trf(
@@ -465,7 +364,6 @@ impl Launcher {
     /// The Linux switches this computer can use: GameMode and MangoHud when installed, the
     /// dedicated GPU with two cards.
     fn linux_switches(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let found = self.launch.as_ref()?.found;
         let now = self.selected_instance()?.launch.clone();
         let mut list = div().flex().flex_col().gap(px(10.));
@@ -497,24 +395,25 @@ impl Launcher {
             }
             list = list.child(
                 div()
-                    .id(SharedString::from(format!("launch-switch-{label}")))
                     .flex()
+                    .flex_wrap()
                     .items_center()
                     .gap(px(10.))
-                    .cursor_pointer()
-                    .child(switch(
-                        SharedString::from(format!("launch-switch-{label}-s")),
-                        on,
-                        &t,
-                    ))
-                    .child(text(theme::LABEL).text_color(t.ink_soft).child(tr(label)))
-                    .children(
-                        about
-                            .map(|about| text(theme::CAPTION).text_color(t.muted).child(tr(about))),
+                    .child(
+                        ui::toggle_label(
+                            SharedString::from(format!("launch-switch-{label}")),
+                            tr(label),
+                            on,
+                        )
+                        .on_press(cx.listener(
+                            move |this, _: &ClickEvent, _, cx| {
+                                this.flip(toggle);
+                                cx.notify();
+                            },
+                        )),
                     )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.flip(toggle);
-                        cx.notify();
+                    .children(about.map(|about| {
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr(about))
                     })),
             );
         }
@@ -522,15 +421,14 @@ impl Launcher {
             div()
                 .flex()
                 .flex_col()
-                .gap(px(8.))
-                .child(caps(tr("On this computer")).text_color(t.muted))
+                .gap(px(10.))
+                .child(ui::label(tr("On this computer")))
                 .child(list)
         })
     }
 
-    /// The panel under the Instance row, while open for the selected instance.
+    /// The Launch card on Home, while open for the selected instance.
     pub(super) fn launch_panel(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let selected = self.selected_instance().map(|i| i.id.clone());
         if self.launch.as_ref().map(|p| &p.instance) != selected.as_ref() {
             self.launch = None;
@@ -546,11 +444,11 @@ impl Launcher {
                 .flex()
                 .flex_col()
                 .gap(px(6.))
-                .child(caps(tr(label)).text_color(t.muted))
-                .child(this.field(field, tr(placeholder), 520., cx))
-                .children(
-                    about.map(|about| text(theme::CAPTION).text_color(t.muted).child(tr(about))),
-                )
+                .child(ui::label(tr(label)))
+                .child(this.field(field, tr(placeholder), FIELD_WIDTH, cx))
+                .children(about.map(|about| {
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr(about))
+                }))
         };
         let pre = row(
             self,
@@ -566,7 +464,7 @@ impl Launcher {
             "Run the game through",
             Field::Wrapper,
             "For example nice -n 5",
-            Some("A program and its arguments; the game's command line goes after them."),
+            None,
         );
         let env = row(
             self,
@@ -584,30 +482,44 @@ impl Launcher {
             "For example ./backup.sh",
             None,
         );
-        let save = button("launch-save", "Save", Kind::Secondary, &t).on_click(cx.listener(
+        let save = button("launch-save", "Save", Kind::Secondary).on_press(cx.listener(
             |this, _: &ClickEvent, _, cx| {
                 this.save_launch();
                 cx.notify();
             },
         ));
         let result = saved.map(|s| match s {
-            Ok(Some(what)) => text(theme::CAPTION)
-                .text_color(t.muted)
+            Ok(Some(what)) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                 .child(trf("Saved: the next Play {what}.", &[("what", &what)])),
-            Ok(None) => text(theme::CAPTION)
-                .text_color(t.muted)
+            Ok(None) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                 .child(tr("Saved: nothing runs around the game.")),
-            Err(e) => text(theme::CAPTION).text_color(t.danger).child(e),
+            Err(e) => error_note(e),
         });
+        let close = ui::icon_button(
+            "launch-close",
+            "cancel-01",
+            tr("Close"),
+            ui::Size::Sm,
+            false,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.launch = None;
+            cx.notify();
+        }));
         Some(
-            plate()
+            crate::glass::plate(radius::PANEL)
                 .flex()
                 .flex_col()
-                .gap(px(14.))
-                .px(px(14.))
-                .py(px(12.))
-                .ml(px(40.))
-                .child(caps(tr("When it starts")).text_color(t.muted))
+                .gap(px(16.))
+                .p(px(ui::CARD_PADDING))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .child(ui::card_title(tr("When it starts")))
+                        .child(close),
+                )
                 .child(pre)
                 .child(wrapper)
                 .child(env)
@@ -616,6 +528,7 @@ impl Launcher {
                 .child(
                     div()
                         .flex()
+                        .flex_wrap()
                         .items_center()
                         .gap(px(12.))
                         .child(save)

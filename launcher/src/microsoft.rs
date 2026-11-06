@@ -48,6 +48,32 @@ pub(super) fn logo(size: f32) -> Div {
         }))
 }
 
+pub(super) fn white_button(id: &'static str) -> Stateful<Div> {
+    use crate::glass_ui as ui;
+    use eclipse_theme::glass::{fill, radius, step, ON_LIGHT};
+    ui::hoverable(id, radius::ROW, ui::Hover::Shade)
+        .flex()
+        .items_center()
+        .justify_center()
+        .gap(px(10.))
+        .h(px(WHITE_BUTTON))
+        .px(px(20.))
+        .rounded(px(radius::ROW))
+        .bg(gpui::white())
+        .when(ui::light(), |d| {
+            d.border_1().border_color(ui::white(fill::ACTIVE))
+        })
+        .cursor_pointer()
+        .font_family(eclipse_theme::glass::FONT)
+        .text_size(px(step::LEAD.size))
+        .font_weight(FontWeight::SEMIBOLD)
+        .text_color(ui::color(ON_LIGHT))
+        .child(logo(18.).relative())
+        .child(div().relative().child(tr("Sign in with Microsoft")))
+}
+
+const WHITE_BUTTON: f32 = 48.;
+
 /// The button, in the dark or light form the launcher's look calls for.
 pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
     let (fill, ink, border) = if t.dark {
@@ -55,8 +81,7 @@ pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
     } else {
         (0xffffff, 0x5e5e5e, Some(0x8c8c8c))
     };
-    div()
-        .id(id)
+    crate::glass_ui::hoverable(id, 0., crate::glass_ui::Hover::Shade)
         .flex()
         .flex_none()
         .items_center()
@@ -66,10 +91,10 @@ pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
         .bg(gpui::rgb(fill))
         .when_some(border, |d, b| d.border_1().border_color(gpui::rgb(b)))
         .cursor_pointer()
-        .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-        .child(symbol())
+        .child(symbol().relative())
         .child(
             div()
+                .relative()
                 // Microsoft's face where the system has it; the launcher's elsewhere.
                 .when(cfg!(windows), |d| d.font_family("Segoe UI"))
                 .text_size(px(15.))

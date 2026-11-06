@@ -63,7 +63,6 @@ impl Launcher {
     ) -> Stateful<Div> {
         use crate::glass_ui::{self as ui, white};
         use eclipse_theme::glass::{fill, ink, radius};
-        let t = self.theme;
         let panel = || {
             div()
                 .mt(px(20.))
@@ -81,12 +80,25 @@ impl Launcher {
             .max_w_full()
             .p(px(32.))
             .child(ui::label(tr("Microsoft account")))
-            .child(ui::entity_title(tr("Sign in to play"), 24.).mt(px(8.)))
-            .child(div().mt(px(12.)).flex().flex_col().gap(px(8.)).child(
-                ui::text(14., FontWeight::NORMAL, ink::BODY).child(tr(
-                    "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
-                )),
-            ));
+            .child(
+                ui::entity_title(
+                    tr("Sign in to play"),
+                    eclipse_theme::glass::pixel_text::CARD_TITLE,
+                )
+                .mt(px(8.)),
+            )
+            .child(
+                div().mt(px(12.)).flex().flex_col().gap(px(8.)).child(
+                    ui::text(
+                        eclipse_theme::glass::step::BODY,
+                        FontWeight::NORMAL,
+                        ink::BODY,
+                    )
+                    .child(tr(
+                        "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
+                    )),
+                ),
+            );
         card = match state {
             Shown::Code(uri, user_code) => {
                 let copy = user_code.to_string();
@@ -103,10 +115,17 @@ impl Launcher {
                                 .flex()
                                 .flex_col()
                                 .gap(px(4.))
-                                .child(ui::text(13., FontWeight::NORMAL, ink::MUTED).child(trf(
-                                    "Open {link} in your browser and enter this code:",
-                                    &[("link", short_link(uri))],
-                                )))
+                                .child(
+                                    ui::text(
+                                        eclipse_theme::glass::step::NOTE,
+                                        FontWeight::NORMAL,
+                                        ink::MUTED,
+                                    )
+                                    .child(trf(
+                                        "Open {link} in your browser and enter this code:",
+                                        &[("link", short_link(uri))],
+                                    )),
+                                )
                                 .child(
                                     div()
                                         .font_family(theme::MONO)
@@ -124,21 +143,32 @@ impl Launcher {
                                 tr("Copy code"),
                                 Kind::Secondary,
                                 ui::Size::Md,
-                                &t,
                             )
-                            .on_click(move |_, _, cx| {
+                            .on_press(move |_, _, cx| {
                                 copy_to_clipboard(cx, gpui::ClipboardItem::new_string(copy.clone()))
                             }),
                         ),
                 )
             }
-            Shown::Starting(what) => card
-                .child(panel().child(ui::text(14., FontWeight::NORMAL, ink::BODY).child(tr(what)))),
+            Shown::Starting(what) => card.child(
+                panel().child(
+                    ui::text(
+                        eclipse_theme::glass::step::BODY,
+                        FontWeight::NORMAL,
+                        ink::BODY,
+                    )
+                    .child(tr(what)),
+                ),
+            ),
             Shown::Error(e) => card.child(
                 panel().child(
-                    ui::text(14., FontWeight::NORMAL, ink::FULL)
-                        .text_color(ui::color(eclipse_theme::glass::DANGER))
-                        .child(e.to_string()),
+                    ui::text(
+                        eclipse_theme::glass::step::BODY,
+                        FontWeight::NORMAL,
+                        ink::FULL,
+                    )
+                    .text_color(ui::danger())
+                    .child(e.to_string()),
                 ),
             ),
             Shown::Idle => card,
@@ -153,42 +183,21 @@ impl Launcher {
                         tr("Open link"),
                         Kind::Primary,
                         ui::Size::Lg,
-                        &t,
                     )
                     .px(px(24.))
-                    .on_click(move |_, _, cx| cx.open_url(&uri))
+                    .on_press(move |_, _, cx| cx.open_url(&uri))
                     .into_any_element(),
                 )
             }
             Shown::Starting(_) => None,
             Shown::Error(_) if !configured => None,
             _ => Some(
-                keyboard(
-                    div()
-                        .id("owner-sign-in")
-                        .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(10.))
-                        .h(px(44.))
-                        .px(px(20.))
-                        .rounded(px(radius::ROW))
-                        .bg(gpui::white())
-                        .cursor_pointer()
-                        .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-                        .font_family(eclipse_theme::glass::FONT)
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(gpui::rgb(eclipse_theme::glass::ON_LIGHT))
-                        .child(microsoft::logo(18.))
-                        .child(tr("Sign in with Microsoft")),
-                    &t,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.sign_in_to_play();
-                    cx.notify();
-                }))
-                .into_any_element(),
+                microsoft::white_button("owner-sign-in")
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.sign_in_to_play();
+                        cx.notify();
+                    }))
+                    .into_any_element(),
             ),
         };
         let later = ui::button(
@@ -197,10 +206,9 @@ impl Launcher {
             tr("Not now"),
             Kind::Ghost,
             ui::Size::Lg,
-            &t,
         )
         .px(px(20.))
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.close_owner_screen();
             cx.notify();
         }));
@@ -215,9 +223,13 @@ impl Launcher {
         );
         if matches!(state, Shown::Code(..)) {
             card = card.child(
-                ui::text(13., FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(12.))
-                    .child(tr("Waiting for Microsoft…")),
+                ui::text(
+                    eclipse_theme::glass::step::NOTE,
+                    FontWeight::NORMAL,
+                    ink::MUTED,
+                )
+                .mt(px(12.))
+                .child(tr("Waiting for Microsoft…")),
             );
         }
         div()

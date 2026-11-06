@@ -5,13 +5,16 @@ use super::*;
 use crate::glass_ui as ui;
 use eclipse_launcher::i18n::Language;
 
-/// What the dropdown shows for a choice: the system's, in the launcher's language, or a
-/// language's name in itself (never through the table: a table entry for "English" would rename
-/// the very entry a player looks for).
-fn choice_name(choice: Option<Language>) -> &'static str {
+/// What the dropdown shows for a choice: the system's, in the launcher's language with the
+/// language it follows, or a language's name in itself (never through the table: a table entry
+/// for "English" would rename the very entry a player looks for).
+fn choice_name(choice: Option<Language>) -> String {
     match choice {
-        None => tr("System"),
-        Some(language) => language.name(),
+        None => trf(
+            "System ({language})",
+            &[("language", Language::system().name())],
+        ),
+        Some(language) => language.name().to_string(),
     }
 }
 
@@ -26,7 +29,6 @@ impl Launcher {
 
     /// The list: a popover like the others, its rows scrolling past ten.
     fn language_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = self.theme;
         let mut rows = div()
             .id("language-list")
             .flex()
@@ -40,19 +42,16 @@ impl Launcher {
                     format!("language-pick-{id}"),
                     choice_name(choice),
                     choice == self.settings.language,
-                    &t,
                 )
-                .on_click(
+                .on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| this.pick_language(choice, cx)),
                 ),
             );
         }
         // A solid backing: the backdrop doesn't paint under a popover whose rows scroll (seen on
         // the desktop run), and the rows must stay legible.
-        let menu = ui::popover(220.)
+        let menu = ui::popover("language-menu")
             .bg(crate::glass::colour(crate::glass::Kind::Float))
-            .id("language-menu")
-            .occlude()
             .on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
                 this.language_menu = false;
                 this.menu_closed_at = Some(event.position);
@@ -64,7 +63,7 @@ impl Launcher {
         gpui::deferred(
             div()
                 .absolute()
-                .top(px(ui::Size::Md.height() + 6.))
+                .top(px(ui::Size::Md.height() + ui::MENU_GAP))
                 .right_0()
                 .child(gpui::anchored().anchor(gpui::Anchor::TopRight).child(menu)),
         )
@@ -72,7 +71,6 @@ impl Launcher {
     }
 
     pub(super) fn language_row(&self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let mut wrap = div().relative().child(
             ui::dropdown(
                 "language-picker",
@@ -80,43 +78,34 @@ impl Launcher {
                 choice_name(self.settings.language),
                 self.language_menu,
                 ui::Size::Md.height(),
-                &t,
             )
-            .on_click(cx.listener(|this, event: &ClickEvent, _, cx| {
+            .on_press(cx.listener(|this, event: &ClickEvent, window, cx| {
                 if this.closed_by_this_press(event) {
                     return;
                 }
                 this.language_menu = !this.language_menu;
+                if this.language_menu {
+                    this.opened_menu(window, cx);
+                }
                 cx.notify();
             })),
         );
         if self.language_menu {
             wrap = wrap.child(self.language_list(cx));
         }
-        // The sentence is about following the computer's language, so it says nothing true once
-        // the player has picked one: the row keeps it only while the choice is the system's.
-        let said = self.settings.language.is_none().then(|| {
-            div()
-                .child(trf(
-                    "System follows your computer's language: {language} here. A string not \
-                     translated yet shows in English.",
-                    &[("language", Language::system().name())],
-                ))
-                .into_any_element()
-        });
-        index_row(tr("Language"), said, Some(wrap.into_any_element()), &t)
+        ui::setting_row(tr("Language"), None, Some(wrap.into_any_element()))
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use eclipse_launcher::i18n::{current, tr_in};
 
     #[test]
-    fn a_language_is_named_in_itself_and_the_system_choice_in_the_launchers_language() {
+    fn a_language_is_named_in_itself_and_the_system_choice_names_the_one_it_follows() {
         assert_eq!(choice_name(Some(Language::Russian)), "Русский");
         assert_eq!(choice_name(Some(Language::English)), "English");
-        assert_eq!(choice_name(None), tr_in(current(), "System"));
+        let system = choice_name(None);
+        assert!(system.contains(Language::system().name()), "{system}");
     }
 }

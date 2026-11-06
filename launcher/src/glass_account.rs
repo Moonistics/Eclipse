@@ -8,33 +8,41 @@ use super::*;
 use crate::glass_ui::{self as ui, white, Tone};
 use crate::servers_page::Field;
 use account::Player;
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{fill, ink, radius, step};
 
-const SIDE_BY_SIDE: f32 = 1500.;
+const HEAD: f32 = 80.;
+const MICROSOFT_MIN: f32 = 280.;
+const CHIP: f32 = 44.;
+const CHIP_INSET: f32 = 5.;
+const CHIP_HEAD: f32 = 30.;
+const MICROSOFT_LOGO: f32 = 36.;
 
 impl Launcher {
     pub(super) fn glass_account(&mut self, cx: &mut Context<Self>) -> Div {
-        let left = self.glass_who_plays(cx).min_w_0().p(px(16.));
+        let left = self
+            .glass_who_plays(cx)
+            .min_w_0()
+            .p(px(ui::SETTING_ROW_PADDING));
         let right = self
             .glass_microsoft_card(cx)
             .border_color(white(eclipse_theme::glass::EDGE));
-        let wide = self.window_width >= SIDE_BY_SIDE;
+        let wide = self.window_width >= crate::layout::ACCOUNT_CARDS_BESIDE
+            && (account::client_id().is_some() || !self.accounts.accounts.is_empty());
         div()
             .flex()
             .when(!wide, |d| d.flex_col())
             .child(left.when(wide, |d| d.flex_1()))
             .child(
                 right
-                    .when(wide, |d| d.flex_1().min_w(px(280.)).border_l_1())
+                    .when(wide, |d| d.flex_1().min_w(px(MICROSOFT_MIN)).border_l_1())
                     .when(!wide, |d| d.border_t_1()),
             )
     }
 
     /// The player now, the offline names and the field to add one.
     fn glass_who_plays(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let now = self.accounts.player();
-        let (uuid, name, status) = match &now {
+        let (face, name, status) = match &now {
             Player::Microsoft(uuid) => (
                 Some(uuid.clone()),
                 self.accounts
@@ -46,25 +54,31 @@ impl Launcher {
                 (Tone::Live, tr("Microsoft account · online play")),
             ),
             Player::Offline(name) => (
-                None,
+                Some(profile_heads::offline_key(name)),
                 name.clone(),
-                (Tone::Off, tr("Offline · no online servers")),
+                (
+                    Tone::Off,
+                    tr("Offline account · can't join online-mode servers"),
+                ),
             ),
-            Player::GameName => (
-                None,
-                self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-                (Tone::Off, tr("Offline · no online servers")),
-            ),
+            Player::GameName => {
+                let name = self.offline_name.clone().unwrap_or_else(|| "Player".into());
+                (
+                    Some(profile_heads::offline_key(&name)),
+                    name,
+                    (
+                        Tone::Off,
+                        tr("Offline account · can't join online-mode servers"),
+                    ),
+                )
+            }
         };
         let head = div()
             .flex_none()
-            .size(px(80.))
+            .size(px(HEAD))
             .rounded(px(radius::PANEL))
             .overflow_hidden()
-            .child(
-                self.profile_heads
-                    .draw(uuid.as_deref(), 80., self.scale, &t),
-            );
+            .child(self.profile_heads.draw(face.as_deref(), HEAD, self.scale));
         let header = div().flex().items_center().gap(px(20.)).child(head).child(
             div()
                 .flex()
@@ -72,20 +86,12 @@ impl Launcher {
                 .flex_1()
                 .min_w_0()
                 .gap(px(10.))
-                .child(ui::entity_title(name, 24.).truncate())
                 .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(8.))
-                        .child(ui::dot(status.0))
-                        .child(
-                            ui::text(14., FontWeight::NORMAL, ink::MUTED)
-                                .flex_1()
-                                .min_w_0()
-                                .truncate()
-                                .child(status.1),
-                        ),
+                    ui::entity_title(name, eclipse_theme::glass::pixel_text::CARD_TITLE).truncate(),
+                )
+                .child(
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+                        .child(ui::state_line(status.0, status.1)),
                 ),
         );
 
@@ -93,7 +99,33 @@ impl Launcher {
         let mut chips = div().flex().flex_wrap().gap(px(8.)).mt(px(12.));
         for (i, offline) in self.accounts.offline.clone().into_iter().enumerate() {
             let plays = now == Player::Offline(offline.clone());
-            let (who, skin, forget) = (offline.clone(), offline.clone(), offline.clone());
+            let asked = format!("offline-name:{offline}");
+            let forget_id = SharedString::from(format!("offline-forget-{i}"));
+            if self.confirm_remove.as_deref() == Some(asked.as_str()) {
+                let forget = offline.clone();
+                chips = chips.child(
+                    glass_home_lists::confirm(
+                        forget_id,
+                        trf("Remove {name}?", &[("name", &offline)]),
+                        tr("Remove"),
+                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            this.confirm_remove = None;
+                            cx.notify();
+                        }),
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            this.confirm_remove = None;
+                            this.forget_offline(&forget);
+                            cx.notify();
+                        }),
+                    )
+                    .h(px(CHIP))
+                    .px(px(ui::LIST_INSET))
+                    .rounded(px(radius::ROW))
+                    .bg(white(fill::HOVER)),
+                );
+                continue;
+            }
+            let (who, skin) = (offline.clone(), offline.clone());
             chips = chips.child(
                 self.name_chip(
                     SharedString::from(format!("offline-chip-{i}")),
@@ -101,30 +133,36 @@ impl Launcher {
                     plays,
                 )
                 .when(!plays, |d| {
-                    d.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.play_as(Player::Offline(who.clone()));
                         cx.notify();
                     }))
                 })
-                .child(self.chip_icon(
-                    SharedString::from(format!("offline-skin-{i}")),
-                    "pencil-edit-02",
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        cx.stop_propagation();
-                        this.open_skin(skin.clone());
-                        cx.notify();
-                    }),
-                ))
-                .when(!plays, |d| {
-                    d.child(self.chip_icon(
-                        SharedString::from(format!("offline-forget-{i}")),
-                        "cancel-01",
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .child(
+                    ui::icon_button(
+                        format!("offline-skin-{i}"),
+                        "pencil-edit-02",
+                        tr("Change skin"),
+                        ui::Size::Sm,
+                        false,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
                             cx.stop_propagation();
-                            this.forget_offline(&forget);
+                            this.open_skin(skin.clone());
                             cx.notify();
-                        }),
-                    ))
+                        },
+                    )),
+                )
+                .when(!plays, |d| {
+                    d.child(
+                        ui::icon_button(forget_id, "cancel-01", tr("Remove…"), ui::Size::Sm, false)
+                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                this.confirm_remove = Some(asked.clone());
+                                cx.notify();
+                            })),
+                    )
                 }),
             );
         }
@@ -133,23 +171,30 @@ impl Launcher {
             chips = chips.child(
                 self.name_chip("game-name-chip", made_up, plays)
                     .when(!plays, |d| {
-                        d.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        d.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.play_as(Player::GameName);
                             cx.notify();
                         }))
                     })
-                    .child(self.chip_icon(
-                        "game-name-new".into(),
-                        "refresh",
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            cx.stop_propagation();
-                            match instances::new_player_name() {
-                                Ok(name) => this.offline_name = Some(name),
-                                Err(e) => this.sign_in_state = Some(SignInState::Done(Err(e))),
-                            }
-                            cx.notify();
-                        }),
-                    )),
+                    .child(
+                        ui::icon_button(
+                            "game-name-new",
+                            "refresh",
+                            tr("New name"),
+                            ui::Size::Sm,
+                            false,
+                        )
+                        .on_press(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                cx.stop_propagation();
+                                match instances::new_player_name() {
+                                    Ok(name) => this.offline_name = Some(name),
+                                    Err(e) => this.sign_in_state = Some(SignInState::Done(Err(e))),
+                                }
+                                cx.notify();
+                            },
+                        )),
+                    ),
             );
         }
         let add = div()
@@ -164,90 +209,71 @@ impl Launcher {
                     tr("Add"),
                     Kind::Secondary,
                     ui::Size::Lg,
-                    &t,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.offline_name_enter();
                     cx.notify();
                 })),
             );
-        chips = chips.child(add);
+        let can_add = self.settings.dev_offline || self.owner != Some(false);
         div()
             .flex()
             .flex_col()
             .child(header)
-            .child(ui::card_heading(tr("Offline names")).mt(px(32.)))
-            .child(chips)
+            .child(ui::label(tr("Offline names")).mt(px(32.)))
+            .child(chips.when(can_add, |d| d.child(add)))
+            .when(!can_add, |d| {
+                d.child(ui::card_note(tr(
+                    "Sign in once with a Microsoft account that owns Minecraft: Java Edition to use offline names.",
+                )))
+            })
             .children(self.skin_panel(cx).map(|p| p.mt(px(16.))))
     }
 
     /// An offline name's chip: its head and name, a tick and a stronger fill on the one playing.
     fn name_chip(&self, id: impl Into<SharedString>, name: String, plays: bool) -> Stateful<Div> {
-        let t = self.theme;
-        div()
-            .id(id.into())
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .h(px(44.))
-            .pl(px(6.))
-            .pr(px(6.))
-            .rounded(px(radius::ROW))
-            .when(plays, |d| d.bg(white(fill::ACTIVE)))
-            .when(!plays, |d| {
-                d.bg(white(fill::HOVER))
-                    .cursor_pointer()
-                    .hover(|s| s.bg(white(fill::BUTTON)))
-            })
-            .child(
-                div()
-                    .flex_none()
-                    .size(px(30.))
-                    .rounded(px(radius::ROW))
-                    .overflow_hidden()
-                    .child(self.profile_heads.draw(None, 30., self.scale, &t)),
-            )
-            .child(ui::text(14., FontWeight::MEDIUM, ink::FULL).child(name))
-            .when(plays, |d| {
-                d.child(ui::icon("tick-02", 16., ui::color(ui::look().accent_soft)))
-            })
-    }
-
-    /// A small icon button in a chip.
-    fn chip_icon(
-        &self,
-        id: SharedString,
-        icon: &'static str,
-        on_click: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    ) -> Stateful<Div> {
-        keyboard(
-            div()
-                .id(id)
+        let face = profile_heads::offline_key(&name);
+        ui::selected(
+            ui::hoverable(id, radius::ROW, ui::Hover::Row)
                 .flex()
-                .flex_none()
                 .items_center()
-                .justify_center()
-                .size(px(28.))
-                .rounded(px(radius::ROW))
-                .cursor_pointer()
-                .hover(|s| s.bg(white(fill::BUTTON)))
-                .child(ui::icon(icon, 14., white(ink::DIM))),
-            &self.theme,
+                .gap(px(10.))
+                .h(px(CHIP))
+                .px(px(CHIP_INSET))
+                .when(!plays, |d| d.bg(white(fill::HOVER)).cursor_pointer()),
+            plays,
         )
-        .on_click(on_click)
+        .child(
+            div()
+                .relative()
+                .flex_none()
+                .size(px(CHIP_HEAD))
+                .rounded(px(radius::ROW))
+                .overflow_hidden()
+                .child(self.profile_heads.draw(Some(&face), CHIP_HEAD, self.scale)),
+        )
+        .child(
+            ui::text(step::BODY, FontWeight::MEDIUM, ink::FULL)
+                .relative()
+                .child(name),
+        )
+        .when(plays, |d| d.child(ui::tick()))
     }
 
-    /// The Microsoft card: the accounts signed in here, then adding one.
+    /// The Microsoft card: the accounts signed in here, then adding one; one muted line when this
+    /// copy of the launcher can't sign in.
     fn glass_microsoft_card(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let has_accounts = !self.accounts.accounts.is_empty();
-        let (rows, _) = if has_accounts {
-            ui::flat_rows(|| self.microsoft_rows(cx))
-        } else {
-            (div(), 0)
-        };
-        let (title, detail, action) = self.sign_in_parts(cx);
+        let rows = has_accounts.then(|| self.microsoft_rows(cx).0);
         let configured = account::client_id().is_some();
+        if !configured {
+            return div().flex().flex_col().children(rows).child(
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+                    .p(px(ui::SETTING_ROW_PADDING))
+                    .child(tr(account::NOT_CONFIGURED)),
+            );
+        }
+        let (title, detail, action) = self.sign_in_parts(cx);
         let idle = self.sign_in_state.is_none()
             || matches!(self.sign_in_state, Some(SignInState::Done(_)));
         let first = !has_accounts && self.sign_in_target.is_none();
@@ -256,80 +282,44 @@ impl Launcher {
         } else {
             title
         };
-        let note: AnyElement = if first && configured && self.sign_in_state.is_none() {
-            div()
-                .child(tr(
-                    "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
-                ))
-                .into_any_element()
-        } else {
-            detail.into_any_element()
-        };
         // Adding an account is Microsoft's white button; signing one in again, the code and the
         // waiting keep their own buttons.
-        let button: Option<AnyElement> = if configured && idle && self.sign_in_target.is_none() {
-            Some(
-                keyboard(
+        let button: Option<AnyElement> =
+            if idle && self.sign_in_target.is_none() {
+                Some(
                     div()
-                        .id("glass-sign-in")
                         .flex()
-                        .items_center()
-                        .justify_center()
-                        .gap(px(10.))
-                        .h(px(48.))
-                        .w_full()
+                        .flex_col()
+                        .gap(px(12.))
                         .mt(px(24.))
-                        .rounded(px(radius::ROW))
-                        .bg(gpui::white())
-                        // On a light plate, Microsoft's white button keeps an edge.
-                        .when(ui::light(), |d| {
-                            d.border_1().border_color(ui::white(fill::ACTIVE))
-                        })
-                        .cursor_pointer()
-                        .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-                        .font_family(eclipse_theme::glass::FONT)
-                        .text_size(px(15.))
-                        .font_weight(FontWeight::SEMIBOLD)
-                        .text_color(ui::color(eclipse_theme::glass::ON_LIGHT))
-                        .child(microsoft::logo(18.))
-                        .child(tr("Sign in with Microsoft")),
-                    &t,
+                        .child(microsoft::white_button("glass-sign-in").w_full().on_press(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.start_sign_in();
+                                cx.notify();
+                            }),
+                        ))
+                        .child(
+                            ui::text(step::CAPTION, FontWeight::NORMAL, ink::DIM)
+                                .child(tr("Microsoft's own page opens in your browser.")),
+                        )
+                        .into_any_element(),
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.start_sign_in();
-                    cx.notify();
-                }))
-                .into_any_element(),
-            )
-        } else {
-            action.map(|a| div().mt(px(20.)).child(a).into_any_element())
-        };
+            } else {
+                action.map(|a| div().mt(px(20.)).child(a).into_any_element())
+            };
+        let pad = ui::SETTING_ROW_PADDING;
         div()
             .flex()
             .flex_col()
-            .p(px(16.))
-            .when(has_accounts, |d| {
-                d.child(rows.mx(px(-16.)).mt(px(-16.)).mb(px(16.)))
-            })
-            .child(microsoft::logo(36.))
+            .p(px(pad))
+            .children(rows.map(|r| r.mx(px(-pad)).mt(px(-pad)).mb(px(pad))))
+            .child(microsoft::logo(MICROSOFT_LOGO))
             .child(ui::card_title(heading).mt(px(20.)))
             .child(
-                ui::text(14., FontWeight::NORMAL, ink::MUTED)
+                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
                     .mt(px(8.))
-                    .line_height(px(21.7))
-                    .child(note),
+                    .child(detail),
             )
             .children(button)
-            .when(configured, |d| {
-                d.child(
-                    ui::text(12., FontWeight::NORMAL, ink::DIM)
-                        .mt(px(12.))
-                        .line_height(px(18.))
-                        .child(tr(
-                            "Microsoft's own page opens in your browser. Eclipse never sees your \
-                             password.",
-                        )),
-                )
-            })
     }
 }

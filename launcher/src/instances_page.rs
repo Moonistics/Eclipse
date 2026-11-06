@@ -72,8 +72,6 @@ pub(super) struct Instances {
     pub(super) versions: new_instance::VersionList,
 }
 
-impl Instances {}
-
 impl Launcher {
     pub(super) fn reload_instances(&mut self) {
         self.instances.list = instances::list();
@@ -395,14 +393,6 @@ impl Launcher {
             }
             Err(e) => self.instances.delete_error = Some(e),
         }
-    }
-}
-
-/// A Java instance's line in the sidebar: "Java 1.21.4", and its loader ("· Fabric 0.16.9").
-pub(super) fn java_line(j: &instances::JavaGame) -> String {
-    match &j.loader {
-        Some(l) => format!("Java {} · {} {}", j.minecraft, l.kind.name(), l.version),
-        None => format!("Java {}", j.minecraft),
     }
 }
 

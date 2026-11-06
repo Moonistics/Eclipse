@@ -1,7 +1,6 @@
-//! Home's Mods tab in the glass look (the mockup's `InstanceMods`, `launcher-views.tsx`): "N mods
-//! in {instance}" and + Find mods over one `ROW` per mod, its icon, name and "version · source".
-//! The launcher's own controls fit in: the filter and Update all in the head, a mod's update
-//! and its on/off `Toggle` at the row's end. Dark appearance only.
+//! Home's Mods tab: "N mods in {instance}" and Find mods over one row per mod, its icon, name and
+//! "version · source". The filter and Update all sit in the head, a mod's update and its on/off
+//! switch at the row's end.
 use super::*;
 use crate::glass_ui::{self as ui, white};
 use eclipse_theme::glass::{ink, radius};
@@ -12,7 +11,6 @@ use servers_page::Field;
 impl Launcher {
     /// Home's Mods tab, for the selected instance.
     pub(super) fn glass_instance_mods(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let busy = self.mods.busy.is_some();
         let updates = self.mods.updates.len();
         let name = self
@@ -24,18 +22,20 @@ impl Launcher {
         let mut body = div().flex().flex_col();
         body = body.children(self.mods_busy_plate());
         if !fresh {
-            return body.child(ui::empty().child(tr("Reading the mods…")));
+            return body.child(ui::loading_state(
+                "instance-mods-loading",
+                tr("Reading the mods…"),
+            ));
         }
         if count == 0 {
             let find = ui::button(
                 "instance-mods-find",
                 Some("search-01"),
                 tr("Find mods"),
-                Kind::Primary,
+                Kind::Secondary,
                 ui::Size::Md,
-                &t,
             )
-            .on_click(find_mods(cx));
+            .on_press(find_mods(cx));
             return body.child(ui::empty_state(
                 "instance-mods-empty",
                 "puzzle",
@@ -64,9 +64,8 @@ impl Launcher {
                 trf("Update all ({count})", &[("count", &updates.to_string())]),
                 Kind::Secondary,
                 ui::Size::Md,
-                &t,
             )
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.mods_update_all();
                 cx.notify();
             }))
@@ -86,9 +85,8 @@ impl Launcher {
                             tr("Find mods"),
                             Kind::Secondary,
                             ui::Size::Md,
-                            &t,
                         )
-                        .on_click(find_mods(cx)),
+                        .on_press(find_mods(cx)),
                     ),
             ),
         );
@@ -140,11 +138,10 @@ impl Launcher {
     }
 
     fn glass_mod_row(&mut self, row: ModRow, busy: bool, cx: &mut Context<Self>) -> Stateful<Div> {
-        let t = self.theme;
         let key = SharedString::from(format!("mod-{}", row.file));
         let hovered = self.list_hover.as_ref() == Some(&key);
         let hover = self.list_hover_listener(key.clone(), cx);
-        // `PixelIcon` at 36, round at `round(36 · 0.26)`; the lists' plain tile without one.
+        // The lists' plain tile without one.
         let known = row.icon.is_some()
             || row
                 .entry
@@ -154,10 +151,14 @@ impl Launcher {
             div()
                 .relative()
                 .flex_none()
-                .size(px(36.))
+                .size(px(glass_home_lists::PICTURE))
                 .rounded(px(radius::ROW))
                 .overflow_hidden()
-                .child(self.mod_icon(row.entry.as_ref(), row.icon.clone(), 36.))
+                .child(self.mod_icon(
+                    row.entry.as_ref(),
+                    row.icon.clone(),
+                    glass_home_lists::PICTURE,
+                ))
                 .into_any_element()
         } else {
             glass_home_lists::picture(None, "puzzle")
@@ -191,11 +192,10 @@ impl Launcher {
                 trf("Update {version}", &[("version", &number)]),
                 Kind::Secondary,
                 ui::Size::Sm,
-                &t,
             );
             Some(match busy {
                 true => crate::disabled(chip),
-                false => chip.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                false => chip.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(source, id.clone(), None);
                     cx.notify();
                 })),
@@ -209,11 +209,8 @@ impl Launcher {
                     ui::toggle(
                         SharedString::from(format!("mod-switch-{}", row.file)),
                         row.on,
-                        self.look.accent,
-                        self.look.on_accent,
-                        &t,
                     )
-                    .on_click(cx.listener(
+                    .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
                             this.switch_mod(&switch_row);
                             cx.notify();
@@ -222,9 +219,9 @@ impl Launcher {
                 )
             }
         };
-        ui::list_row(key, hovered, hover, &t)
+        ui::list_row(key, hovered, hover)
             .child(icon)
-            .child(ui::list_text(row.name.clone(), note))
+            .child(ui::item_text(row.name.clone(), note))
             .children(update.map(|u| u.relative()))
             .child(
                 controls

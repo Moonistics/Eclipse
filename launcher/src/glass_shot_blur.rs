@@ -31,13 +31,15 @@ impl Launcher {
         ui::icon_button(
             "shots-privacy",
             if hidden { "view-off-slash" } else { "view" },
-            32.,
-            17.,
-            radius::CONTROL,
+            tr(if hidden {
+                "Show screenshots"
+            } else {
+                "Hide screenshots"
+            }),
+            ui::Size::Sm,
             hidden,
-            &self.theme,
         )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.shot_blur.hidden = !this.shot_blur.hidden;
             cx.notify();
         }))

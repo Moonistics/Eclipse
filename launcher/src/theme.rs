@@ -8,16 +8,13 @@ use gpui::{rgb, Hsla, WindowAppearance};
 use std::time::Duration;
 
 pub use tokens::night::{self, Night};
-pub use tokens::{Step, CAPTION, DISPLAY, HEADING, LABEL, MICRO, TITLE, UI};
 pub const FONT: &str = tokens::FONT;
-pub const DISPLAY_FONT: &str = night::DISPLAY_FONT;
 pub const MONO: &str = tokens::MONO;
 
 /// Shapes and controls, shared with the game's menus and the website.
-pub use tokens::{DISABLED, FIELD, ROW};
+pub use tokens::DISABLED;
 
-pub const PAGE_GUTTER: f32 = 32.;
-pub const PAGE_MAX: f32 = 1120.;
+pub use crate::layout::{PAGE_GUTTER, PAGE_MAX};
 
 /// Motion: short and eased out, never bouncy.
 pub const QUICK: Duration = tokens::QUICK.duration();
@@ -29,18 +26,6 @@ pub struct Theme {
     pub look: tokens::glass::Glass,
     /// The page behind everything the sky doesn't cover.
     pub page: Hsla,
-    /// Hover plates, fields and the console.
-    pub plate_soft: Hsla,
-    /// Pressed plates, a switch that is off: the button colour.
-    pub plate: Hsla,
-    pub rule: Hsla,
-    pub ink: Hsla,
-    pub ink_soft: Hsla,
-    pub muted: Hsla,
-    pub accent: Hsla,
-    pub danger: Hsla,
-    pub success: Hsla,
-    pub warn: Hsla,
     pub side: Hsla,
     /// The sky the light appearance draws (`sky.rs`) and the screens still in its colours.
     pub night: Night,
@@ -73,50 +58,25 @@ impl Theme {
         self
     }
 
-    /// The look with the player's Glass (how much white the plates take, 0 to 1) and Blur (px).
-    pub fn with_glass(mut self, tint: f32, blur: f32) -> Self {
-        self.look = tokens::glass::Glass::new(self.look.accent, tint, blur);
-        if !self.dark {
-            self.look = self.look.light();
-        }
-        self
-    }
-
     /// The pinned appearance (`pinned_dark`), the system's when the player asked to follow it, in
     /// the player's accent.
     pub fn for_appearance(choice: Appearance, accent: Accent, system: WindowAppearance) -> Self {
-        use tokens::glass::{
-            fill, ink, Glass, BASE, BLUR, DANGER, DANGER_LIGHT, LIVE, LIVE_LIGHT, ON_LIGHT, TINT,
-            WARN, WARN_LIGHT,
-        };
+        use tokens::glass::{Glass, BASE};
         let system_dark = !matches!(
             system,
             WindowAppearance::Light | WindowAppearance::VibrantLight
         );
         let dark = pinned_dark(choice).unwrap_or(system_dark);
         let night = if dark { night::NIGHT } else { night::DAWN };
-        let white = |a: f32| {
-            if dark {
-                gpui::white().opacity(a)
-            } else {
-                c(ON_LIGHT).opacity(a)
-            }
-        };
-        let look = Glass::new(accent.rgb(), TINT, BLUR);
+        let look = Glass::new(accent.rgb());
         let look = if dark { look } else { look.light() };
         Self {
             look,
-            page: c(night.page),
-            plate_soft: white(fill::HOVER),
-            plate: white(fill::BUTTON),
-            rule: white(fill::BUTTON),
-            ink: white(ink::FULL),
-            ink_soft: white(ink::BODY),
-            muted: white(ink::MUTED),
-            accent: c(look.accent_soft),
-            danger: c(if dark { DANGER } else { DANGER_LIGHT }),
-            success: c(if dark { LIVE } else { LIVE_LIGHT }),
-            warn: c(if dark { WARN } else { WARN_LIGHT }),
+            page: c(if dark {
+                tokens::glass::PAGE
+            } else {
+                night.page
+            }),
             side: c(if dark { BASE } else { night.side }),
             night,
             dark,
@@ -133,10 +93,10 @@ mod tests {
     use eclipse_launcher::themes::Accent;
     use eclipse_theme::contrast;
     use eclipse_theme::glass::{
-        ink, light_surfaces, Glass, BLUR, DANGER, DANGER_LIGHT, FIELD_BG, FLOAT, LIGHT_FLOAT_ALPHA,
-        LIGHT_PLATE_ALPHA, ON_LIGHT, TINT,
+        ink, light_ink, light_surfaces, Glass, DANGER, DANGER_LIGHT, FIELD_BG, FLOAT, ON_LIGHT,
+        PAPER,
     };
-    use eclipse_theme::night::{over, DAWN};
+    use eclipse_theme::night::over;
 
     /// What the dark look draws besides text: the keyboard focus ring and the border of a
     /// refused field on every surface (WCAG 1.4.11 asks 3:1), and text over a selected
@@ -157,22 +117,17 @@ mod tests {
 
     #[test]
     fn a_refused_field_reads_on_the_light_plates() {
-        for sky in DAWN.sky {
-            for alpha in [LIGHT_PLATE_ALPHA, LIGHT_FLOAT_ALPHA] {
-                let bg = over(0xffffff, alpha, sky);
-                let refused = contrast(DANGER_LIGHT, bg);
-                assert!(refused >= 3.0, "refused field on #{bg:06x}: {refused:.2}");
-            }
+        for bg in light_surfaces() {
+            let refused = contrast(DANGER_LIGHT, bg);
+            assert!(refused >= 3.0, "refused field on #{bg:06x}: {refused:.2}");
         }
     }
 
     #[test]
     fn a_switch_that_is_off_shows_its_edge() {
-        let light = DAWN.sky.into_iter().flat_map(|sky| {
-            [LIGHT_PLATE_ALPHA, LIGHT_FLOAT_ALPHA].map(|alpha| over(0xffffff, alpha, sky))
-        });
-        for bg in light {
-            let edge = contrast(over(ON_LIGHT, ink::DIM, bg), bg);
+        let dim = light_ink(ink::DIM);
+        for bg in light_surfaces() {
+            let edge = contrast(over(ON_LIGHT, dim, bg), bg);
             assert!(edge >= 3.0, "off switch on #{bg:06x}: {edge:.2}");
         }
         for bg in [Glass::default_look().plate, FLOAT] {
@@ -185,7 +140,7 @@ mod tests {
     fn light_marks_read_for_every_accent_the_picker_makes() {
         let hues = (0..360).map(|hue| Accent::custom(hue as f32));
         for accent in Accent::ALL.into_iter().chain(hues) {
-            let look = Glass::new(accent.rgb(), TINT, BLUR).light();
+            let look = Glass::new(accent.rgb()).light();
             let name = accent.name();
             for bg in light_surfaces() {
                 let icon = contrast(look.mark, bg);
@@ -193,8 +148,7 @@ mod tests {
                 let ring = contrast(look.accent_soft, bg);
                 assert!(ring >= 4.5, "{name}: link and ring on #{bg:06x}: {ring:.2}");
             }
-            let float = over(0xffffff, LIGHT_FLOAT_ALPHA, DAWN.sky[0]);
-            let selection = over(look.accent_soft, SELECTION, float);
+            let selection = over(look.accent_soft, SELECTION, PAPER);
             let ratio = contrast(ON_LIGHT, selection);
             assert!(ratio >= 4.5, "{name}: text on a selection: {ratio:.2}");
         }

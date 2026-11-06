@@ -10,9 +10,10 @@ use gpui::{
 use std::path::PathBuf;
 
 /// Each accent's swatch, in points.
-const SWATCH: f32 = 26.;
-/// The hue strip beside the swatches, in points: 0 to 360 degrees across it.
-const STRIP: f32 = 120.;
+const SWATCH: f32 = 36.;
+const CHIP: f32 = 24.;
+/// The hue strip under the swatches, in points: 0 to 360 degrees across it.
+const STRIP: f32 = 212.;
 
 impl Launcher {
     /// The theme Settings ask for, under the window's own light or dark: the player's look,
@@ -22,35 +23,28 @@ impl Launcher {
             self.settings.appearance,
             self.settings.accent,
             window.appearance(),
-        )
-        .with_glass(self.settings.glass_tint(), self.settings.glass_blur());
+        );
         match themes::theme(self.settings.theme.as_deref()) {
             Some(picked) => theme.with_sky(picked.sky),
             None => theme,
         }
     }
 
-    /// Settings' launcher theme: Eclipse's own sky or First Light, free for everyone. Picking one
-    /// brings its accent too; the accent row can change it after.
+    /// Settings' sky colours: Eclipse's own sky or First Light, free for everyone.
     pub(super) fn launcher_theme_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let current = themes::theme(self.settings.theme.as_deref()).map(|th| th.id);
         let mut options: Vec<(Option<&'static str>, &'static str)> = vec![(None, "Eclipse")];
         options.extend(themes::THEMES.iter().map(|th| (Some(th.id), th.name)));
         let this = cx.entity().downgrade();
-        let picker = ui::segments("launcher-theme", &options, current, &t, move |id, _, cx| {
+        let picker = ui::segments("launcher-theme", &options, current, move |id, _, cx| {
             let _ = this.update(cx, |this, cx| {
                 this.settings.theme = id.map(str::to_owned);
-                this.settings.accent = match themes::theme(id) {
-                    Some(picked) => Accent::custom(picked.accent_hue),
-                    None => Accent::AMBER,
-                };
                 this.save_settings();
                 this.restyle = true;
                 cx.notify();
             });
         });
-        ui::setting_row(tr("Launcher theme"), None, Some(picker.into_any_element()))
+        ui::setting_row(tr("Sky colours"), None, Some(picker.into_any_element()))
     }
 
     /// The picture behind Home, if the player keeps one.
@@ -58,36 +52,28 @@ impl Launcher {
         themes::background(&backend::data_dir(), self.settings.background.as_deref())
     }
 
-    /// The glass look's accent row (the mockup's): its seven swatches, the any-colour swatch
-    /// (a click shows the hue strip under them, the browser's colour picker in the mockup) and
-    /// the hex field, which takes the colour as soon as it is one.
+    /// The accent row: its seven swatches, the any-colour swatch (a click shows the hue strip
+    /// under them) and the hex field, which takes the colour as soon as it is one.
     pub(super) fn glass_accent_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         self.sync_accent_hex(cx);
+        let beside = self.wide_controls_beside();
         let current = self.settings.accent;
         let custom = !Accent::ALL.contains(&current);
         let swatch = |id: SharedString, on: bool| {
-            keyboard(
-                div()
-                    .id(id)
-                    .relative()
+            ui::selected(
+                ui::hoverable(id, eclipse_theme::glass::radius::ROW, ui::Hover::Row)
                     .flex()
                     .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(36.))
-                    .rounded(px(eclipse_theme::glass::radius::POPOVER))
-                    .cursor_pointer()
-                    .when(on, |d| d.bg(ui::white(eclipse_theme::glass::fill::ACTIVE)))
-                    .when(!on, |d| {
-                        d.hover(|s| s.bg(ui::white(eclipse_theme::glass::fill::BUTTON)))
-                    }),
-                &t,
+                    .size(px(SWATCH))
+                    .cursor_pointer(),
+                on,
             )
         };
         let chip = |rgb: u32| {
             div()
-                .size(px(24.))
+                .size(px(CHIP))
                 .rounded(px(eclipse_theme::glass::radius::ROW))
                 .bg(gpui::rgb(rgb))
         };
@@ -99,7 +85,7 @@ impl Launcher {
                     current == accent,
                 )
                 .child(chip(rgb))
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.settings.accent = accent;
                     this.save_settings();
                     this.restyle = true;
@@ -115,12 +101,12 @@ impl Launcher {
                     } else {
                         ui::icon(
                             "color-picker",
-                            18.,
+                            ui::IconSize::Px16,
                             ui::white(eclipse_theme::glass::ink::BODY),
                         )
                         .into_any_element()
                     })
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.accent_strip = !this.accent_strip;
                         cx.notify();
                     })),
@@ -129,31 +115,25 @@ impl Launcher {
         let control = div()
             .flex()
             .flex_col()
-            .items_end()
+            .when(beside, |d| d.items_end())
             .gap(px(10.))
             .child(row)
-            .when(self.accent_strip, |d| {
-                d.child(
-                    self.hue_strip(&t, cx)
-                        .w(px(212.))
-                        .h(px(24.))
-                        .rounded(px(eclipse_theme::glass::radius::CONTROL))
-                        .overflow_hidden(),
-                )
-            });
-        ui::setting_row(tr("Accent colour"), None, Some(control.into_any_element()))
+            .when(self.accent_strip, |d| d.child(self.hue_strip(cx)));
+        glass_settings::wide_row(
+            beside,
+            tr("Accent colour"),
+            None,
+            control.into_any_element(),
+        )
     }
 
-    /// Reset to defaults: the card's options go back to how Eclipse ships (the mockup's
-    /// accent, glass, blur, language, while playing and opening; here the appearance and Home's
-    /// background too, being in the same card).
+    /// Reset to defaults: the Appearance card's options go back to how Eclipse ships.
     pub(super) fn reset_look_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         ui::setting_row(
-            tr("Reset the launcher's look"),
+            tr("Reset appearance"),
             Some(
                 div()
-                    .child(tr("Also resets the language and background."))
+                    .child(tr("Also resets the language."))
                     .into_any_element(),
             ),
             Some(
@@ -163,25 +143,23 @@ impl Launcher {
                     tr("Reset to defaults"),
                     Kind::Secondary,
                     ui::Size::Md,
-                    &t,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
+                .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
                     let s = &mut this.settings;
                     s.appearance = Default::default();
                     s.accent = Accent::AMBER;
                     s.theme = None;
-                    s.glass = None;
-                    s.blur = None;
                     s.background = None;
                     s.language = None;
-                    s.while_playing = Default::default();
+                    s.reduce_motion = None;
                     this.save_settings();
                     i18n::set(this.settings.language());
+                    crate::motion::set_reduce_motion(None);
                     titlebar::apply_appearance(window, this.settings.appearance);
                     this.accent_strip = false;
                     this.background_error = None;
                     this.theme = this.settings_theme(window);
-                    crate::glass_toast::say(tr("Launcher settings are back to their defaults"));
+                    crate::glass_toast::say(tr("Appearance is back to its defaults"));
                     cx.notify();
                 }))
                 .into_any_element(),
@@ -190,7 +168,7 @@ impl Launcher {
     }
 
     /// The hex field shows the accent, except while typed in: then each whole colour typed is
-    /// the accent at once, as in the mockup.
+    /// the accent at once.
     fn sync_accent_hex(&mut self, cx: &mut Context<Self>) {
         let shown = self.settings.accent.hex();
         if !self.servers.has_focus(Field::AccentHex) {
@@ -210,20 +188,19 @@ impl Launcher {
     }
 
     /// A strip of every hue: a click or a drag picks any of them, the swatches being shortcuts.
-    fn hue_strip(&self, t: &Theme, cx: &mut Context<Self>) -> Div {
+    fn hue_strip(&self, cx: &mut Context<Self>) -> Div {
         let current = self.settings.accent.hue();
         let area = self.hue_area.clone();
-        let ink = t.ink;
-        let outline = gpui::transparent_black();
+        let ink = ui::white(eclipse_theme::glass::ink::FULL);
         // Hues per painted quad: 60 of them, fine enough at this width.
         const STEPS: usize = 60;
         div()
             .relative()
             .flex_none()
             .w(px(STRIP))
-            .h(px(SWATCH))
-            .border_2()
-            .border_color(outline)
+            .h(px(CHIP))
+            .rounded(px(eclipse_theme::glass::radius::CONTROL))
+            .overflow_hidden()
             .cursor_pointer()
             .child(
                 canvas(
@@ -353,23 +330,18 @@ impl Launcher {
     }
 
     pub(super) fn home_background_row(&self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let custom = self.home_background().is_some();
         let mut actions = div().flex().gap(px(4.)).child(
-            button(
-                "background-choose",
-                "Choose a picture…",
-                Kind::Secondary,
-                &t,
-            )
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.choose_background(cx);
-                cx.notify();
-            })),
+            button("background-choose", "Choose image…", Kind::Secondary).on_press(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
+                    this.choose_background(cx);
+                    cx.notify();
+                },
+            )),
         );
         if custom {
             actions = actions.child(
-                button("background-reset", "Default background", Kind::Ghost, &t).on_click(
+                button("background-reset", "Default background", Kind::Ghost).on_press(
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.settings.background = None;
                         this.save_settings();
@@ -381,12 +353,11 @@ impl Launcher {
         let detail = self
             .background_error
             .clone()
-            .map(|e| div().text_color(t.danger).child(e).into_any_element());
-        index_row(
+            .map(|e| div().text_color(ui::danger()).child(e).into_any_element());
+        ui::setting_row(
             tr("Home background"),
             detail,
             Some(actions.into_any_element()),
-            &t,
         )
     }
 }

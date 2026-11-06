@@ -26,35 +26,35 @@ impl Launcher {
         if !self.dev_options && !self.settings.dev_offline {
             return None;
         }
-        let t = self.theme;
-        let toggle = switch("dev-offline", self.settings.dev_offline, &t).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.settings.dev_offline = !this.settings.dev_offline;
-                this.save_settings();
-                cx.notify();
-            },
-        ));
+        let toggle = crate::glass_ui::toggle_row(
+            "dev-offline",
+            tr("Offline names without an account"),
+            Some(
+                div()
+                    .child(tr(
+                        "Offline names play without a Microsoft account that owns the game. \
+                         Minecraft still comes from your own install.",
+                    ))
+                    .into_any_element(),
+            ),
+            self.settings.dev_offline,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.dev_offline = !this.settings.dev_offline;
+            this.save_settings();
+            cx.notify();
+        }));
         Some(
             div()
                 .flex()
                 .flex_col()
                 .child(
-                    section_title("Developer options", "terminal", &t)
+                    crate::glass_ui::label(tr("Developer options"))
+                        .px(px(crate::glass_ui::SETTING_ROW_PADDING))
                         .mt(px(20.))
                         .mb(px(12.)),
                 )
-                .child(index_row(tr("Offline names without an account"),
-                    Some(
-                        div()
-                            .child(tr(
-                                "Offline names play without a Microsoft account that owns the game. \
-                                 Minecraft still comes from your own install.",
-                            ))
-                            .into_any_element(),
-                    ),
-                    Some(toggle.into_any_element()),
-                    &t,
-                )),
+                .child(toggle),
         )
     }
 }

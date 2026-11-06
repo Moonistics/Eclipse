@@ -1,10 +1,34 @@
-//! Home's Console tab: the game's output of this run as it comes, with a search, Follow (keep the
-//! newest line in view), Copy, and Share log (`eclipse_launcher::game_log`): an upload to mclo.gs
-//! that happens only after the player confirms, without their home folder or names.
+//! Home's Console tab: the game's output of this run as it comes, with a search, Auto-scroll,
+//! Copy, and Share log (`eclipse_launcher::game_log`): an upload to mclo.gs that happens only
+//! after the player confirms, without their home folder or names.
 use super::servers_page::Field;
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::game_log::{self, Shared};
-use gpui::{ClipboardItem, ScrollHandle};
+use eclipse_theme::glass::{fill, ink, radius, step};
+use gpui::{ClipboardItem, ScrollEvent, ScrollHandle};
+
+const LOG_HEIGHT: f32 = 320.;
+
+pub(super) fn log_well(id: &'static str, handle: &ScrollHandle) -> Stateful<Div> {
+    let at = handle.clone();
+    ui::scroll_pane(id, handle)
+        .on_scroll(move |ev: &ScrollEvent, window, cx| {
+            let dy = ev.delta.pixel_delta(window.line_height()).y;
+            let (offset, max) = (at.offset().y, at.max_offset().y);
+            let at_end = (dy > px(0.) && offset >= px(0.)) || (dy < px(0.) && -offset >= max);
+            if !at_end {
+                cx.stop_propagation();
+            }
+        })
+        .h(px(LOG_HEIGHT))
+        .p(px(16.))
+        .rounded(px(radius::ROW))
+        .bg(ui::well())
+        .font_family(theme::MONO)
+        .text_size(px(step::CAPTION.size))
+        .line_height(px(step::BODY.line))
+}
 
 pub(super) struct Console {
     follow: bool,
@@ -110,14 +134,8 @@ impl Launcher {
 }
 
 impl Launcher {
-    /// Home's Console tab in the glass look: the count and the tools over the log, which is the
-    /// mockup's `Logs` (round at 12, black at 25 %, Geist Mono 12 px on 1.75, white at 75 %).
-    /// Not in the mockup (its Overview shows a game log only while starting): kept, in its
-    /// patterns. Dark appearance only.
+    /// Home's Console tab: the count and the tools over the log.
     pub(super) fn glass_console(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        use crate::glass_ui::{self as ui, white};
-        use eclipse_theme::glass::{fill, ink, radius};
-        let t = self.theme;
         if self.prepare_log.is_empty() && self.client.is_none() {
             return None;
         }
@@ -144,21 +162,8 @@ impl Launcher {
             self.console.scroll.scroll_to_bottom();
         }
         self.console.seen = now;
-        let follow = div()
-            .id("console-follow")
-            .flex()
-            .items_center()
-            .gap(px(8.))
-            .cursor_pointer()
-            .child(ui::toggle(
-                "console-follow-switch",
-                self.console.follow,
-                self.look.accent,
-                self.look.on_accent,
-                &t,
-            ))
-            .child(ui::text(14., FontWeight::NORMAL, ink::BODY).child(tr("Auto-scroll")))
-            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+        let follow = ui::toggle_label("console-follow", tr("Auto-scroll"), self.console.follow)
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.console.follow = !this.console.follow;
                 this.console.seen.0 = usize::MAX;
                 cx.notify();
@@ -176,11 +181,10 @@ impl Launcher {
             tr("Share log…"),
             Kind::Secondary,
             ui::Size::Md,
-            &t,
         );
         let share = match self.console.sharing {
             true => crate::disabled(share),
-            false => share.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            false => share.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.console.confirm_share = true;
                 cx.notify();
             })),
@@ -202,9 +206,8 @@ impl Launcher {
                     tr("Copy"),
                     Kind::Secondary,
                     ui::Size::Md,
-                    &t,
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     copy_to_clipboard(cx, ClipboardItem::new_string(copied.clone()));
                     this.console.shared = None;
                     cx.notify();
@@ -215,13 +218,11 @@ impl Launcher {
                 ui::icon_button(
                     "console-folder",
                     "folder-01",
-                    36.,
-                    17.,
-                    radius::CONTROL,
+                    tr("Open folder"),
+                    ui::Size::Md,
                     false,
-                    &t,
                 )
-                .on_click(move |_, _, cx| {
+                .on_press(move |_, _, cx| {
                     let _ = std::fs::create_dir_all(&logs);
                     crate::glass_toast::open(cx, &logs);
                 }),
@@ -231,7 +232,7 @@ impl Launcher {
             .flex_col()
             .child(ui::list_head(note))
             .child(tools);
-        // Share log asks first, on a card as the patch log's (white at 4 %, round at 14).
+        // Share log asks first.
         if self.console.confirm_share {
             body = body.child(
                 div()
@@ -244,7 +245,7 @@ impl Launcher {
                     .rounded(px(radius::ROW))
                     .bg(white(fill::WELL))
                     .child(div().flex_1().min_w_0().child(
-                        ui::text(13., FontWeight::NORMAL, ink::BODY).child(tr(
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(tr(
                             "Upload this log to mclo.gs? Anyone with the link can read it.",
                         )),
                     ))
@@ -255,9 +256,8 @@ impl Launcher {
                             tr("Cancel"),
                             Kind::Secondary,
                             ui::Size::Md,
-                            &t,
                         )
-                        .on_click(cx.listener(
+                        .on_press(cx.listener(
                             |this, _: &ClickEvent, _, cx| {
                                 this.console.confirm_share = false;
                                 cx.notify();
@@ -265,7 +265,7 @@ impl Launcher {
                         )),
                     )
                     .child(
-                        ui::solid("console-share-yes", tr("Upload"), 36., 14., &t).on_click(
+                        ui::primary("console-share-yes", tr("Upload"), ui::Size::Md).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.share_log(cx);
                                 cx.notify();
@@ -290,9 +290,8 @@ impl Launcher {
                                     tr("Copy link"),
                                     Kind::Secondary,
                                     ui::Size::Md,
-                                    &t,
                                 )
-                                .on_click(move |_, _, cx| {
+                                .on_press(move |_, _, cx| {
                                     copy_to_clipboard(cx, ClipboardItem::new_string(url.clone()))
                                 }),
                             )
@@ -303,9 +302,8 @@ impl Launcher {
                                     tr("Open"),
                                     Kind::Secondary,
                                     ui::Size::Md,
-                                    &t,
                                 )
-                                .on_click(move |_, _, cx| cx.open_url(&open_url)),
+                                .on_press(move |_, _, cx| cx.open_url(&open_url)),
                             )
                             .child(
                                 ui::button(
@@ -314,9 +312,8 @@ impl Launcher {
                                     tr("Delete upload"),
                                     Kind::Secondary,
                                     ui::Size::Md,
-                                    &t,
                                 )
-                                .on_click(cx.listener(
+                                .on_press(cx.listener(
                                     |this, _: &ClickEvent, _, cx| {
                                         this.unshare_log(cx);
                                         cx.notify();
@@ -327,27 +324,15 @@ impl Launcher {
                 )
             }
             Some(Err(e)) => Some(
-                div().px(px(12.)).pb(px(8.)).child(
-                    ui::text(13., FontWeight::NORMAL, ink::FULL)
-                        .text_color(ui::danger())
-                        .child(e.clone()),
-                ),
+                servers_page::notice_line(ui::danger(), ui::plain_error(e).to_string())
+                    .mx(px(12.))
+                    .mb(px(12.)),
             ),
             None => None,
         };
         let shown = lines.len().saturating_sub(LOG_LINES);
-        let log = div()
-            .id("console-lines")
-            .track_scroll(&self.console.scroll)
-            .h(px(320.))
-            .overflow_y_scroll()
-            .p(px(16.))
-            .rounded(px(radius::ROW))
-            .bg(ui::well())
-            .font_family(theme::MONO)
-            .text_size(px(12.))
-            .line_height(px(21.))
-            .children(lines.into_iter().skip(shown).map(|line| {
+        let log = log_well("console-lines", &self.console.scroll).children(
+            lines.into_iter().skip(shown).map(|line| {
                 let color = if line.contains("/ERROR]") || line.contains("ERROR:") {
                     ui::danger()
                 } else if line.contains("/WARN]") {
@@ -356,7 +341,8 @@ impl Launcher {
                     white(ink::BODY)
                 };
                 div().text_color(color).child(line)
-            }));
+            }),
+        );
         Some(body.children(status).child(log))
     }
 }

@@ -1,8 +1,6 @@
-use crate::glass_ui::{light, look};
-use eclipse_theme::glass::{EDGE, FLOAT, LIGHT_FLOAT_ALPHA, LIGHT_PLATE_ALPHA};
+use crate::glass_ui::{light, look, white};
+use eclipse_theme::glass::{EDGE, FLOAT, PAPER};
 use gpui::{div, prelude::*, px, rgb, AnyElement, Div, Hsla};
-
-pub const CONTENT_INSET: f32 = 14.;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Kind {
@@ -12,27 +10,11 @@ pub enum Kind {
 
 pub fn colour(kind: Kind) -> Hsla {
     if light() {
-        let a = if kind == Kind::Float {
-            LIGHT_FLOAT_ALPHA
-        } else {
-            LIGHT_PLATE_ALPHA
-        };
-        return gpui::white().opacity(a);
+        return rgb(PAPER).into();
     }
     match kind {
-        Kind::Glass => {
-            let look = look();
-            Hsla::from(rgb(look.plate)).opacity(look.plate_alpha)
-        }
+        Kind::Glass => rgb(look().plate).into(),
         Kind::Float => rgb(FLOAT).into(),
-    }
-}
-
-fn edge() -> Hsla {
-    if light() {
-        gpui::black().opacity(0.08)
-    } else {
-        gpui::white().opacity(EDGE)
     }
 }
 
@@ -45,7 +27,7 @@ pub fn backdrop(kind: Kind, radius: f32) -> AnyElement {
         .rounded(px(radius))
         .bg(colour(kind))
         .border_1()
-        .border_color(edge())
+        .border_color(white(EDGE))
         .into_any_element()
 }
 

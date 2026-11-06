@@ -2,9 +2,13 @@
 //! in `datapacks/`, Add (a file picker) or a zip dropped on the world, and Remove (to the trash,
 //! after a confirmation).
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::datapacks::{self, DataPack};
 use eclipse_launcher::worlds::World;
+use eclipse_theme::glass::{fill, ink, radius, step};
 use std::path::PathBuf;
+
+const WORLD_PACKS_INDENT: f32 = 62.;
 
 #[derive(Default)]
 pub(super) struct WorldPacks {
@@ -88,16 +92,23 @@ impl Launcher {
         if !self.world_packs_open(world) {
             return None;
         }
-        let t = self.theme;
         let path = world.path.clone();
         let empty = self.world_packs.list.is_empty();
-        let mut panel = div().flex().flex_col().gap(px(6.)).ml(px(62.)).mb(px(6.));
+        let mut panel = div()
+            .flex()
+            .flex_col()
+            .gap(px(6.))
+            .ml(px(WORLD_PACKS_INDENT))
+            .mb(px(6.))
+            .p(px(ui::PANEL_INSET))
+            .rounded(px(radius::ROW))
+            .bg(white(fill::WELL));
         let (add_kind, folder_kind) = if empty {
             (Kind::Primary, Kind::Secondary)
         } else {
             (Kind::Ghost, Kind::Ghost)
         };
-        let add = button("world-packs-add", "Add data pack…", add_kind, &t).on_click(cx.listener(
+        let add = button("world-packs-add", "Add data pack…", add_kind).on_press(cx.listener(
             move |this, _: &ClickEvent, _, cx| {
                 this.choose_world_packs(path.clone(), cx);
                 cx.notify();
@@ -105,12 +116,10 @@ impl Launcher {
         ));
         let folder = {
             let dir = world.path.join("datapacks");
-            button("world-packs-folder", "Open folder", folder_kind, &t).on_click(
-                move |_, _, cx| {
-                    let _ = std::fs::create_dir_all(&dir);
-                    crate::glass_toast::open(cx, &dir);
-                },
-            )
+            button("world-packs-folder", "Open folder", folder_kind).on_press(move |_, _, cx| {
+                let _ = std::fs::create_dir_all(&dir);
+                crate::glass_toast::open(cx, &dir);
+            })
         };
         let (shown, empty_actions) = if empty {
             (None, vec![add, folder])
@@ -120,26 +129,21 @@ impl Launcher {
                 Vec::new(),
             )
         };
-        let mut head = plate()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .px(px(12.))
-            .py(px(8.))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .child(caps(tr("Data packs")).text_color(t.muted))
-                    .children(shown),
-            );
+        let mut head = div().flex().flex_col().gap(px(6.)).child(
+            div()
+                .flex()
+                .items_center()
+                .justify_between()
+                .child(ui::label(tr("Data packs")))
+                .children(shown),
+        );
         let mut failed = None;
         match &self.world_packs.note {
             Some(Ok(m)) => {
-                head = head.child(text(theme::CAPTION).text_color(t.muted).child(m.clone()))
+                head = head
+                    .child(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(m.clone()))
             }
-            Some(Err(e)) => failed = Some(notice(e.clone(), &t)),
+            Some(Err(e)) => failed = Some(error_note(e.clone())),
             None => {}
         }
         if empty {
@@ -159,8 +163,8 @@ impl Launcher {
                 let (world, gone) = (world.path.clone(), pack.clone());
                 actions = actions
                     .child(
-                        text(theme::CAPTION)
-                            .text_color(t.danger)
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                            .text_color(ui::danger())
                             .child(tr("Move it to the trash?")),
                     )
                     .child(
@@ -168,9 +172,8 @@ impl Launcher {
                             SharedString::from(format!("world-pack-keep-{i}")),
                             "Keep",
                             Kind::Ghost,
-                            &t,
                         )
-                        .on_click(cx.listener(
+                        .on_press(cx.listener(
                             |this, _: &ClickEvent, _, cx| {
                                 this.world_packs.confirm_remove = None;
                                 cx.notify();
@@ -182,9 +185,8 @@ impl Launcher {
                             SharedString::from(format!("world-pack-trash-{i}")),
                             "Move to trash",
                             Kind::Secondary,
-                            &t,
                         )
-                        .on_click(cx.listener(
+                        .on_press(cx.listener(
                             move |this, _: &ClickEvent, _, cx| {
                                 let note = datapacks::remove(&world, &gone).map(|()| {
                                     trf("{name} moved to the trash.", &[("name", &gone.file)])
@@ -200,8 +202,7 @@ impl Launcher {
                 let file = pack.file.clone();
                 if !pack.enabled {
                     actions = actions.child(
-                        text(theme::CAPTION)
-                            .text_color(t.muted)
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                             .child(tr("Off in the game")),
                     );
                 }
@@ -210,9 +211,8 @@ impl Launcher {
                         SharedString::from(format!("world-pack-remove-{i}")),
                         "Remove",
                         Kind::Ghost,
-                        &t,
                     )
-                    .on_click(cx.listener(
+                    .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
                             this.world_packs.confirm_remove = Some(file.clone());
                             cx.notify();
@@ -221,33 +221,14 @@ impl Launcher {
                 );
             }
             panel = panel.child(
-                plate()
-                    .flex()
-                    .items_center()
-                    .gap(px(12.))
-                    .px(px(12.))
-                    .py(px(6.))
-                    .child(blocks::icon("package", 16., t.muted))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .child(
-                                text(theme::LABEL)
-                                    .text_color(t.ink)
-                                    .truncate()
-                                    .child(pack.file.clone()),
-                            )
-                            .child(
-                                text(theme::CAPTION)
-                                    .text_color(t.muted)
-                                    .truncate()
-                                    .child(pack.description.clone()),
-                            ),
-                    )
-                    .child(actions),
+                ui::list_row(
+                    SharedString::from(format!("world-pack-{i}")),
+                    confirming,
+                    |_, _, _| {},
+                )
+                .child(ui::icon("package-01", ui::IconSize::Px16, white(ink::MUTED)).relative())
+                .child(ui::item_text(pack.file.clone(), pack.description.clone()))
+                .child(actions.flex_none().relative()),
             );
         }
         Some(panel)

@@ -14,10 +14,10 @@ impl Launcher {
                     .map_or_else(String::new, |a| a.name.clone()),
                 tr("Microsoft account"),
             ),
-            Player::Offline(name) => (name, tr("Offline")),
+            Player::Offline(name) => (name, tr("Not signed in")),
             Player::GameName => (
                 self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-                tr("Offline"),
+                tr("Not signed in"),
             ),
         }
     }
@@ -44,7 +44,7 @@ impl Launcher {
                 (
                     Player::Microsoft(a.uuid.clone()),
                     a.name.clone(),
-                    tr("Microsoft"),
+                    tr("Microsoft account"),
                 )
             })
             .collect();
@@ -52,12 +52,12 @@ impl Launcher {
             self.accounts
                 .offline
                 .iter()
-                .map(|n| (Player::Offline(n.clone()), n.clone(), tr("Offline"))),
+                .map(|n| (Player::Offline(n.clone()), n.clone(), tr("Offline account"))),
         );
         out.push((
             Player::GameName,
             self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-            tr("Offline · default name"),
+            tr("Offline account"),
         ));
         out
     }

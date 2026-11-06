@@ -1,36 +1,38 @@
-//! Home's tabbed panel in the glass look (the mockup's `TabbedPanel` and `Overview`,
-//! `launcher-views.tsx`): the tab strip, and under it one glass plate with the open tab.
-//! Overview shows the instance's last screenshots beside the newest patch log, then what Play
-//! still needs (the launcher's rows). Dark appearance only.
+//! Home's tabs: the strip, and under it one card with the open tab. Changelog shows the changes
+//! in the Eclipse version the instance plays.
 use super::*;
 use crate::glass_ui::{self as ui, white};
-use eclipse_theme::glass::{ink, radius};
+use eclipse_theme::glass::{ink, pixel_text, radius, step, MONOCRAFT_PIXEL};
 use home_tabs::HomeTab;
 
-const PATCH_LOG: f32 = 340.;
-/// The game log's lines in Overview: what its 200 px show (16 px around, 21 px a line).
-const OVERVIEW_LOG: usize = 8;
+const NOTES_WIDTH: f32 = 720.;
+
+const BULLET: f32 = 5.;
+
+const MONOCRAFT_GLYPH: f32 = 6.;
+
+const COUNT_GAP: f32 = 8.;
+
+fn tab_width(label: &str, count: Option<usize>) -> f32 {
+    let advance = MONOCRAFT_GLYPH * pixel_text::PRESS / MONOCRAFT_PIXEL;
+    let width = |s: &str| s.chars().count() as f32 * advance;
+    2. * ui::TAB_PAD + width(label) + count.map_or(0., |n| COUNT_GAP + width(&n.to_string()))
+}
 
 impl Launcher {
-    /// The tabbed panel: the strip, then the open tab. `rows`: what Overview shows under its
-    /// screenshots and patch log (what Play needs, the open export or launch panel).
-    pub(super) fn glass_home_tabs(&mut self, rows: Div, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
+    pub(super) fn glass_home_tabs(&mut self, cx: &mut Context<Self>) -> Div {
         let tabs = self.home_tab_list(cx);
         let open = tabs
             .iter()
             .map(|(tab, _)| *tab)
             .find(|tab| *tab == self.home_tab)
-            .unwrap_or(HomeTab::Overview);
-        let strip = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(4.))
-            .ml(px(-12.))
-            .children(tabs.into_iter().map(|(tab, count)| {
+            .or_else(|| tabs.first().map(|(tab, _)| *tab))
+            .unwrap_or_default();
+        let named: Vec<_> = tabs
+            .into_iter()
+            .map(|(tab, count)| {
                 let name = match tab {
-                    HomeTab::Overview => tr("Overview"),
+                    HomeTab::Changelog => tr("Changelog"),
                     HomeTab::Mods => tr("Mods"),
                     HomeTab::Worlds => tr("Worlds"),
                     HomeTab::Multiplayer => tr("Multiplayer"),
@@ -38,22 +40,34 @@ impl Launcher {
                     HomeTab::Screenshots => tr("Screenshots"),
                     HomeTab::Console => tr("Console"),
                 };
+                (tab, name, count.filter(|n| *n > 0))
+            })
+            .collect();
+        let room = (self.window_width - layout::SIDEBAR - 2. * layout::PAGE_GUTTER)
+            .min(layout::PAGE_MAX)
+            + 2. * ui::TAB_PAD;
+        let counted: f32 = named.iter().map(|(_, name, n)| tab_width(name, *n)).sum();
+        let counts = counted <= room;
+        let strip = div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .mx(px(-ui::TAB_PAD))
+            .children(named.into_iter().map(|(tab, name, count)| {
                 ui::count_tab(
                     format!("home-tab-{tab:?}"),
                     None,
                     name,
-                    count.filter(|n| *n > 0),
+                    count.filter(|_| counts),
                     tab == open,
-                    &t,
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.home_tab = tab;
                     cx.notify();
                 }))
             }));
-        let panel = crate::glass::plate(radius::PANEL).flex().flex_col();
         let body: Option<AnyElement> = match open {
-            HomeTab::Overview => Some(self.glass_overview(rows, cx).into_any_element()),
+            HomeTab::Changelog => Some(self.changelog(cx).into_any_element()),
             HomeTab::Mods => Some(self.glass_instance_mods(cx).into_any_element()),
             HomeTab::Worlds => self.glass_worlds(cx).map(IntoElement::into_any_element),
             HomeTab::Multiplayer => self
@@ -66,300 +80,109 @@ impl Launcher {
             HomeTab::Console => self.glass_console(cx).map(IntoElement::into_any_element),
         };
         div().flex().flex_col().gap(px(16.)).child(strip).child(
-            panel
-                .when(open != HomeTab::Overview, |d| d.p(px(ui::PANEL_INSET)))
+            crate::glass::plate(radius::PANEL)
+                .flex()
+                .flex_col()
+                .p(px(ui::PANEL_INSET))
                 .children(body),
         )
     }
 
-    /// Overview: the last screenshots and, for Eclipse, the patch log beside them, then `rows`.
-    fn glass_overview(&mut self, rows: Div, cx: &mut Context<Self>) -> Div {
-        let eclipse = self.selected_instance().is_some_and(|i| i.java.is_none());
-        div()
-            .flex()
-            .flex_col()
-            .children(self.overview_log())
-            .child(
-                div()
-                    .flex()
-                    .child(self.overview_shots(cx))
-                    .children(eclipse.then(|| self.patch_log(cx))),
-            )
-            .child(rows.px(px(12.)))
-    }
-
-    /// The game log while this instance prepares, starts or runs (the mockup's, over the
-    /// screenshots): its newest lines, as many as `max-h-[200px]` shows scrolled to the end.
-    fn overview_log(&self) -> Option<Div> {
-        let instance = self.selected_instance()?;
-        let mine = match (&self.client, &self.starting_client) {
-            (Some(_), _) => self.client_home.as_ref() == Some(&instance.home),
-            (None, Some(starting)) => *starting == instance.id || self.selected() == Some(starting),
-            (None, None) => self.preparing,
-        };
-        if !mine || self.prepare_log.is_empty() {
-            return None;
-        }
-        let count = self.prepare_log.len();
-        let shown = self
-            .prepare_log
-            .iter()
-            .skip(count.saturating_sub(OVERVIEW_LOG));
-        Some(
-            div()
-                .flex()
-                .flex_col()
-                .p(px(24.))
-                .border_b_1()
-                .border_color(white(eclipse_theme::glass::EDGE))
-                .child(
-                    div()
-                        .flex()
-                        .items_baseline()
-                        .justify_between()
-                        .child(ui::card_title(tr("Game log")))
-                        .child(ui::text(13., FontWeight::NORMAL, ink::MUTED).child(
-                            if count == 1 {
-                                tr("1 line").to_string()
-                            } else {
-                                trf("{count} lines", &[("count", &count.to_string())])
-                            },
-                        )),
-                )
-                .child(
-                    div()
-                        .mt(px(12.))
-                        .p(px(16.))
-                        .rounded(px(radius::ROW))
-                        .bg(ui::well())
-                        .font_family(theme::MONO)
-                        .text_size(px(12.))
-                        .line_height(px(21.))
-                        .text_color(white(ink::BODY))
-                        .children(shown.map(|line| div().truncate().child(line.clone()))),
-                ),
-        )
-    }
-
-    /// The instance's three newest screenshots (the first twice as big when there are three),
-    /// "See all" opening the Screenshots tab; a line about F2 while there are none.
-    fn overview_shots(&mut self, cx: &mut Context<Self>) -> Div {
-        let count = self.screenshots_count();
-        let shots: Vec<_> = self.screenshots.list.iter().take(3).cloned().collect();
-        let pictures: Vec<AnyElement> = shots
-            .iter()
-            .map(|s| self.shot_picture(&s.path, cx))
-            .collect();
-        let privacy = self.shots_privacy(cx);
-        let see_all = || {
-            cx.listener(
-                |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
-                    this.home_tab = HomeTab::Screenshots;
-                    cx.notify();
-                },
-            )
-        };
-        let head = div()
-            .flex()
-            .items_center()
-            .justify_between()
-            .gap(px(12.))
-            .h(px(32.))
-            .child(
-                div()
-                    .flex()
-                    .gap(px(6.))
-                    .child(ui::card_title(tr("Screenshots")))
-                    .children((count > 0).then(|| {
-                        ui::text(16., FontWeight::NORMAL, ink::DIM).child(count.to_string())
-                    })),
-            )
-            .children((count > 0).then(|| {
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(8.))
-                    .child(privacy)
-                    .child(
-                        ui::text(13., FontWeight::NORMAL, ink::MUTED)
-                            .id("shots-see-all")
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(white(ink::FULL)))
-                            .child(tr("See all"))
-                            .on_click(see_all()),
-                    )
-            }));
-        let mut pictures = pictures.into_iter();
-        let mut shot = |i: usize| {
-            div()
-                .id(SharedString::from(format!("overview-shot-{i}")))
-                .overflow_hidden()
-                .rounded(px(radius::ROW))
-                .cursor_pointer()
-                .children(pictures.next())
-        };
-        let body = match shots.len() {
-            0 => ui::empty_state(
-                "overview-screenshots-empty",
-                "image-01",
-                tr("No screenshots yet"),
-                tr("Press F2 in the game."),
-                vec![],
-            )
-            .into_any_element(),
-            n if n >= 3 => {
-                let first = shot(0).flex_1().h_full().on_click(see_all());
-                let rest: Vec<_> = (1..n)
-                    .map(|i| shot(i).flex_1().w_full().on_click(see_all()))
-                    .collect();
-                div()
-                    .mt(px(12.))
-                    .flex()
-                    .gap(px(8.))
-                    .w_full()
-                    .aspect_ratio(8. / 3.)
-                    .child(first)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .gap(px(8.))
-                            .w(gpui::relative(1. / 3.))
-                            .flex_none()
-                            .h_full()
-                            .children(rest),
-                    )
-                    .into_any_element()
+    /// Changelog: the changes in the Eclipse version played, by section (the newest Nightly's
+    /// when that version lists none), else the newest launcher release's; All patch notes opens
+    /// Patch notes.
+    fn changelog(&self, cx: &mut Context<Self>) -> Div {
+        let source = match &self.releases {
+            Load::Loading => {
+                return div().child(ui::loading_state(
+                    "changelog-loading",
+                    tr("Loading patch notes…"),
+                ))
             }
-            // `grid-cols-2`: one picture takes half the width.
-            n => div()
-                .mt(px(12.))
-                .grid()
-                .grid_cols(2)
-                .gap(px(8.))
-                .children(
-                    (0..n).map(|i| shot(i).w_full().aspect_ratio(16. / 9.).on_click(see_all())),
+            Load::Failed(e) => {
+                let retry = ui::button(
+                    "changelog-retry",
+                    None,
+                    tr("Try again"),
+                    Kind::Secondary,
+                    ui::Size::Md,
                 )
-                .into_any_element(),
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.fetch_releases();
+                    cx.notify();
+                }));
+                return div().child(ui::error_state(
+                    "changelog-failed",
+                    tr("Couldn't load patch notes"),
+                    e,
+                    retry,
+                ));
+            }
+            Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),
         };
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .p(px(24.))
-            .child(head)
-            .child(body)
-    }
-
-    /// The patch log (`PatchLog`): a Eclipse instance's Nightly changes by section (the newest
-    /// Nightly's when it plays another version), else the newest launcher release's; "All
-    /// notes" opening Patch notes. It fills its column and scrolls inside.
-    fn patch_log(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let eclipse = self.selected_instance().is_some_and(|i| i.java.is_none());
-        let played = eclipse.then(|| self.selected().cloned()).flatten();
-        let (note, sections) = match &self.releases {
-            Load::Ready(list) => patch_source(list, played.as_deref()),
-            _ => None,
-        }
-        .map_or((None, Vec::new()), |(note, sections)| {
-            (Some(note), sections)
-        });
+        let Some((note, sections)) = source.filter(|(_, sections)| !sections.is_empty()) else {
+            return div().child(ui::empty_state(
+                "changelog-empty",
+                "information-circle",
+                tr("No patch notes yet"),
+                "",
+                vec![],
+            ));
+        };
         let many = sections.len() > 1;
-        let list =
+        let bullet = |item: String| {
             div()
                 .flex()
-                .flex_col()
-                .gap(px(16.))
-                .mt(px(16.))
-                .children(sections.into_iter().map(|(section, items)| {
+                .gap(px(10.))
+                .child(
                     div()
-                        .flex()
-                        .flex_col()
-                        .children(
-                            many.then(|| {
-                                ui::text(13., FontWeight::MEDIUM, ink::MUTED).child(section)
-                            }),
-                        )
-                        .child(div().mt(px(6.)).flex().flex_col().gap(px(6.)).children(
-                            items.into_iter().map(|item| {
-                                div()
-                                    .flex()
-                                    .gap(px(10.))
-                                    .child(
-                                        div()
-                                            .flex_none()
-                                            .mt(px(9.))
-                                            .size(px(5.))
-                                            .rounded_full()
-                                            .bg(white(ink::DIM)),
-                                    )
-                                    .child(
-                                        ui::text(14., FontWeight::NORMAL, ink::STRONG)
-                                            .line_height(px(21.))
-                                            .min_w_0()
-                                            .child(item),
-                                    )
-                            }),
-                        ))
-                }));
-        div()
-            .id("patch-log")
+                        .flex_none()
+                        .mt(px((step::BODY.line - BULLET) / 2.))
+                        .size(px(BULLET))
+                        .rounded_full()
+                        .bg(white(ink::DIM)),
+                )
+                .child(
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::STRONG)
+                        .min_w_0()
+                        .child(item),
+                )
+        };
+        let list = div()
             .flex()
             .flex_col()
-            .flex_none()
-            .w(px(380.))
-            .max_h(px(PATCH_LOG))
-            .p(px(24.))
-            .border_l_1()
-            .border_color(white(eclipse_theme::glass::EDGE))
-            .overflow_y_scroll()
-            .child(
+            .gap(px(16.))
+            .px(px(12.))
+            .max_w(px(NOTES_WIDTH))
+            .children(sections.into_iter().map(|(section, items)| {
                 div()
                     .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(12.))
-                    .h(px(32.))
-                    .child(ui::card_title(tr("Patch notes")))
-                    .child(
-                        ui::text(13., FontWeight::NORMAL, ink::MUTED)
-                            .id("patch-log-all")
-                            .cursor_pointer()
-                            .hover(|s| s.text_color(white(ink::FULL)))
-                            .child(tr("All patch notes"))
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.go(Page::Notes);
-                                cx.notify();
-                            })),
-                    ),
-            )
-            .children(note.as_ref().map(|note| {
-                ui::text(13., FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(2.))
-                    .child(note.clone())
-            }))
-            .children(note.is_none().then(|| {
-                ui::empty_state(
-                    "patch-log-empty",
-                    "information-circle",
-                    tr("No patch notes yet"),
-                    "",
-                    vec![],
-                )
-                .mt(px(16.))
-            }))
-            .child(list)
+                    .flex_col()
+                    .gap(px(6.))
+                    .children(many.then(|| ui::label(section)))
+                    .children(items.into_iter().map(bullet))
+            }));
+        div()
+            .flex()
+            .flex_col()
+            .child(ui::list_head(note).child(
+                ui::link("changelog-all", tr("All patch notes")).on_press(cx.listener(
+                    |this, _: &ClickEvent, _, cx| {
+                        this.go(Page::Notes);
+                        cx.notify();
+                    },
+                )),
+            ))
+            .child(list.pb(px(12.)))
     }
 }
 
 /// A release's changes: each section's name and its lines.
 type Sections = Vec<(String, Vec<String>)>;
 
-/// What the patch log shows from `releases` and its line under the title: the release `played`
-/// installs as when it lists changes, else the newest Nightly that does ("Nightly 2026-11-01 ·
-/// 4aa6854 · Nov 1"); for a Java instance (`played` None) or without one, the newest launcher
-/// release ("Launcher 0.2.37 · Nov 2").
+/// The changelog from `releases` and the line over it: the release `played` installs as when it
+/// lists changes, else the newest Nightly that does ("Nightly 2026-11-01 · 4aa6854");
+/// without a version played, the newest launcher release ("Launcher 0.2.37 · Nov 2").
 fn patch_source(releases: &[Release], played: Option<&str>) -> Option<(String, Sections)> {
     let day = |r: &Release| glass_versions::published(&r.date, "");
     if let Some(played) = played {
@@ -370,7 +193,7 @@ fn patch_source(releases: &[Release], played: Option<&str>) -> Option<(String, S
             .map(|r| (r, patch_sections(&r.body)))
             .find(|(_, sections)| !sections.is_empty());
         if let Some((r, sections)) = nightly {
-            return Some((format!("{} · {}", r.name, day(r)), sections));
+            return Some((r.name.clone(), sections));
         }
     }
     let r = releases
@@ -497,15 +320,15 @@ mod tests {
             ),
         ];
         let (note, sections) = patch_source(&releases, Some("nightly-2026-11-01-4aa6854")).unwrap();
-        assert_eq!(note, "Nightly 2026-11-01 · 4aa6854 · Nov 1");
+        assert_eq!(note, "Nightly 2026-11-01 · 4aa6854");
         assert_eq!(
             sections,
             vec![("New".to_string(), vec!["Older change".to_string()])]
         );
         // A version that lists no changes: the newest Nightly's.
         let (note, _) = patch_source(&releases, Some("nightly-2026-10-30-0c02067")).unwrap();
-        assert_eq!(note, "Nightly 2026-11-03 · 2944480 · Nov 3");
-        // A Java instance: the launcher's.
+        assert_eq!(note, "Nightly 2026-11-03 · 2944480");
+        // No version played: the launcher's.
         let (note, sections) = patch_source(&releases, None).unwrap();
         assert_eq!(note, "Launcher 0.2.37 · Nov 2");
         assert_eq!(

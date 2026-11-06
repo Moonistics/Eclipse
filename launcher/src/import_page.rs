@@ -4,9 +4,13 @@
 //! artifact holding one) installed as its own version. The Packs section and the world rows take
 //! their own drops first.
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::import::{self, Dropped};
+use eclipse_theme::glass::{ink, radius, step};
 use gpui::ExternalPaths;
 use std::path::PathBuf;
+
+const IMPORT_NOTE_WIDTH: f32 = 440.;
 
 #[derive(Default)]
 pub(super) struct Importing {
@@ -111,15 +115,13 @@ impl Launcher {
 
     /// What the last drop did, in a corner over the page until closed.
     pub(super) fn import_note(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let line = match (&self.importing.note, self.importing.busy) {
-            (_, n) if n > 0 => text(theme::LABEL)
-                .text_color(t.ink_soft)
+            (_, n) if n > 0 => ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                 .child(tr("Making the instance from the shared file…")),
-            (Some(Ok(said)), _) => text(theme::LABEL)
-                .text_color(t.ink_soft)
-                .child(said.clone()),
-            (Some(Err(e)), _) => text(theme::LABEL).text_color(t.danger).child(e.clone()),
+            (Some(Ok(said)), _) => {
+                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(said.clone())
+            }
+            (Some(Err(e)), _) => error_note(e.clone()),
             (None, _) => return None,
         };
         Some(
@@ -127,26 +129,36 @@ impl Launcher {
                 .absolute()
                 .bottom(px(24.))
                 .right(px(24.))
-                .w(px(440.))
+                .w(px(IMPORT_NOTE_WIDTH))
                 .child(
-                    plate()
+                    crate::glass::float(radius::POPOVER)
                         .w_full()
                         .flex()
                         .items_center()
                         .gap(px(12.))
-                        .px(px(16.))
-                        .py(px(12.))
-                        .border_1()
-                        .border_color(t.rule)
-                        .bg(t.page)
-                        .child(blocks::icon("download", 18., t.accent))
+                        .p(px(ui::PANEL_INSET))
+                        .shadow_lg()
+                        .child(ui::icon(
+                            "download-04",
+                            ui::IconSize::Px16,
+                            white(ink::MUTED),
+                        ))
                         .child(div().flex_1().min_w_0().child(line))
-                        .child(button("import-close", "Close", Kind::Ghost, &t).on_click(
-                            cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.importing.note = None;
-                                cx.notify();
-                            }),
-                        )),
+                        .child(
+                            ui::icon_button(
+                                "import-close",
+                                "cancel-01",
+                                tr("Close"),
+                                ui::Size::Sm,
+                                false,
+                            )
+                            .on_press(cx.listener(
+                                |this, _: &ClickEvent, _, cx| {
+                                    this.importing.note = None;
+                                    cx.notify();
+                                },
+                            )),
+                        ),
                 ),
         )
     }

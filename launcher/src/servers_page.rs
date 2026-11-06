@@ -3,11 +3,13 @@
 //! action runs `eclipse-server` or calls the running server's control API (`eclipse_launcher::servers`).
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
+use crate::glass_ui as ui;
 use eclipse_launcher::heads;
 use eclipse_launcher::servers::{
     self, Applied, Backup, Entry, Fix, NewServer, Problem, Status, World,
 };
-use eclipse_theme::glass::radius;
+use eclipse_theme::glass::{fill, ink, radius, step};
+use gpui::ScrollHandle;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
@@ -16,7 +18,7 @@ use std::path::{Path, PathBuf};
 mod glass_server_dialog;
 #[path = "glass_servers.rs"]
 mod glass_servers;
-use glass_servers::glass_setting_row;
+pub(super) use glass_servers::notice_line;
 
 /// The servers this launcher started in this session, stopped when it closes unless they run as a
 /// service (`stop_on_quit`).
@@ -28,6 +30,10 @@ const POLL_LIST: Duration = Duration::from_secs(3);
 
 /// Lines of the server's log kept on the page.
 const CONSOLE_KEEP: usize = 1000;
+
+const FACE: f32 = 28.;
+
+const DELETE_CONTROLS: f32 = 260.;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(super) enum Field {
@@ -148,7 +154,7 @@ pub(super) struct Create {
     new_world: bool,
     copy: Option<PathBuf>,
     worlds: Vec<(String, PathBuf)>,
-    /// The glass dialog's line under each world: its name and "Eclipse · mode · size", read
+    /// The dialog's line under each world: its name and "Eclipse · mode · size", read
     /// once when the dialog opens.
     details: HashMap<PathBuf, (String, String)>,
     mode: &'static str,
@@ -159,15 +165,14 @@ pub(super) struct Create {
     eula: bool,
     /// Create was pressed without the EULA ticked.
     eula_missing: bool,
-    /// The glass dialog's friends let in, the first an operator (the light one types them in
-    /// `Field::Players`).
+    /// The dialog's friends let in, the first an operator.
     friends: Vec<String>,
 }
 
 /// What the sidebar shows of the Servers page: its list once the page has read it, and whether
 /// a server answers.
 impl Servers {
-    /// A stopped server's line in the list: "Survival · stopped", as the mockup's. The open
+    /// A stopped server's line in the list: "Survival · stopped". The open
     /// server's mode is the one its settings show now, once read; the others' (and the open one's
     /// until then) come from their files.
     pub(super) fn stopped_line(&mut self, dir: &std::path::Path) -> String {
@@ -213,7 +218,7 @@ pub(super) struct Servers {
     log: VecDeque<String>,
     log_next: u64,
     log_dir: Option<PathBuf>,
-    console_scroll: Scrollbar,
+    console_scroll: ScrollHandle,
     create_scroll: Scrollbar,
     /// The action under way, and what it printed.
     busy: Option<String>,
@@ -266,7 +271,7 @@ impl Servers {
             log: VecDeque::new(),
             log_next: 0,
             log_dir: None,
-            console_scroll: Scrollbar::default(),
+            console_scroll: ScrollHandle::new(),
             create_scroll: Scrollbar::default(),
             busy: None,
             job_log: VecDeque::new(),
@@ -597,7 +602,7 @@ impl Launcher {
                         while s.log.len() > CONSOLE_KEEP {
                             s.log.pop_front();
                         }
-                        s.console_scroll.handle.scroll_to_bottom();
+                        s.console_scroll.scroll_to_bottom();
                     }
                     s.log_next = next;
                 }
@@ -771,7 +776,7 @@ impl Launcher {
         };
         let tx = self.servers.tx.clone();
         self.servers.log.push_back(format!("> {line}"));
-        self.servers.console_scroll.handle.scroll_to_bottom();
+        self.servers.console_scroll.scroll_to_bottom();
         std::thread::spawn(move || {
             let result = servers::Api::open(&dir)
                 .ok_or_else(|| "The server isn't running.".to_string())
@@ -978,7 +983,11 @@ impl Launcher {
                         | Field::AddPlayer
                         | Field::DeleteServer
                 ),
-                |d| d.h(px(36.)).px(px(12.)).rounded(px(radius::CONTROL)),
+                |d| {
+                    d.h(px(ui::Size::Md.height()))
+                        .px(px(12.))
+                        .rounded(px(radius::CONTROL))
+                },
             )
             // The instance and server dialogs' are large, with larger text.
             .when(
@@ -991,13 +1000,13 @@ impl Launcher {
                             | Field::Name
                             | Field::Seed
                     ),
-                |d| d.h(px(48.)).text_size(px(15.)),
+                |d| d.h(px(48.)).text_size(px(step::LEAD.size)),
             )
             .when(f == Field::AccentHex, |d| {
-                d.h(px(36.))
+                d.h(px(ui::Size::Md.height()))
                     .px(px(12.))
                     .rounded(px(radius::CONTROL))
-                    .text_size(px(13.))
+                    .text_size(px(step::NOTE.size))
                     .font_weight(FontWeight::MEDIUM)
             })
             // The friend field sits in its chip, on the chip's fill.
@@ -1015,7 +1024,7 @@ impl Launcher {
                     .border_0()
                     .bg(gpui::transparent_black())
                     .font_family(theme::MONO)
-                    .text_size(px(13.))
+                    .text_size(px(step::NOTE.size))
             })
             // The focus ring on a field of its own, drawn inside its edge: GPUI has no outline.
             .when(
@@ -1195,9 +1204,9 @@ impl Launcher {
             .flex()
             .flex_col()
             .size(px(size))
-            .rounded(px(size / 4.))
+            .rounded(px(radius::ROW))
             .overflow_hidden()
-            .bg(self.theme.plate);
+            .bg(ui::white(fill::BUTTON));
         if let Some(pixels) = face {
             for row in pixels.chunks(8) {
                 d = d.child(div().flex().children(row.iter().map(|p| {
@@ -1222,17 +1231,14 @@ impl Launcher {
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self) + 'static,
     ) -> Stateful<Div> {
-        let b = button(id, label, Kind::Ghost, &self.theme)
-            .h(px(28.))
-            .px(px(10.))
-            .text_size(px(theme::CAPTION.px));
+        let b = ui::button(id, None, tr(label), Kind::Ghost, ui::Size::Sm);
         if enabled {
-            b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 action(this);
                 cx.notify();
             }))
         } else {
-            disabled(b)
+            crate::disabled(b)
         }
     }
 
@@ -1301,8 +1307,6 @@ impl Launcher {
     }
 
     fn players_tab(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let rule = gpui::transparent_black();
         let running = status.running();
         let idle = self.servers.busy.is_none();
         let ops = servers::names(dir, "ops.json");
@@ -1310,30 +1314,18 @@ impl Launcher {
         let banned = servers::names(dir, "banned-players.json");
         let is_op = |n: &str| ops.iter().any(|o| o.eq_ignore_ascii_case(n));
         let mut tab = div().flex().flex_col().gap(px(28.));
-        let head = 28.;
-        let person = move |name: String| {
-            text(theme::UI)
-                .text_color(t.ink)
-                .font_weight(FontWeight::MEDIUM)
-                .child(name)
-        };
-        let person_note = move |note: String| {
-            text(theme::CAPTION)
-                .text_color(t.muted)
-                .text_size(px(13.))
-                .child(note)
-        };
 
         // Online now.
-        let mut online = div().flex().flex_col().border_t_1().border_color(rule);
+        let mut online = div().flex().flex_col();
         for (i, p) in status.players.clone().into_iter().enumerate() {
             let op = is_op(&p.name);
             let (n1, n2, n3) = (p.name.clone(), p.name.clone(), p.name.clone());
             let actions = div()
                 .flex()
+                .flex_none()
                 .gap(px(2.))
                 .child(self.small(
-                    SharedString::from(format!("online-op-{i}")),
+                    format!("online-op-{i}"),
                     if op {
                         "Remove operator"
                     } else {
@@ -1347,19 +1339,17 @@ impl Launcher {
                     },
                 ))
                 .child(self.small(
-                    SharedString::from(format!("online-kick-{i}")),
+                    format!("online-kick-{i}"),
                     "Kick",
                     running,
                     cx,
                     move |this| this.api_command(format!("kick {n2}")),
                 ))
-                .child(self.small(
-                    SharedString::from(format!("online-ban-{i}")),
-                    "Ban",
-                    running,
-                    cx,
-                    move |this| this.api_command(format!("ban {n3}")),
-                ));
+                .child(
+                    self.small(format!("online-ban-{i}"), "Ban", running, cx, move |this| {
+                        this.api_command(format!("ban {n3}"))
+                    }),
+                );
             let ping = p
                 .ping
                 .map(|ms| trf("{ms} ms ping", &[("ms", &ms.to_string())]));
@@ -1368,38 +1358,25 @@ impl Launcher {
                 (true, None) => Some(tr("Operator").to_string()),
                 (false, ping) => ping,
             };
-            online = online.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(14.))
-                    .py(px(5.))
-                    .border_b_1()
-                    .border_color(rule)
-                    .child(self.head(&p.uuid, head))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .child(person(p.name.clone()))
-                            .children(about.map(person_note)),
-                    )
-                    .child(actions),
-            );
+            let face = self.head(&p.uuid, FACE);
+            online = online.child(self.list_row(
+                Some(face),
+                p.name.clone(),
+                about,
+                Some(actions.into_any_element()),
+            ));
         }
         tab = tab.child(
             div()
                 .flex()
                 .flex_col()
                 .gap(px(10.))
-                .child(self.tab_heading(trf(
+                .child(ui::label(trf(
                     "Online now ({count})",
                     &[("count", &status.players.len().to_string())],
                 )))
                 .child(if status.players.is_empty() {
-                    text(theme::UI)
-                        .text_color(t.muted)
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
                         .child(if running {
                             tr("Nobody is playing right now.")
                         } else {
@@ -1417,27 +1394,44 @@ impl Launcher {
             .setting("server", "whitelist")
             .and_then(Value::as_bool)
             .unwrap_or(true);
-        let toggle = switch("friends-only", friends_only, &t).on_click(cx.listener(
-            move |this, _: &ClickEvent, _, cx| {
-                this.set_setting("server.whitelist", (!friends_only).to_string());
-                cx.notify();
-            },
-        ));
+        let friends = ui::toggle_row(
+            "friends-only",
+            tr("Friends only"),
+            Some(
+                div()
+                    .child(if friends_only {
+                        tr("On: only players on the list can join.")
+                    } else {
+                        tr("Off: anyone who has the address can join.")
+                    })
+                    .into_any_element(),
+            ),
+            friends_only,
+        )
+        .mx(px(-ui::SETTING_ROW_PADDING))
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.set_setting("server.whitelist", (!friends_only).to_string());
+            cx.notify();
+        }));
+        let let_in = ui::button(
+            "player-add",
+            None,
+            tr("Let in"),
+            Kind::Secondary,
+            ui::Size::Md,
+        );
         let add = div()
             .flex()
             .items_center()
             .gap(px(8.))
             .child(self.field(Field::AddPlayer, tr("A player's name"), 240., cx))
-            .child({
-                let b = button("player-add", "Let in", Kind::Secondary, &t);
-                if idle {
-                    b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.add_player();
-                        cx.notify();
-                    }))
-                } else {
-                    disabled(b)
-                }
+            .child(if idle {
+                let_in.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.add_player();
+                    cx.notify();
+                }))
+            } else {
+                crate::disabled(let_in)
             });
         let mut people: Vec<(String, String)> = whitelist.clone();
         for op in &ops {
@@ -1445,13 +1439,13 @@ impl Launcher {
                 people.push((op.clone(), String::new()));
             }
         }
-        let mut allowed = div().flex().flex_col().border_t_1().border_color(rule);
+        let mut allowed = div().flex().flex_col();
         for (i, (name, uuid)) in people.into_iter().enumerate() {
             let op = is_op(&name);
             let listed = whitelist.iter().any(|(n, _)| n == &name);
             let (n1, n2) = (name.clone(), name.clone());
-            let mut actions = div().flex().gap(px(2.)).child(self.small(
-                SharedString::from(format!("allowed-op-{i}")),
+            let mut actions = div().flex().flex_none().gap(px(2.)).child(self.small(
+                format!("allowed-op-{i}"),
                 if op {
                     "Remove operator"
                 } else {
@@ -1466,7 +1460,7 @@ impl Launcher {
             ));
             if listed {
                 actions = actions.child(self.small(
-                    SharedString::from(format!("allowed-remove-{i}")),
+                    format!("allowed-remove-{i}"),
                     "Remove",
                     idle,
                     cx,
@@ -1479,96 +1473,57 @@ impl Launcher {
                 ));
             }
             let face = if uuid.is_empty() {
-                div().size(px(head)).flex_none()
+                div().size(px(FACE)).flex_none()
             } else {
-                self.head(&uuid, head)
+                self.head(&uuid, FACE)
             };
             let about = match (op, listed) {
-                (true, true) => Some(tr("Operator: can run every command")),
-                (true, false) => Some(tr("Operator (not on the list: can join anyway)")),
+                (true, true) => Some(tr("Operator: can run every command").to_string()),
+                (true, false) => {
+                    Some(tr("Operator (not on the list: can join anyway)").to_string())
+                }
                 _ => None,
             };
-            allowed = allowed.child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(14.))
-                    .py(px(5.))
-                    .border_b_1()
-                    .border_color(rule)
-                    .child(face)
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .child(person(name.clone()))
-                            .children(about.map(|a| person_note(a.to_string()))),
-                    )
-                    .child(actions),
-            );
+            allowed = allowed.child(self.list_row(
+                Some(face),
+                name,
+                about,
+                Some(actions.into_any_element()),
+            ));
         }
+        let refused = self.servers.invalid.and_then(|(f, e)| {
+            (f == Field::AddPlayer).then(|| ui::card_note(tr(e)).text_color(ui::danger()))
+        });
         tab = tab.child(
             div()
                 .flex()
                 .flex_col()
-                .gap(px(14.))
-                .child(self.tab_heading(tr("Who may join")))
-                .child(
-                    self.toggle_row(
-                        "Friends only",
-                        if friends_only {
-                            tr("On: only players on the list can join.")
-                        } else {
-                            tr("Off: anyone who has the address can join.")
-                        }
-                        .into(),
-                        toggle,
-                    ),
-                )
+                .gap(px(10.))
+                .child(ui::label(tr("Who may join")))
+                .child(friends)
                 .child(add)
-                .children(self.servers.invalid.and_then(|(f, e)| {
-                    (f == Field::AddPlayer)
-                        .then(|| text(theme::CAPTION).text_color(t.danger).child(tr(e)))
-                }))
+                .children(refused)
                 .child(allowed),
         );
 
         // Banned.
         if !banned.is_empty() {
-            let mut list = div().flex().flex_col().border_t_1().border_color(rule);
+            let mut list = div().flex().flex_col();
             for (i, name) in banned.into_iter().enumerate() {
                 let n = name.clone();
-                list = list.child(
-                    self.list_row(
-                        None,
-                        name,
-                        None,
-                        Some(
-                            self.small(
-                                SharedString::from(format!("unban-{i}")),
-                                "Unban",
-                                running,
-                                cx,
-                                move |this| this.api_command(format!("pardon {n}")),
-                            )
-                            .into_any_element(),
-                        ),
-                    ),
-                );
+                let unban = self.small(format!("unban-{i}"), "Unban", running, cx, move |this| {
+                    this.api_command(format!("pardon {n}"))
+                });
+                list = list.child(self.list_row(None, name, None, Some(unban.into_any_element())));
             }
             tab = tab.child(
                 div()
                     .flex()
                     .flex_col()
                     .gap(px(10.))
-                    .child(self.tab_heading(tr("Banned")))
+                    .child(ui::label(tr("Banned")))
                     .when(!running, |d| {
-                        d.child(
-                            text(theme::CAPTION)
-                                .text_color(t.muted)
-                                .child(tr("Start the server to unban someone.")),
-                        )
+                        d.child(ui::card_note(tr("Start the server to unban someone.")))
                     })
                     .child(list),
             );
@@ -1589,7 +1544,39 @@ impl Launcher {
         error: Option<&'static str>,
         control: AnyElement,
     ) -> Div {
-        glass_setting_row(name, about, error, control)
+        let note = match error {
+            Some(e) => div().text_color(ui::danger()).child(tr(e)),
+            None => div().child(about),
+        };
+        ui::setting_row(
+            SharedString::from(tr(name).to_string()),
+            Some(note.into_any_element()),
+            Some(control),
+        )
+    }
+
+    fn switch_row(
+        &self,
+        id: &'static str,
+        name: &'static str,
+        about: String,
+        on: bool,
+        press: Option<impl Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+    ) -> AnyElement {
+        let Some(press) = press else {
+            let switch = crate::disabled(ui::toggle(id, on));
+            return self
+                .setting_row(name, about, switch.into_any_element())
+                .into_any_element();
+        };
+        ui::toggle_row(
+            id,
+            tr(name),
+            Some(div().child(about).into_any_element()),
+            on,
+        )
+        .on_press(press)
+        .into_any_element()
     }
 
     /// − value + for a number setting within `range`.
@@ -1601,7 +1588,9 @@ impl Launcher {
     ) -> AnyElement {
         let (section, field) = key.split_once('.').unwrap_or_default();
         let value: i64 = self.servers.shown(section, field).parse().unwrap_or(0);
-        self.glass_stepper(key, value, range, cx)
+        self.glass_stepper(key, value, range, cx, move |this, to| {
+            this.set_setting(key, to.to_string())
+        })
     }
 
     fn choice(
@@ -1618,7 +1607,7 @@ impl Launcher {
             .find(|(v, _)| *v == current)
             .map_or("", |(v, _)| v);
         let this = cx.entity().downgrade();
-        segments(id, options, current, &self.theme, move |value, _, cx| {
+        ui::segments(id, options, current, move |value, _, cx| {
             let _ = this.update(cx, |this, cx| {
                 this.set_setting(key, value.to_string());
                 cx.notify();
@@ -1628,21 +1617,19 @@ impl Launcher {
     }
 
     fn settings_tab(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let rule = gpui::transparent_black();
         let running = status.running();
         if self.servers.config.is_none() {
-            return div().child(centered(
-                if self.older_eclipse() {
-                    tr(
+            return div().child(if self.older_eclipse() {
+                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+                    .child(tr(
                         "This server's Eclipse is too old to show its settings here. Update it on \
                      the Backups tab, then they appear.",
-                    )
-                } else {
-                    tr("Reading the settings…")
-                },
-                &t,
-            ));
+                    ))
+                    .into_any_element()
+            } else {
+                ui::loading_state("server-settings-loading", tr("Reading the settings…"))
+                    .into_any_element()
+            });
         }
         if self.servers.focused != Some(Field::Motd)
             && !self.servers.texts.contains_key(&Field::Motd)
@@ -1657,7 +1644,7 @@ impl Launcher {
             self.servers.text(Field::Port).set(port);
         }
         let save = |id: &'static str, f: Field, cx: &mut Context<Self>| {
-            button(id, "Save", Kind::Secondary, &t).on_click(cx.listener(
+            button(id, "Save", Kind::Secondary).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.field_enter(f);
                     cx.notify();
@@ -1678,27 +1665,29 @@ impl Launcher {
             .child(self.field(Field::Port, "25565", 100., cx))
             .child(save("port-save", Field::Port, cx))
             .into_any_element();
-        let pvp = match (running, self.servers.pvp) {
-            (true, Some(on)) => switch("pvp", on, &t)
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        let pvp_known = self.servers.pvp.filter(|_| running);
+        let pvp = self.switch_row(
+            "pvp",
+            "Players can hurt each other (PvP)",
+            if running {
+                tr("Applies at once.").into()
+            } else {
+                tr("A rule of the world: start the server to change it.").into()
+            },
+            pvp_known.unwrap_or(true),
+            pvp_known.map(|on| {
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.servers.pvp = Some(!on);
                     this.api_command(format!("gamerule pvp {}", !on));
                     cx.notify();
-                }))
-                .into_any_element(),
-            _ => disabled(switch("pvp", true, &t)).into_any_element(),
-        };
+                })
+            }),
+        );
         let accounts = self
             .servers
             .setting("server", "online_mode")
             .and_then(Value::as_bool)
             .unwrap_or(false);
-        let accounts_switch = switch("online-mode", accounts, &t)
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.set_setting("server.online_mode", (!accounts).to_string());
-                cx.notify();
-            }))
-            .into_any_element();
         let live = if running {
             tr("Applies at once.")
         } else {
@@ -1709,11 +1698,30 @@ impl Launcher {
         } else {
             tr("Used from the next start.")
         };
-        let form = div()
+        let accounts = self.switch_row(
+            "online-mode",
+            "Require Microsoft sign-in",
+            if accounts {
+                format!(
+                    "{} {later}",
+                    tr("On: players must own Minecraft and sign in with Microsoft.")
+                )
+            } else {
+                format!(
+                    "{} {later}",
+                    tr("Off: anyone can play under any name, so keep Friends only on.")
+                )
+            },
+            accounts,
+            Some(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.set_setting("server.online_mode", (!accounts).to_string());
+                cx.notify();
+            })),
+        );
+        div()
             .flex()
             .flex_col()
-            .border_t_1()
-            .border_color(rule)
+            .mx(px(-ui::SETTING_ROW_PADDING))
             .child(self.setting_row("Message in the server list", later.into(), motd))
             .child(self.setting_row(
                 "Game mode",
@@ -1725,15 +1733,7 @@ impl Launcher {
                 live.into(),
                 self.choice("set-difficulty", "world.difficulty", &DIFFICULTIES, cx),
             ))
-            .child(self.setting_row(
-                "Players can hurt each other (PvP)",
-                if running {
-                    tr("Applies at once.").into()
-                } else {
-                    tr("A rule of the world: start the server to change it.").into()
-                },
-                pvp,
-            ))
+            .child(pvp)
             .child(self.setting_row(
                 "Max players",
                 format!("{} {later}", tr("Operators can always join.")),
@@ -1765,36 +1765,12 @@ impl Launcher {
                     port,
                 ),
             )
-            .child(self.setting_row(
-                "Require Microsoft sign-in",
-                if accounts {
-                    format!(
-                        "{} {later}",
-                        tr("On: players must own Minecraft and sign in with Microsoft.")
-                    )
-                } else {
-                    format!(
-                        "{} {later}",
-                        tr("Off: anyone can play under any name, so keep Friends only on.")
-                    )
-                },
-                accounts_switch,
-            ))
+            .child(accounts)
             .child(self.background_row(cx))
-            .child(self.delete_server_section(status, cx));
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(12.))
-            .child(text(theme::CAPTION).text_color(t.muted).child(tr(
-                "Changes save as you make them. Those the game can't take while it runs wait for \
-                 a restart, and the page says so.",
-            )))
-            .child(form)
+            .child(self.delete_server_section(status, cx))
     }
 
     fn delete_server_section(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let name = self
             .servers
             .list
@@ -1821,20 +1797,15 @@ impl Launcher {
             .flex_col()
             .items_end()
             .flex_none()
-            .w(px(260.))
+            .w(px(DELETE_CONTROLS))
             .gap(px(12.));
         if self.servers.confirm_delete {
             let matches = self.servers.value(Field::DeleteServer) == name && !name.is_empty();
             let field = self.field(Field::DeleteServer, tr("Server name"), 225., cx);
-            let confirm = button(
-                "server-delete-confirm",
-                "Move to trash",
-                Kind::Secondary,
-                &t,
-            )
-            .text_color(t.danger);
+            let confirm = button("server-delete-confirm", "Move to trash", Kind::Secondary)
+                .text_color(ui::danger());
             let confirm = if ready && matches {
-                confirm.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                confirm.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     if let Some(dir) = this.servers.open.clone() {
                         this.servers.busy = Some("Moving server to trash".into());
                         let tx = this.servers.tx.clone();
@@ -1846,7 +1817,7 @@ impl Launcher {
                     cx.notify();
                 }))
             } else {
-                disabled(confirm)
+                crate::disabled(confirm)
             };
             let line = tr("Type {name} to confirm.");
             let (before, after) = line.split_once("{name}").unwrap_or((line, ""));
@@ -1854,7 +1825,7 @@ impl Launcher {
             let lit = before.len()..before.len() + name.len();
             controls = controls
                 .child(field)
-                .child(text(theme::CAPTION).text_color(t.muted).child(
+                .child(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(
                     gpui::StyledText::new(confirm_text).with_highlights([(
                         lit,
                         gpui::HighlightStyle {
@@ -1868,7 +1839,7 @@ impl Launcher {
                         .flex()
                         .gap(px(8.))
                         .child(
-                            button("server-delete-cancel", "Cancel", Kind::Ghost, &t).on_click(
+                            button("server-delete-cancel", "Cancel", Kind::Ghost).on_press(
                                 cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.servers.confirm_delete = false;
                                     cx.notify();
@@ -1879,9 +1850,9 @@ impl Launcher {
                 );
         } else {
             let delete =
-                button("server-delete", "Delete server…", Kind::Secondary, &t).text_color(t.danger);
+                button("server-delete", "Delete server…", Kind::Secondary).text_color(ui::danger());
             let delete = if ready {
-                delete.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                delete.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.servers.confirm_delete = true;
                     this.servers.text(Field::DeleteServer).set(String::new());
                     this.focus_handle(Field::DeleteServer, cx);
@@ -1889,17 +1860,15 @@ impl Launcher {
                     cx.notify();
                 }))
             } else {
-                disabled(delete)
+                crate::disabled(delete)
             };
             controls = controls.child(delete);
         }
         if let Some(hint) = hint {
             controls = controls.child(
-                text(theme::CAPTION)
-                    .text_color(t.muted)
-                    .w(px(260.))
-                    .text_align(gpui::TextAlign::Right)
-                    .child(hint),
+                ui::card_note(hint)
+                    .w(px(DELETE_CONTROLS))
+                    .text_align(gpui::TextAlign::Right),
             );
         }
         self.setting_row(
@@ -1910,47 +1879,38 @@ impl Launcher {
         .items_start()
     }
 
-    fn background_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
+    fn background_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let on = self.servers.service.unwrap_or(false);
         let idle = self.servers.busy.is_none() && self.servers.service.is_some();
-        let toggle = switch("background", on, &t);
-        let toggle = if idle {
-            toggle.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.server_command(
-                    if on {
-                        "Turning off running in the background"
-                    } else {
-                        "Setting it to run in the background"
-                    },
-                    vec![
-                        "service".into(),
-                        if on { "uninstall" } else { "install" }.into(),
-                    ],
-                );
-                cx.notify();
-            }))
-        } else {
-            disabled(toggle)
-        };
-        self.setting_row(
+        self.switch_row(
+            "background",
             "Run in the background and at login",
             if on {
-                tr(
-                    "On: starts when you log in to this computer, keeps running when the launcher \
-                 closes, and comes back by itself if the computer restarts.",
-                )
-                .into()
+                tr("On: starts at login and keeps running when the launcher closes.").into()
             } else {
                 tr("Off: the server stops when you close the launcher.").into()
             },
-            toggle.into_any_element(),
+            on,
+            idle.then(|| {
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.server_command(
+                        if on {
+                            "Turning off running in the background"
+                        } else {
+                            "Setting it to run in the background"
+                        },
+                        vec![
+                            "service".into(),
+                            if on { "uninstall" } else { "install" }.into(),
+                        ],
+                    );
+                    cx.notify();
+                })
+            }),
         )
     }
 
     fn updates_section(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let rule = gpui::transparent_black();
         let idle = self.servers.busy.is_none();
         let check = self.servers.update.clone();
         let release = status
@@ -1981,9 +1941,9 @@ impl Launcher {
         };
         let control = match available {
             Some(tag) => {
-                let b = button("update-now", "Update now", Kind::Primary, &t);
+                let b = ui::primary("update-now", tr("Update now"), ui::Size::Md);
                 if idle {
-                    b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.servers.update = None;
                         if let Some(dir) = this.servers.open.clone() {
                             let done =
@@ -1995,19 +1955,16 @@ impl Launcher {
                         cx.notify();
                     }))
                 } else {
-                    disabled(b)
+                    crate::disabled(b)
                 }
             }
             None if self.servers.checking => {
-                disabled(button("update-check", "Checking…", Kind::Secondary, &t))
+                crate::disabled(button("update-check", "Checking…", Kind::Secondary))
             }
-            None if !idle => disabled(button(
-                "update-check",
-                "Check for updates",
-                Kind::Secondary,
-                &t,
-            )),
-            None => button("update-check", "Check for updates", Kind::Secondary, &t).on_click(
+            None if !idle => {
+                crate::disabled(button("update-check", "Check for updates", Kind::Secondary))
+            }
+            None => button("update-check", "Check for updates", Kind::Secondary).on_press(
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     if let Some(dir) = this.servers.open.clone() {
                         this.servers.checking = true;
@@ -2028,8 +1985,7 @@ impl Launcher {
         let mut rows = div()
             .flex()
             .flex_col()
-            .border_t_1()
-            .border_color(rule)
+            .mx(px(-ui::SETTING_ROW_PADDING))
             .child(self.setting_row("Eclipse version", about, control.into_any_element()));
         if self.servers.setting("updates", "keep").is_some() {
             rows = rows.child(self.setting_row(
@@ -2044,7 +2000,7 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(10.))
-            .child(self.tab_heading(tr("Updates")))
+            .child(ui::label(tr("Updates")))
             .child(rows)
     }
 
@@ -2055,30 +2011,22 @@ impl Launcher {
     }
 
     fn backups_tab(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let rule = gpui::transparent_black();
         let idle = self.servers.busy.is_none();
         let every = self.servers.shown("backups", "every");
         let auto = !every.is_empty() && every != "0";
         let keep = self.servers.shown("backups", "keep");
         let now = {
-            let b = button("backup-now", "Back up now", Kind::Primary, &t);
+            let b = ui::primary("backup-now", tr("Back up now"), ui::Size::Md);
             if idle {
-                b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.server_command("Backing up", vec!["backup".into()]);
                     cx.notify();
                 }))
             } else {
-                disabled(b)
+                crate::disabled(b)
             }
         };
-        let toggle = switch("auto-backup", auto, &t).on_click(cx.listener(
-            move |this, _: &ClickEvent, _, cx| {
-                this.set_setting("backups.every", if auto { "0".into() } else { "6h".into() });
-                cx.notify();
-            },
-        ));
-        let mut list = div().flex().flex_col().border_t_1().border_color(rule);
+        let mut list = div().flex().flex_col();
         for (i, b) in self.servers.backups.clone().into_iter().enumerate() {
             let (when, kind) = backup_label(&b);
             let confirming = self.servers.confirm_restore.as_deref() == Some(b.name.as_str());
@@ -2099,10 +2047,9 @@ impl Launcher {
                 } else {
                     Kind::Ghost
                 },
-                &t,
             );
             let restore = if idle {
-                restore.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                restore.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if this.servers.confirm_restore.as_ref() == Some(&name) {
                         this.servers.confirm_restore = None;
                         if let Some(dir) = this.servers.open.clone() {
@@ -2118,18 +2065,16 @@ impl Launcher {
                     cx.notify();
                 }))
             } else {
-                disabled(restore)
+                crate::disabled(restore)
             };
-            let mut right = div().flex().items_center().gap(px(8.));
+            let mut right = div().flex().flex_none().items_center().gap(px(8.));
             if confirming {
-                right = right.child(
-                    button("restore-cancel", "Cancel", Kind::Ghost, &t).on_click(cx.listener(
-                        |this, _: &ClickEvent, _, cx| {
-                            this.servers.confirm_restore = None;
-                            cx.notify();
-                        },
-                    )),
-                );
+                right = right.child(button("restore-cancel", "Cancel", Kind::Ghost).on_press(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.servers.confirm_restore = None;
+                        cx.notify();
+                    }),
+                ));
             }
             right = right.child(restore);
             let detail = if kind.is_empty() {
@@ -2137,12 +2082,8 @@ impl Launcher {
             } else {
                 format!("{kind} · {}", bytes(b.bytes))
             };
-            list = list.child(self.list_row(
-                None,
-                when,
-                Some(detail.into_any_element()),
-                Some(right.into_any_element()),
-            ));
+            list =
+                list.child(self.list_row(None, when, Some(detail), Some(right.into_any_element())));
         }
         let mut tab = div()
             .flex()
@@ -2151,41 +2092,47 @@ impl Launcher {
             .child(div().flex().items_center().gap(px(16.)).child(now));
         if self.older_eclipse() {
             return tab
-                .child(text(theme::UI).text_color(t.muted).child(tr(
-                    "This server's Eclipse is too old to list its backups here: they're in its \
+                .child(
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED).child(tr(
+                        "This server's Eclipse is too old to list its backups here: they're in its \
                      backups folder. Update it below.",
-                )))
+                    )),
+                )
                 .child(self.updates_section(status, cx));
         }
-        tab = tab.child(self.toggle_row(
-            "Back up automatically",
-            if auto {
-                trf(
-                    "On: every {every} while the server runs, keeping the last \
-                         {keep}. Backups you make yourself are never deleted.",
-                    &[("every", &every), ("keep", &keep)],
-                )
-            } else {
-                tr("Off: only the backups you make.").to_string()
-            },
-            toggle,
-        ));
+        tab = tab.child(
+            ui::toggle_row(
+                "auto-backup",
+                tr("Back up automatically"),
+                Some(
+                    div()
+                        .child(if auto {
+                            trf(
+                                "On: every {every} while the server runs, keeping the last {keep}.",
+                                &[("every", &every), ("keep", &keep)],
+                            )
+                        } else {
+                            tr("Off: only the backups you make.").to_string()
+                        })
+                        .into_any_element(),
+                ),
+                auto,
+            )
+            .mx(px(-ui::SETTING_ROW_PADDING))
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.set_setting("backups.every", if auto { "0".into() } else { "6h".into() });
+                cx.notify();
+            })),
+        );
         if self.servers.confirm_restore.is_some() {
-            tab = tab.child(notice(
-                tr(
-                    "Restoring replaces the world with this backup. The world as it is now isn't \
-                 deleted: it's moved into the backups folder. A running server stops and starts \
-                 again with the restored world.",
-                )
-                .into(),
-                &t,
+            tab = tab.child(notice_line(
+                ui::warn(),
+                tr("The current world moves to the backups folder, and a running server restarts."),
             ));
         }
         tab = if self.servers.backups.is_empty() {
             tab.child(
-                text(theme::UI)
-                    .text_color(t.muted)
-                    .child(tr("No backup yet.")),
+                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED).child(tr("No backup yet.")),
             )
         } else {
             tab.child(list)

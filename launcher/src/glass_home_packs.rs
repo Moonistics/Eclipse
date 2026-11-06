@@ -1,18 +1,16 @@
-//! Home's Packs tab in the glass look (the mockup's `Packs`, `launcher-views.tsx`): one `ROW`
-//! per resource or shader pack, its picture, "Resource pack · on" and a `Toggle` that turns it on
-//! or off. Add pack… and Open folder head the list; packs dropped on it are added; Remove
-//! (clicked twice) shows under the pointer. Dark appearance only.
+//! Home's Packs tab: one row per resource or shader pack, its picture, "Resource pack · on" and
+//! a switch that turns it on or off. Add pack… and Open folder head the list; packs dropped on it
+//! are added; Delete asks first, in place. Then the Screenshots tab.
 use super::*;
 use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::packs::{self, Kind as PackKind, Pack};
 use eclipse_theme::glass::{fill, ink, radius};
-use glass_home_lists::{danger_button, danger_line, picture};
+use glass_home_lists::{confirm, danger_line, picture};
 use gpui::ExternalPaths;
 
 impl Launcher {
     /// Home's Packs tab: the selected instance's resource packs, then its shader packs.
     pub(super) fn glass_packs(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let t = self.theme;
         let instance = self.selected_instance()?;
         let (home, name) = (instance.home.clone(), instance.name.clone());
         self.load_packs_list(home.clone());
@@ -45,11 +43,10 @@ impl Launcher {
                 "packs-add",
                 Some("plus-sign"),
                 tr("Add pack…"),
-                Kind::Primary,
+                Kind::Secondary,
                 ui::Size::Md,
-                &t,
             )
-            .on_click(add());
+            .on_press(add());
             return Some(body.child(ui::empty_state(
                 "packs-empty",
                 "package-01",
@@ -78,9 +75,8 @@ impl Launcher {
                             tr("Open folder"),
                             Kind::Secondary,
                             ui::Size::Md,
-                            &t,
                         )
-                        .on_click(move |_, _, cx| {
+                        .on_press(move |_, _, cx| {
                             let _ = std::fs::create_dir_all(&folder);
                             crate::glass_toast::open(cx, &folder);
                         }),
@@ -92,9 +88,8 @@ impl Launcher {
                             tr("Add pack…"),
                             Kind::Secondary,
                             ui::Size::Md,
-                            &t,
                         )
-                        .on_click(add()),
+                        .on_press(add()),
                     ),
             ),
         );
@@ -123,15 +118,14 @@ impl Launcher {
         icon: Option<gpui::ImageSource>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let t = self.theme;
         let kind = match pack.kind {
             PackKind::Resource => "resource",
             PackKind::Shader => "shader",
         };
         let key = SharedString::from(format!("pack-{kind}-{}", pack.file));
         let hovered = self.list_hover.as_ref() == Some(&key);
-        let confirm = (pack.kind, pack.file.clone());
-        let confirming = self.game_packs.confirm_remove.as_ref() == Some(&confirm);
+        let which = (pack.kind, pack.file.clone());
+        let confirming = self.game_packs.confirm_remove.as_ref() == Some(&which);
         let running = self.client.is_some();
         let hover = self.list_hover_listener(key.clone(), cx);
         let mut note = vec![match (pack.kind, pack.enabled) {
@@ -144,49 +138,12 @@ impl Launcher {
         if !pack.description.is_empty() {
             note.push(pack.description.clone());
         }
-        let remove = (!running && (hovered || confirming)).then(|| {
-            if confirming {
-                let gone = pack.clone();
-                danger_button(
-                    format!("{key}-trash").into(),
-                    tr("Click again to remove").into(),
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let gone = gone.clone();
-                    this.pack_action(move |home| {
-                        packs::remove(home, &gone)
-                            .map(|()| trf("{name} moved to the trash.", &[("name", &gone.title)]))
-                    });
-                    cx.notify();
-                }))
-            } else {
-                ui::icon_button(
-                    SharedString::from(format!("{key}-remove")),
-                    "delete-02",
-                    36.,
-                    17.,
-                    radius::CONTROL,
-                    false,
-                    &t,
-                )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.game_packs.confirm_remove = Some(confirm.clone());
-                    cx.notify();
-                }))
-            }
-        });
-        let toggle = ui::toggle(
-            SharedString::from(format!("{key}-toggle")),
-            pack.enabled,
-            self.look.accent,
-            self.look.on_accent,
-            &t,
-        );
+        let toggle = ui::toggle(SharedString::from(format!("{key}-toggle")), pack.enabled);
         let toggle = if running {
             crate::disabled(toggle)
         } else {
             let flip = pack.clone();
-            toggle.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            toggle.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let flip = flip.clone();
                 this.pack_action(move |home| {
                     packs::set_enabled(home, &flip, !flip.enabled).map(|()| match flip.enabled {
@@ -197,20 +154,54 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        ui::list_row(key, hovered || confirming, hover, &t)
+        let remove = SharedString::from(format!("{key}-remove"));
+        let end = if confirming && !running {
+            let gone = pack.clone();
+            confirm(
+                remove,
+                trf("Delete {name}?", &[("name", &pack.title)]),
+                tr("Delete"),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.game_packs.confirm_remove = None;
+                    cx.notify();
+                }),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let gone = gone.clone();
+                    this.pack_action(move |home| {
+                        packs::remove(home, &gone)
+                            .map(|()| trf("{name} moved to the trash.", &[("name", &gone.title)]))
+                    });
+                    cx.notify();
+                }),
+            )
+        } else {
+            let ask = ui::icon_button(remove, "delete-02", tr("Delete…"), ui::Size::Md, false);
+            let ask = if running {
+                crate::disabled(ask)
+            } else {
+                ask.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.game_packs.confirm_remove = Some(which.clone());
+                    cx.notify();
+                }))
+            };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(8.))
+                .child(ask)
+                .child(toggle)
+        };
+        ui::list_row(key, hovered || confirming, hover)
             .child(picture(icon, "package-01"))
-            .child(ui::list_text(pack.title.clone(), note.join(" · ")))
-            .children(remove.map(|r| div().relative().child(r)))
-            .child(toggle.relative())
+            .child(ui::item_text(pack.title.clone(), note.join(" · ")))
+            .child(end.relative().flex_none())
     }
 }
 
 impl Launcher {
-    /// Home's Screenshots tab (the mockup's `Screenshots`): how many, then the pictures in a
-    /// grid, 4 across from 1280 px (`xl:grid-cols-4`), else 2, each 16:9, round at 12, its file
-    /// name under it. A click opens the viewer.
+    /// Home's Screenshots tab: how many, then the pictures in a grid, 4 across on wide windows,
+    /// else 2, each 16:9, its file name under it. A click opens the viewer.
     pub(super) fn glass_screenshots(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let home = self.selected_instance()?.home.clone();
         self.load_screenshots(home.clone());
         let list = self.screenshots.list.clone();
@@ -228,15 +219,20 @@ impl Launcher {
             n => trf("{count} screenshots", &[("count", &n.to_string())]),
         };
         let folder = eclipse_launcher::screenshots::folder(&home);
-        // The mockup's blur toggle, then the folder (not in the mockup, kept), the same 32 px
-        // `ICON_BUTTON`.
         let privacy = self.shots_privacy(cx);
         let head = div()
             .flex()
             .items_center()
             .justify_between()
             .h(px(32.))
-            .child(ui::text(13., FontWeight::NORMAL, ink::MUTED).child(count))
+            .child(
+                ui::text(
+                    eclipse_theme::glass::step::NOTE,
+                    FontWeight::NORMAL,
+                    ink::MUTED,
+                )
+                .child(count),
+            )
             .child(
                 div()
                     .flex()
@@ -247,13 +243,11 @@ impl Launcher {
                         ui::icon_button(
                             "screenshots-folder",
                             "folder-01",
-                            32.,
-                            17.,
-                            radius::CONTROL,
+                            tr("Open folder"),
+                            ui::Size::Sm,
                             false,
-                            &t,
                         )
-                        .on_click(move |_, _, cx| {
+                        .on_press(move |_, _, cx| {
                             let _ = std::fs::create_dir_all(&folder);
                             crate::glass_toast::open(cx, &folder);
                         }),
@@ -273,7 +267,11 @@ impl Launcher {
         let mut pictures = pictures.into_iter();
         let grid = div()
             .grid()
-            .grid_cols(if self.window_width >= 1280. { 4 } else { 2 })
+            .grid_cols(if self.window_width >= crate::layout::PACK_GRID_WIDE {
+                4
+            } else {
+                2
+            })
             .gap_x(px(12.))
             .gap_y(px(16.))
             .mt(px(12.))
@@ -293,13 +291,16 @@ impl Launcher {
                             .children(picture),
                     )
                     .child(
-                        ui::text(12., FontWeight::NORMAL, ink::MUTED)
-                            .line_height(px(18.))
-                            .pt(px(8.))
-                            .truncate()
-                            .child(shot.name.clone()),
+                        ui::text(
+                            eclipse_theme::glass::step::CAPTION,
+                            FontWeight::NORMAL,
+                            ink::MUTED,
+                        )
+                        .pt(px(8.))
+                        .truncate()
+                        .child(shot.name.clone()),
                     )
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.screenshots.viewing = Some(i);
                         this.screenshots.confirm_delete = false;
                         this.screenshots.note = None;
@@ -321,9 +322,8 @@ impl Launcher {
                     label,
                     Kind::Secondary,
                     ui::Size::Md,
-                    &t,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.screenshots.all = !this.screenshots.all;
                     cx.notify();
                 })),
@@ -332,9 +332,13 @@ impl Launcher {
         let error = match (&self.screenshots.note, self.screenshots.viewing) {
             (Some(Err(e)), None) => Some(
                 div().mt(px(8.)).child(
-                    ui::text(13., FontWeight::NORMAL, ink::FULL)
-                        .text_color(ui::danger())
-                        .child(e.clone()),
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::FULL,
+                    )
+                    .text_color(ui::danger())
+                    .child(e.clone()),
                 ),
             ),
             _ => None,

@@ -1,10 +1,8 @@
-//! The icon sets served to `svg()`, the pixel icons, badges, and the slots that hold icons
-//! downloaded at run time.
+//! The icon sets served to `svg()`, the pixel icons, and the slots that hold icons downloaded
+//! at run time.
 use crate::glass_ui::{self as ui, white};
-use eclipse_theme::glass::{fill, ink, radius};
-use gpui::{
-    div, img, prelude::*, px, svg, Div, FontWeight, Hsla, ImageSource, ObjectFit, SharedString, Svg,
-};
+use eclipse_theme::glass::fill;
+use gpui::{img, prelude::*, px, svg, Div, Hsla, ImageSource, ObjectFit, SharedString, Svg};
 use std::borrow::Cow;
 
 /// The icons, served to `svg()` as `icons/<name>.svg`.
@@ -46,50 +44,13 @@ pub fn icon(name: &'static str, size: f32, color: Hsla) -> Svg {
         .text_color(color)
 }
 
-/// A small label in a tint of its colour: "Runs", "Partly", a version.
-pub fn badge(label: impl Into<SharedString>, color: Hsla) -> Div {
-    let label: SharedString = label.into();
-    let label = SharedString::from(crate::i18n::tr(&label).to_string());
-    div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(6.))
-        .h(px(22.))
-        .px(px(8.))
-        .rounded(px(radius::CONTROL))
-        .bg(color.opacity(fill::ACTIVE))
-        .child(div().size(px(6.)).rounded_full().bg(color))
-        .child(
-            ui::label_text(12.)
-                .font_weight(FontWeight::MEDIUM)
-                .text_color(color)
-                .child(label),
-        )
-}
-
 /// A square slot for an icon: the picture at `source` when there is one, else the first letter of
 /// `name` on a tile.
 pub fn slot(source: Option<ImageSource>, name: &str, size: f32) -> Div {
-    let frame = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .justify_center()
-        .size(px(size))
-        .overflow_hidden()
-        .rounded(px(radius::ROW))
-        .bg(white(fill::FIELD));
     match source {
-        Some(source) => frame.child(img(source).size(px(size)).object_fit(ObjectFit::Cover)),
-        None => frame.bg(white(fill::BUTTON)).child(
-            ui::text((size * 0.42).round(), FontWeight::BOLD, ink::MUTED).child(
-                name.chars()
-                    .find(|c| c.is_alphanumeric())
-                    .unwrap_or('?')
-                    .to_uppercase()
-                    .to_string(),
-            ),
-        ),
+        Some(source) => {
+            ui::tile(size).child(img(source).size(px(size)).object_fit(ObjectFit::Cover))
+        }
+        None => ui::letter_tile(white(fill::BUTTON), name, size),
     }
 }

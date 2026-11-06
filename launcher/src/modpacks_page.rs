@@ -1,9 +1,11 @@
 //! Imported modpacks, on the Mods page's Modpacks tab: import a pack, read its coverage report,
 //! port what this computer can and play it as its own profile (`eclipse_launcher::modpacks`).
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::browser::eclipse::pack as eclipse_pack;
 use eclipse_launcher::modpacks::{self, Imported};
 use eclipse_port_pack::report::Status;
+use eclipse_theme::glass::{fill, ink, radius, step};
 use std::path::PathBuf;
 
 /// The report's filter: every row, or one status.
@@ -17,6 +19,10 @@ pub(super) const FILTERS: [(Option<Status>, &str); 5] = [
 
 /// Lines of the pipeline's log the page shows while it works.
 const LOG_SHOWN: usize = 6;
+
+const NOTE_WIDTH: f32 = 720.;
+
+const COUNT_MIN: f32 = 120.;
 
 impl Launcher {
     fn open_pack(&self) -> Option<&Imported> {
@@ -148,15 +154,14 @@ impl Launcher {
 
     /// The imported packs, above the Modpacks tab's search.
     pub(super) fn imported_packs(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         self.load_packs();
         let busy = self.pack_busy;
         let pick = |id: &'static str, label: &'static str, folder: bool| {
-            let b = button(id, label, Kind::Secondary, &t);
+            let b = button(id, label, Kind::Secondary);
             if busy {
                 disabled(b)
             } else {
-                b.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.choose_pack(folder, cx);
                     cx.notify();
                 }))
@@ -168,23 +173,27 @@ impl Launcher {
             .items_center()
             .gap(px(8.))
             .child(pick("import-file", "Import a pack file…", false))
-            .child(pick("import-folder", "Import an instance folder…", true))
-            .child(text(theme::CAPTION).w_full().text_color(t.muted).child(tr(
-                ".mrpack (Modrinth), .zip (CurseForge), or a Prism, MultiMC or CurseForge instance. \
-                 Eclipse ports what it can on this computer, from your own downloads, and plays \
-                 the pack as its own profile. Nothing is uploaded or shared.",
-            )));
+            .child(pick("import-folder", "Import an instance folder…", true));
         let mut page = div()
             .flex()
             .flex_col()
             .gap(px(16.))
-            .child(section_title("Your modpacks", "archive", &t))
+            .child(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(ui::card_title(tr("Your modpacks")))
+                    .child(ui::card_note(tr(
+                        "A .mrpack, a CurseForge .zip, or a Prism, MultiMC or CurseForge instance.",
+                    ))),
+            )
             .child(actions);
         if busy || !self.pack_log.is_empty() {
-            page = page.child(self.pack_log_plate(&t));
+            page = page.child(self.pack_log_plate());
         }
         if let Some(e) = &self.pack_error {
-            page = page.child(notice(e.clone(), &t));
+            page = page.child(error_note(e.clone()));
         }
         if !self.registry_packs.is_empty() {
             page = page.child(self.registry_pack_rows(cx));
@@ -193,34 +202,22 @@ impl Launcher {
             return page;
         }
         if self.packs.is_empty() {
-            return page.child(
-                text(theme::CAPTION)
-                    .text_color(t.muted)
-                    .child(tr("No modpacks yet.")),
-            );
+            return page.child(ui::empty().p_0().child(tr("No modpacks yet.")));
         }
         if self.packs.len() > 1 {
             let mut list = div().flex().flex_col();
             for p in self.packs.iter() {
                 let open = self.pack_open.as_ref() == Some(&p.slug);
                 let slug = p.slug.clone();
-                let right = if open {
-                    caps(tr("Open")).text_color(t.accent).into_any_element()
-                } else {
-                    button(format!("open-{slug}"), "Open", Kind::Ghost, &t)
-                        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                list = list.child(
+                    ui::row(SharedString::from(format!("open-{slug}")), open, 12.)
+                        .child(ui::item_text(p.title().to_string(), p.summary()))
+                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.pack_open = Some(slug.clone());
                             this.mods.report_list.reset();
                             cx.notify();
-                        }))
-                        .into_any_element()
-                };
-                list = list.child(index_row(
-                    p.title().to_string(),
-                    Some(p.summary().into_any_element()),
-                    Some(right),
-                    &t,
-                ));
+                        })),
+                );
             }
             page = page.child(list);
         }
@@ -232,7 +229,6 @@ impl Launcher {
 
     /// The modpacks installed from Eclipse's registry: each plays its own profile.
     fn registry_pack_rows(&self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let mut list = div().flex().flex_col();
         for p in self.registry_packs.iter() {
             let (play, remove) = (p.work.clone(), p.work.clone());
@@ -241,14 +237,15 @@ impl Launcher {
             let confirming = self.confirm_remove.as_deref() == Some(key.as_str());
             let right = div()
                 .flex()
+                .flex_none()
                 .gap(px(8.))
                 .child(
-                    button(format!("play-pack-{id}"), "Play", Kind::Primary, &t).on_click(
-                        cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    button(format!("play-pack-{id}"), "Play", Kind::Primary).on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
                             this.play_pack(play.clone());
                             cx.notify();
-                        }),
-                    ),
+                        },
+                    )),
                 )
                 .child(
                     button(
@@ -263,10 +260,9 @@ impl Launcher {
                         } else {
                             Kind::Ghost
                         },
-                        &t,
                     )
-                    .when(confirming, |b| b.text_color(t.danger))
-                    .on_click(cx.listener(
+                    .when(confirming, |b| b.text_color(ui::danger()))
+                    .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
                             if this.confirm_remove.as_ref() == Some(&key) {
                                 match eclipse_pack::remove(&remove) {
@@ -285,65 +281,72 @@ impl Launcher {
                 "{version} from Eclipse's registry, its own profile: {mods}",
                 &[("version", &p.version), ("mods", &p.mods.join(", "))],
             );
-            list = list.child(index_row(
-                p.name.clone(),
-                Some(
-                    text(theme::CAPTION)
-                        .text_color(t.muted)
-                        .child(detail)
-                        .into_any_element(),
-                ),
-                Some(right.into_any_element()),
-                &t,
-            ));
+            list = list.child(
+                ui::list_row(
+                    SharedString::from(format!("registry-pack-{}", p.id)),
+                    confirming,
+                    |_, _, _| {},
+                )
+                .child(ui::item_text(p.name.clone(), detail))
+                .child(right),
+            );
         }
         list
     }
 
-    fn pack_log_plate(&self, t: &Theme) -> Div {
+    fn pack_log_plate(&self) -> Div {
         let start = self.pack_log.len().saturating_sub(LOG_SHOWN);
-        plate()
+        div()
             .flex()
             .flex_col()
             .gap(px(4.))
-            .p(px(16.))
+            .p(px(ui::PANEL_INSET))
+            .rounded(px(radius::ROW))
+            .bg(white(fill::WELL))
             .child(
-                caps(tr(if self.pack_busy { "Working" } else { "Done" }))
-                    .text_color(if self.pack_busy { t.accent } else { t.muted }),
+                ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(
+                    if self.pack_busy {
+                        ui::Tone::Busy
+                    } else {
+                        ui::Tone::Live
+                    },
+                    tr(if self.pack_busy { "Working" } else { "Done" }),
+                )),
             )
             .children(self.pack_log.iter().skip(start).map(|line| {
-                text(theme::CAPTION)
+                ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
                     .font_family(theme::MONO)
-                    .text_color(t.ink_soft)
                     .truncate()
                     .child(line.clone())
             }))
     }
 
     fn pack_detail(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let p = self.open_pack()?;
-        let mut counts = div().flex().gap(px(12.));
+        let mut counts = div().flex().flex_wrap().gap(px(12.));
         for (status, label) in FILTERS.iter().skip(1) {
             let status = status.expect("the first filter is All");
             let color = match status {
-                Status::Ported => t.success,
-                Status::Partial => t.accent,
-                _ => t.ink,
+                Status::Ported => ui::live(),
+                Status::Partial => ui::color(ui::look().accent_soft),
+                _ => white(ink::FULL),
             };
             counts = counts.child(
-                plate()
+                div()
                     .flex()
                     .flex_col()
                     .flex_1()
+                    .min_w(px(COUNT_MIN))
                     .gap(px(4.))
-                    .p(px(16.))
+                    .p(px(ui::PANEL_INSET))
+                    .rounded(px(radius::ROW))
+                    .bg(white(fill::WELL))
                     .child(
-                        text(theme::DISPLAY)
+                        ui::text(step::FIGURE, FontWeight::SEMIBOLD, ink::FULL)
                             .text_color(color)
                             .child(p.count(status).to_string()),
                     )
-                    .child(caps(tr(label)).text_color(t.muted)),
+                    .child(ui::label(tr(label))),
             );
         }
         // Prepared, nothing preparing or running (`play_pack` checks the same).
@@ -357,12 +360,12 @@ impl Launcher {
                 &[("count", &p.mods.len().to_string())],
             )
         };
-        let mut play = button("pack-play", play_label, Kind::Primary, &t);
+        let mut play = button("pack-play", play_label, Kind::Primary);
         if !p.can_play() || !can_play || self.pack_busy {
             play = disabled(play);
         } else {
             let work = p.work.clone();
-            play = play.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            play = play.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.play_pack(work.clone());
                 cx.notify();
             }));
@@ -377,20 +380,20 @@ impl Launcher {
                 p.portable, p.indexed_resources
             )
         };
-        let mut port = button("pack-port", port_label, Kind::Secondary, &t);
-        let mut from = button("pack-from", "Use jars from my instance…", Kind::Ghost, &t);
+        let mut port = button("pack-port", port_label, Kind::Secondary);
+        let mut from = button("pack-from", "Use jars from my instance…", Kind::Ghost);
         if self.pack_busy || !p.can_port() {
             port = disabled(port);
             from = disabled(from);
         } else {
-            port = port.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            port = port.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.port_pack(false, cx);
                 cx.notify();
             }));
             if p.portable == 0 {
                 from = disabled(from);
             } else {
-                from = from.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                from = from.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.port_pack(true, cx);
                     cx.notify();
                 }));
@@ -411,10 +414,9 @@ impl Launcher {
             } else {
                 Kind::Ghost
             },
-            &t,
         )
-        .when(confirming, |b| b.text_color(t.danger))
-        .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        .when(confirming, |b| b.text_color(ui::danger()))
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
             if this.confirm_remove.as_ref() == Some(&slug) {
                 match modpacks::remove(&work) {
                     Ok(()) => {
@@ -459,7 +461,7 @@ impl Launcher {
             .filter(|r| self.pack_filter.is_none_or(|s| r.status == s))
             .collect();
         rows.sort_by(|a, b| (a.status, &a.key).cmp(&(b.status, &b.key)));
-        let filter = segments("pack-filter", &FILTERS, self.pack_filter, &t, {
+        let filter = ui::segments("pack-filter", &FILTERS, self.pack_filter, {
             let this = cx.entity().downgrade();
             move |value, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -471,11 +473,11 @@ impl Launcher {
         });
         let row = |i: usize| {
             let r = rows[i];
-            let (color, status_label) = match r.status {
-                Status::Ported => (t.success, tr("Ported")),
-                Status::Partial => (t.accent, tr("Partial")),
-                Status::NotYet => (t.ink_soft, tr("Not yet")),
-                Status::NotNeeded => (t.muted, tr("Not needed")),
+            let (tone, status_label) = match r.status {
+                Status::Ported => (ui::Tone::Live, tr("Ported")),
+                Status::Partial => (ui::Tone::Accent(ui::look().accent_soft), tr("Partial")),
+                Status::NotYet => (ui::Tone::Warn, tr("Not yet")),
+                Status::NotNeeded => (ui::Tone::Off, tr("Not needed")),
             };
             let name = if r.name.is_empty() || r.name == r.key {
                 r.key.clone()
@@ -485,34 +487,43 @@ impl Launcher {
             // What it means in plain words, then the technical terms for modders. A report an
             // older build wrote has no plain words.
             let technical = format!("{} · {} · {}: {}", r.class, r.tier, r.license, r.reason);
-            let detail = if r.plain.is_empty() {
-                technical.into_any_element()
-            } else {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(2.))
-                    .child(div().text_color(t.ink_soft).child(modpacks::row_plain(r)))
-                    .child(technical)
-                    .into_any_element()
-            };
-            index_row(
-                name,
-                Some(detail),
-                Some(
-                    caps(status_label)
-                        .flex_none()
-                        .text_color(color)
-                        .into_any_element(),
-                ),
-                &t,
+            let mut text = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .gap(px(2.))
+                .child(
+                    ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                        .truncate()
+                        .child(name),
+                );
+            if !r.plain.is_empty() {
+                text = text.child(
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                        .child(modpacks::row_plain(r)),
+                );
+            }
+            ui::list_row(
+                SharedString::from(format!("pack-row-{i}")),
+                false,
+                |_, _, _| {},
+            )
+            .items_start()
+            .child(
+                text.child(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(technical)),
+            )
+            .child(
+                ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
+                    .flex_none()
+                    .child(ui::state_line(tone, status_label)),
             )
         };
         let headline = p.headline();
         let list = self.mods.report_list.column(
             &self.content_scroll.handle,
             rows.len(),
-            8.,
+            0.,
             |_| false,
             row,
         );
@@ -526,34 +537,32 @@ impl Launcher {
                         .flex()
                         .flex_col()
                         .gap(px(4.))
-                        .child(
-                            text(theme::TITLE)
-                                .text_color(t.ink)
-                                .child(p.title().to_string()),
-                        )
-                        .child(text(theme::UI).text_color(t.muted).child(p.summary())),
+                        .child(ui::entity_title(
+                            p.title().to_string(),
+                            eclipse_theme::glass::pixel_text::CARD_TITLE,
+                        ))
+                        .child(ui::card_note(p.summary())),
                 )
                 .children((!headline.is_empty()).then(|| {
                     div()
                         .flex()
                         .flex_col()
                         .gap(px(6.))
-                        .max_w(px(720.))
+                        .max_w(px(NOTE_WIDTH))
                         .children(headline.into_iter().enumerate().map(|(i, line)| {
                             if i == 0 {
-                                text(theme::UI).text_color(t.ink).child(line)
+                                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(line)
                             } else {
-                                text(theme::CAPTION).text_color(t.muted).child(line)
+                                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(line)
                             }
                         }))
                 }))
                 .child(counts)
                 .child(buttons)
-                .children(self.client_error.clone().map(|e| notice(e, &t)))
+                .children(self.client_error.clone().map(error_note))
                 .children(notes.into_iter().map(|n| {
-                    text(theme::CAPTION)
-                        .max_w(px(720.))
-                        .text_color(t.muted)
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+                        .max_w(px(NOTE_WIDTH))
                         .child(n)
                 }))
                 .child(div().flex().child(filter))

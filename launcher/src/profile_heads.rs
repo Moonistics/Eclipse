@@ -1,5 +1,7 @@
 //! Profile-head I/O stays on workers; every account surface shares the same pixel-sharp cache.
 use super::*;
+use crate::glass_ui as ui;
+use eclipse_theme::glass::{fill, ink};
 use gpui::{img, RenderImage};
 use std::{
     cell::RefCell,
@@ -10,6 +12,8 @@ use std::{
 
 /// How long a head that fell back to the default skin waits before the real one is fetched again.
 const RETRY: Duration = Duration::from_secs(60);
+
+const BIG_HEAD: f32 = 64.;
 
 #[derive(Default)]
 pub(super) struct Heads(HashMap<String, Head>);
@@ -125,7 +129,7 @@ impl Heads {
         }
     }
 
-    pub fn draw(&self, uuid: Option<&str>, size: f32, scale: f32, t: &Theme) -> Div {
+    pub fn draw(&self, uuid: Option<&str>, size: f32, scale: f32) -> Div {
         let image = uuid.and_then(|uuid| self.0.get(uuid)).and_then(|head| {
             let face = head.face.as_ref()?;
             Some(
@@ -140,13 +144,18 @@ impl Heads {
             .flex_none()
             .size(px(size))
             .overflow_hidden()
-            .bg(t.plate_soft)
+            .bg(ui::white(fill::BUTTON))
             .flex()
             .items_center()
             .justify_center();
+        let placeholder = if size >= BIG_HEAD {
+            ui::IconSize::Px32
+        } else {
+            ui::IconSize::Px16
+        };
         match image {
             Some(image) => d.child(img(image).size(px(size))),
-            None => d.child(blocks::icon("user", size * 0.6, t.muted)),
+            None => d.child(ui::icon("user", placeholder, ui::white(ink::MUTED))),
         }
     }
 }
@@ -183,17 +192,12 @@ mod tests {
         );
         heads.loaded("player", &current, Some(vec![[0, 255, 0, 255]; 64]), false);
         assert!(heads.0["player"].retry_at.is_none());
-        let theme = Theme::for_appearance(
-            backend::Appearance::Dark,
-            eclipse_launcher::themes::Accent::AMBER,
-            gpui::WindowAppearance::Dark,
-        );
-        let _ = heads.draw(Some("player"), 32., 2., &theme);
+        let _ = heads.draw(Some("player"), 32., 2.);
         let key = (32f32.to_bits(), 2f32.to_bits());
         let image = heads.0["player"].images.borrow()[&key].clone();
         assert_eq!(image.size(0).width.0, 64);
         assert_eq!(image.size(0).height.0, 64);
-        let _ = heads.draw(Some("player"), 32., 2., &theme);
+        let _ = heads.draw(Some("player"), 32., 2.);
         assert!(Arc::ptr_eq(
             &image,
             &heads.0["player"].images.borrow()[&key]

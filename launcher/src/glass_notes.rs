@@ -11,27 +11,23 @@ impl Launcher {
             .child(ui::page_head(tr("Patch notes"), ""));
         let releases = match &self.releases {
             Load::Loading => {
-                return page.child(ui::empty_card(ui::empty_state(
+                return page.child(ui::empty_card(ui::loading_state(
                     "notes-loading",
-                    "information-circle",
                     tr("Loading patch notes…"),
-                    "",
-                    vec![],
                 )))
             }
             Load::Failed(e) => {
-                let retry = button("retry-notes", "Try again", Kind::Secondary, &t).on_click(
+                let retry = ui::primary("notes-retry", tr("Try again"), ui::Size::Md).on_press(
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.fetch_releases();
                         cx.notify();
                     }),
                 );
-                return page.child(ui::empty_card(ui::empty_state(
+                return page.child(ui::empty_card(ui::error_state(
                     "notes-failed",
-                    "information-circle",
                     tr("Couldn't load patch notes"),
-                    e.clone(),
-                    vec![retry],
+                    e,
+                    retry,
                 )));
             }
             Load::Ready(r) if r.is_empty() => {
@@ -67,27 +63,32 @@ impl Launcher {
                     .flex()
                     .flex_col()
                     .gap(px(12.))
-                    .p(px(24.))
+                    .p(px(ui::CARD_PADDING))
                     .child(
-                        ui::text(16., FontWeight::SEMIBOLD, ink::FULL)
-                            .line_height(px(24.))
-                            .child(
-                                gpui::StyledText::new(format!("{title} · {day}")).with_highlights(
-                                    [(
-                                        title.len()..title.len() + " · ".len() + day.len(),
-                                        gpui::HighlightStyle {
-                                            font_weight: Some(FontWeight::NORMAL),
-                                            color: Some(ui::white(ink::MUTED)),
-                                            ..Default::default()
-                                        },
-                                    )],
-                                ),
-                            ),
+                        ui::text(
+                            eclipse_theme::glass::step::TITLE,
+                            FontWeight::SEMIBOLD,
+                            ink::FULL,
+                        )
+                        .child(
+                            gpui::StyledText::new(format!("{title} · {day}")).with_highlights([(
+                                title.len()..title.len() + " · ".len() + day.len(),
+                                gpui::HighlightStyle {
+                                    font_weight: Some(FontWeight::NORMAL),
+                                    color: Some(ui::white(ink::MUTED)),
+                                    ..Default::default()
+                                },
+                            )]),
+                        ),
                     )
                     .child(div().child(if release.body.trim().is_empty() {
-                        ui::text(14., FontWeight::NORMAL, ink::MUTED)
-                            .child(tr("No notes for this release."))
-                            .into_any_element()
+                        ui::text(
+                            eclipse_theme::glass::step::BODY,
+                            FontWeight::NORMAL,
+                            ink::MUTED,
+                        )
+                        .child(tr("No notes for this release."))
+                        .into_any_element()
                     } else {
                         markdown::render(&release.body, &t)
                     }))

@@ -60,9 +60,11 @@ pub mod glass_icons {
     }
     icons!(
         "ai-chat-02",
+        "alert-circle",
         "arrow-down-01",
         "arrow-right-01",
         "cancel-01",
+        "clock",
         "color-picker",
         "computer",
         "computer-terminal-01",

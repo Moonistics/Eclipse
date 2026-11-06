@@ -6,7 +6,9 @@
 //! the panel never shows the last attempt as the latest, and an open panel reads again when a
 //! build starts or ends.
 use super::*;
+use crate::glass_ui as ui;
 use eclipse_launcher::native_mods;
+use eclipse_theme::glass::{ink, radius, step};
 use gpui::{ClipboardItem, ScrollHandle, SharedString};
 
 /// How much of the log the panel shows: its last lines. Copy log still copies all of it.
@@ -173,7 +175,6 @@ impl Launcher {
         if !self.native_log.open {
             return None;
         }
-        let t = self.theme;
         let path = native_mods::log_path();
         // Rendering clones only the preview lines' shared text handles.
         let loaded = &self.native_log.loaded;
@@ -181,9 +182,9 @@ impl Launcher {
         let open = path.clone();
         let reveal = path.clone();
         let copy = {
-            let b = button("native-log-copy", "Copy log", Kind::Ghost, &t);
+            let b = button("native-log-copy", "Copy log", Kind::Ghost);
             match loaded {
-                Some(Ok(_)) => b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                Some(Ok(_)) => b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     // The whole file as it was read, never a stale or missing one.
                     let Some(Ok(log)) = &this.native_log.loaded else {
                         return;
@@ -202,23 +203,23 @@ impl Launcher {
             .gap(px(8.))
             .child(copy)
             .child({
-                let b = button("native-log-file", "Open full log", Kind::Ghost, &t);
+                let b = button("native-log-file", "Open full log", Kind::Ghost);
                 if gone {
                     disabled(b)
                 } else {
-                    b.on_click(move |_, _, cx| crate::glass_toast::open(cx, &open))
+                    b.on_press(move |_, _, cx| crate::glass_toast::open(cx, &open))
                 }
             })
             .child({
-                let b = button("native-log-reveal", "Show in folder", Kind::Ghost, &t);
+                let b = button("native-log-reveal", "Show in folder", Kind::Ghost);
                 if gone {
                     disabled(b)
                 } else {
-                    b.on_click(move |_, _, cx| cx.reveal_path(&reveal))
+                    b.on_press(move |_, _, cx| cx.reveal_path(&reveal))
                 }
             })
             .child(
-                button("native-log-refresh", "Refresh", Kind::Ghost, &t).on_click(cx.listener(
+                button("native-log-refresh", "Refresh", Kind::Ghost).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.native_log.stale = true;
                         cx.notify();
@@ -227,8 +228,7 @@ impl Launcher {
             );
         if let Some(note) = &self.native_log.note {
             actions = actions.child(
-                text(theme::CAPTION)
-                    .text_color(t.muted)
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
                     .min_w_0()
                     .child(note.clone()),
             );
@@ -244,56 +244,54 @@ impl Launcher {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(
-                        crate::glass_ui::text(
-                            17.,
-                            FontWeight::MEDIUM,
-                            eclipse_theme::glass::ink::FULL,
-                        )
-                        .text_color(t.ink)
-                        .child(tr("Native build log")),
-                    )
+                    .child(ui::card_title(tr("Native build log")))
                     // The actual file the actions below work on, wrapping rather than cut off.
                     .child(
-                        text(theme::CAPTION)
+                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
                             .font_family(theme::MONO)
-                            .text_color(t.muted)
                             .min_w_0()
-                            .line_height(px(18.))
                             .child(short(&path)),
                     ),
             )
             .child(
-                button("native-log-close", "Close", Kind::Secondary, &t).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.native_log_escape();
-                        cx.notify();
-                    },
-                )),
+                ui::icon_button(
+                    "native-log-close",
+                    "cancel-01",
+                    tr("Close"),
+                    ui::Size::Md,
+                    false,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.native_log_escape();
+                    cx.notify();
+                })),
             );
         let body = match loaded {
-            None => centered(tr("Loading build log…"), &t),
-            Some(Err(Missing::None)) => centered(tr("No native build log is available yet."), &t),
-            Some(Err(Missing::Failed(e))) => notice(
-                trf(
-                    "Could not read the build log: {error}",
-                    &[("error", e.as_str())],
-                ),
-                &t,
-            ),
+            None => div().child(ui::loading_state(
+                "native-log-loading",
+                tr("Loading build log…"),
+            )),
+            Some(Err(Missing::None)) => div().child(ui::empty_state(
+                "native-log-empty",
+                "computer-terminal-01",
+                tr("No native build log yet"),
+                "",
+                Vec::new(),
+            )),
+            Some(Err(Missing::Failed(e))) => error_note(trf(
+                "Could not read the build log: {error}",
+                &[("error", e.as_str())],
+            )),
             Some(Ok(log)) => div()
                 .flex()
                 .flex_col()
                 .gap(px(8.))
                 // Only the tail is laid out; the whole log stays one Copy away.
                 .children((log.lines > SHOWN).then(|| {
-                    quiet_note(
-                        trf(
-                            "Showing the last {lines} lines.",
-                            &[("lines", &SHOWN.to_string())],
-                        ),
-                        &t,
-                    )
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(trf(
+                        "Showing the last {lines} lines.",
+                        &[("lines", &SHOWN.to_string())],
+                    ))
                 }))
                 .child(
                     div()
@@ -302,14 +300,13 @@ impl Launcher {
                         .flex_1()
                         .min_h_0()
                         .overflow_scroll()
-                        .p(px(10.))
-                        .bg(t.plate_soft)
-                        .font_family(theme::MONO)
-                        .text_size(px(12.))
-                        .children(
-                            log.preview
-                                .iter()
-                                .map(|line| div().text_color(t.ink_soft).child(line.clone())),
+                        .p(px(ui::PANEL_INSET))
+                        .rounded(px(radius::ROW))
+                        .bg(ui::well())
+                        .child(
+                            ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
+                                .font_family(theme::MONO)
+                                .children(log.preview.iter().map(|line| div().child(line.clone()))),
                         ),
                 ),
         };
@@ -327,16 +324,15 @@ impl Launcher {
                 .gap(px(14.))
                 .px(px(32.))
                 .py(px(24.))
-                .bg(t.page.opacity(0.96))
+                .bg(crate::glass::colour(crate::glass::Kind::Float))
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .occlude()
                 .child(top)
                 .child(actions)
-                .children(
-                    self.native_step
-                        .as_ref()
-                        .map(|step| quiet_note(step.clone(), &t)),
-                )
+                .children(self.native_step.as_ref().map(|now| {
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                        .child(ui::state_line(ui::Tone::Busy, now.clone()))
+                }))
                 .child(body.flex_1().min_h_0().min_w_0()),
         )
     }

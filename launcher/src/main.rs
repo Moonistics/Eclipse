@@ -43,6 +43,7 @@ mod instances_page;
 mod internet;
 mod language_page;
 mod launch_page;
+mod layout;
 mod line_edit;
 mod location_page;
 mod markdown;
@@ -59,7 +60,6 @@ mod owner_page;
 mod packs_page;
 mod perf;
 mod picture_cache;
-mod plate;
 mod profile_heads;
 mod scene;
 mod screenshots_page;
@@ -67,9 +67,9 @@ mod scrollbar;
 mod servers_page;
 #[cfg(windows)]
 mod setup_page;
-mod shell;
 mod shortcut_page;
 mod skin_page;
+#[cfg(windows)]
 mod sky;
 mod sticky;
 mod switch_page;
@@ -87,6 +87,7 @@ use eclipse_launcher::instances;
 use eclipse_launcher::native_mods;
 use eclipse_launcher::native_status;
 use eclipse_launcher::telemetry;
+use glass_ui::Press;
 use gpui::{
     actions, div, ease_out_quint, prelude::*, px, relative, size, Animation, AnimationExt,
     AnyElement, App, Bounds, ClickEvent, Context, Div, ElementId, FocusHandle, FontWeight, Hsla,
@@ -275,8 +276,7 @@ struct Launcher {
     account_menu: bool,
     /// The glass sidebar's ⋮ menu (`frame.rs`).
     row_menu: frame::RowMenu,
-    /// The look's colours for the player's accent (`eclipse_theme::glass`).
-    look: eclipse_theme::glass::Glass,
+    menu_opener: Option<FocusHandle>,
     /// Where the mouse went down to close a menu by pressing outside it, so that the
     /// same press, ending on the menu's own button, doesn't open it again.
     menu_closed_at: Option<Point<Pixels>>,
@@ -387,8 +387,6 @@ struct Launcher {
     home_tab: home_tabs::HomeTab,
     /// Home's Play or folder menu, while open.
     home_menu: glass_home::HomeMenu,
-    /// Whether the pointer is over Home's folder button, which then shows its ⋯.
-    folder_hovered: bool,
     /// The list row under the pointer in Home's glass tabs (a world, a server): it shows its
     /// actions then.
     list_hover: Option<SharedString>,
@@ -444,13 +442,9 @@ struct Launcher {
     offline_name: Option<String>,
     /// The player's servers, for the sidebar until the Servers page has read them.
     side_servers: Vec<eclipse_launcher::servers::Entry>,
-    /// The pixel art made for this window (`art.rs`), and pictures downloaded by URL.
-    sky: sky::Sky,
-    /// The pixel sunset of the new design (dark appearance): its own view, so a frame of it
+    /// The pixel sunset of the new design: its own view, so a frame of it
     /// alone redraws nothing else.
     scene: gpui::Entity<scene::Scene>,
-    /// When the sky next asks for a frame, and the timer that will draw it.
-    sky_wake: Option<(Instant, gpui::Task<()>)>,
     /// The window's scale, as of its last frame, for art drawn outside `render`'s reach.
     scale: f32,
 }
@@ -473,6 +467,7 @@ impl Launcher {
         .detach();
         let mut settings = Settings::load();
         i18n::set(settings.language());
+        motion::set_reduce_motion(settings.reduce_motion);
         if settings.minecraft_dir.is_none() {
             settings.minecraft_dir = backend::default_minecraft_dir();
         }
@@ -499,9 +494,9 @@ impl Launcher {
         // Pin the window's chrome (macOS title bar) to the choice before the theme reads
         // `window.appearance()`, so both draw the same look.
         titlebar::apply_appearance(window, settings.appearance);
+        glass_ui::set_menu_focus(cx.focus_handle());
         let mut this = Self {
-            theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance())
-                .with_glass(settings.glass_tint(), settings.glass_blur()),
+            theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
             page: Page::from_env(),
             switches: 0,
             content_scroll: Scrollbar::default(),
@@ -548,7 +543,7 @@ impl Launcher {
             language_menu: false,
             account_menu: false,
             row_menu: Default::default(),
-            look: eclipse_theme::glass::Glass::default_look(),
+            menu_opener: None,
             menu_closed_at: None,
             skin: None,
             // The first draw takes the launcher theme from Settings.
@@ -621,7 +616,6 @@ impl Launcher {
             download_seen: None,
             home_tab: home_tabs::HomeTab::from_env(),
             home_menu: Default::default(),
-            folder_hovered: false,
             list_hover: None,
             list_menu: None,
             client_since: None,
@@ -657,9 +651,7 @@ impl Launcher {
             shortcuts: Default::default(),
             offline_name: offline_name(),
             side_servers: eclipse_launcher::servers::list(),
-            sky: sky::Sky::default(),
             scene: cx.new(|_| scene::Scene::new()),
-            sky_wake: None,
             scale: window.scale_factor(),
         };
         if this.location_error.is_some() || this.location_note.is_some() {
@@ -720,38 +712,39 @@ impl Launcher {
     }
 
     fn settings_save_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
+        use eclipse_theme::glass::{ink, radius, step};
         let error = self.settings_save_error.as_ref()?;
-        let t = self.theme;
         Some(
             div()
                 .flex_none()
                 .px(px(theme::PAGE_GUTTER))
                 .py(px(12.))
                 .child(
-                    plate()
+                    glass::plate(radius::PANEL)
                         .flex()
                         .items_center()
                         .gap(px(16.))
-                        .p(px(16.))
+                        .p(px(glass_ui::PANEL_INSET))
                         .child(
                             div()
                                 .relative()
+                                .flex()
+                                .flex_col()
+                                .gap(px(4.))
                                 .flex_1()
                                 .min_w_0()
+                                .child(error_note(tr("Settings were not saved.")))
                                 .child(
-                                    shell::text(theme::night::UI, t.danger)
-                                        .child(tr("Settings were not saved.")),
-                                )
-                                .child(
-                                    shell::text(theme::night::CAPTION, t.ink_soft).child(trf(
-                                        "Your changes are still in this window. Retry to save them. {error}",
-                                        &[("error", error)],
-                                    )),
+                                    glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                                        .child(trf(
+                                            "Your changes are still in this window. Retry to save them. {error}",
+                                            &[("error", error)],
+                                        )),
                                 ),
                         )
                         .child(
-                            button("settings-save-retry", "Retry", Kind::Secondary, &t)
-                                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                            button("settings-save-retry", "Retry", Kind::Secondary)
+                                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                                     this.save_settings();
                                     cx.notify();
                                 })),
@@ -1932,96 +1925,6 @@ enum Kind {
     Ghost,
 }
 
-/// The element under the pointer and the one it just left, with when that happened. Hover
-/// backgrounds ease in and out from these rather than snapping.
-struct HoverState {
-    on: Option<(SharedString, Instant)>,
-    off: Option<(SharedString, Instant)>,
-}
-
-static HOVER: Mutex<HoverState> = Mutex::new(HoverState {
-    on: None,
-    off: None,
-});
-
-fn track_hover(el: Stateful<Div>, id: SharedString) -> Stateful<Div> {
-    el.on_hover(move |hovered, window, _| note_hover(&id, *hovered, window))
-}
-
-/// Whether `id` is the element [`hover_fade`] shows hovered now.
-fn hover_is(id: &SharedString) -> bool {
-    HOVER
-        .lock()
-        .unwrap()
-        .on
-        .as_ref()
-        .is_some_and(|(h, _)| h == id)
-}
-
-/// Records that `id` is now hovered or not, for [`hover_fade`]: an element whose own hover
-/// listener does more calls it.
-fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
-    let mut state = HOVER.lock().unwrap();
-    let is_on = state.on.as_ref().is_some_and(|(h, _)| h == id);
-    if hovered && !is_on {
-        state.off = state.on.take();
-        state.on = Some((id.clone(), Instant::now()));
-    } else if !hovered && is_on {
-        state.off = Some((id.clone(), Instant::now()));
-        state.on = None;
-    }
-    window.refresh();
-}
-
-/// The `layer` made while the element `id` (see [`track_hover`]) is hovered, eased in and out:
-/// `paint` draws it at a strength from 0 (not shown) to 1. An element not hovered draws nothing,
-/// so a long list costs no layers.
-fn hover_fade(
-    id: &SharedString,
-    layer: impl FnOnce() -> Div,
-    paint: impl Fn(Div, f32) -> Div + 'static,
-) -> AnyElement {
-    let state = HOVER.lock().unwrap();
-    // Each transition gets its own animation id, from when it started, so it plays once.
-    static START: std::sync::OnceLock<Instant> = std::sync::OnceLock::new();
-    let start = *START.get_or_init(Instant::now);
-    let key = |dir: &str, at: Instant| {
-        ElementId::named_usize(format!("{id}-{dir}"), (at - start).as_micros() as usize)
-    };
-    let ease = || motion::eased(eclipse_theme::QUICK);
-    if let Some((_, at)) = state.on.as_ref().filter(|(h, _)| h == id) {
-        return layer()
-            .with_animation(key("in", *at), ease(), paint)
-            .into_any_element();
-    }
-    if let Some((_, at)) = state
-        .off
-        .as_ref()
-        .filter(|(h, at)| h == id && at.elapsed() < theme::QUICK)
-    {
-        return layer()
-            .with_animation(key("out", *at), ease(), move |d, t| paint(d, 1. - t))
-            .into_any_element();
-    }
-    // Not hovered: nothing to draw (out of the flow, so it takes no gap either).
-    div().absolute().into_any_element()
-}
-
-/// Text set in one step of the type scale.
-fn text(step: theme::Step) -> Div {
-    let d = div().text_size(px(step.px)).line_height(px(step.line_px()));
-    let d = if step.mono {
-        d.font_family(theme::MONO)
-    } else {
-        d
-    };
-    if step.weight >= 500 {
-        d.font_weight(FontWeight::MEDIUM)
-    } else {
-        d
-    }
-}
-
 fn mark(size: f32, scale: f32) -> Div {
     thread_local! {
         static MARKS: std::cell::RefCell<HashMap<(u32, u32), std::sync::Arc<gpui::RenderImage>>> =
@@ -2039,43 +1942,16 @@ fn mark(size: f32, scale: f32) -> Div {
         .child(gpui::img(image).size(px(size)))
 }
 
-/// The last thing the player did was press Tab: focused controls show a ring (a click focuses them
-/// too, without one).
-static KEYBOARD: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-
-/// Makes a control reachable with Tab, pressed with Enter or Space, with a ring when the keyboard
-/// put it in focus.
-fn keyboard(el: Stateful<Div>, t: &Theme) -> Stateful<Div> {
-    let (ring, gap) = (t.accent, t.page);
-    // A ring with a gap of page colour, so it shows around filled buttons too. GPUI draws nothing
-    // for a shadow without blur: half a pixel keeps it crisp.
-    let shadow = |color, spread: f32| gpui::BoxShadow {
-        color,
-        offset: gpui::point(px(0.), px(0.)),
-        blur_radius: px(0.5),
-        spread_radius: px(spread),
-        inset: false,
-    };
-    el.tab_index(0).focus(move |s| {
-        if KEYBOARD.load(Ordering::Relaxed) {
-            s.shadow(vec![shadow(ring, 4.), shadow(gap, 1.5)])
-        } else {
-            s
-        }
-    })
-}
-
 /// A medium button with its label translated (`glass_ui::button`).
 fn button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     kind: Kind,
-    t: &Theme,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
     let label: SharedString = label.into();
     let label = SharedString::from(tr(&label).to_string());
-    glass_ui::button(id, None, label, kind, glass_ui::Size::Md, t)
+    glass_ui::button(id, None, label, kind, glass_ui::Size::Md)
 }
 
 /// Copies to the clipboard, or into `ECLIPSE_LAUNCHER_CLIPBOARD` when a test run sets it
@@ -2142,33 +2018,6 @@ fn sync_system_clipboard(text: String) {
     });
 }
 
-fn switch(id: impl Into<SharedString>, on: bool, t: &Theme) -> Stateful<Div> {
-    let look = glass_ui::look();
-    glass_ui::toggle(id, on, look.accent, look.on_accent, t)
-}
-
-fn section_title(label: &'static str, icon: &'static str, t: &Theme) -> Div {
-    if glass_ui::flat() {
-        return glass_ui::card_heading(tr(label)).px(px(16.)).pt(px(12.));
-    }
-    div()
-        .flex()
-        .items_center()
-        .gap(px(10.))
-        .child(blocks::icon(icon, 16., t.accent))
-        .child(glass_ui::card_title(tr(label)))
-}
-
-fn segments<T: Copy + PartialEq + 'static>(
-    id: &'static str,
-    options: &[(T, &'static str)],
-    current: T,
-    t: &Theme,
-    on_pick: impl Fn(T, &mut Window, &mut App) + Clone + 'static,
-) -> Stateful<Div> {
-    glass_ui::segments(id, options, current, t, on_pick)
-}
-
 /// What the Play button does for the selected version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum PlayPress {
@@ -2182,21 +2031,19 @@ enum PlayPress {
 
 /// Account state uses the same semantic colors as the launcher's other notices. Keep a
 /// distinct icon and the full label so color is never the only way to recognize a state.
-fn account_status_line(
-    status: Option<&account::session::Status>,
-    progress: Option<&str>,
-    t: &Theme,
-) -> Div {
+fn account_status_line(status: Option<&account::session::Status>, progress: Option<&str>) -> Div {
     use account::session::State;
+    use eclipse_theme::glass::ink;
+    let muted = glass_ui::white(ink::MUTED);
     let (icon, color, label) = if let Some(progress) = progress {
-        ("clock", t.muted, progress)
+        ("clock", muted, progress)
     } else {
         let (icon, color) = match status.map(|s| s.state) {
-            Some(State::Ready) => ("check", t.success),
-            Some(State::NeedsRefresh | State::Retry) => ("reload", t.warn),
-            Some(State::SignInRequired) => ("user", t.danger),
-            Some(State::OwnershipRequired) => ("info-box", t.danger),
-            None => ("info-box", t.muted),
+            Some(State::Ready) => ("tick-02", glass_ui::live()),
+            Some(State::NeedsRefresh | State::Retry) => ("refresh", glass_ui::warn()),
+            Some(State::SignInRequired) => ("user", glass_ui::danger()),
+            Some(State::OwnershipRequired) => ("alert-circle", glass_ui::danger()),
+            None => ("information-circle", muted),
         };
         (
             icon,
@@ -2209,7 +2056,7 @@ fn account_status_line(
         .items_center()
         .gap(px(6.))
         .text_color(color)
-        .child(blocks::icon(icon, 14., color))
+        .child(glass_ui::icon(icon, glass_ui::IconSize::Px16, color))
         .child(tr(label).to_owned())
 }
 
@@ -2287,132 +2134,68 @@ fn update_name(release: &Release) -> &str {
     }
 }
 
-/// One row of a list, as its own panel: a name with an optional detail under it, then a value or
-/// a control on the right.
-fn index_row(
-    name: impl IntoElement,
-    detail: Option<AnyElement>,
-    right: Option<AnyElement>,
-    t: &Theme,
-) -> Div {
-    if glass_ui::flat() {
-        return glass_ui::setting_row(name, detail, right);
-    }
-    slot_row(None, name, detail, right, t)
-}
-
-/// A row with an icon slot (`blocks::slot`) on its left: a project in the Mods page's lists.
-fn slot_row(
-    slot: Option<Div>,
-    name: impl IntoElement,
-    detail: Option<AnyElement>,
-    right: Option<AnyElement>,
-    t: &Theme,
-) -> Div {
-    if glass_ui::flat() {
-        return div()
-            .flex()
-            .items_center()
-            .gap(px(14.))
-            .px(px(16.))
-            .py(px(12.))
-            .children(slot.map(|s| s.rounded(px(8.)).overflow_hidden()))
-            .child(glass_ui::setting_row(name, detail, right).p_0().flex_1());
-    }
-    plate()
-        .flex()
-        .items_center()
-        .gap(px(16.))
-        .min_h(px(theme::ROW))
-        .mb(px(8.))
-        .px(px(16.))
-        .py(px(12.))
-        .children(slot)
-        .child(
-            div()
-                .flex()
-                .flex_col()
-                .flex_1()
-                .min_w_0()
-                .gap(px(2.))
-                .child(
-                    glass_ui::text(14., FontWeight::SEMIBOLD, eclipse_theme::glass::ink::FULL)
-                        .child(name),
-                )
-                .children(detail.map(|d| {
-                    text(theme::CAPTION)
-                        .text_color(t.muted)
-                        .child(d)
-                        .into_any_element()
-                })),
-        )
-        .children(right)
-}
-
 /// Microsoft account actions go below the profile in the fixed-width glass card.
-fn account_row(
-    slot: Option<Div>,
-    name: impl IntoElement,
-    detail: Option<AnyElement>,
-    actions: Div,
-    t: &Theme,
-) -> Div {
-    if glass_ui::flat() {
-        return div()
-            .flex()
-            .flex_col()
-            .min_w_0()
-            .child(slot_row(slot, name, detail, None, t))
-            .child(actions.flex_wrap().px(px(16.)).pb(px(12.)));
-    }
-    slot_row(slot, name, detail, Some(actions.into_any_element()), t)
-}
-
-/// A plate that stands apart from the page: notices, the console, the agents note.
-fn plate() -> Div {
-    glass::plate(eclipse_theme::glass::radius::POPOVER)
-}
-
-/// Floating text with no background
-fn quiet_note(text_: impl Into<SharedString>, t: &Theme) -> Div {
-    plate()
-        .px(px(12.))
-        .py(px(8.))
-        .child(text(theme::CAPTION).text_color(t.muted).child(text_.into()))
-}
-
-/// Something went wrong: a dot in the danger colour, then what happened.
-fn notice(text_: String, t: &Theme) -> Div {
-    plate()
-        .flex()
-        .gap(px(12.))
-        .p(px(16.))
-        .text_size(px(theme::UI.px))
-        .line_height(px(21.))
-        .text_color(t.ink)
-        .border_l(px(6.))
-        .child(
-            div()
-                .absolute()
-                .top(px(-2.))
-                .bottom(px(-2.))
-                .left(px(-6.))
-                .w(px(6.))
-                .bg(t.danger),
-        )
-        .child(blocks::icon("info-box", 20., t.danger))
-        .child(div().flex_1().min_w_0().child(text_))
-}
-
-/// An empty state: a short sentence, and the one thing to do about it.
-fn centered(text_: &str, t: &Theme) -> Div {
+fn account_row(slot: Div, name: impl IntoElement, detail: Option<AnyElement>, actions: Div) -> Div {
     div()
         .flex()
         .flex_col()
+        .min_w_0()
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(14.))
+                .px(px(16.))
+                .py(px(12.))
+                .child(
+                    slot.rounded(px(eclipse_theme::glass::radius::ROW))
+                        .overflow_hidden(),
+                )
+                .child(glass_ui::setting_row(name, detail, None).p_0().flex_1()),
+        )
+        .child(actions.flex_wrap().px(px(16.)).pb(px(12.)))
+}
+
+fn error_card(said: impl Into<SharedString>) -> Div {
+    glass::plate(eclipse_theme::glass::radius::PANEL)
+        .p(px(glass_ui::PANEL_INSET))
+        .child(error_note(said))
+}
+
+fn native_panel() -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .gap(px(6.))
+        .mt(px(12.))
+        .pt(px(12.))
+        .border_t_1()
+        .border_color(glass_ui::white(eclipse_theme::glass::EDGE))
+}
+
+fn error_note(said: impl Into<SharedString>) -> Div {
+    use eclipse_theme::glass::{ink, step};
+    div()
+        .flex()
         .items_start()
-        .gap(px(16.))
-        .py(px(48.))
-        .child(text(theme::UI).text_color(t.muted).child(text_.to_string()))
+        .gap(px(10.))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .h(px(step::BODY.line))
+                .child(glass_ui::icon(
+                    "alert-circle",
+                    glass_ui::IconSize::Px16,
+                    glass_ui::danger(),
+                )),
+        )
+        .child(
+            glass_ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                .flex_1()
+                .min_w_0()
+                .child(said.into()),
+        )
 }
 
 /// The name the game made up for a player without an account, once it has run.
@@ -2443,11 +2226,6 @@ fn thousands(n: u64) -> String {
     out
 }
 
-/// A small heading over a group: the status above a title, a section's name.
-fn caps(s: impl AsRef<str>) -> Div {
-    glass_ui::card_heading(s.as_ref().to_string())
-}
-
 fn short(path: &std::path::Path) -> String {
     let home = dirs::home_dir().unwrap_or_default();
     match path.strip_prefix(&home) {
@@ -2469,8 +2247,60 @@ impl Launcher {
         closed_by_press(self.menu_closed_at.take(), event)
     }
 
+    fn menu_open(&self) -> bool {
+        self.account_menu
+            || self.row_menu.open.is_some()
+            || self.home_menu != glass_home::HomeMenu::None
+            || self.picker_open
+            || self.language_menu
+            || self.list_menu.is_some()
+            || self.mods.target_menu
+            || self.mods.browse.sort_menu
+            || self.mod_detail_floats()
+    }
+
+    fn mod_detail_floats(&self) -> bool {
+        self.page == Page::Mods
+            && self.mods.picked.is_some()
+            && self.window_width < layout::MODS_DETAIL_BESIDE
+    }
+
+    fn close_menus(&mut self) -> bool {
+        let open = self.menu_open();
+        self.account_menu = false;
+        self.row_menu.open = None;
+        self.home_menu = glass_home::HomeMenu::None;
+        self.picker_open = false;
+        self.language_menu = false;
+        self.list_menu = None;
+        self.mods.target_menu = false;
+        self.mods.browse.sort_menu = false;
+        if self.mod_detail_floats() {
+            self.mods.picked = None;
+        }
+        open
+    }
+
+    fn opened_menu(&mut self, window: &Window, cx: &App) {
+        self.menu_opener = window.focused(cx);
+        glass_ui::menu_opened();
+    }
+
+    fn return_focus_from_menu(&mut self, window: &mut Window, cx: &mut App) {
+        if self.menu_open() {
+            return;
+        }
+        let Some(opener) = self.menu_opener.take() else {
+            return;
+        };
+        let lost = window.focused(cx).is_none()
+            || glass_ui::menu_focus().is_some_and(|m| m.contains_focused(window, cx));
+        if lost {
+            window.focus(&opener, cx);
+        }
+    }
+
     fn play_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         // A Java instance plays Mojang's game: no Eclipse version, nothing of Eclipse's to prepare.
         let java = self.selected_instance().and_then(|i| i.java.clone());
         let Some(tag) = self
@@ -2485,7 +2315,7 @@ impl Launcher {
                 Some((_, p)) => format!("{} {:.0}%", tr("Installing"), p * 100.),
                 None => tr("No version installed").to_string(),
             };
-            let choose = button("go-versions", "Choose a version", Kind::Primary, &t).on_click(
+            let choose = button("go-versions", "Choose a version", Kind::Primary).on_press(
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.go(Page::Versions);
                     cx.notify();
@@ -2512,11 +2342,6 @@ impl Launcher {
             .map_or_else(|| backend::game_version(&tag), |j| j.minecraft.clone());
         let left = self.download_left();
         let steps = self.preparing.then(|| self.steps(&version, left));
-        let rows = div()
-            .flex()
-            .flex_col()
-            .children(self.export_panel(cx))
-            .children(self.launch_panel(cx));
         let banner = div()
             .flex()
             .flex_col()
@@ -2525,11 +2350,14 @@ impl Launcher {
             .children(steps);
         let mut page = div().flex().flex_col().gap(px(28.)).child(banner);
         if let Some(e) = self.prepare_error.clone() {
-            page = page.child(notice(e, &t));
+            page = page.child(error_card(e));
         }
-        page = page.child(self.glass_home_tabs(rows, cx));
+        page = page
+            .children(self.export_panel(cx))
+            .children(self.launch_panel(cx))
+            .child(self.glass_home_tabs(cx));
         if let Some(e) = self.client_error.clone() {
-            page = page.child(notice(e, &t));
+            page = page.child(error_card(e));
         }
         if let Some(crash) = self.crash.clone() {
             page = page.child(self.crash_notice(crash, cx));
@@ -2539,15 +2367,14 @@ impl Launcher {
 
     /// "Eclipse crashed": the report and the logs, and where to report it.
     fn crash_notice(&self, crash: Crash, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let mut actions = div().flex().flex_wrap().gap(px(8.)).mt(px(8.));
+        use eclipse_theme::glass::{ink, pixel_text, step};
+        let mut actions = div().flex().flex_wrap().gap(px(8.)).mt(px(12.));
         if let Some(report) = crash.report.clone() {
             let open = report.clone();
             actions = actions
                 .child(
-                    button("crash-open", "Open report", Kind::Secondary, &t)
-                        .bg(t.plate)
-                        .on_click(move |_, _, cx| crate::glass_toast::open(cx, &open)),
+                    button("crash-open", "Open report", Kind::Secondary)
+                        .on_press(move |_, _, cx| crate::glass_toast::open(cx, &open)),
                 )
                 .child(
                     button(
@@ -2558,10 +2385,8 @@ impl Launcher {
                             "Copy report"
                         },
                         Kind::Secondary,
-                        &t,
                     )
-                    .bg(t.plate)
-                    .on_click(cx.listener(
+                    .on_press(cx.listener(
                         move |this, _: &ClickEvent, _, cx| {
                             if let Ok(text) = std::fs::read_to_string(&report) {
                                 copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text));
@@ -2575,108 +2400,107 @@ impl Launcher {
                 );
         }
         actions = actions.child(
-            button("crash-logs", "Open logs folder", Kind::Secondary, &t)
-                .bg(t.plate)
-                .on_click(|_, _, cx| {
-                    let dir = backend::logs_dir();
-                    let _ = std::fs::create_dir_all(&dir);
-                    crate::glass_toast::open(cx, &dir);
-                }),
+            button("crash-logs", "Open logs folder", Kind::Secondary).on_press(|_, _, cx| {
+                let dir = backend::logs_dir();
+                let _ = std::fs::create_dir_all(&dir);
+                crate::glass_toast::open(cx, &dir);
+            }),
         );
-        actions = actions.child(
-            button("crash-dismiss", "Dismiss", Kind::Ghost, &t).on_click(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    this.crash = None;
-                    cx.notify();
-                },
-            )),
-        );
+        actions = actions.child(button("crash-dismiss", "Dismiss", Kind::Ghost).on_press(
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.crash = None;
+                cx.notify();
+            }),
+        ));
         let help = crash
             .report
             .is_none()
             .then(|| tr("The game ended without a crash report."));
-        let mut body = div()
-            .flex_1()
-            .min_w_0()
-            .flex()
-            .flex_col()
-            .gap(px(4.))
-            .child(
-                text(theme::HEADING)
-                    .text_color(t.ink)
-                    .child(tr("Eclipse crashed")),
-            );
+        let mut body = div().id("crash").flex().flex_col().gap(px(4.)).child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(12.))
+                .child(glass_ui::icon(
+                    "alert-circle",
+                    glass_ui::IconSize::Px16,
+                    glass_ui::danger(),
+                ))
+                .child(glass_ui::entity_title(
+                    tr("Eclipse crashed"),
+                    pixel_text::CARD_TITLE,
+                )),
+        );
         if !crash.summary.is_empty() {
-            body = body.child(div().text_color(t.ink_soft).child(crash.summary));
+            body = body.child(
+                glass_ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(crash.summary),
+            );
         }
         if let Some(report) = &crash.report {
             body = body.child(
-                text(theme::MICRO)
-                    .text_color(t.muted)
+                glass_ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
+                    .font_family(theme::MONO)
                     .truncate()
                     .child(short(report)),
             );
         }
-        body = body.child(actions).children(help.map(|help| {
-            text(theme::CAPTION)
-                .mt(px(4.))
-                .text_color(t.muted)
-                .child(help)
-        }));
-        plate()
-            .flex()
-            .gap(px(14.))
-            .p(px(24.))
-            .text_size(px(theme::UI.px))
-            .line_height(px(21.))
-            .text_color(t.ink)
-            .child(
-                div()
-                    .flex_none()
-                    .mt(px(11.))
-                    .size(px(6.))
-                    .rounded_full()
-                    .bg(t.danger),
-            )
+        body = body.child(actions).children(help.map(glass_ui::card_note));
+        glass::plate(eclipse_theme::glass::radius::PANEL)
+            .p(px(glass_ui::CARD_PADDING))
             .child(body)
     }
 
     fn settings_page(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let toggle = switch("auto-install", self.settings.auto_install(), &t).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.settings.install_new_versions = Some(!this.settings.auto_install());
-                this.save_settings();
-                if this.settings.auto_install() {
-                    this.install_update();
-                }
-                cx.notify();
-            }),
+        let toggle = glass_ui::toggle_row(
+            "auto-install",
+            tr("Install new Eclipse versions automatically"),
+            None,
+            self.settings.auto_install(),
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.install_new_versions = Some(!this.settings.auto_install());
+            this.save_settings();
+            if this.settings.auto_install() {
+                this.install_update();
+            }
+            cx.notify();
+        }));
+        let keeps = trf(
+            "Keeps the {count} newest and any version an instance plays.",
+            &[("count", &self.settings.keep_newest().to_string())],
         );
-        let prune = switch("auto-prune", self.settings.auto_prune(), &t).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.settings.prune_old_versions = Some(!this.settings.auto_prune());
-                this.save_settings();
-                cx.notify();
-            },
-        ));
+        let prune = glass_ui::toggle_row(
+            "auto-prune",
+            tr("Delete old Eclipse versions automatically"),
+            Some(div().child(keeps).into_any_element()),
+            self.settings.auto_prune(),
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.settings.prune_old_versions = Some(!this.settings.auto_prune());
+            this.save_settings();
+            cx.notify();
+        }));
         // Linux: the launcher's entry in the applications menu (`eclipse_launcher::desktop`).
-        let menu_entry = switch("desktop-entry", self.settings.desktop_entry(), &t).on_click(
-            cx.listener(|this, _: &ClickEvent, _, cx| {
-                let on = !this.settings.desktop_entry();
-                this.settings.desktop_entry = Some(on);
-                this.save_settings();
-                let _ = if on {
-                    eclipse_launcher::desktop::install(backend::exe_path()).map(|_| ())
-                } else {
-                    eclipse_launcher::desktop::remove()
-                };
-                cx.notify();
-            }),
-        );
+        let menu_entry = glass_ui::toggle_row(
+            "desktop-entry",
+            tr("Show in applications menu"),
+            None,
+            self.settings.desktop_entry(),
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            let on = !this.settings.desktop_entry();
+            this.settings.desktop_entry = Some(on);
+            this.save_settings();
+            let _ = if on {
+                eclipse_launcher::desktop::install(backend::exe_path()).map(|_| ())
+            } else {
+                eclipse_launcher::desktop::remove()
+            };
+            cx.notify();
+        }));
         let eclipse = match (&self.updates.eclipse, &self.update_error) {
             (Some(r), _) => trf("{version} available", &[("version", update_name(r))]),
-            (None, Some(e)) => e.clone(),
+            (None, Some(e)) => glass_ui::plain_error(e).to_string(),
             (None, None) if self.checked.is_some() => tr("Up to date").to_string(),
             _ => tr("Checking…").to_string(),
         };
@@ -2686,8 +2510,8 @@ impl Launcher {
             .as_ref()
             .filter(|_| self.installing.is_none())
             .map(|_| {
-                button("settings-install", "Install", Kind::Secondary, &t)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                button("settings-install", "Install", Kind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.install_update();
                         cx.notify();
                     }))
@@ -2742,8 +2566,8 @@ impl Launcher {
         };
         let launcher_action = match &self.self_update {
             SelfUpdate::Ready(_) => Some(
-                button("update-settings", "Update", Kind::Secondary, &t)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                button("update-settings", "Update", Kind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.apply_launcher_update(cx);
                         cx.notify();
                     }))
@@ -2752,22 +2576,22 @@ impl Launcher {
             SelfUpdate::Stuck(_) if self.launcher_download_available() => {
                 let url = backend::download_page(&self.links.website);
                 Some(
-                    button("download-settings", "Download again", Kind::Secondary, &t)
-                        .on_click(move |_, _, cx| cx.open_url(&url))
+                    button("download-settings", "Download again", Kind::Secondary)
+                        .on_press(move |_, _, cx| cx.open_url(&url))
                         .into_any_element(),
                 )
             }
             SelfUpdate::Downloading(..) | SelfUpdate::Stuck(_) => None,
             _ => Some(
-                button("check", "Check now", Kind::Secondary, &t)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                button("check", "Check now", Kind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.check_updates();
                         cx.notify();
                     }))
                     .into_any_element(),
             ),
         };
-        let appearance = segments(
+        let appearance = crate::glass_ui::segments(
             "appearance",
             &[
                 (backend::Appearance::Dark, "Dark"),
@@ -2775,7 +2599,6 @@ impl Launcher {
                 (backend::Appearance::System, "System"),
             ],
             self.settings.appearance,
-            &t,
             {
                 let this = cx.entity().downgrade();
                 move |choice, window, cx| {
@@ -2811,7 +2634,6 @@ impl Launcher {
         mods: &Result<Vec<native_mods::Bundle>, String>,
         cx: &mut Context<Self>,
     ) -> Div {
-        let t = self.theme;
         let list = match mods {
             Ok(found) => found
                 .iter()
@@ -2820,19 +2642,13 @@ impl Launcher {
                 .join(", "),
             Err(e) => e.clone(),
         };
-        let panel = div()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .mt(px(8.))
-            .p(px(12.))
-            .bg(t.plate_soft)
-            .child(div().text_color(t.danger).child(tr("These mods will run with full access to your computer").to_string()))
+        let panel = native_panel()
+            .child(error_note(tr("These mods will run with full access to your computer")))
             .child(tr("They can read, change or delete your files and use your accounts. Build them only if you trust their authors.").to_string())
             .child(trf("Mods: {mods}", &[("mods", &list)]))
             .child(tr("The first build takes 20 to 30 minutes and a few GB of disk. Later ones take a few minutes.").to_string())
             .children(self.native_update.as_ref().map(|newer| {
-                div().text_color(t.warn).child(trf(
+                div().text_color(glass_ui::warn()).child(trf(
                     "This moves the instance to Eclipse {version}. It compiles the game from scratch, so it takes longer than a normal rebuild: up to 30 minutes.",
                     &[("version", &native_status::eclipse_label(newer))],
                 ))
@@ -2840,42 +2656,31 @@ impl Launcher {
         let mut buttons = div().flex().gap(px(8.)).mt(px(4.));
         if mods.is_ok() {
             buttons = buttons.child(
-                button(
-                    "native-trust",
-                    "I trust these mods: build",
-                    Kind::Primary,
-                    &t,
-                )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.build_native(false);
-                    cx.notify();
-                })),
+                button("native-trust", "I trust these mods: build", Kind::Primary).on_press(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.build_native(false);
+                        cx.notify();
+                    }),
+                ),
             );
         }
-        panel.child(buttons.child(
-            button("native-cancel", "Cancel", Kind::Secondary, &t).on_click(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
+        panel.child(
+            buttons.child(button("native-cancel", "Cancel", Kind::Secondary).on_press(
+                cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.native_confirm = None;
                     this.native_update = None;
                     this.native_on_base = false;
                     cx.notify();
-                },
+                }),
             )),
-        ))
+        )
     }
 
     /// Mods made for other Eclipse versions: which, and the version the build uses. They often
     /// still work, so the player may build anyway.
     fn native_mismatch_panel(&self, list: &str, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(6.))
-            .mt(px(8.))
-            .p(px(12.))
-            .bg(t.plate_soft)
-            .child(div().text_color(t.danger).child(tr("These mods were made for different Eclipse versions").to_string()))
+        native_panel()
+            .child(error_note(tr("These mods were made for different Eclipse versions")))
             .child(list.to_owned())
             .child(tr("They often still work together. If the build fails, install versions made for the same Nightly.").to_string())
             .child(
@@ -2884,7 +2689,7 @@ impl Launcher {
                     .gap(px(8.))
                     .mt(px(4.))
                     .child(
-                        button("native-anyway", "Build anyway", Kind::Primary, &t).on_click(
+                        button("native-anyway", "Build anyway", Kind::Primary).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.build_native(true);
                                 cx.notify();
@@ -2892,7 +2697,7 @@ impl Launcher {
                         ),
                     )
                     .child(
-                        button("native-mismatch-cancel", "Cancel", Kind::Secondary, &t).on_click(
+                        button("native-mismatch-cancel", "Cancel", Kind::Secondary).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.native_mismatch = None;
                                 cx.notify();
@@ -2908,8 +2713,7 @@ impl Launcher {
         if !backend::can_choose_game_architecture() {
             return div();
         }
-        let t = self.theme;
-        let picker = segments(
+        let picker = crate::glass_ui::segments(
             "game-architecture",
             &[
                 (backend::GameArchitecture::Auto, "Automatic"),
@@ -2917,7 +2721,6 @@ impl Launcher {
                 (backend::GameArchitecture::Arm64, "ARM64"),
             ],
             self.settings.game_architecture,
-            &t,
             {
                 let this = cx.entity().downgrade();
                 move |choice, _, cx| {
@@ -2936,7 +2739,7 @@ impl Launcher {
                 }
             },
         );
-        index_row(
+        crate::glass_ui::setting_row(
             tr("Game architecture"),
             Some(
                 div()
@@ -2944,7 +2747,6 @@ impl Launcher {
                     .into_any_element(),
             ),
             Some(picker.into_any_element()),
-            &t,
         )
     }
 
@@ -2956,19 +2758,7 @@ impl Launcher {
             .track_focus(&self.args_focus)
             .flex()
             .items_center()
-            .w(px(300.))
-            .h(px(30.))
-            .px(px(12.))
             .overflow_hidden()
-            .border_2()
-            .border_color(if focused {
-                t.accent
-            } else {
-                gpui::transparent_black()
-            })
-            .bg(t.plate_soft)
-            .font_family(theme::MONO)
-            .text_size(px(12.))
             .cursor_text()
             .child(line_edit::content(
                 &self.args_input,
@@ -2996,18 +2786,10 @@ impl Launcher {
                 cx.notify();
             }));
         let field = line_edit::mouse(field, cx, |this| &mut this.args_input);
-        if glass_ui::flat() {
-            return glass_ui::setting_row_stacked(
-                tr("Game arguments"),
-                None,
-                glass_ui::wide_field(field, focused).into_any_element(),
-            );
-        }
-        index_row(
+        glass_ui::setting_row_stacked(
             tr("Game arguments"),
             None,
-            Some(field.into_any_element()),
-            &t,
+            glass_ui::wide_field(field, focused).into_any_element(),
         )
     }
 
@@ -3021,19 +2803,7 @@ impl Launcher {
             .track_focus(&self.proxy_focus)
             .flex()
             .items_center()
-            .w(px(300.))
-            .h(px(30.))
-            .px(px(12.))
             .overflow_hidden()
-            .border_2()
-            .border_color(if focused {
-                t.accent
-            } else {
-                gpui::transparent_black()
-            })
-            .bg(t.plate_soft)
-            .font_family(theme::MONO)
-            .text_size(px(12.))
             .cursor_text()
             .child(line_edit::content(
                 &self.proxy_input,
@@ -3063,17 +2833,19 @@ impl Launcher {
             focused,
             eclipse_launcher::proxy::refuse(self.proxy_input.text()),
         ) {
-            (false, Some(why)) => Some(div().text_color(t.danger).child(why).into_any_element()),
+            (false, Some(why)) => Some(
+                div()
+                    .text_color(glass_ui::danger())
+                    .child(why)
+                    .into_any_element(),
+            ),
             _ => None,
         };
-        if glass_ui::flat() {
-            return glass_ui::setting_row_stacked(
-                tr("Proxy"),
-                detail,
-                glass_ui::wide_field(field, focused).into_any_element(),
-            );
-        }
-        index_row(tr("Proxy"), detail, Some(field.into_any_element()), &t)
+        glass_ui::setting_row_stacked(
+            tr("Proxy"),
+            detail,
+            glass_ui::wide_field(field, focused).into_any_element(),
+        )
     }
 
     /// Keeps the Proxy field in `settings.json`, and tells the parts that build their own agents
@@ -3088,7 +2860,6 @@ impl Launcher {
     /// The Microsoft accounts signed in here: each one's head, name and state, Play as,
     /// Refresh and Sign out.
     fn microsoft_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
-        let t = self.theme;
         let mut rows = div().flex().flex_col();
         let mut n = 0;
         let selected = self.accounts.selected.clone();
@@ -3098,7 +2869,7 @@ impl Launcher {
             let mut actions = div().flex().gap(px(4.));
             if plays {
                 actions = actions.child(
-                    button(format!("offline-{i}"), "Play offline", Kind::Ghost, &t).on_click(
+                    button(format!("offline-{i}"), "Play offline", Kind::Ghost).on_press(
                         cx.listener(|this, _: &ClickEvent, _, cx| {
                             let mut accounts = Accounts::load();
                             accounts.selected = None;
@@ -3112,7 +2883,7 @@ impl Launcher {
             } else {
                 let uuid = uuid.clone();
                 actions = actions.child(
-                    button(format!("select-{i}"), "Play as", Kind::Secondary, &t).on_click(
+                    button(format!("select-{i}"), "Play as", Kind::Secondary).on_press(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.play_as(account::Player::Microsoft(uuid.clone()));
                             cx.notify();
@@ -3147,12 +2918,11 @@ impl Launcher {
                     "Refresh"
                 },
                 Kind::Ghost,
-                &t,
             );
             actions = actions.child(if busy {
                 disabled(refresh)
             } else {
-                refresh.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                refresh.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     if needs_sign_in {
                         this.re_sign_in(&refresh_id);
                     } else {
@@ -3161,11 +2931,11 @@ impl Launcher {
                     cx.notify();
                 }))
             });
-            let sign_out = button(format!("sign-out-{i}"), "Sign out", Kind::Ghost, &t);
+            let sign_out = button(format!("sign-out-{i}"), "Sign out", Kind::Ghost);
             actions = actions.child(if busy {
                 disabled(sign_out)
             } else {
-                sign_out.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                sign_out.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     let Some(generation) = this.begin_auth_job(&uuid) else {
                         return;
                     };
@@ -3188,7 +2958,7 @@ impl Launcher {
             });
             n += 1;
             rows = rows.child(account_row(
-                Some(self.profile_heads.draw(Some(&a.uuid), 32., self.scale, &t)),
+                self.profile_heads.draw(Some(&a.uuid), 32., self.scale),
                 a.name.clone(),
                 Some(
                     div()
@@ -3197,7 +2967,7 @@ impl Launcher {
                         } else {
                             "Microsoft account"
                         }))
-                        .child(account_status_line(status, progress, &t))
+                        .child(account_status_line(status, progress))
                         .when(!busy, |row| {
                             row.when_some(status.filter(|s| s.message != s.label()), |row, s| {
                                 row.child(div().child(tr(&s.message).to_string()))
@@ -3206,7 +2976,6 @@ impl Launcher {
                         .into_any_element(),
                 ),
                 actions,
-                &t,
             ));
         }
         (rows, n)
@@ -3234,15 +3003,20 @@ impl Launcher {
                     &[("link", &code.verification_uri)],
                 ))
                 .child(
-                    text(theme::HEADING)
-                        .font_family(theme::MONO)
-                        .text_color(t.ink)
-                        .child(code.user_code.clone()),
+                    glass_ui::text(
+                        eclipse_theme::glass::step::FIGURE,
+                        FontWeight::MEDIUM,
+                        eclipse_theme::glass::ink::FULL,
+                    )
+                    .font_family(theme::MONO)
+                    .child(code.user_code.clone()),
                 ),
             Some(SignInState::Done(Ok(a))) => {
                 div().child(trf("Signed in as {name}.", &[("name", &a.name)]))
             }
-            Some(SignInState::Done(Err(e))) => div().text_color(t.danger).child(e.clone()),
+            Some(SignInState::Done(Err(e))) => {
+                div().text_color(glass_ui::danger()).child(e.clone())
+            }
             None if self.accounts.accounts.is_empty() => div().child(tr(
                 "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
             )),
@@ -3270,78 +3044,77 @@ impl Launcher {
                 .child(div().child(said)),
             _ => detail,
         };
-        let action = if !configured {
-            None
-        } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
-            let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
-            Some(
-                div()
-                    .flex()
-                    .gap(px(4.))
-                    .child(
-                        button("sign-in-copy", "Copy code", Kind::Secondary, &t).on_click(
-                            move |_, _, cx| {
-                                copy_to_clipboard(
-                                    cx,
-                                    gpui::ClipboardItem::new_string(user_code.clone()),
-                                )
-                            },
-                        ),
-                    )
-                    .child(
-                        button("sign-in-open", "Open link", Kind::Secondary, &t)
-                            .on_click(move |_, _, cx| cx.open_url(&uri)),
-                    )
-                    .child(
-                        button("sign-in-cancel", "Cancel", Kind::Ghost, &t).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
+        let action =
+            if !configured {
+                None
+            } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
+                let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
+                Some(
+                    div()
+                        .flex()
+                        .gap(px(4.))
+                        .child(
+                            button("sign-in-copy", "Copy code", Kind::Secondary).on_press(
+                                move |_, _, cx| {
+                                    copy_to_clipboard(
+                                        cx,
+                                        gpui::ClipboardItem::new_string(user_code.clone()),
+                                    )
+                                },
+                            ),
+                        )
+                        .child(
+                            button("sign-in-open", "Open link", Kind::Secondary)
+                                .on_press(move |_, _, cx| cx.open_url(&uri)),
+                        )
+                        .child(button("sign-in-cancel", "Cancel", Kind::Ghost).on_press(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
                                 this.cancel_sign_in();
                                 cx.notify();
-                            },
-                        )),
-                    )
-                    .into_any_element(),
-            )
-        } else if busy {
-            Some(
-                button("sign-in-cancel-working", "Cancel", Kind::Ghost, &t)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.cancel_sign_in();
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            )
-        } else {
-            let target = self.sign_in_target.as_ref().map(|a| a.uuid.clone());
-            let targeted = target.is_some();
-            // Re-signing one account names it; adding one is Microsoft's own button.
-            let sign_in = if targeted {
-                button("sign-in", "Sign in again", Kind::Secondary, &t)
-            } else {
-                microsoft::sign_in_button("sign-in", &t)
-            };
-            let mut actions = div().flex().gap(px(4.)).child(sign_in.on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    if let Some(uuid) = &target {
-                        this.re_sign_in(uuid);
-                    } else {
-                        this.start_sign_in();
-                    }
-                    cx.notify();
-                },
-            )));
-            if targeted {
-                actions = actions.child(
-                    button("sign-in-cancel-target", "Cancel", Kind::Ghost, &t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
+                            }),
+                        ))
+                        .into_any_element(),
+                )
+            } else if busy {
+                Some(
+                    button("sign-in-cancel-working", "Cancel", Kind::Ghost)
+                        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.cancel_sign_in();
                             cx.notify();
-                        }),
-                    ),
-                );
-            }
-            Some(actions.into_any_element())
-        };
+                        }))
+                        .into_any_element(),
+                )
+            } else {
+                let target = self.sign_in_target.as_ref().map(|a| a.uuid.clone());
+                let targeted = target.is_some();
+                // Re-signing one account names it; adding one is Microsoft's own button.
+                let sign_in = if targeted {
+                    button("sign-in", "Sign in again", Kind::Secondary)
+                } else {
+                    microsoft::sign_in_button("sign-in", &t)
+                };
+                let mut actions = div().flex().gap(px(4.)).child(sign_in.on_press(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        if let Some(uuid) = &target {
+                            this.re_sign_in(uuid);
+                        } else {
+                            this.start_sign_in();
+                        }
+                        cx.notify();
+                    },
+                )));
+                if targeted {
+                    actions = actions.child(
+                        button("sign-in-cancel-target", "Cancel", Kind::Ghost).on_press(
+                            cx.listener(|this, _: &ClickEvent, _, cx| {
+                                this.cancel_sign_in();
+                                cx.notify();
+                            }),
+                        ),
+                    );
+                }
+                Some(actions.into_any_element())
+            };
         let title = match &self.sign_in_target {
             Some(target) => trf("Sign in again as {name}", &[("name", &target.name)]),
             None if self.accounts.accounts.is_empty() => tr("Microsoft account").to_owned(),
@@ -3443,9 +3216,8 @@ impl Render for Launcher {
         if std::mem::take(&mut self.restyle) {
             self.theme = self.settings_theme(window);
         }
-        glass_ui::set_light(!self.theme.dark);
-        self.look = self.theme.look;
-        glass_ui::set_look(self.look);
+        let size = window.viewport_size();
+        glass_ui::begin_frame(&self.theme, f32::from(size.height) < layout::SHORT_WINDOW);
         self.scale = window.scale_factor();
         self.perf.frame();
         if self.bench.as_ref().is_some_and(perf::Bench::scrolling) {
@@ -3457,7 +3229,7 @@ impl Render for Launcher {
         self.github.note_focus(window);
         self.args_focused = self.args_focus.is_focused(window);
         self.proxy_focused = self.proxy_focus.is_focused(window);
-        let size = window.viewport_size();
+        self.return_focus_from_menu(window, cx);
         self.window_width = f32::from(size.width);
         self.window_long_side = f32::from(size.width).max(f32::from(size.height));
         self.scale_factor = window.scale_factor();
@@ -3470,7 +3242,6 @@ impl Render for Launcher {
             Page::Settings => self.settings_page(cx),
             Page::InstanceEditor => self.instance_page(cx),
         };
-        self.sky.free_replaced(window);
         self.pictures.free_retired(window);
         // The new page fades in and rises a few pixels, as the website's tabs do (`hzl-pop`).
         let content = div()
@@ -3487,23 +3258,10 @@ impl Render for Launcher {
         if window.focused(cx).is_none() {
             window.focus(&self.root_focus, cx);
         }
-        let sky = if t.dark {
-            self.scene.clone().into_any_element()
-        } else {
-            let (sky, next) = self.sky.render(
-                &t.night,
-                (size.width.into(), size.height.into()),
-                window.scale_factor(),
-                window.is_window_active(),
-                Instant::now(),
-            );
-            if let Some(next) = next {
-                self.wake_sky(next, cx);
-            }
-            sky.into_any_element()
-        };
-        let sidebar = self.glass_sidebar(window, cx);
-        let row_menu = self.row_menu(window, cx);
+        self.scene.update(cx, |scene, _| scene.set_look(&t.night));
+        let sky = self.scene.clone().into_any_element();
+        let sidebar = self.glass_sidebar(cx);
+        let row_menu = self.row_menu(cx);
         let mut root = div()
             .id("root")
             .track_focus(&self.root_focus)
@@ -3511,13 +3269,18 @@ impl Render for Launcher {
                 let k = &ev.keystroke;
                 match k.key.as_str() {
                     "tab" => {
-                        KEYBOARD.store(true, Ordering::Relaxed);
                         if k.modifiers.shift {
                             window.focus_prev(cx);
                         } else {
                             window.focus_next(cx);
                         }
                     }
+                    "escape" if this.close_menus() => {
+                        if let Some(opener) = this.menu_opener.take() {
+                            window.focus(&opener, cx);
+                        }
+                    }
+                    "escape" if this.confirm_escape() => {}
                     "escape" if this.native_log_escape() => {}
                     "escape" if this.servers_escape() => {}
                     "escape" if this.instance_escape() => {}
@@ -3543,25 +3306,22 @@ impl Render for Launcher {
                     cx.notify();
                 }
             }))
-            .capture_any_mouse_down(|_, _, _| KEYBOARD.store(false, Ordering::Relaxed))
             .relative()
             .flex()
             .flex_col()
             .size_full()
             .font_family(theme::FONT)
-            .text_color(t.ink)
+            .text_color(glass_ui::white(eclipse_theme::glass::ink::FULL))
             .overflow_hidden()
             .child(
                 div().relative().flex().size_full().child(sidebar).child(
                     div().flex().flex_col().flex_1().min_w_0().child(
                         self.content_scroll
                             .wrap(
-                                div()
-                                    .id("content")
+                                glass_ui::scroll_pane("content", &self.content_scroll.handle)
                                     .relative()
                                     .flex_1()
                                     .min_h_0()
-                                    .overflow_y_scroll()
                                     // A scrolled page is drawn from its layer, not
                                     // rendered: the Mods page's card asks, once the
                                     // offset has moved, whether it must follow.
@@ -3585,8 +3345,8 @@ impl Render for Launcher {
                                             .flex()
                                             .w_full()
                                             .min_w_0()
-                                            .px(px(theme::PAGE_GUTTER))
-                                            .pb(px(48.))
+                                            .px(px(layout::PAGE_GUTTER))
+                                            .pb(px(layout::PAGE_FOOT))
                                             // Settings and the New instance page scroll
                                             // their own pane under a still title.
                                             .when(
@@ -3601,7 +3361,7 @@ impl Render for Launcher {
                                                     .flex()
                                                     .flex_1()
                                                     .min_w_0()
-                                                    .max_w(px(theme::PAGE_MAX))
+                                                    .max_w(px(layout::PAGE_MAX))
                                                     .mx_auto()
                                                     .child(content),
                                             ),
@@ -3609,7 +3369,7 @@ impl Render for Launcher {
                             )
                             .flex_1()
                             .min_h_0()
-                            .mt(px(crate::glass::CONTENT_INSET)),
+                            .mt(px(layout::CONTENT_INSET)),
                     ),
                 ),
             );
@@ -3630,6 +3390,7 @@ impl Render for Launcher {
             }
         }
         root = root.children(self.toast_float());
+        root = root.children(glass_ui::focus_tip(window));
         if let Some(palette) = self.palette_overlay(window, cx) {
             root = root.child(palette);
         }
@@ -3665,22 +3426,6 @@ impl Launcher {
         }
         handle.set_offset(offset);
         window.request_animation_frame();
-    }
-
-    /// Draws the window again in `after`, when the sky next changes, unless a frame comes sooner.
-    fn wake_sky(&mut self, after: Duration, cx: &mut Context<Self>) {
-        let at = Instant::now() + after;
-        if self.sky_wake.as_ref().is_some_and(|(when, _)| *when <= at) {
-            return;
-        }
-        let timer = cx.spawn(async move |this, cx| {
-            cx.background_executor().timer(after).await;
-            let _ = this.update(cx, |this, cx| {
-                this.sky_wake = None;
-                cx.notify();
-            });
-        });
-        self.sky_wake = Some((at, timer));
     }
 }
 
@@ -3787,13 +3532,6 @@ fn main() {
             cx.text_system()
                 .add_fonts(vec![
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_MONO),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_REGULAR),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_MEDIUM),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_SEMIBOLD),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_BOLD),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_DISPLAY_BOLD),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_DISPLAY_SEMIBOLD),
-                    Cow::Borrowed(eclipse_theme::fonts::BRICOLAGE_HEADING_SEMIBOLD),
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_REGULAR),
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_MEDIUM),
                     Cow::Borrowed(eclipse_theme::fonts::GEIST_SEMIBOLD),
@@ -3822,11 +3560,12 @@ fn main() {
             }
             #[cfg(not(windows))]
             let _ = setup_window;
-            let bounds = Bounds::centered(None, size(px(1180.), px(760.)), cx);
+            let (width, height) = layout::DEFAULT_WINDOW;
+            let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size: Some(size(px(960.), px(600.))),
+                    window_min_size: Some(size(px(layout::MIN_WINDOW.0), px(layout::MIN_WINDOW.1))),
                     titlebar: Some(titlebar::options()),
                     #[cfg(target_os = "linux")]
                     window_decorations: Some(gpui::WindowDecorations::Client),

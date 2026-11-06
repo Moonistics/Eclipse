@@ -1,9 +1,10 @@
 //! Home's preparation: the time a download has left and the steps under Play while the game
 //! files are prepared.
 use super::*;
-use crate::plate::alpha;
-use crate::shell::c;
-use theme::night;
+use crate::glass_ui::{self as ui, Tone};
+use eclipse_theme::glass::{ink, step};
+
+const STEPS_WIDTH: f32 = 620.;
 
 impl Launcher {
     /// How long the download under way has left, from its pace since it was first seen: none
@@ -30,8 +31,6 @@ impl Launcher {
     /// Under Play while it prepares: a bar, what is happening and the time left, and the steps,
     /// the one under way lit, those done ticked. `version`: the Minecraft it downloads.
     pub(super) fn steps(&self, version: &str, left: Option<Duration>) -> Div {
-        let t = self.theme;
-        let n = t.night;
         let now = backend::prepare_step();
         let download = download_progress();
         let doing = match (download, now) {
@@ -58,41 +57,27 @@ impl Launcher {
         });
         // Play is the last step when it was pressed, not Prepare.
         let play = self.play_when_prepared.is_some();
+        let soft = ui::look().accent_soft;
         let pill = |name: &str, state: std::cmp::Ordering| {
-            let (mark, color) = match state {
+            let (mark, tone) = match state {
                 std::cmp::Ordering::Less => (
-                    Some(blocks::icon("check", 12., c(n.success))),
-                    c(n.ink_soft),
+                    ui::icon("tick-02", ui::IconSize::Px16, ui::live()).into_any_element(),
+                    ink::BODY,
                 ),
-                std::cmp::Ordering::Equal => (None, c(n.ink)),
-                std::cmp::Ordering::Greater => (None, c(n.muted)),
+                std::cmp::Ordering::Equal => {
+                    (ui::dot(Tone::Accent(soft)).into_any_element(), ink::FULL)
+                }
+                std::cmp::Ordering::Greater => (ui::dot(Tone::Off).into_any_element(), ink::MUTED),
             };
-            div()
-                .flex()
-                .items_center()
-                .gap(px(6.))
-                .child(match mark {
-                    Some(icon) => icon.into_any_element(),
-                    None => div()
-                        .size(px(6.))
-                        .bg(if state == std::cmp::Ordering::Equal {
-                            c(n.accent_hi)
-                        } else {
-                            alpha(n.muted, 0.5).into()
-                        })
-                        .into_any_element(),
-                })
-                .child(
-                    shell::text(night::CAPTION, color)
-                        .font_weight(FontWeight::MEDIUM)
-                        .child(tr(name).to_string()),
-                )
+            div().flex().items_center().gap(px(6.)).child(mark).child(
+                ui::text(step::CAPTION, FontWeight::MEDIUM, tone).child(tr(name).to_string()),
+            )
         };
         div()
             .flex()
             .flex_col()
             .gap(px(10.))
-            .max_w(px(620.))
+            .max_w(px(STEPS_WIDTH))
             .child(
                 div()
                     .flex()
@@ -107,14 +92,16 @@ impl Launcher {
                     .justify_between()
                     .gap(px(16.))
                     .child(
-                        shell::text(night::CAPTION, c(n.ink_soft))
+                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                             .min_w_0()
                             .truncate()
                             .child(doing),
                     )
-                    .children(
-                        left.map(|l| shell::text(night::CAPTION, c(n.muted)).flex_none().child(l)),
-                    ),
+                    .children(left.map(|l| {
+                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
+                            .flex_none()
+                            .child(l)
+                    })),
             )
             .child(
                 div()

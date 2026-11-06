@@ -1,11 +1,19 @@
 //! Release notes: pulldown-cmark events into gpui elements.
+use crate::glass_ui::{self as ui, white};
 use crate::theme::Theme;
+use eclipse_theme::glass::{ink, radius, step, EDGE};
 use gpui::{
     div, prelude::*, px, AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString,
     StyledText,
 };
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 use std::ops::Range;
+
+const BULLET: f32 = 5.;
+
+const KEY_COLUMN: f32 = 180.;
+
+const NARROW_COLUMN: f32 = 56.;
 
 /// A run of text's styled ranges.
 type Spans = Vec<(Range<usize>, Span)>;
@@ -29,7 +37,7 @@ enum Span {
     Link,
 }
 
-pub fn render(source: &str, t: &Theme) -> AnyElement {
+pub fn render(source: &str, _: &Theme) -> AnyElement {
     let mut blocks = Vec::new();
     let (mut text, mut spans) = (String::new(), Vec::new());
     let mut open: Vec<(Span, usize)> = Vec::new();
@@ -144,7 +152,7 @@ pub fn render(source: &str, t: &Theme) -> AnyElement {
             let style = match span {
                 Span::Strong => HighlightStyle {
                     font_weight: Some(FontWeight::SEMIBOLD),
-                    color: Some(t.ink),
+                    color: Some(white(ink::FULL)),
                     ..Default::default()
                 },
                 Span::Emphasis => HighlightStyle {
@@ -152,12 +160,12 @@ pub fn render(source: &str, t: &Theme) -> AnyElement {
                     ..Default::default()
                 },
                 Span::Code => HighlightStyle {
-                    background_color: Some(t.plate_soft),
-                    color: Some(t.ink),
+                    background_color: Some(ui::well()),
+                    color: Some(white(ink::FULL)),
                     ..Default::default()
                 },
                 Span::Link => HighlightStyle {
-                    color: Some(t.ink),
+                    color: Some(ui::color(ui::look().accent_soft)),
                     ..Default::default()
                 },
             };
@@ -165,22 +173,20 @@ pub fn render(source: &str, t: &Theme) -> AnyElement {
         });
         StyledText::new(SharedString::from(text)).with_highlights(highlights.collect::<Vec<_>>())
     };
-    let mut column = div()
+    let mut column = ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
         .flex()
         .flex_col()
-        .gap(px(6.))
-        .text_size(px(crate::theme::UI.px))
-        .line_height(px(21.7))
-        .text_color(t.ink_soft);
+        .gap(px(6.));
     for block in blocks {
         column = column.child(match block {
-            Block::Heading(level, text, spans) => div()
-                .pt(px(if level <= 2 { 12. } else { 6. }))
-                .text_size(px(if level <= 2 { 16. } else { 14. }))
-                .font_weight(FontWeight::SEMIBOLD)
-                .text_color(t.ink)
-                .child(styled(text, spans))
-                .into_any_element(),
+            Block::Heading(level, text, spans) => ui::text(
+                if level <= 2 { step::TITLE } else { step::BODY },
+                FontWeight::SEMIBOLD,
+                ink::FULL,
+            )
+            .pt(px(if level <= 2 { 12. } else { 6. }))
+            .child(styled(text, spans))
+            .into_any_element(),
             Block::Paragraph(text, spans) => div().child(styled(text, spans)).into_any_element(),
             Block::Item(depth, number, text, spans) => div()
                 .flex()
@@ -189,57 +195,58 @@ pub fn render(source: &str, t: &Theme) -> AnyElement {
                 .child(match number {
                     None => div()
                         .flex_none()
-                        .mt(px(8.5))
-                        .size(px(5.))
-                        .bg(crate::glass_ui::white(eclipse_theme::glass::ink::DIM)),
+                        .mt(px((step::BODY.line - BULLET) / 2.))
+                        .size(px(BULLET))
+                        .bg(white(ink::DIM)),
                     Some(n) => div()
                         .flex_none()
                         .w(px(16.))
-                        .text_color(t.muted)
+                        .text_color(white(ink::MUTED))
                         .child(format!("{n}.")),
                 })
                 .child(div().flex_1().min_w_0().child(styled(text, spans)))
                 .into_any_element(),
-            Block::Code(code) => div()
-                .p(px(16.))
-                .rounded(px(eclipse_theme::glass::radius::PANEL))
-                .bg(t.plate_soft)
+            Block::Code(code) => ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
+                .p(px(ui::PANEL_INSET))
+                .rounded(px(radius::ROW))
+                .bg(ui::well())
                 .font_family(crate::theme::MONO)
-                .text_size(px(12.))
-                .line_height(px(18.))
-                .text_color(t.ink)
                 .child(code.trim_end().to_string())
                 .into_any_element(),
-            Block::Rule => div().h(px(1.)).bg(t.rule).my(px(8.)).into_any_element(),
+            Block::Rule => div()
+                .h(px(1.))
+                .bg(white(EDGE))
+                .my(px(8.))
+                .into_any_element(),
             Block::Table(rows) => {
                 let mut grid = div()
                     .flex()
                     .flex_col()
                     .my(px(4.))
                     .border_t_1()
-                    .border_color(t.rule);
+                    .border_color(white(EDGE));
                 for (i, row) in rows.into_iter().enumerate() {
                     let mut line = div()
                         .flex()
                         .gap(px(16.))
                         .py(px(8.))
                         .border_b_1()
-                        .border_color(t.rule);
+                        .border_color(white(EDGE));
                     let columns = row.len();
                     for (j, (text, spans)) in row.into_iter().enumerate() {
                         // Two-column tables keep a narrow first column; wider ones share the width.
                         let cell = if j == 0 && columns > 1 {
-                            div().w(px(180.)).flex_none()
+                            div().w(px(KEY_COLUMN)).flex_none()
                         } else if j + 1 < columns && columns > 2 {
-                            div().w(px(56.)).flex_none()
+                            div().w(px(NARROW_COLUMN)).flex_none()
                         } else {
                             div().flex_1().min_w_0()
                         };
                         line = line.child(
                             cell.when(i == 0, |d| {
-                                d.text_color(t.ink)
+                                d.text_color(white(ink::FULL))
                                     .font_weight(FontWeight::MEDIUM)
-                                    .text_size(px(12.5))
+                                    .text_size(px(step::CAPTION.size))
                             })
                             .child(styled(text, spans)),
                         );

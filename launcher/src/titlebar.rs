@@ -1,15 +1,19 @@
 //! Window chrome: Windows and Linux client-side decorations are custom drawn; macOS and Linux
 //! server-side decorations use the platform's native chrome.
+use crate::glass_ui::{self as ui, white};
 use crate::theme::Theme;
 use eclipse_launcher::backend::Appearance;
-use gpui::{div, px, Div, ParentElement, Styled, TitlebarOptions, Window};
+use eclipse_theme::glass::{fill, ink};
+use gpui::{Div, ParentElement, Styled, TitlebarOptions, Window};
 
-fn wordmark(theme: &Theme) -> Div {
-    div()
-        .font_family(eclipse_theme::glass::LABEL_FONT)
-        .text_size(px(12.))
-        .text_color(theme.ink)
+fn wordmark() -> Div {
+    ui::press_text()
+        .text_color(white(ink::FULL))
         .child("Eclipse")
+}
+
+fn close_icon() -> gpui::Svg {
+    ui::icon("cancel-01", ui::IconSize::Px16, white(ink::BODY))
 }
 
 /// Whether Windows uses a transparent native title bar for the launcher's custom chrome.
@@ -31,7 +35,7 @@ pub fn render(_theme: &Theme, _window: &Window) -> Option<Div> {
 /// Draw the launcher's Linux title bar when the platform uses client-side decorations.
 #[cfg(target_os = "linux")]
 pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
-    use crate::{blocks, mark};
+    use crate::mark;
     use gpui::{div, prelude::*, px, Decorations, MouseButton};
 
     if matches!(window.window_decorations(), Decorations::Server) {
@@ -49,7 +53,7 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
         .px(px(12.))
         .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
         .child(mark(16., window.scale_factor()))
-        .child(wordmark(theme));
+        .child(wordmark());
 
     let mut bar = div()
         .flex()
@@ -57,14 +61,13 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
         .items_center()
         .h(px(32.))
         .bg(theme.side)
-        .text_color(theme.muted)
+        .text_color(white(ink::MUTED))
         .border_b_1()
         .border_color(gpui::transparent_black())
         .child(drag);
 
+    let (color, hover) = (white(ink::BODY), white(fill::HOVER));
     if controls.minimize {
-        let color = theme.ink_soft;
-        let hover = theme.plate_soft;
         bar = bar.child(
             div()
                 .id("window-minimize")
@@ -82,8 +85,6 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
     }
 
     if controls.maximize {
-        let color = theme.ink_soft;
-        let hover = theme.plate_soft;
         let maximized = window.is_maximized();
         let square = || {
             div()
@@ -124,8 +125,8 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
         );
     }
 
-    let close_hover = theme.page;
-    let close_bg = theme.danger;
+    let close_hover = gpui::white();
+    let close_bg = ui::danger();
     Some(
         bar.child(
             div()
@@ -140,10 +141,9 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
                 .cursor_pointer()
                 .hover(move |style| style.bg(close_bg).text_color(close_hover))
                 .child(
-                    blocks::icon("close", 14., theme.ink_soft)
-                        .group_hover("linux-window-close", move |style| {
-                            style.text_color(close_hover)
-                        }),
+                    close_icon().group_hover("linux-window-close", move |style| {
+                        style.text_color(close_hover)
+                    }),
                 )
                 .on_click(|_, window, _| window.remove_window()),
         ),
@@ -282,7 +282,7 @@ pub fn apply_appearance(_: &Window, _: Appearance) {}
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
-    use crate::{blocks, mark};
+    use crate::mark;
     use gpui::{div, prelude::*, px, Stateful, WindowControlArea};
 
     const HEIGHT: f32 = 32.;
@@ -314,13 +314,14 @@ mod windows {
         }
     }
 
-    fn control_icon(control: Control, maximized: bool, theme: &Theme) -> Div {
+    fn control_icon(control: Control, maximized: bool) -> Div {
+        let color = white(ink::BODY);
         let square = || {
             div()
                 .absolute()
                 .size(px(10.))
                 .border_1()
-                .border_color(theme.ink_soft)
+                .border_color(color)
         };
         let icon = div().relative().size(px(14.));
         match control {
@@ -331,7 +332,7 @@ mod windows {
                     .top(px(7.))
                     .w(px(10.))
                     .h(px(1.))
-                    .bg(theme.ink_soft),
+                    .bg(color),
             ),
             Control::Maximize if maximized => icon
                 .child(
@@ -342,22 +343,17 @@ mod windows {
                         .size(px(10.))
                         .border_t_1()
                         .border_r_1()
-                        .border_color(theme.ink_soft),
+                        .border_color(color),
                 )
                 .child(square().left(px(1.)).top(px(3.))),
             Control::Maximize => icon.child(square().left(px(2.)).top(px(2.))),
-            Control::Close => {
-                let hover_color = theme.page;
-                icon.child(
-                    blocks::icon("close", 14., theme.ink_soft)
-                        .group_hover("window-close", move |style| style.text_color(hover_color)),
-                )
-            }
+            Control::Close => icon.child(
+                close_icon().group_hover("window-close", |style| style.text_color(gpui::white())),
+            ),
         }
     }
 
-    fn control_button(control: Control, theme: &Theme, maximized: bool) -> Stateful<Div> {
-        let theme = *theme;
+    fn control_button(control: Control, maximized: bool) -> Stateful<Div> {
         div()
             .id(control.name())
             .group(control.name())
@@ -367,15 +363,15 @@ mod windows {
             .justify_center()
             .w(px(BUTTON_WIDTH))
             .h_full()
-            .text_color(theme.ink_soft)
+            .text_color(white(ink::BODY))
             // GPUI maps these to native non-client hit tests, retaining Snap Layouts,
             // Alt+Space and close handling. Click callbacks would run the action twice.
             .window_control_area(control.area())
             .hover(move |style| match control {
-                Control::Close => style.bg(theme.danger).text_color(theme.page),
-                _ => style.bg(theme.plate_soft),
+                Control::Close => style.bg(ui::danger()).text_color(gpui::white()),
+                _ => style.bg(white(fill::HOVER)),
             })
-            .child(control_icon(control, maximized, &theme))
+            .child(control_icon(control, maximized))
     }
 
     pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
@@ -389,7 +385,7 @@ mod windows {
             .px(px(12.))
             .window_control_area(WindowControlArea::Drag)
             .child(mark(16., window.scale_factor()))
-            .child(wordmark(theme));
+            .child(wordmark());
         Some(
             div()
                 .flex()
@@ -401,13 +397,13 @@ mod windows {
                     bar.pt(px(RESIZE_INSET)).px(px(RESIZE_INSET))
                 })
                 .bg(theme.side)
-                .text_color(theme.muted)
+                .text_color(white(ink::MUTED))
                 .border_b_1()
                 .border_color(gpui::transparent_black())
                 .child(drag)
                 .children(
                     [Control::Minimize, Control::Maximize, Control::Close]
-                        .map(|control| control_button(control, theme, window.is_maximized())),
+                        .map(|control| control_button(control, window.is_maximized())),
                 ),
         )
     }

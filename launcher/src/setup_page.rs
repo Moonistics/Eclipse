@@ -1,19 +1,19 @@
 //! The Windows setup window: `eclipse-launcher-setup.exe` installs, `eclipse-launcher.exe
-//! uninstall` removes. The launcher's own sky and plates (docs/design-system.md, "Night"); the
-//! work is `eclipse_launcher::installer`, on a thread, reported over a channel.
-use crate::glass_ui;
+//! uninstall` removes. The launcher's own scene and cards; the work is
+//! `eclipse_launcher::installer`, on a thread, reported over a channel.
+use crate::glass_ui::{self, Press};
 use crate::scene;
-use crate::shell::{c, text};
 use crate::sky::Sky;
-use crate::theme::{self, night, Theme};
+use crate::theme::{self, Theme};
 use crate::titlebar;
 use crate::Kind;
 use eclipse_launcher::backend::Settings;
 use eclipse_launcher::i18n::{self, tr};
 use eclipse_launcher::installer::{self, Mode, Options, Step};
+use eclipse_theme::glass::{ink, pixel_text, step};
 use gpui::{
-    div, prelude::*, px, size, App, Bounds, ClickEvent, Context, Div, PathPromptOptions, Render,
-    Task, Window, WindowBounds, WindowOptions,
+    div, prelude::*, px, size, App, Bounds, ClickEvent, Context, Div, FontWeight,
+    PathPromptOptions, Render, Task, Window, WindowBounds, WindowOptions,
 };
 use std::sync::mpsc::{channel, Receiver};
 use std::time::{Duration, Instant};
@@ -86,8 +86,7 @@ impl Setup {
         titlebar::apply_appearance(window, settings.appearance);
         Self {
             mode,
-            theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance())
-                .with_glass(settings.glass_tint(), settings.glass_blur()),
+            theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
             scene: cx.new(|_| scene::Scene::new()),
             sky: Sky::default(),
             sky_wake: None,
@@ -224,12 +223,11 @@ impl Setup {
         flip: fn(&mut Options),
         cx: &mut Context<Self>,
     ) -> Div {
-        let (t, n) = (self.theme, self.theme.night);
         div()
             .flex()
             .items_center()
             .gap(px(14.))
-            .child(crate::switch(id, on, &t).on_click(cx.listener(
+            .child(crate::glass_ui::toggle(id, on).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     flip(&mut this.options);
                     cx.notify();
@@ -240,13 +238,14 @@ impl Setup {
                     .flex()
                     .flex_col()
                     .min_w_0()
-                    .child(text(night::UI, c(n.ink)).child(words))
-                    .children(hint.map(|h| text(night::CAPTION, c(n.muted)).child(h))),
+                    .child(glass_ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(words))
+                    .children(hint.map(|h| {
+                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(h)
+                    })),
             )
     }
 
     fn folder_row(&self, cx: &mut Context<Self>) -> Div {
-        let (t, n) = (self.theme, self.theme.night);
         div()
             .flex()
             .items_center()
@@ -257,28 +256,30 @@ impl Setup {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .child(text(night::CAPTION, c(n.muted)).child(tr("Install to").to_string()))
                     .child(
-                        text(theme::MICRO, c(n.ink_soft))
+                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+                            .child(tr("Install to").to_string()),
+                    )
+                    .child(
+                        glass_ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                             .font_family(theme::MONO)
                             .truncate()
                             .child(self.options.dir.display().to_string()),
                     ),
             )
             .child(
-                crate::button("change", tr("Change…"), Kind::Secondary, &t)
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_folder(cx))),
+                crate::button("change", tr("Change…"), Kind::Secondary)
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.choose_folder(cx))),
             )
     }
 
     fn card(&self, cx: &mut Context<Self>) -> Div {
-        let (t, n) = (self.theme, self.theme.night);
         let mut body = div().flex().flex_col().gap(px(16.));
         match &self.stage {
             Stage::Welcome if self.mode == Mode::Install => {
                 body = body
                     .child(
-                        text(night::UI, c(n.ink_soft))
+                        glass_ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
                             .child(tr("Installs Eclipse Launcher for this account.").to_string()),
                     )
                     .child(self.folder_row(cx))
@@ -300,15 +301,14 @@ impl Setup {
                                     tr("Install").to_string()
                                 },
                                 Kind::Primary,
-                                &t,
                             )
-                            .on_click(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
+                            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
                         ),
                     );
             }
             Stage::Welcome => {
                 body = body
-                    .child(text(night::UI, c(n.ink_soft)).child(
+                    .child(glass_ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(
                         tr("Removes Eclipse Launcher from this computer. Your worlds and the game's folder stay.")
                             .to_string(),
                     ))
@@ -330,12 +330,12 @@ impl Setup {
                             .justify_end()
                             .gap(px(12.))
                             .child(
-                                crate::button("cancel", tr("Cancel"), Kind::Secondary, &t)
-                                    .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
+                                crate::button("cancel", tr("Cancel"), Kind::Secondary)
+                                    .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                             )
                             .child(
-                                crate::button("go", tr("Uninstall"), Kind::Primary, &t)
-                                    .on_click(
+                                crate::button("go", tr("Uninstall"), Kind::Primary)
+                                    .on_press(
                                         cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx)),
                                     ),
                             ),
@@ -343,7 +343,10 @@ impl Setup {
             }
             Stage::Working { step, fraction } => {
                 body = body
-                    .child(text(night::UI, c(n.ink)).child(step_text(*step)))
+                    .child(
+                        glass_ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                            .child(step_text(*step)),
+                    )
                     .child(crate::progress_bar(Some((0., *fraction))));
             }
             Stage::Done { left } => {
@@ -351,15 +354,16 @@ impl Setup {
                     Mode::Install => tr("Eclipse Launcher is installed.").to_string(),
                     Mode::Uninstall => tr("Eclipse Launcher was removed.").to_string(),
                 };
-                body = body.child(text(night::TITLE, c(n.ink)).child(said));
+                body = body.child(glass_ui::card_title(said));
                 if !left.is_empty() {
                     body = body.child(
-                        text(night::CAPTION, c(n.warn))
+                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                            .text_color(glass_ui::warn())
                             .child(tr("These could not be removed:").to_string()),
                     );
                     for item in left {
                         body = body.child(
-                            text(theme::MICRO, c(n.muted))
+                            glass_ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
                                 .font_family(theme::MONO)
                                 .child(item.clone()),
                         );
@@ -368,26 +372,28 @@ impl Setup {
                 // The window's own close control is in the title bar, so the last screen has only
                 // the action worth taking; an uninstall just says so and is closed there.
                 if self.mode == Mode::Install {
-                    body = body.child(
-                        div().flex().items_center().justify_end().child(
-                            crate::button("launch", tr("Launch Eclipse"), Kind::Primary, &t)
-                                .on_click(
-                                    cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx)),
-                                ),
-                        ),
-                    );
+                    body =
+                        body.child(div().flex().items_center().justify_end().child(
+                            crate::button("launch", tr("Launch Eclipse"), Kind::Primary).on_press(
+                                cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx)),
+                            ),
+                        ));
                 }
             }
             Stage::Failed(error) => {
                 body = body
+                    .child(glass_ui::card_title(
+                        tr("Something went wrong.").to_string(),
+                    ))
                     .child(
-                        text(night::TITLE, c(n.ink)).child(tr("Something went wrong.").to_string()),
+                        glass_ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                            .text_color(glass_ui::danger())
+                            .child(error.clone()),
                     )
-                    .child(text(night::CAPTION, c(n.danger)).child(error.clone()))
                     .child(
                         div().flex().justify_end().child(
-                            crate::button("close", tr("Close"), Kind::Secondary, &t)
-                                .on_click(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
+                            crate::button("close", tr("Close"), Kind::Secondary)
+                                .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                         ),
                     );
             }
@@ -398,7 +404,7 @@ impl Setup {
             .flex()
             .flex_col()
             .gap(px(18.))
-            .child(text(night::DISPLAY, c(n.ink)).child("Eclipse"))
+            .child(glass_ui::entity_title("Eclipse", pixel_text::PAGE_TITLE))
             .child(body)
     }
 }
@@ -415,8 +421,7 @@ impl Render for Setup {
             i18n::set(settings.language());
             titlebar::apply_appearance(window, settings.appearance);
             self.theme =
-                Theme::for_appearance(settings.appearance, settings.accent, window.appearance())
-                    .with_glass(settings.glass_tint(), settings.glass_blur());
+                Theme::for_appearance(settings.appearance, settings.accent, window.appearance());
         }
         // Look again twice a second, through the same wake the sky uses, so a settings change
         // shows even while the scene has stopped animating, without drawing the window at
@@ -424,10 +429,7 @@ impl Render for Setup {
         self.wake_sky(Duration::from_millis(500), cx);
         let t = self.theme;
         let viewport = window.viewport_size();
-        // The card's controls use the player's accent and appearance, as the launcher draws them
-        // (`crate::button` and `crate::switch` pick them from these).
-        glass_ui::set_light(!t.dark);
-        glass_ui::set_look(t.look);
+        glass_ui::begin_frame(&t, false);
         self.sky.free_replaced(window);
         let sky = if t.dark {
             self.scene.clone().into_any_element()

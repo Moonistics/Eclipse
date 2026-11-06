@@ -1,9 +1,12 @@
-//! Settings' AI rows: the No AI switch (`eclipse_core::no_ai`, shared with the game) and "Connect
-//! an AI agent", the ready-made MCP config of each common client with Copy buttons, a one-click
-//! add where the client has a CLI (run only on that click, its command shown first), and a test
-//! that starts the MCP server and lists its tools. With No AI on, only the switch shows.
+//! Settings' AI rows: the Show AI features switch (`eclipse_core::no_ai`, shared with the game)
+//! and "Connect an AI agent", the ready-made MCP config of each common client with Copy buttons,
+//! a one-click add where the client has a CLI (run only on that click, its command shown first),
+//! and a test that starts the MCP server and lists its tools. With AI features hidden, only the
+//! switch shows.
 use super::*;
+use crate::glass_ui as ui;
 use eclipse_launcher::agents;
+use eclipse_theme::glass::{ink, radius, step};
 
 #[derive(Default)]
 pub(crate) struct AgentsUi {
@@ -18,37 +21,22 @@ pub(crate) struct AgentsUi {
 }
 
 impl Launcher {
-    /// The No AI row: always shown, so it can be turned off again.
-    pub(crate) fn no_ai_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
-        let on = backend::no_ai();
-        let toggle =
-            switch("no-ai", on, &t).on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.agents.status = backend::set_no_ai(!on).err().map(|e| (false, e));
+    /// The Show AI features row: always shown, so they can be shown again.
+    pub(crate) fn ai_features_row(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let shown = !backend::no_ai();
+        ui::toggle_row("ai-features", tr("Show AI features"), None, shown).on_press(cx.listener(
+            move |this, _: &ClickEvent, _, cx| {
+                this.agents.status = backend::set_no_ai(shown).err().map(|e| (false, e));
                 cx.notify();
-            }));
-        index_row(
-            tr("No AI"),
-            Some(
-                div()
-                    .child(tr(if on {
-                        "On: every AI feature is hidden and off."
-                    } else {
-                        "Hides and turns off every AI feature."
-                    }))
-                    .into_any_element(),
-            ),
-            Some(toggle.into_any_element()),
-            &t,
-        )
+            },
+        ))
     }
 
-    /// "Connect an AI agent"; None while No AI is on.
+    /// "Connect an AI agent"; None while AI features are hidden.
     pub(crate) fn agents_section(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         if backend::no_ai() {
             return None;
         }
-        let t = self.theme;
         let exe = &backend::update_target();
         let clients = agents::clients(exe);
         let pick = self.agents.client.min(clients.len() - 1);
@@ -59,7 +47,7 @@ impl Launcher {
             .enumerate()
             .map(|(i, c)| (i, c.name))
             .collect();
-        let picker = segments("agent-client", &options, pick, &t, move |i, _, cx| {
+        let picker = ui::segments("agent-client", &options, pick, move |i, _, cx| {
             let _ = this.update(cx, |this, cx| {
                 this.agents.client = i;
                 this.agents.copied = None;
@@ -69,59 +57,51 @@ impl Launcher {
         });
         let copy = |id: &'static str, text: String, cx: &mut Context<Self>| {
             let copied = self.agents.copied == Some(id);
-            button(
+            ui::button(
                 id,
-                if copied { "Copied" } else { "Copy" },
+                Some("copy-01"),
+                tr(if copied { "Copied" } else { "Copy" }),
                 Kind::Secondary,
-                &t,
+                ui::Size::Md,
             )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
                 this.agents.copied = Some(id);
                 cx.notify();
             }))
         };
+        let say = |s: String| ui::card_note(s);
         let code = |s: &str| {
             div()
-                .p(px(10.))
-                .bg(t.plate_soft)
+                .p(px(12.))
+                .rounded(px(radius::ROW))
+                .bg(ui::well())
                 .font_family(theme::MONO)
-                .text_size(px(12.))
-                .line_height(px(18.))
-                .text_color(t.ink)
+                .text_size(px(step::CAPTION.size))
+                .line_height(px(step::CAPTION.line))
+                .text_color(ui::white(ink::FULL))
                 .children(s.lines().map(|l| div().child(l.to_owned())))
         };
-        let mut section = plate()
+        let mut steps = div()
             .flex()
             .flex_col()
+            .items_start()
             .gap(px(12.))
-            .p(px(24.))
-            .text_size(px(theme::UI.px))
-            .line_height(px(21.))
-            .child(
-                text(theme::HEADING)
-                    .text_color(t.ink)
-                    .child(tr("Connect an AI agent")),
-            )
-            .child(div().max_w(px(640.)).text_color(t.muted).child(tr(
-                "Let your own AI agent control the launcher and the game. It asks before deleting anything.",
-            )))
             .child(picker);
         if let Some((program, args)) = client.add.clone() {
             let line = client.add_line().unwrap_or_default();
             let label = trf("Add to {client}", &[("client", client.name)]);
             let busy = self.agents.busy;
-            let add = button(
+            let add = ui::primary(
                 "agent-add",
                 if busy {
                     tr("Running…").to_owned()
                 } else {
                     label
                 },
-                Kind::Primary,
-                &t,
+                ui::Size::Md,
             )
-            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if this.agents.busy {
                     return;
                 }
@@ -142,20 +122,51 @@ impl Launcher {
                 .detach();
                 cx.notify();
             }));
-            section = section
-                .child(div().text_color(t.muted).child(trf(
+            steps = steps
+                .child(say(trf(
                     "{client} adds it with this command:",
                     &[("client", client.name)],
                 )))
-                .child(code(&line))
+                .child(code(&line).w_full())
                 .child(div().flex().gap(px(8.)).child(add).child(copy(
                     "agent-copy-command",
                     line.clone(),
                     cx,
                 )));
         }
-        section = section
-            .child(div().text_color(t.muted).child(trf(
+        let test = ui::button(
+            "agent-test",
+            None,
+            tr("Test the connection"),
+            Kind::Secondary,
+            ui::Size::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            if this.agents.busy {
+                return;
+            }
+            this.agents.busy = true;
+            this.agents.status = None;
+            let exe = backend::update_target();
+            let task = cx.background_executor().spawn(async move {
+                match agents::self_test(&exe) {
+                    Ok(n) => (true, trf("The MCP server answered with {count} tools. Now ask your agent: \"Say hello from Eclipse\".", &[("count", &n.to_string())])),
+                    Err(e) => (false, trf("The MCP server did not answer: {error}", &[("error", &e)])),
+                }
+            });
+            cx.spawn(async move |this, cx| {
+                let result = task.await;
+                let _ = this.update(cx, |this, cx| {
+                    this.agents.busy = false;
+                    this.agents.status = Some(result);
+                    cx.notify();
+                });
+            })
+            .detach();
+            cx.notify();
+        }));
+        steps = steps
+            .child(say(trf(
                 if client.add.is_some() {
                     "Or put this in {file}:"
                 } else {
@@ -163,53 +174,34 @@ impl Launcher {
                 },
                 &[("file", tr(client.file))],
             )))
-            .child(code(&client.config))
-            .child(div().flex().gap(px(8.)).child(copy("agent-copy-config", client.config.clone(), cx)).child(
-                button("agent-test", "Test the connection", Kind::Secondary, &t).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        if this.agents.busy {
-                            return;
-                        }
-                        this.agents.busy = true;
-                        this.agents.status = None;
-                        let exe = backend::update_target();
-                        let task = cx.background_executor().spawn(async move {
-                            match agents::self_test(&exe) {
-                                Ok(n) => (true, trf("The MCP server answered with {count} tools. Now ask your agent: \"Say hello from Eclipse\".", &[("count", &n.to_string())])),
-                                Err(e) => (false, trf("The MCP server did not answer: {error}", &[("error", &e)])),
-                            }
-                        });
-                        cx.spawn(async move |this, cx| {
-                            let result = task.await;
-                            let _ = this.update(cx, |this, cx| {
-                                this.agents.busy = false;
-                                this.agents.status = Some(result);
-                                cx.notify();
-                            });
-                        })
-                        .detach();
-                        cx.notify();
-                    },
-                )),
-            ));
-        if let Some((ok, message)) = &self.agents.status {
-            section = section.child(
+            .child(code(&client.config).w_full())
+            .child(
                 div()
-                    .text_color(if *ok { t.ink } else { t.danger })
+                    .flex()
+                    .gap(px(8.))
+                    .child(copy("agent-copy-config", client.config.clone(), cx))
+                    .child(test),
+            );
+        if let Some((ok, message)) = &self.agents.status {
+            steps = steps.child(
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL)
+                    .when(!*ok, |d| d.text_color(ui::danger()))
                     .child(message.clone()),
             );
         }
-        Some(
-            section.child(
+        steps = steps.child(
+            ui::link("agent-docs", tr("Agent commands"))
+                .on_press(|_, _, cx| cx.open_url(backend::AGENT_DOCS_URL)),
+        );
+        Some(ui::setting_row_stacked(
+            tr("Connect an AI agent"),
+            Some(
                 div()
-                    .id("agent-docs")
-                    .text_color(t.accent)
-                    .cursor_pointer()
-                    .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-                    .child(tr("Agent commands"))
-                    .on_click(|_, _, cx| cx.open_url(backend::AGENT_DOCS_URL)),
+                    .child(tr("Lets your AI agent control the launcher and the game."))
+                    .into_any_element(),
             ),
-        )
+            steps.into_any_element(),
+        ))
     }
 }
 

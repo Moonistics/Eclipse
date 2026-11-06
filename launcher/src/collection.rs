@@ -1,8 +1,10 @@
 //! Data collection in the window: the question asked once (and again when what is collected
 //! changes), and its section in Settings. Everything goes through `eclipse_launcher::telemetry`.
 use super::*;
+use crate::glass_ui as ui;
 use eclipse_launcher::telemetry;
 use eclipse_telemetry::{Choices, Consent, Kind as DataKind};
+use eclipse_theme::glass::{ink, pixel_text, radius, step};
 
 /// What the window keeps about data collection.
 pub(crate) struct Collection {
@@ -45,30 +47,27 @@ fn kind_id(prefix: &str, kind: DataKind) -> &'static str {
     }
 }
 
-/// The exact JSON, in mono, scrolling inside a plate.
-fn json_view(view: &(String, String), t: &Theme, scroll: &Scrollbar) -> Div {
+const JSON_HEIGHT: f32 = 260.;
+
+const CONSENT_WIDTH: f32 = 680.;
+
+/// The exact JSON, in mono, scrolling inside a well.
+fn json_view(view: &(String, String), scroll: &Scrollbar) -> Div {
     div()
         .flex()
         .flex_col()
         .gap(px(8.))
-        .child(
-            text(theme::CAPTION)
-                .text_color(t.muted)
-                .child(view.0.clone()),
-        )
+        .child(ui::card_note(view.0.clone()))
         .child(
             scroll.wrap(
-                div()
+                ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
                     .id("data-json")
-                    .max_h(px(260.))
+                    .max_h(px(JSON_HEIGHT))
                     .overflow_y_scroll()
-                    .p(px(16.))
-                    .rounded(px(eclipse_theme::glass::radius::ROW))
-                    .bg(t.plate)
+                    .p(px(ui::PANEL_INSET))
+                    .rounded(px(radius::ROW))
+                    .bg(ui::well())
                     .font_family(theme::MONO)
-                    .text_size(px(theme::CAPTION.px))
-                    .line_height(px(18.))
-                    .text_color(t.ink_soft)
                     .children(view.1.lines().map(|l| div().child(l.to_string()))),
             ),
         )
@@ -107,33 +106,19 @@ impl Launcher {
     /// The question, centred over the launcher. Everything starts off; "Send nothing" is one
     /// click, as easy as saying yes.
     pub(crate) fn consent_screen(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let t = self.theme;
         let draft = self.collection.draft;
         let rows = telemetry::SWITCHES.iter().map(|&(kind, name, what)| {
             let on = draft.allows(kind);
-            div()
-                .flex()
-                .items_start()
-                .gap(px(16.))
-                .py(px(10.))
-                .border_b_1()
-                .border_color(t.rule)
-                .child(
-                    div()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .gap(px(2.))
-                        .child(text(theme::UI).text_color(t.ink).child(tr(name)))
-                        .child(text(theme::CAPTION).text_color(t.muted).child(tr(what))),
-                )
-                .child(switch(kind_id("ask", kind), on, &t).on_click(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        this.collection.draft.set(kind, !on);
-                        cx.notify();
-                    },
-                )))
+            ui::toggle_row(
+                kind_id("ask", kind),
+                tr(name),
+                Some(div().child(tr(what)).into_any_element()),
+                on,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.collection.draft.set(kind, !on);
+                cx.notify();
+            }))
         });
         let viewing = self.collection.view.is_some();
         // The body scrolls inside the card, so the answers stay at its foot however short the
@@ -144,51 +129,51 @@ impl Launcher {
             .flex_col()
             .min_h_0()
             .gap(px(12.))
-            .px(px(28.))
-            .pt(px(28.))
-            .pb(px(20.))
+            .px(px(ui::CARD_PADDING))
+            .pt(px(ui::CARD_PADDING))
+            .pb(px(ui::PANEL_INSET))
             .overflow_y_scroll()
-            .child(caps(tr("Data collection")).text_color(t.muted))
-            .child(
-                text(theme::HEADING)
-                    .text_color(t.ink)
-                    .child(tr("Help make Eclipse faster and steadier?")),
-            )
-            .child(text(theme::UI).text_color(t.muted).child(tr(
+            .child(ui::label(tr("Data collection")))
+            .child(ui::entity_title(
+                tr("Help make Eclipse faster and steadier?"),
+                pixel_text::CARD_TITLE,
+            ))
+            .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(tr(
                 "Eclipse can send a few things to its developers. Each switch is off until you turn it on, and Settings can change it any time.",
             )))
+            .child(div().flex().flex_col().mx(px(-ui::SETTING_ROW_PADDING)).children(rows))
+            .child(ui::card_note(tr(telemetry::NEVER)))
             .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .border_t_1()
-                    .border_color(t.rule)
-                    .children(rows),
-            )
-            .child(text(theme::CAPTION).text_color(t.muted).child(tr(telemetry::NEVER)))
-            .child(
-                div()
-                    .id("ask-view")
-                    .text_size(px(theme::UI.px))
-                    .text_color(t.accent)
-                    .cursor_pointer()
-                    .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-                    .child(tr(if viewing { "Hide what would be sent" } else { "View what would be sent" }))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                div().flex().child(
+                    ui::link(
+                        "ask-view",
+                        tr(if viewing {
+                            "Hide what would be sent"
+                        } else {
+                            "View what would be sent"
+                        }),
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.toggle_view();
                         cx.notify();
                     })),
+                ),
             )
-            .children(self.collection.view.as_ref().map(|v| json_view(v, &t, &self.collection.json_scroll)));
+            .children(
+                self.collection
+                    .view
+                    .as_ref()
+                    .map(|v| json_view(v, &self.collection.json_scroll)),
+            );
         let answers = div()
             .flex()
             .flex_none()
             .justify_end()
             .gap(px(12.))
-            .px(px(28.))
-            .pb(px(28.))
+            .px(px(ui::CARD_PADDING))
+            .pb(px(ui::CARD_PADDING))
             .child(
-                button("ask-none", "Send nothing", Kind::Secondary, &t).on_click(cx.listener(
+                button("ask-none", "Send nothing", Kind::Secondary).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.answer_consent(Choices::NONE);
                         cx.notify();
@@ -196,22 +181,19 @@ impl Launcher {
                 )),
             )
             .child(
-                button("ask-save", "Save choices", Kind::Primary, &t).on_click(cx.listener(
+                button("ask-save", "Save choices", Kind::Primary).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
                         this.answer_consent(this.collection.draft);
                         cx.notify();
                     },
                 )),
             );
-        let card = plate()
+        let card = ui::dialog_plate(radius::MODAL)
             .flex()
             .flex_col()
             .w_full()
-            .max_w(px(680.))
+            .max_w(px(CONSENT_WIDTH))
             .max_h_full()
-            .bg(t.page)
-            .border_1()
-            .border_color(t.rule)
             .child(self.collection.body_scroll.wrap(body))
             .child(answers);
         div()
@@ -223,39 +205,46 @@ impl Launcher {
             .flex()
             .flex_col()
             .items_center()
+            .justify_center()
             .px(px(32.))
             .py(px(24.))
-            .bg(t.page.opacity(0.92))
             .on_scroll(|_, _, cx| cx.stop_propagation())
             .occlude()
+            .child(ui::scrim_backdrop())
+            .child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .left_0()
+                    .size_full()
+                    .bg(ui::scrim()),
+            )
             .child(card)
     }
 
     /// Settings' data collection: a switch per kind, then the player's data.
     pub(crate) fn collection_section(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let consent = self.collection.consent.clone();
-        let mut list = div().flex().flex_col().border_t_1().border_color(t.rule);
+        let mut list = div().flex().flex_col();
         for &(kind, name, what) in telemetry::SWITCHES.iter() {
             let on = !consent.needs_asking() && consent.choices.allows(kind);
-            let toggle = switch(kind_id("data", kind), on, &t).on_click(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    let mut choices = if this.collection.consent.needs_asking() {
-                        Choices::NONE
-                    } else {
-                        this.collection.consent.choices
-                    };
-                    choices.set(kind, !on);
-                    this.answer_consent(choices);
-                    cx.notify();
-                },
-            ));
-            list = list.child(index_row(
+            let row = ui::toggle_row(
+                kind_id("data", kind),
                 tr(name),
                 Some(div().child(tr(what)).into_any_element()),
-                Some(toggle.into_any_element()),
-                &t,
-            ));
+                on,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let mut choices = if this.collection.consent.needs_asking() {
+                    Choices::NONE
+                } else {
+                    this.collection.consent.choices
+                };
+                choices.set(kind, !on);
+                this.answer_consent(choices);
+                cx.notify();
+            }));
+            list = list.child(row);
         }
         let waiting = eclipse_telemetry::outbox::pending(&telemetry::home()).len();
         let id = match consent.install_id.as_str() {
@@ -286,9 +275,8 @@ impl Launcher {
                         "View what would be sent"
                     },
                     Kind::Ghost,
-                    &t,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.toggle_view();
                     cx.notify();
                 })),
@@ -302,9 +290,9 @@ impl Launcher {
                         "Delete my data"
                     },
                     Kind::Secondary,
-                    &t,
                 )
-                .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                .when(confirm, |b| b.text_color(ui::danger()))
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     if this.collection.confirm_delete {
                         this.collection.note = Some(match telemetry::delete_my_data() {
                             Ok(done) => done,
@@ -317,7 +305,7 @@ impl Launcher {
                     cx.notify();
                 })),
             );
-        list = list.child(index_row(
+        list = list.child(ui::setting_row(
             tr("Your data"),
             Some(
                 div()
@@ -326,41 +314,21 @@ impl Launcher {
                     .into_any_element(),
             ),
             Some(actions.into_any_element()),
-            &t,
         ));
-        div()
-            .flex()
-            .flex_col()
-            .gap(px(16.))
-            .child(
-                text(theme::HEADING)
-                    .text_color(t.ink)
-                    .child(tr("Data collection")),
-            )
-            .child(
-                text(theme::UI)
-                    .max_w(px(600.))
-                    .text_color(t.muted)
-                    .child(tr("Each switch is off unless you turn it on.")),
-            )
-            .child(list)
-            .child(
-                text(theme::CAPTION)
-                    .max_w(px(600.))
-                    .text_color(t.muted)
-                    .child(tr(telemetry::NEVER)),
-            )
-            .children(
-                self.collection
-                    .note
-                    .clone()
-                    .map(|n| text(theme::UI).text_color(t.ink).child(n)),
-            )
+        let inset = |d: Div| d.px(px(ui::SETTING_ROW_PADDING));
+        list.child(inset(ui::card_note(tr(telemetry::NEVER))))
+            .children(self.collection.note.clone().map(|n| {
+                inset(
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                        .pt(px(12.))
+                        .child(n),
+                )
+            }))
             .children(
                 self.collection
                     .view
                     .as_ref()
-                    .map(|v| json_view(v, &t, &self.collection.json_scroll)),
+                    .map(|v| inset(json_view(v, &self.collection.json_scroll).pt(px(12.)))),
             )
     }
 }

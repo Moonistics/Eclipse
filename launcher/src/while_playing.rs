@@ -56,16 +56,15 @@ impl Launcher {
 
     /// Settings' row for it.
     pub(super) fn while_playing_row(&self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let mut options = vec![
-            (WhilePlaying::Stay, "Stay open"),
+            (WhilePlaying::Stay, "Keep launcher open"),
             (WhilePlaying::Minimize, "Minimise"),
         ];
         if cfg!(target_os = "macos") {
             options.push((WhilePlaying::Hide, "Hide"));
         }
         let current = self.settings.while_playing.here();
-        let picker = segments("while-playing", &options, current, &t, {
+        let picker = crate::glass_ui::segments("while-playing", &options, current, {
             let this = cx.entity().downgrade();
             move |choice, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -75,11 +74,11 @@ impl Launcher {
                 });
             }
         });
-        index_row(
-            tr("Launcher while playing"),
+        glass_settings::wide_row(
+            self.wide_controls_beside(),
+            tr("When the game starts"),
             None,
-            Some(picker.into_any_element()),
-            &t,
+            picker.into_any_element(),
         )
     }
 }

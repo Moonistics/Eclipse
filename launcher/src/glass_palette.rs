@@ -1,21 +1,31 @@
-//! The palette (⌘K, Ctrl+K elsewhere): the mockup's `Palette`. A glass card 560 px wide at 14 %
-//! of the window's height, over the dimmed launcher: a search line, then up to eight commands,
-//! each its name and a hint. Arrows move, Enter runs, Esc or a click outside closes.
+//! The palette (⌘K, Ctrl+K elsewhere): a card over the dimmed launcher, a search line, then up
+//! to eight commands, each its name and a hint. Arrows move, Enter runs, Esc or a click outside
+//! closes.
 //!
-//! The commands are the mockup's: Play each instance, Open each page and Settings, New
-//! instance, Open the game folder, and from two letters on, Install or Remove the registry's
-//! mods that match, in the selected instance.
+//! The commands: Play each instance, Open each page and Settings, New instance, Open the game
+//! folder, and from two letters on, Install or Remove the registry's mods that match, in the
+//! selected instance.
 
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
 use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::browser::Project;
 use eclipse_launcher::instances::Kind as InstanceKind;
-use eclipse_theme::glass::{fill, ink, radius};
+use eclipse_theme::glass::{ink, radius};
 use std::path::PathBuf;
 
-/// Commands listed at most (`slice(0, 8)`).
+/// Commands listed at most.
 const SHOWN: usize = 8;
+
+const CARD_WIDTH: f32 = 560.;
+
+const CARD_TOP: f32 = 0.14;
+
+const LIST_HEIGHT: f32 = 0.5;
+
+const SEARCH_HEIGHT: f32 = 48.;
+
+const COMMAND_HEIGHT: f32 = 44.;
 
 pub(super) struct Palette {
     query: LineEdit,
@@ -69,7 +79,7 @@ impl Launcher {
         window.focus(&self.root_focus, cx);
     }
 
-    /// The commands for `q` (lower case, trimmed), filtered as the mockup does.
+    /// The commands for `q` (lower case, trimmed).
     fn palette_commands(&self, q: &str) -> Vec<Command> {
         let instance = self
             .selected_instance()
@@ -213,15 +223,22 @@ impl Launcher {
             .flex()
             .items_center()
             .gap(px(12.))
-            .h(px(48.))
+            .h(px(SEARCH_HEIGHT))
             .px(px(12.))
             .cursor_text()
             .font_family(eclipse_theme::glass::FONT)
-            .text_size(px(15.))
+            .text_size(px(eclipse_theme::glass::step::LEAD.size))
             .text_color(white(ink::FULL))
-            .child(ui::icon("search-01", 20., white(ink::DIM)))
+            .child(ui::icon("search-01", ui::IconSize::Px16, white(ink::DIM)))
             .child(div().flex_1().min_w_0().overflow_hidden().child(input))
-            .child(ui::text(12., FontWeight::NORMAL, ink::DIM).child(tr("Esc")))
+            .child(
+                ui::text(
+                    eclipse_theme::glass::step::CAPTION,
+                    FontWeight::NORMAL,
+                    ink::DIM,
+                )
+                .child(tr("Esc")),
+            )
             .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
                 let Some(p) = this.palette.as_mut() else {
                     return;
@@ -267,61 +284,72 @@ impl Launcher {
             .flex()
             .flex_col()
             .pt(px(4.))
-            .max_h(px(h * 0.5))
+            .max_h(px(h * LIST_HEIGHT))
             .overflow_y_scroll();
         for (i, (c, run)) in list.into_iter().zip(runs).enumerate() {
             rows = rows.child(
-                div()
-                    .id(("palette-row", i))
-                    .flex()
-                    .items_center()
-                    .justify_between()
-                    .gap(px(16.))
-                    .h(px(44.))
-                    .px(px(12.))
-                    .rounded(px(radius::PANEL))
-                    .when(i == index, |d| d.bg(white(fill::SELECTED)))
-                    .cursor_pointer()
-                    .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
-                        if let (true, Some(p)) = (*hovered, this.palette.as_mut()) {
-                            if p.index != i {
-                                p.index = i;
-                                cx.notify();
-                            }
+                ui::selected(
+                    div()
+                        .id(("palette-row", i))
+                        .flex()
+                        .items_center()
+                        .justify_between()
+                        .gap(px(16.))
+                        .h(px(COMMAND_HEIGHT))
+                        .px(px(12.))
+                        .cursor_pointer(),
+                    i == index,
+                )
+                .on_hover(cx.listener(move |this, hovered: &bool, _, cx| {
+                    if let (true, Some(p)) = (*hovered, this.palette.as_mut()) {
+                        if p.index != i {
+                            p.index = i;
+                            cx.notify();
                         }
-                    }))
-                    .on_click(cx.listener(move |this, _: &ClickEvent, window, cx| {
-                        this.palette_run(run.clone(), window, cx);
-                        cx.notify();
-                    }))
-                    .child(
-                        ui::text(14., FontWeight::NORMAL, ink::FULL)
-                            .min_w_0()
-                            .truncate()
-                            .child(c.label),
+                    }
+                }))
+                .on_press(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                    this.palette_run(run.clone(), window, cx);
+                    cx.notify();
+                }))
+                .child(
+                    ui::text(
+                        eclipse_theme::glass::step::BODY,
+                        FontWeight::NORMAL,
+                        ink::FULL,
                     )
-                    .child(
-                        ui::text(13., FontWeight::NORMAL, ink::DIM)
-                            .flex_none()
-                            .child(c.hint),
-                    ),
+                    .min_w_0()
+                    .truncate()
+                    .child(c.label),
+                )
+                .child(
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::DIM,
+                    )
+                    .flex_none()
+                    .child(c.hint),
+                ),
             );
         }
         if empty {
             rows = rows.child(
-                ui::text(14., FontWeight::NORMAL, ink::MUTED)
-                    .px(px(12.))
-                    .py(px(16.))
-                    .child(trf("Nothing matches “{query}”.", &[("query", raw.trim())])),
+                ui::text(
+                    eclipse_theme::glass::step::BODY,
+                    FontWeight::NORMAL,
+                    ink::MUTED,
+                )
+                .px(px(12.))
+                .py(px(16.))
+                .child(trf("Nothing matches “{query}”.", &[("query", raw.trim())])),
             );
         }
 
-        // The card is glass over the dimmed launcher (`hzl-glass` over the scrim): its piece of
-        // the scene under the same dimming, and the plates' 6 % white.
-        let card = ui::dialog_plate(20.)
+        let card = ui::dialog_plate(radius::MODAL)
             .id("palette")
             .occlude()
-            .w(px(560_f32.min(w - 32.)))
+            .w(px(CARD_WIDTH.min(w - 32.)))
             .p(px(8.))
             .child(div().relative().child(field).child(rows))
             .on_mouse_down(gpui::MouseButton::Left, |_, _, cx| cx.stop_propagation());
@@ -335,7 +363,7 @@ impl Launcher {
                 .flex()
                 .justify_center()
                 .items_start()
-                .pt(px(h * 0.14))
+                .pt(px(h * CARD_TOP))
                 .occlude()
                 .on_scroll(|_, _, cx| cx.stop_propagation())
                 .child(ui::scrim_backdrop())

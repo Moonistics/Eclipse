@@ -8,8 +8,7 @@ use eclipse_launcher::instances::{self, Instance, Kind as InstanceKind};
 use gpui::RenderImage;
 use std::sync::Arc;
 
-/// The loaders' logos as the launcher mockup shows them, each its project's
-/// own: see THIRD_PARTY_NOTICES.md.
+/// The loaders' logos, each its project's own: see THIRD_PARTY_NOTICES.md.
 const FABRIC: &[u8] = include_bytes!("../assets/logos/fabric.png");
 const QUILT: &[u8] = include_bytes!("../assets/logos/quilt.png");
 const NEOFORGE: &[u8] = include_bytes!("../assets/logos/neoforge.png");

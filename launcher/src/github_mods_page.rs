@@ -4,7 +4,9 @@
 //! trust it. Mods installed that way list where they came from, with "Check for updates".
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
+use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::github_mods::{self, Origin, Packed, Resolved};
+use eclipse_theme::glass::{fill, ink, radius, step};
 use std::path::{Path, PathBuf};
 
 enum Event {
@@ -23,6 +25,8 @@ enum Stage {
     Review(Resolved, Option<String>),
     Pick(Resolved, Vec<Packed>),
 }
+
+const LINK_FIELD: f32 = 460.;
 
 pub(super) struct Github {
     text: LineEdit,
@@ -194,24 +198,13 @@ impl Launcher {
     fn github_field(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let t = self.theme;
         let focused = self.github.focused;
-        let field = div()
+        let field = ui::field(focused, false)
             .id("github-link")
             .track_focus(&self.github.focus)
-            .flex()
-            .items_center()
-            .gap(px(10.))
-            .w(px(460.))
-            .h(px(theme::FIELD + 4.))
-            .px(px(12.))
-            .overflow_hidden()
-            .border_2()
-            .border_color(if focused {
-                t.accent
-            } else {
-                gpui::transparent_black()
-            })
-            .bg(t.plate_soft)
-            .text_size(px(theme::UI.px))
+            .flex_1()
+            .min_w_0()
+            .max_w(px(LINK_FIELD))
+            .h(px(ui::Size::Md.height()))
             .cursor_text()
             .child(line_edit::content(
                 &self.github.text,
@@ -221,6 +214,7 @@ impl Launcher {
                 false,
                 "https://github.com/owner/repo",
             ))
+            .when(focused, |d| d.child(ui::focus_ring(radius::ROW)))
             .on_click(cx.listener(|this, _: &ClickEvent, window, cx| {
                 window.focus(&this.github.focus, cx);
                 cx.notify();
@@ -240,17 +234,16 @@ impl Launcher {
 
     /// The Add from GitHub panel. Installed mods share the main list.
     pub(super) fn github_panel(&mut self, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let home = self.mods.home();
         if self.github.home.as_deref() != Some(home.as_path()) {
             self.github.reread(&home);
             self.github.newer.clear();
         }
         let busy = self.github.busy();
-        let mut add = button("github-add", "Add from GitHub", Kind::Secondary, &t);
+        let mut add = button("github-add", "Add from GitHub", Kind::Secondary);
         add = match busy {
             true => disabled(add),
-            false => add.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+            false => add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.github_add();
                 cx.notify();
             })),
@@ -259,14 +252,10 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(12.))
-            .child(caps(tr("Add a native mod from GitHub")).text_color(t.muted))
-            .child(text(theme::CAPTION).text_color(t.muted).child(tr(
-                "Paste a link to a repository, release, branch, tag or commit.",
-            )))
+            .child(ui::card_title(tr("Add a native mod from GitHub")))
             .child(
                 div()
                     .flex()
-                    .flex_wrap()
                     .items_center()
                     .gap(px(12.))
                     .child(self.github_field(cx))
@@ -276,7 +265,8 @@ impl Launcher {
             Stage::Idle => {}
             Stage::Working(line) => {
                 self.github.stage = Stage::Working(line.clone());
-                panel = panel.child(text(theme::CAPTION).text_color(t.ink_soft).child(line));
+                panel =
+                    panel.child(ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(line));
             }
             Stage::Review(found, only) => {
                 panel = panel.child(self.github_review(&found, only.clone(), cx));
@@ -289,9 +279,10 @@ impl Launcher {
         }
         match &self.github.message {
             Some(Ok(done)) => {
-                panel = panel.child(plate().p(px(12.)).text_color(t.ink).child(done.clone()))
+                panel = panel
+                    .child(ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(done.clone()))
             }
-            Some(Err(e)) => panel = panel.child(notice(e.clone(), &t)),
+            Some(Err(e)) => panel = panel.child(error_note(e.clone())),
             None => {}
         }
         panel
@@ -299,7 +290,6 @@ impl Launcher {
 
     /// The warning, the exact source, and the only way forward: saying they trust it.
     fn github_review(&self, found: &Resolved, only: Option<String>, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let what = match (&found.asset, &found.content_only) {
             (Some(asset), _) => trf(
                 "The release file {file} ({source}).",
@@ -316,37 +306,47 @@ impl Launcher {
         };
         let (url, open) = (found.source_url(), found.source_url());
         let install = found.clone();
-        plate()
+        div()
             .flex()
             .flex_col()
             .gap(px(10.))
-            .p(px(16.))
-            .text_size(px(theme::UI.px))
-            .text_color(t.ink)
-            .child(caps(tr("Not reviewed by the Eclipse registry")).text_color(t.danger))
-            .child(what)
+            .p(px(ui::PANEL_INSET))
+            .rounded(px(radius::ROW))
+            .bg(white(fill::WELL))
+            .child(error_note(tr("Not reviewed by the Eclipse registry")))
             .child(
-                tr("Native mods run with full access to this computer. Read the source before you install it."),
+                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                    .flex()
+                    .flex_col()
+                    .gap(px(4.))
+                    .child(what)
+                    .child(tr(
+                        "Native mods run with full access to this computer. Read the source before you install it.",
+                    )),
             )
-            .child(text(theme::CAPTION).font_family(theme::MONO).text_color(t.ink_soft).child(url))
+            .child(
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+                    .font_family(theme::MONO)
+                    .child(url),
+            )
             .child(
                 div()
                     .flex()
                     .flex_wrap()
                     .gap(px(8.))
                     .child(
-                        button("github-source", "Open the source", Kind::Secondary, &t)
-                            .on_click(move |_, _, cx| cx.open_url(&open)),
-                    )
-                    .child(
-                        button("github-trust", "I read it and trust it: install", Kind::Primary, &t)
-                            .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        button("github-trust", "I read it and trust it: install", Kind::Primary)
+                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                                 this.github_install(install.clone(), only.clone());
                                 cx.notify();
                             })),
                     )
                     .child(
-                        button("github-cancel", "Cancel", Kind::Ghost, &t).on_click(cx.listener(
+                        button("github-source", "Open the source", Kind::Secondary)
+                            .on_press(move |_, _, cx| cx.open_url(&open)),
+                    )
+                    .child(
+                        button("github-cancel", "Cancel", Kind::Ghost).on_press(cx.listener(
                             |this, _: &ClickEvent, _, cx| {
                                 this.github.stage = Stage::Idle;
                                 cx.notify();
@@ -358,7 +358,6 @@ impl Launcher {
 
     /// A source with several mods: one, or all.
     fn github_choice(&self, found: &Resolved, mods: &[Packed], cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let mut buttons = div().flex().flex_wrap().gap(px(8.));
         for (i, p) in mods.iter().enumerate() {
             let (found, all, id) = (found.clone(), mods.to_vec(), p.id.clone());
@@ -367,9 +366,8 @@ impl Launcher {
                     SharedString::from(format!("github-pick-{i}")),
                     format!("{} {}", p.id, p.version),
                     Kind::Secondary,
-                    &t,
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.github_pick(found.clone(), all.clone(), Some(id.clone()));
                     cx.notify();
                 })),
@@ -377,30 +375,31 @@ impl Launcher {
         }
         let (every, listed) = (found.clone(), mods.to_vec());
         buttons = buttons.child(
-            button("github-pick-all", "Install all", Kind::Primary, &t).on_click(cx.listener(
+            button("github-pick-all", "Install all", Kind::Primary).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     this.github_pick(every.clone(), listed.clone(), None);
                     cx.notify();
                 },
             )),
         );
-        plate()
+        div()
             .flex()
             .flex_col()
             .gap(px(10.))
-            .p(px(16.))
-            .text_size(px(theme::UI.px))
-            .text_color(t.ink)
-            .child(trf(
-                "{name} holds {count} mods. Install which?",
-                &[("name", &found.name()), ("count", &mods.len().to_string())],
-            ))
+            .p(px(ui::PANEL_INSET))
+            .rounded(px(radius::ROW))
+            .bg(white(fill::WELL))
+            .child(
+                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(trf(
+                    "{name} holds {count} mods. Install which?",
+                    &[("name", &found.name()), ("count", &mods.len().to_string())],
+                )),
+            )
             .child(buttons)
     }
 
     /// GitHub-specific actions, shared by both installed-mod lists.
     fn github_actions(&self, origin: &Origin, busy: bool, cx: &Context<Self>) -> Div {
-        let t = self.theme;
         let id = origin.id.clone();
         let mut right = div().flex().flex_wrap().items_center().gap(px(8.));
         let known = self
@@ -416,9 +415,8 @@ impl Launcher {
                     SharedString::from(format!("github-update-{id}")),
                     trf("Update to {version}", &[("version", &latest.label())]),
                     Kind::Primary,
-                    &t,
                 )
-                .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.go(Page::Mods);
                     this.github.stage = Stage::Review(latest.clone(), Some(only.clone()));
                     cx.notify();
@@ -430,11 +428,10 @@ impl Launcher {
                     SharedString::from(format!("github-check-{id}")),
                     "Check for updates",
                     Kind::Secondary,
-                    &t,
                 );
                 match busy {
                     true => disabled(check),
-                    false => check.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    false => check.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.go(Page::Mods);
                         this.github_resolve(link.clone(), Some(only.clone()));
                         cx.notify();
@@ -449,9 +446,8 @@ impl Launcher {
                 SharedString::from(format!("github-src-{id}")),
                 "Source",
                 Kind::Ghost,
-                &t,
             )
-            .on_click(move |_, _, cx| cx.open_url(&url)),
+            .on_press(move |_, _, cx| cx.open_url(&url)),
         );
         right
     }
@@ -462,7 +458,6 @@ impl Launcher {
         busy: bool,
         cx: &Context<Self>,
     ) -> Div {
-        let t = self.theme;
         let busy = busy || self.github.busy();
         let mut right = row.origin.as_ref().map_or_else(
             || div().flex().items_center().gap(px(8.)),
@@ -472,7 +467,7 @@ impl Launcher {
         let on = eclipse_launcher::browser::java::is_enabled(&home, &row.id);
         let id = row.id.clone();
         right = right.child(
-            switch(format!("native-switch-{id}"), on, &t).on_click(cx.listener(
+            crate::glass_ui::toggle(format!("native-switch-{id}"), on).on_press(cx.listener(
                 move |this, _: &ClickEvent, _, cx| {
                     let home = this.mods.home();
                     // An update holds the folder: the window doesn't wait for it.
@@ -501,13 +496,12 @@ impl Launcher {
                 "Remove"
             },
             Kind::Ghost,
-            &t,
         )
-        .when(confirming, |b| b.text_color(t.danger));
+        .when(confirming, |b| b.text_color(ui::danger()));
         right = right.child(if busy {
             disabled(remove)
         } else {
-            remove.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            remove.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 if this.github.confirm_remove.as_deref() == Some(&row.file) {
                     let home = this.mods.home();
                     let result = if row.origin.is_some() {
@@ -534,25 +528,22 @@ impl Launcher {
         row: &native_status::Installed,
         busy: bool,
         cx: &Context<Self>,
-    ) -> Div {
-        let t = self.theme;
+    ) -> Stateful<Div> {
         let source = row.origin.as_ref().map_or_else(
             || trf("Local file · {file}", &[("file", &row.file)]),
             |o| trf("from GitHub: {source}", &[("source", &o.label())]),
         );
-        slot_row(
-            Some(blocks::slot(None, &row.id, 40.)),
-            row.id.clone(),
-            Some(
-                div()
-                    .flex()
-                    .flex_col()
-                    .child(row.version.clone())
-                    .child(source)
-                    .into_any_element(),
-            ),
-            Some(self.native_mod_actions(row, busy, cx).into_any_element()),
-            &t,
+        let confirming = self.github.confirm_remove.as_deref() == Some(&row.file);
+        ui::list_row(
+            SharedString::from(format!("native-row-{}", row.id)),
+            confirming,
+            |_, _, _| {},
         )
+        .child(blocks::slot(None, &row.id, mods_page::MOD_TILE))
+        .child(ui::item_text(
+            row.id.clone(),
+            format!("{} · {source}", row.version),
+        ))
+        .child(self.native_mod_actions(row, busy, cx).flex_none())
     }
 }

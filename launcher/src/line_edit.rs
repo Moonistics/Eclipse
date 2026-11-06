@@ -3,6 +3,8 @@
 //! its Enter/Escape; this is what is inside it. Positions count characters, not bytes.
 
 use super::*;
+use crate::glass_ui as ui;
+use eclipse_theme::glass::ink;
 use gpui::{
     black, canvas, Bounds, Font, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
     TextRun,
@@ -497,29 +499,30 @@ pub(super) fn mouse<T: 'static, E: InteractiveElement>(
     }))
 }
 
+const CARET: f32 = 14.;
+
 /// What a field draws inside its box: the placeholder while empty and unfocused, else the text
 /// with its selection and caret. `mask` shows dots (a token); `whole` shows all selected.
 pub(super) fn content(
     edit: &LineEdit,
-    t: &theme::Theme,
+    _: &theme::Theme,
     focused: bool,
     whole: bool,
     mask: bool,
     placeholder: &'static str,
 ) -> Div {
-    content_with(edit, t, focused, whole, mask, tr(placeholder).into())
+    content_with(edit, focused, whole, mask, tr(placeholder).into())
 }
 
 /// [`content`] with a placeholder already translated (one with a value in it).
 pub(super) fn content_with(
     edit: &LineEdit,
-    t: &theme::Theme,
     focused: bool,
     whole: bool,
     mask: bool,
     placeholder: gpui::SharedString,
 ) -> Div {
-    let color = crate::glass_ui::white(eclipse_theme::glass::ink::DIM);
+    let (color, full) = (ui::white(ink::DIM), ui::white(ink::FULL));
     if edit.text.is_empty() && !focused {
         return div().text_color(color).child(placeholder);
     }
@@ -528,7 +531,7 @@ pub(super) fn content_with(
         return div()
             .flex()
             .items_center()
-            .child(div().flex_none().w(px(1.)).h(px(14.)).bg(t.ink))
+            .child(div().flex_none().w(px(1.)).h(px(CARET)).bg(full))
             .child(div().text_color(color).child(placeholder));
     }
     let (before, selected, after, caret_first) = edit.view(whole);
@@ -540,20 +543,20 @@ pub(super) fn content_with(
         };
         div().flex_none().whitespace_nowrap().child(s)
     };
-    let caret = || div().flex_none().w(px(1.)).h(px(14.)).bg(t.ink);
+    let caret = || div().flex_none().w(px(1.)).h(px(CARET)).bg(full);
     let area = edit.area.clone();
     div()
         .relative()
         .flex()
         .items_center()
-        .text_color(t.ink)
+        .text_color(full)
         .child(text(before))
         .when(focused && caret_first, |d| d.child(caret()))
         .when(!selected.is_empty(), |d| {
             d.child(
                 text(selected)
                     .rounded(px(2.))
-                    .bg(t.accent.opacity(theme::SELECTION)),
+                    .bg(ui::color(ui::look().accent_soft).opacity(theme::SELECTION)),
             )
         })
         .when(focused && !caret_first, |d| d.child(caret()))

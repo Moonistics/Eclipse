@@ -164,8 +164,7 @@ fn failure(url: &str, e: ureq::Error) -> Answer {
         ureq::Error::Status(code, r) if rate_limited(code, |h| r.header(h).map(str::to_owned)) => {
             Answer::RateLimited
         }
-        ureq::Error::Status(code, _) => Answer::Failed(format!("{url} answered {code}")),
-        ureq::Error::Transport(t) => Answer::Failed(format!("No connection: {t}")),
+        other => Answer::Failed(backend::network_error(url, other)),
     }
 }
 
