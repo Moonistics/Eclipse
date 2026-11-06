@@ -32,8 +32,8 @@ impl Launcher {
     fn close_owner_screen(&mut self) {
         self.cancel_sign_in();
         self.owner_screen_open = false;
-        if self.game.error.as_deref() == Some(account::NoOwner::in_window().as_str()) {
-            self.game.error = None;
+        if self.game.problem == Some(game_run::GameProblem::NeedsOwner) {
+            self.game.problem = None;
         }
         if !self.settings.owner_notice_seen {
             self.settings.owner_notice_seen = true;
@@ -44,7 +44,7 @@ impl Launcher {
     pub(crate) fn owner_screen(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let configured = account::client_id().is_some();
         // The screenshot preview shows a code without asking Microsoft for one.
-        let state = match &self.sign_in_state {
+        let state = match &self.accounts_ui.sign_in_state {
             _ if sign_in_preview() => Shown::Code("https://www.microsoft.com/link", "K7Q-4MXR"),
             _ if !configured => Shown::Error(tr(account::NOT_CONFIGURED)),
             Some(SignInState::Starting) => Shown::Starting("Asking Microsoft…"),

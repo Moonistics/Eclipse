@@ -20,7 +20,7 @@ use eclipse_theme::glass::{ink, radius, space};
 const DETAIL: f32 = 360.;
 const VANILLA_ACTION: ui::ButtonSize = ui::ButtonSize::Md;
 
-const DETAIL_FLOAT: &str = "mods-detail-float";
+const DETAIL_CLOSE: &str = "mods-detail-close";
 const FLOAT_MIN_HEIGHT: f32 = 240.;
 const SEARCH_FIELD_MIN: f32 = 200.;
 
@@ -69,7 +69,6 @@ impl Launcher {
             .into_iter()
             .map(|(kind, label)| StripTab {
                 value: kind,
-                key: format!("{kind:?}"),
                 label: tr(label).into(),
                 count: None,
             })
@@ -209,7 +208,7 @@ impl Launcher {
             }
             let scroll = &self.mods.float_scroll;
             let close = ui::icon_button(
-                "mods-detail-close",
+                DETAIL_CLOSE,
                 "cancel-01",
                 tr("Close"),
                 ButtonKind::Ghost,
@@ -219,9 +218,11 @@ impl Launcher {
             .absolute()
             .top(px(space::LG))
             .right(px(space::LG))
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.mods.picked = None;
-                this.asking = None;
+            .when_some(ui::try_focus_for(DETAIL_CLOSE), |d, handle| {
+                d.track_focus(&handle)
+            })
+            .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.close_mod_detail(window, cx);
                 cx.notify();
             }));
             ui::float_card()
@@ -371,14 +372,14 @@ impl Launcher {
             open,
             ui::ButtonSize::Md,
         );
-        let button = match ui::try_focus_for("opener-mods-target") {
+        let button = match menus::opener_focus("mods-target") {
             Some(focus) => button.track_focus(&focus),
             None => button,
         };
         let button = self.menu_opener(button, Menu::ModsTarget, cx);
         let mut wrap = div().relative().flex_none().child(button);
         if open {
-            let mut menu = self.menu_popover("mods-target-menu", cx);
+            let mut menu = self.menu_popover("mods-target-menu", tr("Install to"), cx);
             for i in choices {
                 let picked = i.id == current.id;
                 menu = menu.child(
@@ -433,11 +434,16 @@ impl Launcher {
         } else {
             VANILLA_ACTION
         };
-        let create = ui::primary("mods-new-fabric", tr("Create a Fabric instance…"), size)
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.mods_new_fabric(minecraft.clone(), cx);
-                cx.notify();
-            }));
+        let create = ui::primary(
+            "mods-new-fabric",
+            Some("plus-sign"),
+            tr("Create a Fabric instance…"),
+            size,
+        )
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.mods_new_fabric(minecraft.clone(), cx);
+            cx.notify();
+        }));
         let choose = others.then(|| {
             ui::button(
                 "mods-choose-instance",
@@ -468,7 +474,7 @@ impl Launcher {
             .collect();
         Some(div().id("mods-vanilla").child(ui::notice(
             ui::Notice::InCard,
-            "information-circle",
+            crate::icons::INFO,
             said,
             actions,
         )))
@@ -497,7 +503,7 @@ impl Launcher {
         };
         Some(div().id("mods-shader-mod").child(ui::notice(
             ui::Notice::InCard,
-            "information-circle",
+            crate::icons::INFO,
             trf(
                 "Shader packs need a shader mod like Iris, and {instance} has none.",
                 &[("instance", &current)],
@@ -529,7 +535,7 @@ impl Launcher {
         });
         Some(div().id("mods-no-worlds").child(ui::notice(
             ui::Notice::InCard,
-            "information-circle",
+            crate::icons::INFO,
             trf(
                 "{instance} has no worlds yet. Create one in the game first.",
                 &[("instance", &current.name)],
@@ -556,7 +562,7 @@ impl Launcher {
         }));
         Some(div().id("mods-modrinth-eclipse").child(ui::notice(
             ui::Notice::InCard,
-            "information-circle",
+            crate::icons::INFO,
             tr("Most Modrinth mods are made for Fabric or Forge and don't run in Eclipse."),
             vec![show.into_any_element()],
         )))
@@ -607,7 +613,7 @@ impl Launcher {
         let button = self.menu_opener(button, Menu::ModsSort, cx);
         let mut wrap = div().relative().flex_none().child(button);
         if open {
-            let mut menu = self.menu_popover("mods-sort-menu", cx);
+            let mut menu = self.menu_popover("mods-sort-menu", tr("Sort by"), cx);
             for &(value, label) in &sorts {
                 menu = menu.child(
                     ui::pick_row(
@@ -789,7 +795,12 @@ impl Launcher {
             let row_id = SharedString::from(format!("mods-row-{}", p.id));
             let current = picked.as_deref() == Some(p.id.as_str());
             let install_label = tr("Install");
-            let action_room = ui::button_width(install_label, ui::ButtonSize::Sm);
+            let action_room = ui::button_width(
+                install_label,
+                true,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
+            );
             let state = |tone: ui::Tone, said: &str| {
                 ui::card_note(ui::state_line(tone, said.to_string())).into_any_element()
             };
@@ -804,7 +815,7 @@ impl Launcher {
                 let button_id = SharedString::from(format!("mods-row-install-{}", p.id));
                 let button = ui::button(
                     button_id,
-                    None,
+                    Some("download-04"),
                     install_label,
                     ButtonKind::Secondary,
                     ui::ButtonSize::Sm,
@@ -890,9 +901,8 @@ impl Launcher {
             this.asking = None;
             if this.mod_detail_floats() && window.last_input_was_keyboard() {
                 cx.on_next_frame(window, |_, window, cx| {
-                    if let Some(float) = ui::try_focus_for(DETAIL_FLOAT) {
-                        window.focus(&float, cx);
-                        window.focus_next(cx);
+                    if let Some(close) = ui::try_focus_for(DETAIL_CLOSE) {
+                        window.focus(&close, cx);
                     }
                 });
             }
@@ -908,11 +918,8 @@ impl Launcher {
             .flex()
             .flex_col()
             .child(ui::options(
-                div()
-                    .id("mods-results")
-                    .aria_label(tr("Results"))
-                    .flex()
-                    .flex_col(),
+                div().id("mods-results").flex().flex_col(),
+                tr("Results"),
                 rows,
                 false,
                 move |i, window, cx| open(&i, window, cx),
@@ -1086,6 +1093,7 @@ impl Launcher {
             };
             let install = ui::primary(
                 SharedString::from(format!("mods-detail-install-{}", p.id)),
+                Some("download-04"),
                 label,
                 ui::ButtonSize::Lg,
             )

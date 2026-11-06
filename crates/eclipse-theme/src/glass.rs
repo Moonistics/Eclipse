@@ -114,10 +114,10 @@ pub mod ink {
 
 pub mod ink_light {
     pub const FULL: f32 = 1.;
-    pub const STRONG: f32 = 0.9;
-    pub const BODY: f32 = 0.82;
-    pub const MUTED: f32 = 0.74;
-    pub const DIM: f32 = 0.68;
+    pub const STRONG: f32 = 0.88;
+    pub const BODY: f32 = 0.78;
+    pub const MUTED: f32 = 0.7;
+    pub const DIM: f32 = 0.64;
     pub const LEVELS: [f32; 5] = [FULL, STRONG, BODY, MUTED, DIM];
 }
 
@@ -133,7 +133,7 @@ pub mod fill {
     pub const PRIMARY_HOVER: f32 = 0.14;
     pub const FIELD: f32 = 0.07;
     pub const BUTTON: f32 = 0.08;
-    pub const BUTTON_LIGHT: f32 = 0.06;
+    pub const CONTROL_LIGHT: f32 = 0.7;
     pub const SELECTED: f32 = 0.1;
     pub const ACTIVE: f32 = 0.12;
     pub const WELL_SHADE: f32 = 0.25;
@@ -226,6 +226,7 @@ pub fn light_surfaces() -> Vec<u32> {
         DAWN.side,
         tinted(fill::SELECTED, DAWN.side),
         DAWN.page,
+        over(PAPER, fill::CONTROL_LIGHT, DAWN.page),
         PAPER,
         tinted(fill::SELECTED, PAPER),
         tinted(fill::FIELD, PAPER),

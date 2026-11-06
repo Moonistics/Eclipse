@@ -36,7 +36,7 @@ impl SettingsSection {
         SettingsSection::DataCollection,
     ];
 
-    fn shown(developer: bool) -> Vec<SettingsSection> {
+    pub(super) fn shown(developer: bool) -> Vec<SettingsSection> {
         Self::ALL
             .into_iter()
             .filter(|s| match s {
@@ -62,7 +62,7 @@ impl SettingsSection {
         }
     }
 
-    fn name(self) -> &'static str {
+    pub(super) fn name(self) -> &'static str {
         match self {
             SettingsSection::Account => tr("Account"),
             SettingsSection::Updates => tr("Updates"),
@@ -80,8 +80,8 @@ impl SettingsSection {
     fn icon(self) -> &'static str {
         match self {
             SettingsSection::Account => "user",
-            SettingsSection::Updates => "refresh",
-            SettingsSection::Appearance => "color-picker",
+            SettingsSection::Updates => crate::icons::UPDATES,
+            SettingsSection::Appearance => crate::icons::APPEARANCE,
             SettingsSection::Language => crate::icons::LANGUAGE,
             SettingsSection::Network => crate::icons::NETWORK,
             SettingsSection::Game => "game-controller-01",
@@ -111,8 +111,6 @@ pub(super) struct SettingsUi {
     pub(super) enter: Option<FocusHandle>,
     /// The any-colour swatch shows the hue strip (`settings_appearance.rs`).
     pub(super) accent_strip: bool,
-    /// Where the hue strip is on screen, to map a click to a hue.
-    pub(super) hue_area: std::rc::Rc<std::cell::Cell<Option<Bounds<gpui::Pixels>>>>,
     /// A drag on that strip is in flight, so a release anywhere writes the accent down.
     pub(super) hue_dragging: bool,
 }
@@ -249,7 +247,6 @@ impl Launcher {
                 .iter()
                 .map(|&section| StripTab {
                     value: section,
-                    key: section.id().to_string(),
                     label: section.name().into(),
                     count: None,
                 })
@@ -281,7 +278,7 @@ impl Launcher {
                 .enumerate()
                 .map(|(i, &section)| {
                     let row = ui::nav_row(
-                        format!("settings-section-{}", section.id()),
+                        format!("settings-rail-{}", section.id()),
                         section.icon(),
                         section.name(),
                         i == active,
@@ -295,13 +292,13 @@ impl Launcher {
             let rail = ui::options(
                 div()
                     .id("settings-sections")
-                    .aria_label(tr("Settings sections"))
                     .flex()
                     .flex_col()
                     .flex_none()
                     .self_start()
                     .w(px(layout::SETTINGS_RAIL))
                     .gap(px(space::XXS)),
+                tr("Settings sections"),
                 entries,
                 true,
                 move |i, _, cx| {
@@ -484,7 +481,7 @@ impl Launcher {
 
     fn eclipse_update_tile(&mut self, cx: &mut Context<Self>) -> Div {
         let installed = self
-            .launcher_version()
+            .default_version()
             .map(|tag| eclipse_launcher::nightly::display_name(tag));
         let own = self
             .instances
@@ -492,32 +489,34 @@ impl Launcher {
             .iter()
             .find(|i| i.kind == instances::Kind::Default);
         let busy = own.and_then(|i| self.play_state(i).busy_line());
-        let checked =
-            self.checked.is_some() && !self.checking_updates && self.update_error.is_none();
-        let state = match (busy, own.map(|i| self.install_state(i))) {
-            (Some(line), _) => Some(ui::state_note(ui::Tone::Busy, line)),
-            (None, Some(InstallState::UpdateReady(tag))) => Some(ui::state_note(
-                ui::Tone::Accent(ui::look().accent_soft),
-                trf(
-                    "{version} available",
-                    &[("version", &eclipse_launcher::nightly::display_name(&tag))],
-                ),
-            )),
-            (None, Some(InstallState::NotInstalled) | None) => {
-                Some(ui::state_note(ui::Tone::Off, tr("Not installed")))
-            }
-            (None, Some(_)) if checked => Some(ui::state_note(ui::Tone::Live, tr("Up to date"))),
-            _ => None,
+        let install = own.map_or(InstallState::NotInstalled, |i| self.install_state(i));
+        let (tone, line) = match busy {
+            Some(line) => (ui::Tone::Busy, line),
+            None => install.line(),
         };
+        let current = !matches!(
+            install,
+            InstallState::NotInstalled | InstallState::UpdateReady(_)
+        );
+        let state = Some(
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(space::XXS))
+                .child(ui::state_note(tone, line))
+                .when(current && self.update_check.clean(), |d| {
+                    d.child(ui::card_note(tr("Up to date")))
+                }),
+        );
         let install = self
             .updates
             .eclipse
             .as_ref()
-            .filter(|_| self.installing.is_none())
+            .filter(|_| self.versions.installing.is_none())
             .map(|_| {
                 ui::button(
                     "settings-install",
-                    None,
+                    Some("download-04"),
                     tr("Install"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
@@ -568,10 +567,7 @@ impl Launcher {
                 Some(r) => Some(available(
                     backend::launcher_version(&r.tag).unwrap_or_default(),
                 )),
-                None if self.checked.is_some()
-                    && !self.checking_updates
-                    && self.update_error.is_none() =>
-                {
+                None if self.update_check.clean() => {
                     Some(ui::state_note(ui::Tone::Live, tr("Up to date")))
                 }
                 None => None,
@@ -624,11 +620,11 @@ impl Launcher {
     }
 
     fn check_updates_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let checking = self.checking_updates;
-        let failed = self.update_error.clone().filter(|_| !checking);
+        let checking = self.update_check.checking();
+        let failed = self.update_check.error().map(str::to_owned);
         let check = ui::button(
             "check-updates",
-            failed.is_some().then_some("refresh"),
+            failed.is_some().then_some(crate::icons::RETRY),
             tr(if checking {
                 "Checking…"
             } else if failed.is_some() {
@@ -658,7 +654,7 @@ impl Launcher {
                     vec![Self::proxy_settings_button("check-updates", cx)],
                 ));
         }
-        let beside = match self.checked {
+        let beside = match self.update_check.since() {
             _ if checking => None,
             Some(at) => {
                 let when = dates::ago(std::time::SystemTime::now() - at.elapsed());
@@ -831,12 +827,11 @@ impl Launcher {
             self.settings.appearance,
             {
                 let this = cx.entity().downgrade();
-                move |choice, window, cx| {
+                move |choice, _, cx| {
                     let _ = this.update(cx, |this, cx| {
                         this.settings.appearance = choice;
                         this.save_settings();
-                        titlebar::apply_appearance(window, choice);
-                        this.theme = this.settings_theme(window);
+                        this.restyle();
                         cx.notify();
                     });
                 }
@@ -870,7 +865,7 @@ impl Launcher {
                         this.settings.game_architecture = choice;
                         this.save_settings();
                         // The release and update lists contain the selected game's assets.
-                        this.releases = Load::Loading;
+                        this.versions.releases = Load::Loading;
                         this.updates = backend::Updates::default();
                         this.fetch_startup_releases();
                         cx.notify();
@@ -899,8 +894,7 @@ impl Launcher {
                 cx,
             )
             .w_full()
-            .max_w(px(layout::FIELD_XL))
-            .aria_label(tr("Eclipse game arguments"));
+            .max_w(px(layout::FIELD_XL));
         ui::setting_row_stacked(tr("Eclipse game arguments"), None, field.into_any_element())
     }
 

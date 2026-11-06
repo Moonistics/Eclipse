@@ -59,7 +59,7 @@ impl Launcher {
             .and_then(|()| accounts.save());
         match done {
             Ok(()) => self.accounts = accounts,
-            Err(e) => self.sign_in_state = Some(SignInState::Done(Err(e))),
+            Err(e) => self.accounts_ui.sign_in_state = Some(SignInState::Done(Err(e))),
         }
         self.close_menu();
     }
@@ -94,7 +94,10 @@ impl Launcher {
             return;
         }
         self.play_as(Player::Offline(name));
-        if !matches!(self.sign_in_state, Some(SignInState::Done(Err(_)))) {
+        if !matches!(
+            self.accounts_ui.sign_in_state,
+            Some(SignInState::Done(Err(_)))
+        ) {
             self.fields.text(Field::OfflineName).set(String::new());
         }
     }

@@ -57,7 +57,7 @@ impl Launcher {
             .relative()
             .child(self.menu_opener(picker, Menu::AgentClient, cx));
         if open {
-            let mut menu = self.menu_popover("agent-client-menu", cx);
+            let mut menu = self.menu_popover("agent-client-menu", tr("Connect an AI agent"), cx);
             for c in &clients {
                 let id = c.id;
                 menu = menu.child(

@@ -515,17 +515,6 @@ const CARET: f32 = 14.;
 
 /// What a field draws inside its box: the placeholder while empty and unfocused, else the text
 /// with its selection and caret. `mask` shows dots (a token); `whole` shows all selected.
-pub(super) fn content(
-    edit: &LineEdit,
-    focused: bool,
-    whole: bool,
-    mask: bool,
-    placeholder: &'static str,
-) -> Div {
-    content_with(edit, focused, whole, mask, tr(placeholder).into())
-}
-
-/// [`content`] with a placeholder already translated (one with a value in it).
 pub(super) fn content_with(
     edit: &LineEdit,
     focused: bool,

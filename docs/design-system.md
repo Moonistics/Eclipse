@@ -18,9 +18,9 @@ The launcher wears § Corona, built from the components in § Components. The we
 
 The launcher's look: quiet charcoal cards with hairline edges over a pixel eclipse scene, white
 text at a few opacities, one amber accent, Monocraft for what is pressed and named, Geist for
-what is read. Its tokens are `eclipse_theme::glass` (the module keeps that name: `tokens.css`
-carries the colours as `--glass-*`); the launcher's components are `launcher/src/ui/`, its layout
-numbers `launcher/src/layout.rs`.
+what is read. Its tokens are `eclipse_theme::glass`, also reachable as `eclipse_theme::corona`
+(the module keeps its name: `tokens.css` carries the colours as `--glass-*`); the launcher's
+components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
 
 - **The scene is the background**: a pixel eclipse (an eclipsed sun with an amber corona) over
   ridges, blocky terrain, trees and torches, night in the dark appearance and dawn in the light one
@@ -36,7 +36,7 @@ numbers `launcher/src/layout.rs`.
   (`ui::foot_card`). Corners (`glass::radius`): dialogs 14,
   cards 12, menus 10, rows and tiles 8, buttons, tabs, fields and dropdowns 6, switches 4.
 - **One accent, corona amber** (`ACCENT`, `#f5a524`). It fills the one main action of a view (the
-  Play block, with a 2 px shine and a 3 px shade), a switch that is on and the open tab's 3 px
+  Play block, with a 2 px shine and a 3 px shade), a switch that is on and the open tab's 4 px
   underline (drawn in `look.mark` in light, so it reads at 3:1 on paper and the dawn sky). `look.mark` (the accent, darkened in light until it reads at 3:1 on every light
   surface) draws the selected icon and the ticks; `accent-soft` (amber mixed with white in OKLab,
   62 % amber) draws progress, links and the focus ring. In light a switch that is on keeps the
@@ -46,24 +46,34 @@ numbers `launcher/src/layout.rs`.
   item's icon in the mark (`ui::selected`). Cards and chips to pick from, which have no icon to
   light, take a 3:1 edge instead (`ui::chosen`, `SELECTED_EDGE`): segments, accent swatches,
   chips and choice cards. A choice card also carries the mark's tick in its corner
-  (`ui::choice_card`), a picked filter chip leads with one and a picked swatch shows one. In the light sidebar the plate is paper with a hairline and a 1 px shade under it
-  (`ui::side_selected`), so it reads raised in both appearances. Never a bar at the left edge.
+  (`ui::choice_card`), a picked filter chip leads with one and a picked swatch shows one. The
+  current page in the sidebar and in Settings' section list is the raised plate
+  (`ui::side_selected`: paper with a hairline and a 2 px shade under it in light); the current
+  instance or server row in the sidebar is one step quieter (`ui::side_row`: the selected fill, no
+  edge, no shade), so the page leads. Never a bar at the left edge.
 - **White text at a few opacities** (`glass::ink`: full, strong 86 %, body 72 %, muted 60 %, dim
-  50 %; `ink_light` maps them onto the light ink so every level reads at 4.5:1 on every surface) and
-  white fills for states (`glass::fill`: hover 5 %, button 8 % (12 % in light, with a hairline),
-  selected 10 %, active 12 %, the danger fill 12 % of the red, the inset well black at 25 %; light
-  fields 7 % of the ink). Dark fields are opaque, `FIELD_BG` and `FIELD_BG_FOCUS`. Live `#4ade80`,
+  50 %; `ink_light` maps them onto the light ink, full, 88, 78, 70 and 64 %, so every level reads at
+  4.5:1 on every surface) and white fills for states (`glass::fill`: hover 5 %, button 8 %,
+  selected 10 %, active 12 %, the danger fill 12 % of the red, the inset well black at 25 %). Dark
+  fields are opaque, `FIELD_BG` and `FIELD_BG_FOCUS`. In light, controls that sit on the page or a
+  card (Secondary buttons, dropdowns, fields) are paper at 70 % (`fill::CONTROL_LIGHT`), full paper
+  while a field has the keyboard, with their hairline or 3:1 field edge: raised like the dark
+  ones, never sunk below the page. Live `#4ade80`,
   warn `#ff7059`, danger `#ff8a8a`; their light forms are checked against every light plate and
   hover fill.
 - **Type**: Geist through the steps of `glass::step` (label 12, caption 12, note 13, body 14, lead
   15, title 16, figure 22, code 28 for a sign-in code); Geist Mono through `ui::mono`. Monocraft, at its regular weight only (its bold sits off the pixel
   grid), only on its 9 px grid (`MONOCRAFT_PIXEL`, `glass::pixel_text`): 18 for buttons, tabs,
-  navigation (uppercase) and section titles (`ui::section_title`, mixed case); 27 for card and
-  entity titles, empty, loading and error state titles (mixed case) and the Hero buttons' labels
-  (PLAY); 36 for page titles. At 125 % and 175 % its pixel grows to whole device pixels
-  (`ui::on_pixel_grid`: PRESS 21.6 at 125 %), as do the 16 and 32 px icons. Hierarchy comes from size: page title 36 > entity and state title
-  27 > section title 18 in full ink > a Secondary or Ghost label 18 in body ink (an icon button's
-  icon too) > Geist. A section title names a group of controls; `ui::card_title` (Geist 16) names
+  navigation, section titles (`ui::section_title`) and empty, loading and error state titles; 27
+  for card and dialog titles and a state that is a page's only content (`ui::page_only`); 36 for
+  page and entity titles (Home's instance name) and the Hero buttons' labels (PLAY, the loudest
+  text on a screen). Only the main actions shout: PLAY and the Hero buttons, Primary buttons,
+  navigation and tabs are uppercase (`ui::shouts`); Secondary and Ghost labels, segments and filter
+  chips are mixed case. At 125 % and 175 % its pixel grows to whole device pixels
+  (`ui::on_pixel_grid`: PRESS 21.6 at 125 %), as do the 16 and 32 px icons, and the narrow sidebar
+  keeps its wide width so no page name is cut (`ui::pixel_text_grows`). Hierarchy comes from size:
+  page title and PLAY 36 > card title 27 > section and state title 18 in full ink > a Secondary or
+  Ghost label 18 in body ink (an icon button's icon too) > Geist. A section title names a group of controls; `ui::card_title` (Geist 16) names
   a thing inside a card (a release, a version, a product). Text is drawn in greyscale so the pixel stems stay clean.
 - **Space** comes from `glass::space` (2, 4, 8, 12, 16, 24, 32); cards stack 16 apart
   (`layout::CARD_GAP`), a tab strip sits 16 above what it opens, a note 12 under a title.
@@ -88,7 +98,8 @@ numbers `launcher/src/layout.rs`.
   (`ui::page_pane` for a pane of its own under a still title: Settings, New instance). New
   instance's pane ends above its foot, so nothing focused hides under it. A list that scrolls
   fades at the end it hides (`ui::more_above_fade`, `ui::more_below_fade`) in its surface's colour,
-  and keeps what it reveals clear of the fade (`ui::SCROLL_FADE`).
+  and keeps what it reveals clear of the fade (`ui::fade_height()`); the sidebar's list also never
+  rests with a row cut at its top.
 - **Motion** (`launcher/src/motion.rs`): hovers fade over `quick`, a page and a toast arrive with a
   fade and a 6 px rise over 200 ms, a switch's knob slides for 200 ms. Under reduced motion each is
   drawn where it ends, and progress bars stand still.
@@ -152,12 +163,13 @@ icons and progress) and are reached as `ui::…`. Each takes its text already tr
 the frame's look itself; a screen is built from them, never from hand-made copies, and a call site
 doesn't restyle one (a variant it needs goes into the component). The look they draw is § Corona's.
 
-- **Buttons** (`ui::button`, `ui::icon_button`, `ui::more_button`, `ui::split`): Monocraft,
-  uppercase, at 18 (27 with a 24 px icon at Hero size); 32, 36, 44 or 56 tall (`ButtonSize`).
+- **Buttons** (`ui::button`, `ui::primary(id, icon, label, size)`, `ui::icon_button`,
+  `ui::more_button`, `ui::split`): Monocraft at 18 (36 with a 24 px icon at Hero size), uppercase
+  only for Primary and Hero; 32, 36, 44 or 56 tall (`ButtonSize`).
   *Primary* is the amber block with its bevel, one per screen: Play on Home (Install Eclipse or Try
   again before the first install), Create on New instance, Start on a stopped server. Empty and
   error states inside a screen that already has one use Secondary (`ui::error_state_with` takes
-  the kind of its Try again). Labels are uppercase; Secondary and Ghost labels and icon buttons'
+  the kind of its Try again). Secondary and Ghost labels are mixed case; they and icon buttons'
   icons rest at body ink and turn full under the pointer. *Secondary*, a faint fill, is every other action, in rows, cards and
   headers. *Ghost*, text only, is for Cancel, Close, Dismiss and Not now; icon-only buttons (⋯,
   the bin, a folder, Close) are Ghost too, their label the tooltip and the accessible name (the
@@ -182,7 +194,10 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   accent, 16 above what they open. Every strip (Home, Mods, a project's page, a server, Settings in
   a narrow window) shows its counts when they fit, then tightens its tabs (`TAB_PAD_TIGHT`), then
   moves the tabs that still don't fit under More tabs (a ⋯ menu), keeping the open one in the
-  strip: it never wraps. Only the open tab is a Tab stop; Left, Right, Home and End move and open.
+  strip: it never wraps. Tabs keep their order (the open one may be under More tabs, which then
+  shows as current and says so: "More tabs, Folders open"). Only the open tab is a Tab stop (the ⋯
+  when the open tab is under it); Left, Right, Home and End move through every tab and open it. Tab
+  ids are `{prefix}-{value:?}`; a count is described with its noun ("3 worlds").
   **Segments** (`ui::segments(id, name, ..)`) pick one of a few values on an inset track:
   one Tab stop, the arrows pick, the group named for assistive tech.
 - **Switches** (`ui::toggle`, `ui::toggle_row`, `ui::toggle_label`): a blocky switch; in a row the
@@ -222,13 +237,19 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   its button (above it when there is no room below), with one solid backing. The keyboard moves
   into it (onto the picked row, `ui::starts_menu`); Tab, F6, the palette or a press outside close
   it, and Escape gives the focus back to its button. A menu opened from elsewhere goes through
-  `Launcher::open_menu_from` / `open_menu_for`.
+  `Launcher::open_menu_from` / `open_menu_for`. Every menu is named for assistive tech after its
+  opener (`menu_popover(id, label, cx)`: "Account", "{name} options", "Play options"); Down on a
+  focused dropdown opens its menu. Focus only returns to an opener that is still drawn.
 - **Dialogs** (`ui::modal`, `ui::sheet`, `ui::dialog`): the launcher dimmed under a plate, or a
   sheet over the whole window. `ui::dialog(id, eyebrow, title, DialogWidth::Narrow | Wide, body,
   foot)` owns the plate, its width, padding and title (a heading, 27). Tab stays inside, focus
   moves in when it opens and back to what opened it when it closes.
 - **States in a pane** (`ui::empty_state`, `ui::loading_state`, `ui::error_state`), centred in a
-  card: an icon tile, a title at 27, one sentence that ends with the next step, then the actions.
+  card: a 36 icon tile, a title at 18, one sentence that ends with the next step, then the actions;
+  a state that is a page's only content passes `ui::page_only(title)` (a 48 tile, title 27). An
+  error state is an alert for assistive tech, with Copy details at its top right. A line inside a
+  card that is already there (nothing yet, a server that is stopped) is `ui::empty(id, text)` /
+  `ui::empty_line(id, text)`.
 - **One presentation for a failure**: a plain title, one plain cause line, the actions that fix it
   and Copy details with the whole error. In a pane `ui::error_state` / `ui::error_state_with`
   (the cause is the error's first line when that is a sentence, else "Copy the details to report
@@ -244,7 +265,7 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
 - **Tiles and faces** (`ui::tile`, `ui::mark_tile`, `ui::face`, `ui::picture_button`): 24, 36 or
   48 (`TILE_SM`, `TILE_MD`, `TILE_LG`), a mark 32 in a 48 tile, the account's face 80 (`FACE_XL`),
   all at radius 8. Every pressable picture (gallery, screenshots, icons) is a picture button, its
-  tooltip beside it. Faces are drawn by one renderer (`profile_heads`).
+  tooltip under it; a picture still loading sits in `ui::picture_slot()`. Faces are drawn by one renderer (`profile_heads`).
 - **Wells** (`ui::well`, `ui::code_well`, `ui::log_well`): the inset well, a code block, a log.
 - **Progress** (`ui::progress_line`, `ui::progress_bar`): a 4 px track under a label and percent;
   unknown progress shuttles, and it stands still under reduced motion.
@@ -259,7 +280,15 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   1, section, state and dialog titles at 2), so every page gets them by using them. Text that
   explains (a state's note, a page's note, an error's cause, Home's play line) is `ui::said`.
 - **State owners**: what Play does and shows for an instance is `Launcher::play_state`
-  (`PlayState`, `game_run.rs`), which Home's head and the sidebar read; the last
+  (`PlayState`, `game_run.rs`), which Home's head and the sidebar read; whether a game runs or
+  starts is `GameRun::active()`; what went wrong with the last start is `GameProblem` (needs an
+  owner, failed, or a notice); an Eclipse instance's state line is `InstallState::line()`, in the
+  sidebar and Settings › Updates alike. Which version plays is one model: an instance follows the
+  launcher's default version (`Launcher::default_version`, kept on the newest as versions install)
+  or is pinned to one; `Launcher::selected_version` is what the selected instance plays and
+  `Launcher::use_version(tag)` (Versions' Use, Home's version list) pins it, or lets it follow when
+  `tag` is the default. Versions and installs live in `Launcher::versions` (`versions_state.rs`),
+  the update check in `UpdateCheck`; the last
   preparation, its error and the Console's lines belong to the instance that started them
   (`GameRun::begin`, `console_log`, `shown_prepare_error`); a version's name is
   `nightly::display_name`; who plays is `Launcher::who_plays`.

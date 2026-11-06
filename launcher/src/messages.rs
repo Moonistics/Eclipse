@@ -1,4 +1,5 @@
 use super::*;
+use game_run::GameProblem;
 
 impl Launcher {
     pub(super) fn drain(&mut self, cx: &mut Context<Self>) {
@@ -31,38 +32,38 @@ impl Launcher {
             changed = true;
             match msg {
                 Msg::Releases(r) => {
-                    if let (Ok(_), Some(checked)) = (&r, self.checked) {
+                    if let (Ok(_), Some(checked)) = (&r, self.update_check.since()) {
                         self.perf.record_since("launcher.release_list_ms", checked);
                     }
-                    self.releases = r.map_or_else(Load::Failed, Load::Ready)
+                    self.versions.releases = r.map_or_else(Load::Failed, Load::Ready)
                 }
                 Msg::Links(links) => {
                     self.multiplayer.stale();
                     self.links = links;
                 }
                 // The page reads is_prepared when drawn; `changed` redraws it.
-                Msg::Reused(_) => self.installed = backend::installed(),
-                Msg::Keychain(said) => self.keychain = said,
+                Msg::Reused(_) => self.versions.installed = backend::installed(),
+                Msg::Keychain(said) => self.accounts_ui.keychain = said,
                 Msg::Owner(owns) => self.owner = Some(owns),
                 Msg::AccountHead(uuid, url, face, failed) => {
                     self.profile_heads.loaded(&uuid, &url, face, failed)
                 }
                 Msg::AccountProgress(uuid, generation, phase) => {
-                    if self.auth_busy.get(&uuid) == Some(&generation) {
-                        self.auth_progress.insert(uuid, phase);
+                    if self.accounts_ui.auth_busy.get(&uuid) == Some(&generation) {
+                        self.accounts_ui.auth_progress.insert(uuid, phase);
                     }
                 }
                 Msg::AccountStatus(uuid, generation, status) => {
-                    if self.auth_busy.get(&uuid) != Some(&generation) {
+                    if self.accounts_ui.auth_busy.get(&uuid) != Some(&generation) {
                         continue;
                     }
-                    self.auth_busy.remove(&uuid);
-                    self.auth_progress.remove(&uuid);
+                    self.accounts_ui.auth_busy.remove(&uuid);
+                    self.accounts_ui.auth_progress.remove(&uuid);
                     if self.accounts.find(&uuid).is_some() {
                         if status.state == account::session::State::Ready {
                             self.owner = Some(true);
                         }
-                        self.auth_status.insert(uuid, status);
+                        self.accounts_ui.auth_status.insert(uuid, status);
                         // A refresh may have saved a new name or skin: show it now.
                         let saved = Accounts::load();
                         if saved != self.accounts {
@@ -72,31 +73,42 @@ impl Launcher {
                     }
                 }
                 Msg::AccountRemoved(uuid, generation, result) => {
-                    if self.auth_busy.get(&uuid) != Some(&generation) {
+                    if self.accounts_ui.auth_busy.get(&uuid) != Some(&generation) {
                         continue;
                     }
-                    self.auth_busy.remove(&uuid);
-                    self.auth_progress.remove(&uuid);
+                    self.accounts_ui.auth_busy.remove(&uuid);
+                    self.accounts_ui.auth_progress.remove(&uuid);
                     match result {
                         Ok(owns) => {
                             self.accounts = Accounts::load();
-                            self.auth_status.remove(&uuid);
+                            self.accounts_ui.auth_status.remove(&uuid);
                             self.owner = Some(owns);
                         }
-                        Err(e) => self.sign_in_state = Some(SignInState::Done(Err(e))),
+                        Err(e) => self.accounts_ui.sign_in_state = Some(SignInState::Done(Err(e))),
                     }
                 }
                 Msg::Progress(tag, p) => {
-                    self.bar = (self.bar.1, p);
-                    self.installing = Some((tag, p));
+                    let from = self.versions.installing.as_ref().map_or(0., |i| i.done());
+                    self.versions.installing = Some(versions_state::Install {
+                        tag,
+                        bar: (from, p),
+                    });
                 }
                 Msg::Installed(tag, result) => {
-                    self.installing = None;
-                    self.bar = (0., 0.);
-                    self.installed = backend::installed();
-                    let as_update = self.update_install.take().filter(|(t, _)| *t == tag);
-                    let for_instance = self.instance_install.take_if(|t| *t == tag).is_some();
-                    if let (Ok(()), Some(started)) = (&result, self.install_started.take()) {
+                    self.versions.installing = None;
+                    self.versions.installed = backend::installed();
+                    let as_update = self
+                        .versions
+                        .update_install
+                        .take()
+                        .filter(|(t, _)| *t == tag);
+                    let for_instance = self
+                        .versions
+                        .instance_install
+                        .take_if(|t| *t == tag)
+                        .is_some();
+                    if let (Ok(()), Some(started)) = (&result, self.versions.install_started.take())
+                    {
                         let name = if as_update.is_some() {
                             "launcher.update_ms"
                         } else {
@@ -111,10 +123,14 @@ impl Launcher {
                             }
                             // An instance's own version leaves the other instances on theirs.
                             let update = as_update.is_some();
-                            let select = as_update.is_none_or(|(_, select)| select)
-                                && (!for_instance || self.launcher_version().is_none());
+                            let select = becomes_default(
+                                &tag,
+                                as_update.map(|(_, select)| select),
+                                for_instance,
+                                self.default_version().map(String::as_str),
+                            );
                             if select {
-                                self.settings.selected = Some(tag.clone());
+                                self.settings.default_version = Some(tag.clone());
                             }
                             // Pruning reads settings from disk: protect the selection only once
                             // it has been saved there. A failed save leaves all versions in place.
@@ -126,43 +142,43 @@ impl Launcher {
                                 });
                             }
                         }
-                        Err(e) => self.install_error = Some((tag, e)),
+                        Err(e) => self.versions.install_error = Some((tag, e)),
                     }
-                    if let Some(next) = self.install_next.take() {
+                    if let Some(next) = self.versions.install_next.take() {
                         self.install_for_instance(next);
                     }
                 }
                 Msg::Removed(tag, result) => {
-                    self.removing.retain(|t| *t != tag);
-                    self.installed = backend::installed();
+                    self.versions.removing.retain(|t| *t != tag);
+                    self.versions.installed = backend::installed();
                     let selected = if self.settings_save_error.is_some() {
-                        self.settings.selected.take()
+                        self.settings.default_version.take()
                     } else {
-                        Settings::load().selected
+                        Settings::load().default_version
                     };
-                    self.settings.selected = selection_after_removal(&self.installed, selected);
+                    self.settings.default_version =
+                        selection_after_removal(&self.versions.installed, selected);
                     if let Err(e) = result {
-                        self.install_error = Some((tag, e));
+                        self.versions.install_error = Some((tag, e));
                     }
                 }
-                Msg::DiskUse(disk) => self.disk = disk,
+                Msg::DiskUse(disk) => self.versions.disk = disk,
                 Msg::Imported(result) => {
-                    self.importing_build = false;
-                    self.installed = backend::installed();
+                    self.versions.importing = false;
+                    self.versions.installed = backend::installed();
                     match result {
                         // `build_import::import` saved the selection; this keeps the window's copy.
-                        Ok(tag) => self.settings.selected = Some(tag),
-                        Err(e) => self.import_error = Some(e),
+                        Ok(tag) => self.settings.default_version = Some(tag),
+                        Err(e) => self.versions.import_error = Some(e),
                     }
                 }
                 Msg::Pruned(gone) => {
                     if !gone.is_empty() {
-                        self.installed = backend::installed();
+                        self.versions.installed = backend::installed();
                     }
                 }
                 Msg::Updates(Ok(updates)) => {
-                    self.checking_updates = false;
-                    self.update_error = None;
+                    self.update_check.answered(Ok(()));
                     self.updates = *updates;
                     if self.settings.auto_install() {
                         self.install_update();
@@ -171,17 +187,14 @@ impl Launcher {
                         self.update_launcher(release);
                     }
                 }
-                Msg::Updates(Err(e)) => {
-                    self.checking_updates = false;
-                    self.update_error = Some(e);
-                }
+                Msg::Updates(Err(e)) => self.update_check.answered(Err(e)),
                 Msg::NativeProgress(step) => self.native.step = Some(step),
                 Msg::Native(result) => {
                     // The last step of a build that worked says how it went.
                     let last = self.native.step.take();
                     self.native.started = None;
                     self.native.done = result.is_ok().then_some(last).flatten();
-                    self.installed = backend::installed();
+                    self.versions.installed = backend::installed();
                     self.reload_instances();
                     // A build attempt ended: an open panel reads the log it left.
                     self.native_log.stale = true;
@@ -305,12 +318,12 @@ impl Launcher {
                                 None
                             };
                             if let Some(api) = switched {
-                                self.game.error = Some(trf(
+                                self.game.problem = Some(GameProblem::Notice(trf(
                                     "Eclipse's Vulkan renderer crashed while starting on this \
                                      graphics card, so the game now uses {api}. Press Play to \
                                      start it again. Video Settings > Graphics API switches back.",
                                     &[("api", api)],
-                                ));
+                                )));
                             } else if error.is_some() || report.is_some() {
                                 let summary = report
                                     .as_ref()
@@ -345,18 +358,20 @@ impl Launcher {
         changed |= self.github_tick();
         changed |= self.native_log_read(cx);
         changed |= self.toast_tick();
-        if let Some(sign_in) = &self.sign_in {
-            if let Some(state) = sign_in_change(&mut self.sign_in_state, sign_in.state()) {
+        if let Some(sign_in) = &self.accounts_ui.sign_in {
+            if let Some(state) =
+                sign_in_change(&mut self.accounts_ui.sign_in_state, sign_in.state())
+            {
                 if let SignInState::Done(Ok(ref account)) = state {
-                    self.auth_busy.remove(&account.uuid);
-                    self.sign_in_target = None;
+                    self.accounts_ui.auth_busy.remove(&account.uuid);
+                    self.accounts_ui.sign_in_target = None;
                     self.accounts = Accounts::load();
                     self.load_profile_heads();
                     self.load_auth_statuses(false);
                     // Sign-in refuses accounts that don't own the game.
                     self.owner = Some(true);
                     self.owner_screen_open = false;
-                    self.game.error = None;
+                    self.game.problem = None;
                     if !self.settings.owner_notice_seen {
                         self.settings.owner_notice_seen = true;
                         self.save_settings();
@@ -366,7 +381,8 @@ impl Launcher {
             }
         }
         if self
-            .checked
+            .update_check
+            .since()
             .is_some_and(|at| at.elapsed() > backend::CHECK_EVERY)
         {
             self.check_updates();
@@ -389,11 +405,11 @@ impl Launcher {
             Err(backend::PlayError::NoOwner) => {
                 self.owner = Some(false);
                 self.owner_screen_open = true;
-                self.game.error = Some(account::NoOwner::in_window());
+                self.game.problem = Some(GameProblem::NeedsOwner);
                 return;
             }
             Err(e) => {
-                self.game.error = Some(e.to_string());
+                self.game.problem = Some(GameProblem::Failed(e.to_string()));
                 return;
             }
         };
@@ -402,7 +418,12 @@ impl Launcher {
             self.owner = Some(true);
         }
         self.accounts = Accounts::load();
-        self.game.error = launched.notices().next();
+        self.game.problem = launched
+            .offline
+            .as_ref()
+            .map(|why| trf("Playing offline: {why}", &[("why", why)]))
+            .or_else(|| launched.unsaved.clone())
+            .map(GameProblem::Notice);
         self.game.vars = launched.vars;
         self.game.home = Some(launched.home);
         match backend::spawn(Job::Client, launched.cmd, self.tx.clone()) {
@@ -412,7 +433,7 @@ impl Launcher {
                 self.step_aside(cx);
             }
             Err(e) => {
-                self.game.error = Some(e);
+                self.game.problem = Some(GameProblem::Failed(e));
                 account::discard_unread_sessions();
             }
         }

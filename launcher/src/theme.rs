@@ -193,4 +193,54 @@ mod tests {
             }
         }
     }
+
+    #[test]
+    fn text_and_marks_read_on_every_launcher_theme_sky() {
+        use eclipse_launcher::themes::THEMES;
+        let look = Glass::default_look();
+        let light = look.light();
+        for theme in THEMES {
+            for (stop, &sky) in theme.sky[..3].iter().enumerate() {
+                for level in ink::LEVELS {
+                    if level == ink::DIM && stop == 2 {
+                        continue;
+                    }
+                    let ratio = contrast(over(0xffffff, level, sky), sky);
+                    assert!(
+                        ratio >= 4.5,
+                        "{} stop {stop}, ink {level}: {ratio:.2}",
+                        theme.id
+                    );
+                }
+                let mark = contrast(look.mark, sky);
+                assert!(mark >= 3., "{} stop {stop}, mark: {mark:.2}", theme.id);
+            }
+            for sky in theme
+                .sky
+                .map(|c| over(0xffffff, crate::scene::THEME_SKY_WASH, c))
+            {
+                for level in ink::LEVELS {
+                    let a = light_ink(level);
+                    let ratio = contrast(over(ON_LIGHT, a, sky), sky);
+                    assert!(
+                        ratio >= 4.5,
+                        "{} by day #{sky:06x}, ink {a}: {ratio:.2}",
+                        theme.id
+                    );
+                }
+                let mark = contrast(light.mark, sky);
+                assert!(
+                    mark >= 3.,
+                    "{} by day #{sky:06x}, mark: {mark:.2}",
+                    theme.id
+                );
+                let link = contrast(light.accent_soft, sky);
+                assert!(
+                    link >= 4.5,
+                    "{} by day #{sky:06x}, link: {link:.2}",
+                    theme.id
+                );
+            }
+        }
+    }
 }

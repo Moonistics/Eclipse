@@ -15,13 +15,13 @@ const SKY_AT: [f32; 6] = [0., 0.4, 0.66, 0.82, 0.92, 1.];
 const SKY_BAND: usize = 3;
 const AFTER_SUNSET: usize = SKY_AT.len() - 2;
 const HORIZON: f32 = 0.8;
-const THEME_SKY_WASH: f32 = 0.75;
+pub(crate) const THEME_SKY_WASH: f32 = 0.88;
 
-const SUN_SIZE: f32 = 0.055;
-const SUN_HIGH: f32 = 0.48;
-const SUN_REACH: f32 = 2.4;
-const GUTTER_MARGIN: f32 = 48.;
+const SUN_SIZE: f32 = 0.03;
+const SUN_HIGH: f32 = 0.58;
+const GUTTER_MARGIN: f32 = 64.;
 const SMALLEST_HIGH_SUN: f32 = 0.6;
+const LARGEST_HIGH_SUN: f32 = 7.;
 const SETTING_RADIUS: f32 = 12.;
 const CLEAR_UNDER_HOME_HEAD: f32 = 310.;
 const HILLS_HIGHEST: f32 = 0.62;
@@ -30,11 +30,11 @@ const SETTING_AT: f32 = 0.84;
 const SETTING_SHOWN: f32 = 0.4;
 const SETTING_SHOWN_BEST: f32 = 0.45;
 
-const CORONA_ALPHAS: [f32; 4] = [0.14, 0.09, 0.06, 0.035];
+const CORONA_ALPHAS: [f32; 4] = [0.10, 0.065, 0.04, 0.02];
 const CORONA_RING: f32 = 0.26;
 const CORONA_FADE_RINGS: f32 = 2.;
 const STREAMERS: usize = 12;
-const STREAMER_ALPHA: f32 = 0.32;
+const STREAMER_ALPHA: f32 = 0.2;
 const SHORT_STREAMER: f32 = 0.55;
 const STREAMER_TWIST: f32 = 0.3;
 const STREAMER_LENGTH: (f32, f32) = (0.9, 1.1);
@@ -180,19 +180,19 @@ const BY_DAY: Palette = Palette {
     streamer: [242., 158., 52.],
     rim: [245., 165., 36.],
     bead: [255., 250., 236.],
-    moon: [70., 76., 94.],
+    moon: [146., 148., 174.],
     far: Shape {
-        body: [185., 193., 208.],
-        edge: [210., 216., 226.],
+        body: [196., 196., 218.],
+        edge: [214., 214., 232.],
     },
     mid: Shape {
-        body: [154., 163., 181.],
-        edge: [170., 178., 195.],
+        body: [170., 170., 196.],
+        edge: [184., 184., 208.],
     },
     grass: [116., 140., 112.],
     grass_lit: [136., 160., 126.],
-    dirt: [130., 112., 94.],
-    dirt_deep: [112., 97., 84.],
+    dirt: [152., 134., 114.],
+    dirt_deep: [136., 120., 104.],
     stone: [140., 140., 146.],
     trunk: [104., 86., 72.],
     leaves: [94., 118., 96.],
@@ -571,23 +571,28 @@ struct Picture {
 
 #[derive(Clone, Copy, PartialEq)]
 enum Sun {
-    Beside { x: f32, scale: f32 },
+    Beside { x: i32, r: i32 },
     Setting,
     Set,
 }
 
 fn sun_at(width: f32, height: f32, stage: Stage, content_bottom: f32) -> Sun {
-    let avail = width - crate::layout::sidebar(width);
-    let column = crate::layout::content_width(width);
-    let gutter = (avail - column) / 2.;
-    let reach = width.min(height) * SUN_SIZE * SUN_REACH;
-    let fit = ((gutter - GUTTER_MARGIN) / (2. * reach)).min(1.);
-    if fit >= SMALLEST_HIGH_SUN {
-        Sun::Beside {
-            x: (width - gutter / 2.) / width,
-            scale: fit,
-        }
-    } else if content_bottom > stage.skyline * stage.texel {
+    let t = stage.texel;
+    let gutter = crate::layout::page_margin(width);
+    let x = ((width - gutter / 2.) / t).round();
+    let to_cards = x * t - (width - gutter);
+    let to_edge = width - x * t;
+    let room = (to_cards.min(to_edge) - GUTTER_MARGIN) / t;
+    let largest = (width.min(height) / t * SUN_SIZE)
+        .round()
+        .min(LARGEST_HIGH_SUN);
+    let smallest = (largest * SMALLEST_HIGH_SUN).ceil() as i32;
+    let fits = (smallest..=largest as i32)
+        .rev()
+        .find(|&r| sun_reach(r as f32) <= room);
+    if let Some(r) = fits {
+        Sun::Beside { x: x as i32, r }
+    } else if content_bottom > stage.skyline * t {
         Sun::Set
     } else {
         Sun::Setting
@@ -596,6 +601,12 @@ fn sun_at(width: f32, height: f32, stage: Stage, content_bottom: f32) -> Sun {
 
 fn corona_ring(r: f32) -> f32 {
     (r * CORONA_RING).ceil()
+}
+
+fn sun_reach(r: f32) -> f32 {
+    let corona = r + CORONA_ALPHAS.len() as f32 * corona_ring(r);
+    let streamers = (r * (1. + STREAMER_LENGTH.1)).round() + 1.;
+    corona.max(streamers)
 }
 
 fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Picture {
@@ -609,11 +620,7 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
     let land = Land::new(cols, rows, stage);
 
     let disc = match sun {
-        Sun::Beside { x, scale } => Some((
-            (w.min(h) * SUN_SIZE * scale).round().max(4.),
-            (w * x).round() as i32,
-            (h * SUN_HIGH).round() as i32,
-        )),
+        Sun::Beside { x, r } => Some((r as f32, x, (h * SUN_HIGH).round() as i32)),
         Sun::Setting => land.setting_sun().map(|(x, y)| (SETTING_RADIUS, x, y)),
         Sun::Set => None,
     };
@@ -702,60 +709,13 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         }
     }
 
-    if let Some((r, sx, sy)) = disc {
-        let ring = corona_ring(r);
+    if let Some(disc) = disc {
+        let ring = corona_ring(disc.0);
         let under_home = |y: i32| match sun {
             Sun::Setting => ((y as f32 - stage.skyline) / (ring * CORONA_FADE_RINGS)).clamp(0., 1.),
             _ => 1.,
         };
-        for (i, alpha) in CORONA_ALPHAS.iter().enumerate().rev() {
-            c.disc(sx, sy, r + (i + 1) as f32 * ring, palette.corona, |y| {
-                alpha * under_home(y)
-            });
-        }
-        let mut rays = Rng(37);
-        for i in 0..STREAMERS {
-            let angle = (i as f32 + rays.next() * STREAMER_TWIST) * TAU / STREAMERS as f32;
-            let length = if i % 2 == 0 { 1. } else { SHORT_STREAMER };
-            let len = r * length * rays.between(STREAMER_LENGTH);
-            let (dx, dy) = (angle.cos(), angle.sin());
-            let mut d = r;
-            while d < r + len {
-                let fade = 1. - (d - r) / len;
-                let y = sy + (dy * d).round() as i32;
-                c.blend(
-                    sx + (dx * d).round() as i32,
-                    y,
-                    palette.streamer,
-                    STREAMER_ALPHA * fade * under_home(y),
-                );
-                d += 0.5;
-            }
-        }
-        c.disc(sx, sy, r + 1., palette.rim, |_| 1.);
-        c.disc(sx, sy, r, palette.moon, |_| 1.);
-        let (bx, by) = (
-            sx + (BEAD_ANGLE.cos() * r).round() as i32,
-            sy + (BEAD_ANGLE.sin() * r).round() as i32,
-        );
-        c.rect(bx - 1, by - 1, 2, 2, palette.bead);
-        if r >= BEAD_SPARKLE_FROM {
-            for (dx, dy) in [
-                (-2, 0),
-                (2, 0),
-                (0, -2),
-                (0, 2),
-                (-1, 0),
-                (1, 0),
-                (0, -1),
-                (0, 1),
-            ] {
-                let (x, y) = (bx + dx - (dx < 0) as i32, by + dy - (dy < 0) as i32);
-                if !inside(r, x - sx, y - sy) {
-                    c.blend(x, y, palette.rim, BEAD_SPARKLE);
-                }
-            }
-        }
+        eclipse(&mut c, disc, palette, under_home);
     }
 
     let snowline = stage.skyline + (land.base - stage.skyline) * SNOW_LINE;
@@ -835,6 +795,63 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         rows,
         texels,
         stars,
+    }
+}
+
+fn eclipse(
+    c: &mut Canvas,
+    (r, sx, sy): (f32, i32, i32),
+    palette: &Palette,
+    under_home: impl Fn(i32) -> f32,
+) {
+    let ring = corona_ring(r);
+    for (i, alpha) in CORONA_ALPHAS.iter().enumerate().rev() {
+        c.disc(sx, sy, r + (i + 1) as f32 * ring, palette.corona, |y| {
+            alpha * under_home(y)
+        });
+    }
+    let mut rays = Rng(37);
+    for i in 0..STREAMERS {
+        let angle = (i as f32 + rays.next() * STREAMER_TWIST) * TAU / STREAMERS as f32;
+        let length = if i % 2 == 0 { 1. } else { SHORT_STREAMER };
+        let len = r * length * rays.between(STREAMER_LENGTH);
+        let (dx, dy) = (angle.cos(), angle.sin());
+        let mut d = r;
+        while d < r + len {
+            let fade = 1. - (d - r) / len;
+            let y = sy + (dy * d).round() as i32;
+            c.blend(
+                sx + (dx * d).round() as i32,
+                y,
+                palette.streamer,
+                STREAMER_ALPHA * fade * under_home(y),
+            );
+            d += 0.5;
+        }
+    }
+    c.disc(sx, sy, r + 1., palette.rim, |_| 1.);
+    c.disc(sx, sy, r, palette.moon, |_| 1.);
+    let (bx, by) = (
+        sx + (BEAD_ANGLE.cos() * r).round() as i32,
+        sy + (BEAD_ANGLE.sin() * r).round() as i32,
+    );
+    c.rect(bx - 1, by - 1, 2, 2, palette.bead);
+    if r >= BEAD_SPARKLE_FROM {
+        for (dx, dy) in [
+            (-2, 0),
+            (2, 0),
+            (0, -2),
+            (0, 2),
+            (-1, 0),
+            (1, 0),
+            (0, -1),
+            (0, 1),
+        ] {
+            let (x, y) = (bx + dx - (dx < 0) as i32, by + dy - (dy < 0) as i32);
+            if !inside(r, x - sx, y - sy) {
+                c.blend(x, y, palette.rim, BEAD_SPARKLE);
+            }
+        }
     }
 }
 
@@ -1165,7 +1182,11 @@ mod tests {
 
     #[test]
     fn the_moon_covers_the_sun_and_the_corona_shows_around_it() {
-        let sun = Sun::Beside { x: 0.86, scale: 1. };
+        let (sx, r) = (254, 10);
+        let sun = Sun::Beside {
+            x: sx as i32,
+            r: r as i32,
+        };
         let p = paint(
             295,
             190,
@@ -1173,11 +1194,7 @@ mod tests {
             sun,
             Look::of(&NIGHT),
         );
-        let (sx, sy) = (
-            (295. * 0.86f32).round() as usize,
-            (190. * SUN_HIGH).round() as usize,
-        );
-        let r = (190. * SUN_SIZE).round() as usize;
+        let sy = (190. * SUN_HIGH).round() as usize;
         assert!(light(at(&p, sx, sy)) < 40);
         assert!(light(at(&p, sx + r + 2, sy)) > light(at(&p, sx + r * 4, sy)));
     }
@@ -1447,6 +1464,168 @@ mod tests {
         }
     }
 
+    const NARROW_PLAY: f32 = 240.;
+
+    const HIGH_SUN_SIZES: [(f32, f32); 5] = [
+        (1920., 1040.),
+        (1920., 1080.),
+        (1920., 1200.),
+        (2560., 1440.),
+        (3440., 1440.),
+    ];
+
+    fn high_sun(width: f32, height: f32) -> (Stage, i32, i32) {
+        let stage = stage(width, height, texel(width as f64, 1.), home(height));
+        match sun_at(width, height, stage, 0.) {
+            Sun::Beside { x, r } => (stage, x, r),
+            _ => panic!("{width}x{height}: no high sun"),
+        }
+    }
+
+    fn hex(c: Rgb) -> u32 {
+        c.iter()
+            .fold(0, |out, v| (out << 8) | v.round().clamp(0., 255.) as u32)
+    }
+
+    fn sky_at_sun(look: Look, stage: Stage, rows: usize) -> Rgb {
+        let sy = (rows as f32 * SUN_HIGH).round();
+        let horizon = (rows as f32 * HORIZON).max(stage.skyline).round();
+        sky(&look.sky, (sy / horizon).min(1.))
+    }
+
+    #[test]
+    fn a_high_sun_keeps_clear_of_the_cards_and_the_window_edge() {
+        let look = Look::of(&NIGHT);
+        let tight = (1800..=2600)
+            .step_by(40)
+            .flat_map(|width| [(width as f32, 1000.), (width as f32, 1200.)]);
+        for (width, height) in HIGH_SUN_SIZES.into_iter().chain(tight) {
+            let t = texel(width as f64, 1.);
+            let stage = stage(width, height, t, home(height));
+            let sun @ Sun::Beside { r, .. } = sun_at(width, height, stage, 0.) else {
+                continue;
+            };
+            let (cols, rows) = ((width / t).ceil() as usize, (height / t).ceil() as usize);
+            let with = paint(cols, rows, stage, sun, look);
+            let without = paint(
+                cols,
+                rows,
+                stage,
+                Sun::Beside {
+                    x: -(cols as i32),
+                    r,
+                },
+                look,
+            );
+            let cards = width - crate::layout::page_margin(width);
+            let lit: Vec<usize> = (0..cols)
+                .filter(|&x| (0..rows).any(|y| at(&with, x, y) != at(&without, x, y)))
+                .collect();
+            assert!(!lit.is_empty(), "{width}x{height}: no sun");
+            for x in lit {
+                let (left, right) = (x as f32 * t, (x + 1) as f32 * t);
+                assert!(
+                    left >= cards + GUTTER_MARGIN && right <= width - GUTTER_MARGIN,
+                    "{width}x{height}: the sun at {left}..{right} px, the cards end at {cards}"
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_high_sun_is_quieter_than_play() {
+        use eclipse_theme::glass::{oklab, ACCENT};
+        let apart = |a: Rgb, b: Rgb| {
+            let (a, b) = (oklab(hex(a)), oklab(hex(b)));
+            (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f32>().sqrt()
+        };
+        let play_size = NARROW_PLAY * crate::ui::ButtonSize::Hero.height();
+        for (width, height) in HIGH_SUN_SIZES {
+            let (stage, _, r) = high_sun(width, height);
+            let rows = (height / stage.texel).ceil() as usize;
+            for night in [NIGHT, DAWN] {
+                let look = Look::of(&night);
+                let behind = sky_at_sun(look, stage, rows);
+                let side = 2 * sun_reach(r as f32) as i32 + 2;
+                let mut c = Canvas {
+                    w: side as usize,
+                    h: side as usize,
+                    px: vec![behind; (side * side) as usize],
+                };
+                eclipse(
+                    &mut c,
+                    (r as f32, side / 2, side / 2),
+                    look.palette(),
+                    |_| 1.,
+                );
+                let texel_size = stage.texel * stage.texel;
+                let sun: f32 = c.px.iter().map(|&p| apart(p, behind)).sum::<f32>() * texel_size;
+                let play = apart(rgb(ACCENT), rgb(look.sky[0])) * play_size;
+                assert!(
+                    sun < play,
+                    "{width}x{height}, dark {}: the sun weighs {sun:.0}, Play {play:.0}",
+                    look.dark
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn the_ring_draws_the_eclipse_not_the_disc() {
+        for (width, height) in HIGH_SUN_SIZES {
+            let (stage, _, _) = high_sun(width, height);
+            let rows = (height / stage.texel).ceil() as usize;
+            for night in [NIGHT, DAWN] {
+                let look = Look::of(&night);
+                let behind = hex(sky_at_sun(look, stage, rows));
+                let moon = eclipse_theme::contrast(hex(look.palette().moon), behind);
+                assert!(
+                    moon < 3.,
+                    "{width}x{height}, dark {}: the moon is {moon:.2}:1 on its sky",
+                    look.dark
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn a_themes_washed_sky_keeps_the_light_look_readable() {
+        use eclipse_launcher::themes::{SWATCHES, THEMES};
+        use eclipse_theme::glass::{ink, light_ink, Glass, ACCENT, ON_LIGHT};
+        for theme in THEMES {
+            let washed = Look::of(&Night {
+                sky: theme.sky,
+                ..DAWN
+            });
+            for stop in washed.sky {
+                for level in ink::LEVELS {
+                    let a = light_ink(level);
+                    let text = eclipse_theme::contrast(over(ON_LIGHT, a, stop), stop);
+                    assert!(
+                        text >= 4.5,
+                        "{}: ink {a} on #{stop:06x}: {text:.2}",
+                        theme.id
+                    );
+                }
+                for accent in [ACCENT].into_iter().chain(SWATCHES) {
+                    let look = Glass::new(accent).light();
+                    let mark = eclipse_theme::contrast(look.mark, stop);
+                    assert!(
+                        mark >= 3.,
+                        "{}: #{accent:06x}'s mark on #{stop:06x}: {mark:.2}",
+                        theme.id
+                    );
+                    let link = eclipse_theme::contrast(look.accent_soft, stop);
+                    assert!(
+                        link >= 4.5,
+                        "{}: #{accent:06x}'s links on #{stop:06x}: {link:.2}",
+                        theme.id
+                    );
+                }
+            }
+        }
+    }
+
     #[test]
     fn no_cloud_runs_behind_a_card() {
         let look = Look::of(&DAWN);
@@ -1557,14 +1736,10 @@ mod tests {
     fn the_diamond_ring_glints_only_off_the_moon() {
         let (cols, rows) = (384, 216);
         let look = Look::of(&NIGHT);
-        let sun = Sun::Beside { x: 0.86, scale: 1. };
-        let p = paint(cols, rows, stage(1920., 1080., 5., home(1080.)), sun, look);
-        let r = (rows as f32 * SUN_SIZE).round();
+        let (sx, sy, r) = (330, (rows as f32 * SUN_HIGH).round() as i32, 12.);
         assert!(r >= BEAD_SPARKLE_FROM);
-        let (sx, sy) = (
-            (cols as f32 * 0.86).round() as i32,
-            (rows as f32 * SUN_HIGH).round() as i32,
-        );
+        let sun = Sun::Beside { x: sx, r: r as i32 };
+        let p = paint(cols, rows, stage(1920., 1080., 5., home(1080.)), sun, look);
         let ends = [colour(look.palette().moon), colour(look.palette().bead)];
         let reach = r as i32;
         for dy in -reach..=reach {

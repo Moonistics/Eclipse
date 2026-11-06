@@ -4,13 +4,12 @@ use crate::ui;
 
 pub(super) struct StripTab<T> {
     pub(super) value: T,
-    pub(super) key: String,
     pub(super) label: SharedString,
-    pub(super) count: Option<usize>,
+    pub(super) count: Option<(usize, SharedString)>,
 }
 
 impl Launcher {
-    pub(super) fn tab_strip<T: Copy + PartialEq + 'static>(
+    pub(super) fn tab_strip<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         &mut self,
         prefix: &str,
         tabs: Vec<StripTab<T>>,
@@ -21,7 +20,10 @@ impl Launcher {
     ) -> Stateful<Div> {
         let widths = |pad: f32, counts: bool| -> Vec<f32> {
             tabs.iter()
-                .map(|t| ui::tab_width(&t.label, t.count.filter(|_| counts), pad))
+                .map(|t| {
+                    let count = t.count.as_ref().map(|(n, _)| *n).filter(|_| counts);
+                    ui::tab_width(&t.label, count, pad)
+                })
                 .collect()
         };
         let fits =
@@ -34,20 +36,21 @@ impl Launcher {
         };
         let shown = shown_tabs(
             &widths(pad, counts),
-            tabs.iter().position(|t| t.value == open).unwrap_or(0),
             room + 2. * pad,
             ui::ButtonSize::Md.height(),
         );
+        let more_focus = ui::try_focus_for(format!("{prefix}s-more"));
         let mut strip = Vec::new();
         let mut hidden = Vec::new();
         let mut keys = Vec::new();
         for (tab, shown) in tabs.into_iter().zip(shown) {
             if !shown {
+                keys.push((tab.value, more_focus.clone()));
                 hidden.push(tab);
                 continue;
             }
             let (value, pick) = (tab.value, pick.clone());
-            let id = format!("{prefix}-{}", tab.key);
+            let id = format!("{prefix}-{value:?}");
             let focus = ui::try_focus_for(id.clone());
             keys.push((value, focus.clone()));
             strip.push(
@@ -68,7 +71,7 @@ impl Launcher {
             );
         }
         if !hidden.is_empty() {
-            strip.push(self.more_tabs(prefix, hidden, pick.clone(), cx));
+            strip.push(self.more_tabs(prefix, hidden, open, more_focus, pick.clone(), cx));
         }
         ui::tab_strip_padded(format!("{prefix}s"), pad, strip).on_key_down(cx.listener(
             move |this, ev: &KeyDownEvent, window, cx| {
@@ -95,36 +98,50 @@ impl Launcher {
         ))
     }
 
-    fn more_tabs<T: Copy + 'static>(
+    fn more_tabs<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         &mut self,
         prefix: &str,
         hidden: Vec<StripTab<T>>,
+        current: T,
+        focus: Option<FocusHandle>,
         pick: impl Fn(&mut Self, T, bool) + Clone + 'static,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let strip = format!("{prefix}s");
         let menu = Menu::MoreTabs(strip.clone().into());
         let open = self.menu_is(&menu);
+        let inside = hidden.iter().find(|t| t.value == current);
+        let name = match inside {
+            Some(tab) => trf("More tabs, {tab} open", &[("tab", &tab.label)]),
+            None => tr("More tabs").to_string(),
+        };
         let more = ui::more_button(
             format!("{strip}-more"),
-            tr("More tabs"),
+            name,
             ButtonKind::Ghost,
             ui::ButtonSize::Md,
-            open,
-        );
+            open || inside.is_some(),
+        )
+        .aria_expanded(open);
+        let more = match focus {
+            Some(focus) => more.track_focus(&focus),
+            None => more,
+        };
         let mut wrap = div()
             .id(SharedString::from(format!("{strip}-overflow")))
             .relative()
             .flex_none()
             .child(self.menu_opener(more, menu, cx));
         if open {
-            let mut list = self.menu_popover(format!("{strip}-menu"), cx);
+            let mut list = self.menu_popover(format!("{strip}-menu"), tr("More tabs"), cx);
             for (i, tab) in hidden.into_iter().enumerate() {
                 let (value, pick) = (tab.value, pick.clone());
                 let row = ui::menu_item(
-                    format!("{strip}-menu-{}", tab.key),
+                    format!("{strip}-menu-{:?}", tab.value),
                     tab.label,
-                    tab.count.map(|n| n.to_string()).unwrap_or_default(),
+                    tab.count
+                        .map(|(_, said)| said.to_string())
+                        .unwrap_or_default(),
                     false,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -144,24 +161,18 @@ impl Launcher {
     }
 }
 
-fn shown_tabs(widths: &[f32], open: usize, room: f32, more: f32) -> Vec<bool> {
+fn shown_tabs(widths: &[f32], room: f32, more: f32) -> Vec<bool> {
     if widths.iter().sum::<f32>() <= room {
         return vec![true; widths.len()];
     }
-    let mut shown = vec![false; widths.len()];
-    shown[open] = true;
-    let mut used = more + widths[open];
-    for (i, width) in widths.iter().enumerate() {
-        if i == open {
-            continue;
-        }
-        if used + width > room {
-            break;
-        }
-        shown[i] = true;
-        used += width;
-    }
-    shown
+    let mut used = more;
+    widths
+        .iter()
+        .map(|width| {
+            used += width;
+            used <= room
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -169,16 +180,16 @@ mod tests {
     use super::*;
 
     #[test]
-    fn tabs_that_do_not_fit_go_under_more_keeping_the_open_one() {
+    fn tabs_that_do_not_fit_go_under_more_in_their_order() {
         let widths = [100., 60., 80., 120., 70., 120.];
-        assert_eq!(shown_tabs(&widths, 0, 600., 36.), vec![true; 6]);
+        assert_eq!(shown_tabs(&widths, 600., 36.), vec![true; 6]);
         assert_eq!(
-            shown_tabs(&widths, 0, 500., 36.),
+            shown_tabs(&widths, 500., 36.),
             vec![true, true, true, true, true, false]
         );
         assert_eq!(
-            shown_tabs(&widths, 5, 500., 36.),
-            vec![true, true, true, false, false, true]
+            shown_tabs(&widths, 400., 36.),
+            vec![true, true, true, true, false, false]
         );
     }
 }

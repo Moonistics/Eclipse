@@ -109,7 +109,8 @@ impl NativeProfile {
 
 #[derive(Default, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
-    pub selected: Option<String>,
+    #[serde(rename = "selected")]
+    pub default_version: Option<String>,
     /// Game asset architecture. Auto preserves the launcher's process-architecture behavior.
     #[serde(default)]
     pub game_architecture: GameArchitecture,

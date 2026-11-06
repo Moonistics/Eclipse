@@ -155,6 +155,7 @@ impl Launcher {
                     let this = cx.entity().downgrade();
                     let list = ui::options(
                         ui::list_box("mc-versions", height),
+                        tr("Minecraft version"),
                         rows,
                         true,
                         move |i, _, cx| {
@@ -215,6 +216,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let grid = ui::options(
             self.choices("instance-loader-choices", LOADER_COLUMNS),
+            tr("Mod loader"),
             cards,
             true,
             move |i, _, cx| {

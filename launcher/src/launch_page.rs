@@ -2,13 +2,10 @@
 //! (`eclipse_launcher::launch`): a command before it, a wrapper, and environment variables.
 use super::fields::Field;
 use super::*;
-use crate::ui::{self, white};
+use crate::ui;
 use eclipse_launcher::launch;
-use eclipse_theme::glass::{fill, ink, space, step};
-use gpui::{
-    canvas, relative, Bounds, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
-    MouseUpEvent, Pixels, Point,
-};
+use eclipse_theme::glass::{ink, space, step};
+use gpui::FontWeight;
 
 pub(super) struct LaunchPanel {
     /// The instance it is for: picking another closes it.
@@ -33,7 +30,6 @@ pub(super) enum MemorySaved {
 pub(super) struct MemorySlider {
     /// The computer's memory in MiB, read once: the slider's top.
     total: Option<u32>,
-    area: std::rc::Rc<std::cell::Cell<Option<Bounds<Pixels>>>>,
     /// The Java heap size being dragged to.
     dragging: Option<u32>,
     /// What the last change did, or why not.
@@ -149,23 +145,25 @@ impl Launcher {
     }
 
     /// The value under the pointer. Saving waits until the mouse comes up.
-    fn pick_memory(&mut self, at: Point<Pixels>, cx: &mut Context<Self>) {
-        let Some(_) = self.memory_instance() else {
-            return;
-        };
-        let slider = &mut self.memory_slider;
-        let Some(area) = slider.area.get() else {
-            return;
-        };
-        let width: f32 = area.size.width.into();
-        if width <= 0. {
+    fn pick_memory(&mut self, at: f32, cx: &mut Context<Self>) {
+        if self.memory_instance().is_none() {
             return;
         }
-        let across: f32 = (at.x - area.origin.x).into();
+        let slider = &mut self.memory_slider;
         let total = slider.total();
-        let picked = crate::memory::memory_at((across / width).clamp(0., 1.), total);
         slider.saved = None;
-        slider.dragging = Some(picked);
+        slider.dragging = Some(crate::memory::memory_at(at, total));
+        cx.notify();
+    }
+
+    fn step_memory(&mut self, steps: i32, from: u32, cx: &mut Context<Self>) {
+        let Some(id) = self.memory_instance().map(|i| i.id) else {
+            return;
+        };
+        let total = self.memory_slider.total();
+        let by = steps * crate::memory::SLIDER_STEP as i32;
+        let memory = (from as i32 + by).clamp(crate::memory::SLIDER_STEP as i32, total as i32);
+        self.save_memory(&id, memory as u32);
         cx.notify();
     }
 
@@ -252,10 +250,8 @@ impl Launcher {
     /// Maximum memory as a setting row: the name and what it does on the left, the slider and
     /// the box in MB on the right. Saved to the instance as it is set.
     pub(super) fn memory_setting(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        const TRACK: f32 = 208.;
         let instance = self.memory_instance()?;
         let total = self.memory_slider.total();
-        let area = self.memory_slider.area.clone();
         let saved = Self::saved_memory(&instance)?;
         let memory = self.memory_slider.dragging.unwrap_or(saved);
         self.sync_memory_box(&instance.id, memory);
@@ -266,62 +262,22 @@ impl Launcher {
         };
         let f = crate::memory::memory_fraction(memory, total).clamp(0., 1.);
         let about = "Too little and the game can crash.";
-        let track = div()
-            .id("instance-memory")
-            .relative()
-            .flex()
-            .flex_none()
-            .items_center()
-            .w(px(TRACK))
-            .h(px(24.))
-            .cursor_pointer()
-            .child(
-                canvas(move |bounds, _, _| area.set(Some(bounds)), |_, _, _, _| {})
-                    .absolute()
-                    .size_full(),
-            )
-            .child(
-                div()
-                    .h(px(4.))
-                    .w_full()
-                    .rounded_full()
-                    .overflow_hidden()
-                    .bg(white(fill::ACTIVE))
-                    .child(
-                        div()
-                            .h_full()
-                            .w(relative(f))
-                            .rounded_full()
-                            .bg(ui::color(ui::look().accent_soft)),
-                    ),
-            )
-            .child(
-                div()
-                    .absolute()
-                    .left(px(f * (TRACK - 16.)))
-                    .size(px(16.))
-                    .rounded_full()
-                    .bg(crate::ui::paper()),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, ev: &MouseDownEvent, _, cx| this.pick_memory(ev.position, cx)),
-            )
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, _, cx| {
-                if ev.pressed_button == Some(MouseButton::Left)
-                    && this.memory_slider.dragging.is_some()
-                {
-                    this.pick_memory(ev.position, cx);
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
-            )
-            .on_mouse_up_out(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
-            );
+        let this = cx.entity().downgrade();
+        let track = ui::slider(
+            "instance-memory",
+            tr("Maximum memory"),
+            f,
+            f64::from(memory),
+            (0., f64::from(total)),
+            ui::Track::Fill,
+            move |to, _, cx| {
+                let _ = this.update(cx, |this, cx| match to {
+                    ui::SliderMove::To(at) => this.pick_memory(at, cx),
+                    ui::SliderMove::Step(n) => this.step_memory(n, memory, cx),
+                    ui::SliderMove::Done => this.finish_memory(cx),
+                });
+            },
+        );
         let unit = ui::card_note("MB");
         let input = self.field(
             Field::MemoryLimit,

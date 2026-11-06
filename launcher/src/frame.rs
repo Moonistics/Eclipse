@@ -1,11 +1,10 @@
 use super::*;
-use crate::game_run::InstallState;
 use crate::menus::{Asking, Menu};
 use crate::ui::{self, Tone};
 use eclipse_launcher::account::Player;
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, space, step};
-use gpui::{canvas, point, ScrollHandle};
+use gpui::{canvas, point};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -33,7 +32,7 @@ fn row_width(window: f32) -> f32 {
     layout::sidebar(window) - 2. * ui::SIDEBAR_PAD
 }
 
-const SIDE_REVEAL_MARGIN: f32 = ui::SCROLL_FADE;
+const SIDE_REVEAL_GAP: f32 = space::SM;
 
 const SIDE_ROWS: &str = "side-rows";
 
@@ -58,7 +57,7 @@ fn account_top(compact: bool) -> f32 {
 pub struct RowMenu {
     /// Where each row was drawn last, by instance id: the menu opens beside its row.
     pub rows: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
-    list: ScrollHandle,
+    list: Scrollbar,
     shown: Rc<RefCell<Option<(String, Pixels)>>>,
     labels: Rc<RefCell<Vec<Bounds<Pixels>>>>,
     lone_label: Rc<Cell<f32>>,
@@ -110,30 +109,7 @@ impl Launcher {
         match &i.kind {
             InstanceKind::Default | InstanceKind::Own => match &i.java {
                 Some(java) => (Tone::Live, java.line()),
-                None => match self.install_state(i) {
-                    InstallState::NotInstalled => (Tone::Off, tr("Not installed").into()),
-                    InstallState::UpdateReady(_) => (
-                        Tone::Accent(ui::look().accent_soft),
-                        tr("Update available").into(),
-                    ),
-                    InstallState::NotSetUp => (Tone::Off, tr("Not set up").into()),
-                    InstallState::Built(build) => (
-                        Tone::Live,
-                        trf(
-                            "Built with mods · {version}",
-                            &[("version", &build.eclipse_short())],
-                        ),
-                    ),
-                    InstallState::Ready { pinned: Some(tag) } => (
-                        Tone::Live,
-                        format!(
-                            "{} · {}",
-                            tr("Ready"),
-                            eclipse_launcher::nightly::display_name(&tag)
-                        ),
-                    ),
-                    InstallState::Ready { pinned: None } => (Tone::Live, tr("Ready").into()),
-                },
+                None => self.install_state(i).line(),
             },
             InstanceKind::Port { slug } => {
                 let summary = self.modpacks.imported.iter().find(|p| p.slug == *slug);
@@ -162,8 +138,7 @@ impl Launcher {
                 .flatten()
         });
         let on_packs = self.page == Page::Mods && self.mods.on_modpacks();
-        let keyboard = ui::try_focus_for(format!("options-{SIDE_ROWS}"))
-            .is_some_and(|h| ui::keyboard_focus(&h));
+        let keyboard = ui::options_has_keyboard(SIDE_ROWS);
         let cursor = ui::options_cursor(SIDE_ROWS);
         let mut rows = Vec::new();
         let mut heads = Vec::new();
@@ -303,6 +278,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         ui::options_with_heads(
             div().id(SIDE_ROWS).flex().flex_col().gap(px(space::XS)),
+            tr("Instances"),
             rows,
             heads,
             false,
@@ -347,10 +323,11 @@ impl Launcher {
     fn keep_selected_shown(&self) -> impl IntoElement {
         let id = self.selected_instance().map(|i| i.id.clone());
         let rows = self.row_menu.rows.clone();
-        let list = self.row_menu.list.clone();
+        let list = self.row_menu.list.handle.clone();
         let shown = self.row_menu.shown.clone();
         let covered = px(self.row_menu.lone_label.get());
         let side = self.side_focus.clone();
+        let margin = px(ui::fade_height() + SIDE_REVEAL_GAP);
         canvas(
             move |view, window, cx| {
                 let Some(id) = id else {
@@ -367,11 +344,18 @@ impl Launcher {
                     return;
                 };
                 let mut offset = list.offset();
-                let margin = px(SIDE_REVEAL_MARGIN);
                 if row.top() < view.top() + margin {
                     offset.y += view.top() + margin - row.top();
                 } else if row.bottom() > view.bottom() - covered - margin {
                     offset.y -= row.bottom() - (view.bottom() - covered - margin);
+                    let moved = offset.y - list.offset().y;
+                    let sliced = rows.borrow().values().find_map(|r| {
+                        let (top, bottom) = (r.top() + moved, r.bottom() + moved);
+                        (top < view.top() && bottom > view.top()).then_some(bottom - view.top())
+                    });
+                    if let Some(rest) = sliced {
+                        offset.y -= rest;
+                    }
                 }
                 offset.y = offset.y.min(px(0.)).max(-list.max_offset().y);
                 if offset != list.offset() {
@@ -390,7 +374,7 @@ impl Launcher {
 
     fn cover_lone_label(&self) -> impl IntoElement {
         let labels = self.row_menu.labels.clone();
-        let list = self.row_menu.list.clone();
+        let list = self.row_menu.list.handle.clone();
         let cover = self.row_menu.lone_label.clone();
         canvas(
             move |_, window, _| {
@@ -527,13 +511,20 @@ impl Launcher {
             )
             .child(add);
         let rows = self.sidebar_rows(cx);
-        let list = ui::scroll_pane("side-list", &self.row_menu.list)
-            .flex()
-            .flex_col()
+        let list = self
+            .row_menu
+            .list
+            .wrap(
+                ui::scroll_pane("side-list", &self.row_menu.list.handle)
+                    .flex()
+                    .flex_col()
+                    .flex_1()
+                    .min_h_0()
+                    .px(px(ui::SIDEBAR_PAD))
+                    .child(rows),
+            )
             .flex_1()
-            .min_h_0()
-            .px(px(ui::SIDEBAR_PAD))
-            .child(rows);
+            .min_h_0();
         let side = self.theme.side;
         let lone_label = self.row_menu.lone_label.get();
         let list = div()
@@ -563,8 +554,8 @@ impl Launcher {
                     .right_0()
                     .top_0()
                     .bottom(px(lone_label))
-                    .children(ui::more_above_fade(&self.row_menu.list, side))
-                    .children(ui::more_below_fade(&self.row_menu.list, side)),
+                    .children(ui::more_above_fade(&self.row_menu.list.handle, side))
+                    .children(ui::more_below_fade(&self.row_menu.list.handle, side)),
             );
 
         let mut foot = div()
@@ -686,13 +677,15 @@ impl Launcher {
         foot = foot
             .child(self.nav_item(Page::Settings, cx))
             .when(!compact, |d| {
+                let version = trf("Launcher {version}", &[("version", backend::VERSION)]);
                 d.child(
                     ui::text(step::CAPTION, FontWeight::NORMAL, ink::DIM)
                         .id("launcher-version")
+                        .aria_label(version.clone())
                         .px(px(ui::SIDEBAR_INSET - ui::SIDEBAR_PAD))
                         .pt(px(space::SM))
-                        .child(trf("Launcher {version}", &[("version", backend::VERSION)]))
-                        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        .child(version)
+                        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.version_clicked();
                             cx.notify();
                         })),
@@ -702,6 +695,7 @@ impl Launcher {
         div()
             .id("sidebar")
             .role(gpui::Role::Navigation)
+            .aria_label(tr("Launcher"))
             .relative()
             .flex()
             .flex_col()
@@ -725,7 +719,7 @@ impl Launcher {
             return None;
         }
         let now = self.accounts.player();
-        let mut menu = self.menu_popover("account-menu", cx);
+        let mut menu = self.menu_popover("account-menu", tr("Account"), cx);
         for (who, name, how) in self.players() {
             let chosen = who == now;
             let face = match &who {
@@ -831,7 +825,11 @@ impl Launcher {
             tr("Create a desktop shortcut")
         };
         let mut menu = self
-            .menu_popover("row-menu", cx)
+            .menu_popover(
+                "row-menu",
+                trf("{name} options", &[("name", &instance.name)]),
+                cx,
+            )
             .child(
                 item("edit", "pencil-edit-02", tr("Edit…").into()).on_press(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
@@ -871,15 +869,18 @@ impl Launcher {
                 )),
             )
             .child(
-                item("launch", "sliders-horizontal", tr("Launch options…").into()).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        pick(this, &launch);
-                        // A panel left open for another instance must not turn this into Close.
-                        this.launch = None;
-                        this.toggle_launch();
-                        cx.notify();
-                    }),
-                ),
+                item(
+                    "launch",
+                    crate::icons::LAUNCH_OPTIONS,
+                    tr("Launch options…").into(),
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    pick(this, &launch);
+                    // A panel left open for another instance must not turn this into Close.
+                    this.launch = None;
+                    this.toggle_launch();
+                    cx.notify();
+                })),
             )
             .child(
                 item("shortcut", "link-01", shortcut_label.into()).on_press(cx.listener(
@@ -906,9 +907,7 @@ impl Launcher {
                 })),
             );
         // Eclipse's own instance can't be deleted, nor one while a game runs.
-        let can_delete = instance.kind != InstanceKind::Default
-            && self.game.client.is_none()
-            && self.game.starting.is_none();
+        let can_delete = instance.kind != InstanceKind::Default && !self.game.active();
         let gone = instance.id.clone();
         let delete = if confirm {
             ui::menu_confirm(

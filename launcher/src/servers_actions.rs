@@ -374,7 +374,7 @@ impl Launcher {
                     &[("port", &port.to_string())],
                 ));
             }
-            Fix::Prepare => match self.selected().cloned() {
+            Fix::Prepare => match self.selected_version().cloned() {
                 Some(tag) if backend::is_prepared(&tag) => {
                     self.server_job(ServerJob::CopyingGameFiles, move |log| {
                         log(format!("Copying the game files prepared for Eclipse {tag}"));
@@ -510,7 +510,7 @@ impl Launcher {
             players,
             eula: c.eula,
         };
-        let tag = self.selected().cloned();
+        let tag = self.selected_version().cloned();
         let tx = self.servers.tx.clone();
         self.servers.creating = true;
         self.servers.problem = None;

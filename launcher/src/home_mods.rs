@@ -3,7 +3,7 @@
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::Kind as PackKind;
-use eclipse_theme::glass::{ink, radius, space};
+use eclipse_theme::glass::{ink, space};
 use fields::Field;
 use instance_mods::ModRow;
 
@@ -214,13 +214,7 @@ impl Launcher {
             .child(icon)
             .child(ui::item_text(row.name.clone(), note))
             .children(update.map(|u| u.relative()))
-            .child(
-                controls
-                    .relative()
-                    .flex()
-                    .items_center()
-                    .rounded(px(radius::CONTROL)),
-            )
+            .child(controls.relative().flex().items_center())
             .text_color(white(ink::FULL))
     }
 }

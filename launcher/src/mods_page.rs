@@ -41,6 +41,8 @@ const PAGE: usize = 20;
 #[path = "mods_view.rs"]
 mod mods_view;
 
+pub(super) const DETAIL_FLOAT: &str = "mods-detail-float";
+
 #[path = "native_build_view.rs"]
 mod native_build_view;
 
@@ -870,7 +872,7 @@ impl Launcher {
         let everything = self.mods.everything || self.mods.browse.filters.other_version();
         // A modpack is ported for the selected version as soon as it is imported.
         let resources = self
-            .selected()
+            .selected_version()
             .filter(|tag| backend::is_prepared(tag))
             .map(|tag| backend::resources(tag));
         let tx = self.mods.tx.clone();
@@ -1230,7 +1232,7 @@ impl Launcher {
         }));
         let install = ui::button(
             "native-notice-install",
-            None,
+            Some("download-04"),
             tr("Install"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,

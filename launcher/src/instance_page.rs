@@ -67,9 +67,9 @@ impl Launcher {
             .and_then(|id| self.instances.list.iter().find(|i| &i.id == id))
             .cloned();
         let kind = d.java.kind;
-        let running = editing.as_ref().is_some_and(|i| {
-            self.game.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id)
-        });
+        let running = editing
+            .as_ref()
+            .is_some_and(|i| self.play_state(i) == PlayState::Running);
         let (title, note): (SharedString, _) = match &editing {
             Some(i) => (
                 trf("Edit {name}", &[("name", &i.name)]).into(),
@@ -249,26 +249,26 @@ impl Launcher {
     /// The version an instance that keeps none plays: the launcher's, or with none installed
     /// yet, the newest Nightly, which Create installs.
     fn followed_version(&self) -> Option<String> {
-        self.launcher_version()
+        self.default_version()
             .cloned()
             .or_else(|| self.eclipse_choices().into_iter().next())
     }
 
     /// The Eclipse versions the page offers: see [`eclipse_choices`].
     pub(super) fn eclipse_choices(&self) -> Vec<String> {
-        let releases = match &self.releases {
+        let releases = match &self.versions.releases {
             Load::Ready(r) => r.as_slice(),
             _ => &[],
         };
-        eclipse_choices(releases, &self.installed)
+        eclipse_choices(releases, &self.versions.installed)
     }
 
     /// The release to download for the Eclipse version `tag`, when it isn't installed.
     pub(super) fn release_to_install(&self, tag: &str) -> Option<Release> {
-        let Load::Ready(releases) = &self.releases else {
+        let Load::Ready(releases) = &self.versions.releases else {
             return None;
         };
-        (!self.installed.iter().any(|t| t == tag))
+        (!self.versions.installed.iter().any(|t| t == tag))
             .then(|| releases.iter().find(|r| r.tag == tag && r.asset.is_some()))
             .flatten()
             .cloned()
@@ -384,7 +384,7 @@ impl Launcher {
         let grid = self.choices("instance-game-choices", KINDS.len() as u16);
         let grid = if switches {
             let this = cx.entity().downgrade();
-            ui::options(grid, cards, true, move |i, _, cx| {
+            ui::options(grid, tr("Game"), cards, true, move |i, _, cx| {
                 let _ = this.update(cx, |this, cx| {
                     this.pick_kind(KINDS[i], cx);
                     cx.notify();
@@ -537,7 +537,13 @@ impl Launcher {
             (false, false) if duplicate => tr("Duplicate"),
             (false, _) => tr("Create instance"),
         };
-        let save = ui::primary("instance-save", label, button);
+        let creates = editing.is_none() && !duplicate;
+        let save = ui::primary(
+            "instance-save",
+            creates.then_some("plus-sign"),
+            label,
+            button,
+        );
         let named = div()
             .relative()
             .flex()
@@ -656,11 +662,12 @@ impl Launcher {
                 (row, SharedString::from(label), on)
             })
             .collect();
-        let list = match (&self.releases, rows.is_empty()) {
+        let list = match (&self.versions.releases, rows.is_empty()) {
             (_, false) => {
                 let this = cx.entity().downgrade();
                 let list = ui::options(
                     ui::list_box("eclipse-versions", ECLIPSE_LIST),
+                    tr("Eclipse version"),
                     rows,
                     true,
                     move |i, _, cx| {
@@ -850,12 +857,8 @@ impl Launcher {
                 }
             });
             ui::options(
-                div()
-                    .id(id)
-                    .aria_label(tr("Icon"))
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(space::SM)),
+                div().id(id).flex().flex_wrap().gap(px(space::SM)),
+                tr("Icon"),
                 rows,
                 false,
                 move |i, window, cx| pick(&i, window, cx),

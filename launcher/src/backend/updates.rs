@@ -85,7 +85,7 @@ pub(super) fn architecture_update(releases: &[Release], installed: &[String]) ->
     }
     let settings = Settings::load();
     let tag = settings
-        .selected
+        .default_version
         .filter(|tag| installed.contains(tag))
         .or_else(|| installed.iter().find(|tag| is_game_tag(tag)).cloned())?;
     if !is_game_tag(&tag) {

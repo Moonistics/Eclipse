@@ -8,8 +8,6 @@ use crate::menus::Asking;
 use crate::ui::{self, Tone};
 use eclipse_theme::glass::space;
 
-const PROGRESS_WIDTH: f32 = 180.;
-
 impl Launcher {
     /// The Versions page; `on_disk` and `used` as `versions_page` measured them.
     pub(super) fn versions_view(
@@ -18,20 +16,9 @@ impl Launcher {
         used: u64,
         cx: &mut Context<Self>,
     ) -> Div {
-        let import: AnyElement = if self.importing_build {
-            self.install_progress(None, tr("Importing…"))
-                .into_any_element()
-        } else {
-            ui::button(
-                "import-build",
-                Some("folder-01"),
-                tr("Import a version from file…"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
-            .into_any_element()
-        };
+        let import = self
+            .import_build_button("import-build", cx)
+            .into_any_element();
         let head = ui::page_head_with(Page::Versions.title(), "", Some(import));
         let mut page = div().flex().flex_col().child(head).when(used > 0, |d| {
             d.child(
@@ -60,7 +47,7 @@ impl Launcher {
         );
         let mut grouped = native.is_some() || imported.is_some();
         page = page
-            .children(self.import_error.clone().map(|e| {
+            .children(self.versions.import_error.clone().map(|e| {
                 ui::error_line_for(
                     "import-error",
                     tr("Couldn't import the version"),
@@ -74,11 +61,11 @@ impl Launcher {
             .children(imported);
         let downloaded =
             |tag: &str| !native_mods::is_native(tag) && !build_import::is_imported(tag);
-        let releases = match &self.releases {
+        let releases = match &self.versions.releases {
             Load::Loading => {
                 return page.child(ui::empty_card(ui::loading_state(
                     "releases-loading",
-                    tr("Loading versions…"),
+                    ui::page_only(tr("Loading versions…")),
                 )))
             }
             Load::Failed(e) => {
@@ -94,7 +81,7 @@ impl Launcher {
                     .children(offline)
                     .child(ui::empty_card(ui::error_state_with(
                         "releases-failed",
-                        tr("Couldn't load versions"),
+                        ui::page_only(tr("Couldn't load versions")),
                         e,
                         cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.fetch_releases();
@@ -118,7 +105,7 @@ impl Launcher {
                     .child(ui::empty_card(ui::empty_state(
                         "releases-empty",
                         crate::icons::VERSION,
-                        tr("No versions yet"),
+                        ui::page_only(tr("No versions yet")),
                         tr("Eclipse hasn't published a version yet."),
                         vec![],
                     )));
@@ -138,10 +125,14 @@ impl Launcher {
         page = page.children(unlisted);
         let keep = |i: usize| {
             let tag = &releases[i].tag;
-            self.installing.as_ref().is_some_and(|(t, _)| t == tag)
-                || self.install_error.as_ref().is_some_and(|(t, _)| t == tag)
+            self.versions.installing(tag).is_some()
+                || self
+                    .versions
+                    .install_error
+                    .as_ref()
+                    .is_some_and(|(t, _)| t == tag)
                 || self.is_asking(&Asking::Version(tag.clone()))
-                || self.removing.contains(tag)
+                || self.versions.removing.contains(tag)
         };
         let list = self.long_list.clone().column(
             &self.content_scroll.handle,
@@ -179,8 +170,8 @@ impl Launcher {
         right: AnyElement,
     ) -> Div {
         let look = ui::look();
-        let installed = self.installed.iter().any(|v| v == tag);
-        let in_use = self.selected().map(String::as_str) == Some(tag);
+        let installed = self.versions.installed.iter().any(|v| v == tag);
+        let in_use = self.selected_version().map(String::as_str) == Some(tag);
         let used_by: Vec<&str> = self
             .instances
             .list
@@ -203,6 +194,7 @@ impl Launcher {
             add(trf("{size} on disk", &[("size", &megabytes(n))]));
         }
         let error = self
+            .versions
             .install_error
             .as_ref()
             .filter(|(e, _)| e == tag)
@@ -218,31 +210,15 @@ impl Launcher {
                     .flex()
                     .items_center()
                     .gap(px(space::LG))
-                    .child(
-                        div()
-                            .flex()
-                            .flex_col()
-                            .flex_1()
-                            .min_w_0()
-                            .gap(px(space::XXS))
-                            .child(
-                                div()
-                                    .flex()
-                                    .items_center()
-                                    .gap(px(space::MD))
-                                    .child(ui::card_title(title).truncate())
-                                    .when(newest, |d| {
-                                        d.child(ui::state_line(
-                                            Tone::Accent(look.accent_soft),
-                                            tr("Newest"),
-                                        ))
-                                    })
-                                    .when(in_use, |d| {
-                                        d.child(ui::state_line(Tone::Live, tr("In use")))
-                                    }),
-                            )
-                            .child(ui::card_note(line.clone()).truncate()),
-                    )
+                    .child(ui::release_head(
+                        title,
+                        line.clone(),
+                        newest
+                            .then(|| ui::state_line(Tone::Accent(look.accent_soft), tr("Newest")))
+                            .into_iter()
+                            .chain(in_use.then(|| ui::state_line(Tone::Live, tr("In use"))))
+                            .collect(),
+                    ))
                     .child(div().relative().flex().flex_none().child(right)),
             )
             .children(error.map(|e| {
@@ -260,26 +236,25 @@ impl Launcher {
     /// the bin once installed.
     fn release_action(&self, release: &Release, cx: &mut Context<Self>) -> AnyElement {
         let tag = release.tag.clone();
-        if let Some((_, p)) = self.installing.as_ref().filter(|(t, _)| *t == tag) {
-            return self
-                .install_progress(Some(*p), tr("Installing"))
-                .into_any_element();
+        if let Some(bar) = self
+            .install_bar()
+            .filter(|_| self.versions.installing(&tag).is_some())
+        {
+            return bar.into_any_element();
         }
-        if self.removing.contains(&tag) {
-            return self
-                .install_progress(None, tr("Removing…"))
-                .into_any_element();
+        if self.versions.removing.contains(&tag) {
+            return self.removing_bar().into_any_element();
         }
-        if self.installed.contains(&tag) {
+        if self.versions.installed.contains(&tag) {
             if backend::needs_game_architecture_install(&tag, release) {
                 let b = ui::button(
                     SharedString::from(format!("install-selected-architecture-{tag}")),
-                    None,
+                    Some("download-04"),
                     tr("Install selected build"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
-                if self.installing.is_some() {
+                if self.versions.installing.is_some() {
                     return ui::disabled(b).into_any_element();
                 }
                 let release = release.clone();
@@ -303,12 +278,12 @@ impl Launcher {
         }
         let b = ui::button(
             SharedString::from(format!("install-{tag}")),
-            None,
+            Some("download-04"),
             tr("Install"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        if self.installing.is_some() {
+        if self.versions.installing.is_some() {
             ui::disabled(b).into_any_element()
         } else {
             let release = release.clone();
@@ -320,20 +295,16 @@ impl Launcher {
         }
     }
 
-    /// A bar with its word: an install's progress, or a removal's.
-    fn install_progress(&self, fraction: Option<f32>, label: &str) -> Div {
-        let note = if fraction.is_some() { "" } else { label };
-        div().w(px(PROGRESS_WIDTH)).child(ui::progress_line(
-            "",
-            fraction.map(|_| self.bar),
-            note.to_string(),
-        ))
+    fn removing_bar(&self) -> Div {
+        div()
+            .w(px(layout::FIELD_MD))
+            .child(ui::progress_line("", None, tr("Removing…")))
     }
 
     /// An installed version's actions: Use (when it isn't the one in use) and the bin, which asks
     /// again before it removes.
     fn version_actions(&self, tag: &str, name: &str, cx: &mut Context<Self>) -> Div {
-        let selected = self.selected().map(String::as_str) == Some(tag);
+        let selected = self.selected_version().map(String::as_str) == Some(tag);
         let confirming = self.is_asking(&Asking::Version(tag.to_string()));
         let bin = SharedString::from(format!("bin-{tag}"));
         let (t1, t2, t3) = (tag.to_string(), tag.to_string(), tag.to_string());
@@ -352,6 +323,23 @@ impl Launcher {
                 }),
             ));
         }
+        let broken = selected && self.game.prepare_error.is_some();
+        if broken && self.versions.release(tag).is_some() {
+            let again = tag.to_string();
+            d = d.child(
+                ui::button(
+                    SharedString::from(format!("reinstall-{tag}")),
+                    Some("download-04"),
+                    tr("Reinstall"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.reinstall(&again);
+                    cx.notify();
+                })),
+            );
+        }
         if !selected {
             d = d.child(
                 ui::button(
@@ -362,8 +350,7 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.settings.selected = Some(t1.clone());
-                    this.save_settings();
+                    this.use_version(t1.clone());
                     cx.notify();
                 })),
             );
@@ -390,9 +377,10 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) -> Option<Div> {
         let tags: Vec<String> = self
+            .versions
             .installed
             .iter()
-            .chain(&self.removing)
+            .chain(&self.versions.removing)
             .filter(|v| is(v))
             .cloned()
             .collect();
@@ -417,9 +405,8 @@ impl Launcher {
                 }
                 let mut line = line.join(" · ");
                 let title = eclipse_launcher::nightly::display_name(&tag);
-                let right = if self.removing.contains(&tag) {
-                    self.install_progress(None, tr("Removing…"))
-                        .into_any_element()
+                let right = if self.versions.removing.contains(&tag) {
+                    self.removing_bar().into_any_element()
                 } else {
                     self.version_actions(&tag, &title, cx).into_any_element()
                 };
@@ -433,9 +420,9 @@ impl Launcher {
 impl Launcher {
     pub(super) fn versions_page(&mut self, cx: &mut Context<Self>) -> Div {
         // Measured again when the installed versions change.
-        if self.disk_for != self.installed {
-            self.disk_for = self.installed.clone();
-            let (tags, tx) = (self.installed.clone(), self.tx.clone());
+        if self.versions.disk_for != self.versions.installed {
+            self.versions.disk_for = self.versions.installed.clone();
+            let (tags, tx) = (self.versions.installed.clone(), self.tx.clone());
             std::thread::spawn(move || {
                 let disk = tags.into_iter().map(|t| {
                     let n = backend::disk_use(&t);
@@ -445,12 +432,12 @@ impl Launcher {
             });
         }
         let on_disk = |tag: &String| {
-            let found = self.disk.iter().find(|(t, _)| t == tag);
+            let found = self.versions.disk.iter().find(|(t, _)| t == tag);
             found
-                .filter(|_| self.installed.contains(tag))
+                .filter(|_| self.versions.installed.contains(tag))
                 .map(|(_, n)| *n)
         };
-        let used: u64 = self.installed.iter().filter_map(on_disk).sum();
+        let used: u64 = self.versions.installed.iter().filter_map(on_disk).sum();
         self.versions_view(&on_disk, used, cx)
     }
 }

@@ -21,7 +21,7 @@ pub(crate) const INSTALL_MARK: &str = ".installed";
 pub fn game_mod_api_level() -> Option<u32> {
     let installed = installed();
     let tag = Settings::load()
-        .selected
+        .default_version
         .filter(|s| installed.contains(s))
         .or_else(|| installed.into_iter().next())?;
     Some(mod_api_level(&tag))
@@ -398,7 +398,9 @@ pub fn resolve_version(requested: Option<&str>) -> Result<String, String> {
             .cloned()
             .ok_or_else(|| format!("{tag} is not installed."));
     }
-    let selected = Settings::load().selected.filter(|s| installed.contains(s));
+    let selected = Settings::load()
+        .default_version
+        .filter(|s| installed.contains(s));
     selected
         .or_else(|| installed.first().cloned())
         .ok_or_else(no_version_installed)
@@ -425,8 +427,8 @@ pub fn remove_version(tag: &str) -> Result<(), String> {
     }
     remove(tag)?;
     Settings::update(|settings| {
-        if settings.selected.as_deref() == Some(tag) {
-            settings.selected = installed().first().cloned();
+        if settings.default_version.as_deref() == Some(tag) {
+            settings.default_version = installed().first().cloned();
         }
     })
 }
@@ -443,7 +445,7 @@ pub(super) fn stale_versions(installed: &[String], keep: usize) -> Vec<String> {
 }
 
 pub(crate) fn needed_versions() -> Vec<String> {
-    let mut needed: Vec<String> = Settings::load().selected.into_iter().collect();
+    let mut needed: Vec<String> = Settings::load().default_version.into_iter().collect();
     needed.extend(
         crate::instances::list()
             .into_iter()
@@ -558,9 +560,10 @@ pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result
     Settings::update(|settings| {
         // An older Nightly is a deliberate rollback: installed, but an update never moves the selection back.
         if !as_update
-            || (downgrade.is_none() && select_after_update(settings.selected.as_deref(), &before))
+            || (downgrade.is_none()
+                && select_after_update(settings.default_version.as_deref(), &before))
         {
-            settings.selected = Some(release.tag.clone());
+            settings.default_version = Some(release.tag.clone());
         }
     })?;
     after_install(&release.tag, as_update);

@@ -72,6 +72,8 @@ pub const DOT_ROOM: f32 = DOT + space::SM;
 
 const BAR_HEIGHT: f32 = 4.;
 
+const BAR_MIN: f32 = 0.02;
+
 const SHUTTLE: std::time::Duration = std::time::Duration::from_millis(1600);
 
 const SHUTTLE_SHARE: f32 = 0.3;
@@ -90,6 +92,7 @@ pub fn begin_frame(theme: &Theme, short: bool, window: &Window, cx: &mut App) {
     SHORT.set(short);
     SCALE.set(window.scale_factor());
     press::forget_spots();
+    surfaces::roll_foot();
     press::note_focus(window, cx);
     hover::forget_disabled();
 }
@@ -199,6 +202,10 @@ pub fn text_width(text: &str, step: TextStep) -> f32 {
 
 pub fn on_pixel_grid(size: f32) -> f32 {
     on_device_grid(size, SCALE.get())
+}
+
+pub fn pixel_text_grows() -> bool {
+    on_pixel_grid(pixel::PRESS) > pixel::PRESS
 }
 
 fn on_device_grid(size: f32, scale: f32) -> f32 {
@@ -385,10 +392,10 @@ pub fn progress_bar(fraction: Option<(f32, f32)>) -> Stateful<Div> {
     let still = crate::motion::still();
     match fraction {
         Some((_, to)) if still => {
-            track.child(bar_fill().left_0().w(gpui::relative(to.clamp(0.02, 1.))))
+            track.child(bar_fill().left_0().w(gpui::relative(to.clamp(BAR_MIN, 1.))))
         }
         Some((from, to)) => {
-            let (from, to) = (from.clamp(0.02, 1.), to.clamp(0.02, 1.));
+            let (from, to) = (from.clamp(BAR_MIN, 1.), to.clamp(BAR_MIN, 1.));
             track.child(bar_fill().left_0().with_animation(
                 gpui::ElementId::named_usize("bar", (to * 1000.) as usize),
                 crate::motion::eased(eclipse_theme::MOVE),
@@ -542,12 +549,12 @@ mod tests {
         let (role, n) = read(&count_tab(
             "home-tab-worlds",
             "Worlds",
-            Some(3),
+            Some((3, "3 worlds".into())),
             true,
             TAB_PAD,
         ));
         assert_eq!((role, n.is_selected()), (Some(Role::Tab), Some(true)));
-        assert_eq!(n.description(), Some("3"));
+        assert_eq!(n.description(), Some("3 worlds"));
         assert_eq!(
             read(&tab_strip_padded("home-tabs", TAB_PAD, [])).0,
             Some(Role::TabList)
@@ -686,6 +693,51 @@ mod tests {
         )));
         assert_eq!(role, Some(Role::Button));
         assert!(n.description().is_some());
+    }
+
+    #[test]
+    fn lists_sliders_and_failures_say_what_they_are() {
+        let list = options(
+            div().id("side-rows"),
+            "Instances",
+            vec![(div().id("side-instance-a"), "Survival".into(), true)],
+            false,
+            |_, _, _| {},
+        );
+        let (role, n) = read(&list);
+        assert_eq!((role, n.label()), (Some(Role::ListBox), Some("Instances")));
+
+        let (role, _) = read(&error_state(
+            "releases-failed",
+            "Couldn't load versions",
+            "GitHub's certificate couldn't be checked.",
+            |_, _, _| {},
+        ));
+        assert_eq!(role, Some(Role::Alert));
+
+        let (role, n) = read(&error_line_for(
+            "check-updates-failed",
+            "Couldn't check for updates",
+            "offline",
+            None,
+            Vec::new(),
+        ));
+        assert_eq!((role, n.label()), (Some(Role::Alert), None));
+
+        let (role, n) = read(&slider(
+            "instance-memory",
+            "Maximum memory",
+            0.25,
+            4096.,
+            (0., 16384.),
+            Track::Fill,
+            |_, _, _| {},
+        ));
+        assert_eq!(
+            (role, n.label()),
+            (Some(Role::Slider), Some("Maximum memory"))
+        );
+        assert_eq!(n.numeric_value(), Some(4096.));
     }
 
     #[test]

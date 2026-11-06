@@ -30,7 +30,7 @@ impl Launcher {
 
     /// The list: a popover like the others, its rows scrolling past ten.
     fn language_list(&self, cx: &mut Context<Self>) -> impl IntoElement {
-        let mut menu = self.menu_popover("language-menu", cx);
+        let mut menu = self.menu_popover("language-menu", tr("Language"), cx);
         for choice in std::iter::once(None).chain(Language::ALL.map(Some)) {
             let id = choice.map_or("system", Language::code);
             menu = menu.child(

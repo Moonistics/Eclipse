@@ -98,7 +98,7 @@ impl Launcher {
             }
             None => {}
         }
-        if self.game.client.is_some() {
+        if self.selected_play_state().playing() {
             body = body.child(ui::list_head(tr("Close the game to change packs here.")));
         }
         for (pack, icon) in resource {
@@ -126,7 +126,7 @@ impl Launcher {
         let hovered = ui::hover_within(&key);
         let which = (pack.kind, pack.file.clone());
         let confirming = self.is_asking(&Asking::GamePack(which.0, which.1.clone()));
-        let running = self.game.client.is_some();
+        let running = self.selected_play_state().playing();
         let mut note = vec![match (pack.kind, pack.enabled) {
             (PackKind::Resource, true) => tr("Resource pack · on"),
             (PackKind::Resource, false) => tr("Resource pack · off"),

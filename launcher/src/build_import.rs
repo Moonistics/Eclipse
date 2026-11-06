@@ -95,7 +95,7 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
     if !is_game(&program) {
         return Err(not_a_game(&file));
     }
-    let selected = backend::Settings::load().selected;
+    let selected = backend::Settings::load().default_version;
     let base = base_for(&backend::installed(), requested, selected.as_deref())?;
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tag = install_in(&backend::version_dir(""), &base, &program, &file, &date)?;
@@ -107,7 +107,7 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
         ));
     }
     backend::reuse_prepared_for(&tag);
-    backend::Settings::update(|settings| settings.selected = Some(tag.clone()))?;
+    backend::Settings::update(|settings| settings.default_version = Some(tag.clone()))?;
     Ok(tag)
 }
 

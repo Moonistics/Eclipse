@@ -158,7 +158,7 @@ impl Launcher {
 
         let panel = ui::icon_button(
             "server-panel",
-            "dashboard-square-01",
+            crate::icons::SERVER_PANEL,
             tr("Server panel"),
             ButtonKind::Ghost,
             ui::ButtonSize::Sm,
@@ -414,10 +414,10 @@ impl Launcher {
                         ui::IconSize::Px16,
                         white(ink::MUTED),
                     ))
-                    .child(
-                        ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                            .child(tr("Start the server to see its console.")),
-                    ),
+                    .child(ui::empty_line(
+                        "server-console-stopped",
+                        tr("Start the server to see its console."),
+                    )),
             );
         }
         let log = ui::log_well("server-console", &self.servers.console_scroll);
@@ -446,8 +446,8 @@ impl Launcher {
         );
         let typed = !self.fields.value(Field::ServerCommand).trim().is_empty();
         let send = if typed {
-            send.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.field_enter(Field::ServerCommand);
+            send.on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.field_enter(Field::ServerCommand, window, cx);
                 cx.notify();
             }))
         } else {
@@ -475,21 +475,17 @@ impl Launcher {
 
     fn no_server(&mut self, cx: &mut Context<Self>) -> Div {
         let needs = self.server_needs();
-        if needs == Some(Needs::Eclipse) && self.installing.is_some() {
-            return ui::empty_card(
-                ui::loading_state("servers-installing", tr("Installing Eclipse")).child(
-                    div()
-                        .w_full()
-                        .max_w(px(layout::FIELD_LG))
-                        .mt(px(space::LG))
-                        .child(ui::progress_line("", Some(self.bar), "")),
-                ),
-            );
+        if let Some(state) = self
+            .eclipse_install_state("servers-installing")
+            .filter(|_| needs == Some(Needs::Eclipse))
+        {
+            return ui::empty_card(state);
         }
         let first = match needs {
             Some(need) => self.server_need_button("servers-empty", need, ButtonKind::Primary, cx),
             None => ui::primary(
                 "server-create-empty",
+                Some("plus-sign"),
                 tr("Create a server"),
                 ui::ButtonSize::Md,
             )
@@ -525,7 +521,7 @@ impl Launcher {
             ui::empty_state(
                 "servers-empty",
                 Page::Servers.icon(),
-                tr("No servers yet"),
+                ui::page_only(tr("No servers yet")),
                 note,
                 vec![first, add],
             )
@@ -618,6 +614,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let servers = ui::options(
             div().id("server-rows").flex().flex_col(),
+            tr("Servers"),
             rows,
             true,
             move |i, _, cx| {
@@ -744,7 +741,6 @@ impl Launcher {
             .iter()
             .map(|&(tab, label)| StripTab {
                 value: tab,
-                key: format!("{tab:?}"),
                 label: tr(label).into(),
                 count: None,
             })

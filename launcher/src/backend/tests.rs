@@ -968,7 +968,7 @@ fn a_value_this_launcher_cant_read_falls_back_alone() {
     assert_eq!(future.language, None);
     assert_eq!(future.keep_versions, None);
     assert_eq!(
-        (future.game_args.as_str(), future.selected.as_deref()),
+        (future.game_args.as_str(), future.default_version.as_deref()),
         ("--x", Some("v0.2.0"))
     );
 }
@@ -982,7 +982,7 @@ fn settings_that_cant_be_read_are_kept_and_updates_keep_every_change() {
     let damaged = r#"{"selected": "v0.2.0", "game_args": "--x""#;
     fs::write(&path, damaged).unwrap();
     let loaded = Settings::load_from(&path);
-    assert_eq!(loaded.selected, None);
+    assert_eq!(loaded.default_version, None);
     assert!(loaded.save_to(&path).is_err());
     assert!(Settings::update_at(&path, |s| s.game_args = "--y".into()).is_err());
     assert_eq!(fs::read_to_string(&path).unwrap(), damaged);
@@ -1000,7 +1000,7 @@ fn settings_that_cant_be_read_are_kept_and_updates_keep_every_change() {
     });
     let after = Settings::load_from(&path);
     assert_eq!(
-        (after.selected.as_deref(), after.keep_versions),
+        (after.default_version.as_deref(), after.keep_versions),
         (Some("v0.2.0"), Some(8))
     );
     fs::remove_dir_all(&dir).unwrap();
@@ -1016,7 +1016,7 @@ fn the_old_update_channel_settings_are_dropped_and_the_rest_kept() {
     ] {
         let settings = Settings::parse(old).unwrap();
         assert_eq!(settings.game_args, "--x", "{old}");
-        assert_eq!(settings.selected.as_deref(), Some("v0.2.0"), "{old}");
+        assert_eq!(settings.default_version.as_deref(), Some("v0.2.0"), "{old}");
         let saved = serde_json::to_value(&settings).unwrap();
         assert!(saved.get("update_channel").is_none(), "{old}");
         assert!(saved.get("beta_builds").is_none(), "{old}");

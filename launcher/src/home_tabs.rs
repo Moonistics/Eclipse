@@ -70,6 +70,26 @@ impl Launcher {
 
 const NOTES_WIDTH: f32 = layout::MEASURE_TEXT;
 
+impl HomeTab {
+    fn counted(self, n: usize) -> String {
+        let count = n.to_string();
+        let counted = [("count", count.as_str())];
+        match (self, n) {
+            (HomeTab::Mods, 1) => tr("1 mod").into(),
+            (HomeTab::Mods, _) => trf("{count} mods", &counted),
+            (HomeTab::Worlds, 1) => tr("1 world").into(),
+            (HomeTab::Worlds, _) => trf("{count} worlds", &counted),
+            (HomeTab::Multiplayer, 1) => tr("1 server").into(),
+            (HomeTab::Multiplayer, _) => trf("{count} servers", &counted),
+            (HomeTab::Packs, 1) => tr("1 pack").into(),
+            (HomeTab::Packs, _) => trf("{count} packs", &counted),
+            (HomeTab::Screenshots, 1) => tr("1 screenshot").into(),
+            (HomeTab::Screenshots, _) => trf("{count} screenshots", &counted),
+            (HomeTab::PatchNotes | HomeTab::Console, _) => count,
+        }
+    }
+}
+
 impl Launcher {
     pub(super) fn home_tab_card(&mut self, cx: &mut Context<Self>) -> Div {
         let tabs = self.home_tab_list(cx);
@@ -86,7 +106,6 @@ impl Launcher {
             .into_iter()
             .map(|(tab, count)| StripTab {
                 value: tab,
-                key: format!("{tab:?}"),
                 label: match tab {
                     HomeTab::PatchNotes => tr("Patch notes"),
                     HomeTab::Mods => tr("Mods"),
@@ -97,7 +116,7 @@ impl Launcher {
                     HomeTab::Console => tr("Console"),
                 }
                 .into(),
-                count: count.filter(|n| *n > 0),
+                count: count.filter(|n| *n > 0).map(|n| (n, tab.counted(n).into())),
             })
             .collect();
         let strip = self.tab_strip(
@@ -127,8 +146,8 @@ impl Launcher {
     }
 
     fn has_patch_notes(&self) -> bool {
-        match &self.releases {
-            Load::Ready(list) => patch_source(list, self.selected().map(String::as_str))
+        match &self.versions.releases {
+            Load::Ready(list) => patch_source(list, self.selected_version().map(String::as_str))
                 .is_some_and(|(_, sections)| !sections.is_empty()),
             Load::Loading => true,
             Load::Failed(_) => false,
@@ -139,7 +158,7 @@ impl Launcher {
     /// when that version lists none), else the newest launcher release's; All patch notes opens
     /// Patch notes.
     fn patch_notes(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let source = match &self.releases {
+        let source = match &self.versions.releases {
             Load::Loading => {
                 return Some(div().child(ui::loading_state(
                     "patch-notes-loading",
@@ -147,7 +166,7 @@ impl Launcher {
                 )))
             }
             Load::Failed(_) => return None,
-            Load::Ready(list) => patch_source(list, self.selected().map(String::as_str)),
+            Load::Ready(list) => patch_source(list, self.selected_version().map(String::as_str)),
         };
         let (note, sections) = source.filter(|(_, sections)| !sections.is_empty())?;
         let many = sections.len() > 1;

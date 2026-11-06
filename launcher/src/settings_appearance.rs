@@ -4,17 +4,10 @@ use crate::fields::Field;
 use crate::ui;
 use eclipse_launcher::themes::{self, Accent};
 use eclipse_theme::glass::space;
-use gpui::{
-    canvas, fill, point, size, Bounds, MouseButton, MouseDownEvent, MouseMoveEvent, MouseUpEvent,
-    Pixels, Point,
-};
 use std::path::PathBuf;
 
 const SWATCH: f32 = ui::TILE_MD;
 const SWATCH_FILL: f32 = ui::TILE_SM;
-/// The hue strip under the swatches, in points: 0 to 360 degrees across it.
-const STRIP: f32 = 212.;
-const HUE_MARK: f32 = 3.;
 const HUE_KEY_STEP: f32 = 5.;
 
 impl Launcher {
@@ -47,7 +40,7 @@ impl Launcher {
                 let _ = this.update(cx, |this, cx| {
                     this.settings.theme = id.map(str::to_owned);
                     this.save_settings();
-                    this.restyle = true;
+                    this.restyle();
                     cx.notify();
                 });
             },
@@ -98,7 +91,7 @@ impl Launcher {
             swatches.push((
                 swatch(SharedString::from(format!("accent-{}", accent.name())), on)
                     .child(chip(rgb, on)),
-                accent_label(&accent.name()).into(),
+                tr(accent.label().unwrap_or_default()).into(),
                 on,
             ));
             picks.push(Some(accent));
@@ -108,7 +101,7 @@ impl Launcher {
                 chip(current.rgb(), true).into_any_element()
             } else {
                 ui::icon(
-                    "color-picker",
+                    crate::icons::ANY_COLOUR,
                     ui::IconSize::Px16,
                     ui::white(eclipse_theme::glass::ink::BODY),
                 )
@@ -123,7 +116,7 @@ impl Launcher {
                 Some(Some(accent)) => {
                     this.settings.accent = *accent;
                     this.save_settings();
-                    this.restyle = true;
+                    this.restyle();
                 }
                 Some(None) => this.settings_ui.accent_strip = !this.settings_ui.accent_strip,
                 None => {}
@@ -133,12 +126,12 @@ impl Launcher {
         let swatches = ui::options(
             div()
                 .id("accent-swatches")
-                .aria_label(tr("Accent colour"))
                 .flex()
                 .flex_wrap()
                 .items_center()
                 .justify_end()
                 .gap(px(space::XS)),
+            tr("Accent colour"),
             swatches,
             false,
             move |i, window, cx| pick(&i, window, cx),
@@ -189,7 +182,7 @@ impl Launcher {
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 )
-                .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     let s = &mut this.settings;
                     s.appearance = Default::default();
                     s.accent = Accent::AMBER;
@@ -198,10 +191,9 @@ impl Launcher {
                     s.reduce_motion = None;
                     this.save_settings();
                     crate::motion::set_reduce_motion(None);
-                    titlebar::apply_appearance(window, this.settings.appearance);
                     this.settings_ui.accent_strip = false;
                     this.background_error = None;
-                    this.theme = this.settings_theme(window);
+                    this.restyle();
                     crate::toast::say(tr("Appearance is back to its defaults"));
                     cx.notify();
                 }))
@@ -225,106 +217,32 @@ impl Launcher {
         if let Some(accent) = Accent::parse(&hex).filter(|a| *a != self.settings.accent) {
             self.settings.accent = accent;
             self.save_settings();
-            self.restyle = true;
+            self.restyle();
             cx.notify();
         }
     }
 
-    /// A strip of every hue: a click or a drag picks any of them, the swatches being shortcuts.
     fn hue_strip(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let current = self.settings.accent.hue();
-        let area = self.settings_ui.hue_area.clone();
-        let ink = ui::white(eclipse_theme::glass::ink::FULL);
-        // Hues per painted quad: 60 of them, fine enough at this width.
-        const STEPS: usize = 60;
-        let strip = div()
-            .id("accent-hue")
-            .role(gpui::Role::Slider)
-            .aria_label(tr("Accent colour"))
-            .aria_min_numeric_value(0.)
-            .aria_max_numeric_value(360.)
-            .when_some(current, |d, hue| d.aria_numeric_value(f64::from(hue)));
-        ui::focus_stop(strip)
-            .on_key_down(cx.listener(|this, ev: &KeyDownEvent, _, cx| {
-                let by = match ev.keystroke.key.as_str() {
-                    "left" | "down" => -HUE_KEY_STEP,
-                    "right" | "up" => HUE_KEY_STEP,
-                    _ => return,
-                };
-                this.step_hue(by);
-                cx.stop_propagation();
-                cx.notify();
-            }))
-            .relative()
-            .flex_none()
-            .w(px(STRIP))
-            .h(px(SWATCH_FILL))
-            .rounded(px(eclipse_theme::glass::radius::CONTROL))
-            .overflow_hidden()
-            .cursor_pointer()
-            .child(
-                canvas(
-                    move |bounds, _, _| {
-                        area.set(Some(bounds));
-                        bounds
-                    },
-                    move |bounds, _, window, _| {
-                        let width: f32 = bounds.size.width.into();
-                        let step = width / STEPS as f32;
-                        for i in 0..STEPS {
-                            let left = px(step * i as f32);
-                            let colour: Hsla =
-                                gpui::rgb(themes::hue_colour(i as f32 * 360. / STEPS as f32))
-                                    .into();
-                            window.paint_quad(fill(
-                                Bounds::new(
-                                    point(bounds.left() + left, bounds.top()),
-                                    size(px(step), bounds.size.height),
-                                ),
-                                colour,
-                            ));
-                        }
-                        if let Some(hue) = current {
-                            let at = px(width * hue / 360.);
-                            window.paint_quad(fill(
-                                Bounds::new(
-                                    point(bounds.left() + at - px(HUE_MARK / 2.), bounds.top()),
-                                    size(px(HUE_MARK), bounds.size.height),
-                                ),
-                                ink,
-                            ));
-                        }
-                    },
-                )
-                .size_full(),
-            )
-            .on_mouse_down(
-                MouseButton::Left,
-                cx.listener(|this, ev: &MouseDownEvent, window, cx| {
-                    this.pick_hue(ev.position, window, cx);
-                }),
-            )
-            .on_mouse_move(cx.listener(|this, ev: &MouseMoveEvent, window, cx| {
-                if ev.pressed_button == Some(MouseButton::Left) {
-                    this.pick_hue(ev.position, window, cx);
-                }
-            }))
-            .on_mouse_up(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| {
-                    this.finish_hue();
+        let hue = self.settings.accent.shown_hue();
+        let this = cx.entity().downgrade();
+        ui::slider(
+            "accent-hue",
+            tr("Accent colour"),
+            hue / 360.,
+            f64::from(hue),
+            (0., 360.),
+            ui::Track::Hues,
+            move |to, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    match to {
+                        ui::SliderMove::To(at) => this.pick_hue(at),
+                        ui::SliderMove::Step(n) => this.step_hue(n as f32 * HUE_KEY_STEP),
+                        ui::SliderMove::Done => this.finish_hue(),
+                    }
                     cx.notify();
-                }),
-            )
-            // `on_mouse_up` fires only while the strip is hovered, so a drag released off it would
-            // keep its accent in memory and never write it.
-            .on_mouse_up_out(
-                MouseButton::Left,
-                cx.listener(|this, _: &MouseUpEvent, _, cx| {
-                    this.finish_hue();
-                    cx.notify();
-                }),
-            )
+                });
+            },
+        )
     }
 
     /// A release ends the drag and writes `settings.json` once.
@@ -341,26 +259,17 @@ impl Launcher {
         let hue = self.settings.accent.hue().unwrap_or(0.);
         self.settings.accent = Accent::custom((hue + by).rem_euclid(360.));
         self.save_settings();
-        self.restyle = true;
+        self.restyle();
     }
 
-    fn pick_hue(&mut self, at: Point<Pixels>, window: &mut Window, cx: &mut Context<Self>) {
-        let Some(area) = self.settings_ui.hue_area.get() else {
-            return;
-        };
-        let width: f32 = area.size.width.into();
-        if width <= 0. {
-            return;
-        }
-        let across: f32 = (at.x - area.origin.x).into();
-        let accent = Accent::custom(((across / width).clamp(0., 1.) * 360.).round());
+    fn pick_hue(&mut self, at: f32) {
+        let accent = Accent::custom((at * 360.).round());
         self.settings_ui.hue_dragging = true;
         if accent == self.settings.accent {
             return;
         }
         self.settings.accent = accent;
-        self.theme = self.settings_theme(window);
-        cx.notify();
+        self.restyle();
     }
 
     fn choose_background(&mut self, cx: &mut Context<Self>) {
@@ -436,17 +345,5 @@ impl Launcher {
             detail,
             Some(actions.into_any_element()),
         )
-    }
-}
-
-fn accent_label(name: &str) -> &'static str {
-    match name {
-        "blue" => tr("Blue"),
-        "teal" => tr("Teal"),
-        "green" => tr("Green"),
-        "violet" => tr("Violet"),
-        "red" => tr("Red"),
-        "pink" => tr("Pink"),
-        _ => tr("Amber"),
     }
 }

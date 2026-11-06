@@ -79,13 +79,15 @@ impl Launcher {
             ),
             None,
             if status.players.is_empty() {
-                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                    .child(if running {
+                ui::empty_line(
+                    "server-players-none",
+                    if running {
                         tr("Nobody is playing right now.")
                     } else {
                         tr("The server is stopped.")
-                    })
-                    .into_any_element()
+                    },
+                )
+                .into_any_element()
             } else {
                 online.into_any_element()
             },
@@ -347,12 +349,14 @@ impl Launcher {
         let running = status.running();
         if self.servers.config.is_none() {
             return div().child(if self.older_eclipse() {
-                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                    .child(tr(
+                ui::empty_line(
+                    "server-settings-too-old",
+                    tr(
                         "This server's Eclipse is too old to show its settings here. Update it on \
                      the Backups tab, then they appear.",
-                    ))
-                    .into_any_element()
+                    ),
+                )
+                .into_any_element()
             } else {
                 ui::loading_state("server-settings-loading", tr("Reading the settings…"))
                     .into_any_element()
@@ -374,8 +378,8 @@ impl Launcher {
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.field_enter(f);
+            .on_press(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.field_enter(f, window, cx);
                 cx.notify();
             }))
         };
@@ -835,12 +839,13 @@ impl Launcher {
             .child(div().flex().items_center().gap(px(space::LG)).child(now));
         if self.older_eclipse() {
             return tab
-                .child(
-                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED).child(tr(
+                .child(ui::empty_line(
+                    "server-backups-too-old",
+                    tr(
                         "This server's Eclipse is too old to list its backups here: they're in its \
                      backups folder. Update it below.",
-                    )),
-                )
+                    ),
+                ))
                 .child(self.updates_section(status, cx));
         }
         tab = tab.child(
@@ -873,9 +878,7 @@ impl Launcher {
             ));
         }
         tab = if self.servers.backups.is_empty() {
-            tab.child(
-                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED).child(tr("No backup yet.")),
-            )
+            tab.child(ui::empty_line("server-backups-none", tr("No backup yet.")))
         } else {
             tab.child(list)
         };

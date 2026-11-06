@@ -1,11 +1,11 @@
 //! Home: the page (its head, the steps under Play while the game files are prepared, its panels
 //! and tabs, the crash notice) and the time a download has left.
 use super::*;
+use crate::game_run::GameProblem;
 use crate::ui::{self, Tone};
 use eclipse_theme::glass::{ink, space, step};
 
 const STEPS_WIDTH: f32 = 620.;
-const INSTALL_BAR_WIDTH: f32 = 320.;
 
 impl Launcher {
     /// How long the download under way has left, from its pace since it was first seen: none
@@ -124,7 +124,7 @@ impl Launcher {
         let Some(tag) = java
             .is_some()
             .then(String::new)
-            .or_else(|| self.selected().cloned())
+            .or_else(|| self.selected_version().cloned())
         else {
             let state = self.first_version_state(cx);
             return div()
@@ -160,8 +160,8 @@ impl Launcher {
         if let Some(e) = self.shown_prepare_error().cloned() {
             page = page.child(ui::empty_card(self.prepare_failed(&e, &version, cx)));
         }
-        if let Some(e) = self.shown_game_error().cloned() {
-            page = page.child(self.game_problem(&e, cx));
+        if let Some(problem) = self.shown_game_problem().cloned() {
+            page = page.child(self.game_problem(problem, cx));
         }
         page = page
             .children(self.export_panel(cx))
@@ -179,10 +179,9 @@ impl Launcher {
             cx.notify();
         });
         if !error.starts_with(&eclipse_launcher::sources::not_found_line(version)) {
-            let eclipse = self
-                .selected()
-                .map(|tag| eclipse_launcher::nightly::display_name(tag))
-                .unwrap_or_default();
+            let tag = self.selected_version().cloned().unwrap_or_default();
+            let eclipse = eclipse_launcher::nightly::display_name(&tag);
+            let known = self.versions.release(&tag).is_some();
             let versions = ui::button(
                 "prepare-failed-versions",
                 None,
@@ -194,16 +193,35 @@ impl Launcher {
                 this.go(Page::Versions);
                 cx.notify();
             }));
-            return ui::error_state_told(
-                "prepare-failed",
-                tr("Couldn't set up the game"),
+            let reinstall = known.then(|| {
+                let tag = tag.clone();
+                ui::button(
+                    "prepare-failed-reinstall",
+                    Some("download-04"),
+                    trf("Reinstall {eclipse}", &[("eclipse", &eclipse)]),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Md,
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.reinstall(&tag);
+                    cx.notify();
+                }))
+            });
+            let cause = if known {
                 trf(
                     "Reinstall {eclipse} or copy the details to report it.",
                     &[("eclipse", &eclipse)],
-                ),
+                )
+            } else {
+                tr("Copy the details to report it.").to_string()
+            };
+            return ui::error_state_told(
+                "prepare-failed",
+                tr("Couldn't set up the game"),
+                cause,
                 error,
                 again,
-                vec![versions],
+                reinstall.into_iter().chain([versions]).collect(),
                 ButtonKind::Secondary,
             );
         }
@@ -245,25 +263,28 @@ impl Launcher {
         )
     }
 
-    fn game_problem(&self, error: &str, cx: &mut Context<Self>) -> AnyElement {
+    fn game_problem(&self, problem: GameProblem, cx: &mut Context<Self>) -> AnyElement {
         let again = cx.listener(|this, _: &ClickEvent, _, cx| {
             this.press_play();
             cx.notify();
         });
-        if error == account::NoOwner::in_window() {
-            return ui::empty_card(self.sign_in_to_play_state(cx)).into_any_element();
-        }
-        if self.game.failed_to_start() {
-            return ui::empty_card(ui::error_state_with(
-                "game-failed",
-                tr("Couldn't start the game"),
-                error,
-                again,
-                Vec::new(),
-                ButtonKind::Secondary,
-            ))
-            .into_any_element();
-        }
+        let notice = match problem {
+            GameProblem::NeedsOwner => {
+                return ui::empty_card(self.sign_in_to_play_state(cx)).into_any_element()
+            }
+            GameProblem::Failed(error) => {
+                return ui::empty_card(ui::error_state_with(
+                    "game-failed",
+                    tr("Couldn't start the game"),
+                    &error,
+                    again,
+                    Vec::new(),
+                    ButtonKind::Secondary,
+                ))
+                .into_any_element()
+            }
+            GameProblem::Notice(notice) => notice,
+        };
         let dismiss = ui::button(
             "game-warning-dismiss",
             None,
@@ -272,13 +293,13 @@ impl Launcher {
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.game.error = None;
+            this.game.problem = None;
             cx.notify();
         }));
         ui::notice(
-            ui::Notice::Warn,
-            "alert-circle",
-            ui::said("game-warning", error.to_string()),
+            ui::Notice::Info,
+            crate::icons::INFO,
+            ui::said("game-warning", notice),
             vec![dismiss.into_any_element()],
         )
         .into_any_element()
@@ -305,7 +326,7 @@ impl Launcher {
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.game.error = None;
+            this.game.problem = None;
             cx.notify();
         }));
         ui::empty_state(
@@ -318,17 +339,12 @@ impl Launcher {
     }
 
     fn first_version_state(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
-        if self.installing.is_some() {
-            return ui::loading_state("play-installing", tr("Installing Eclipse")).child(
-                div()
-                    .w_full()
-                    .max_w(px(INSTALL_BAR_WIDTH))
-                    .mt(px(space::LG))
-                    .child(ui::progress_line("", Some(self.bar), "")),
-            );
+        if let Some(state) = self.eclipse_install_state("play-installing") {
+            return state;
         }
         let update = self.updates.eclipse.as_ref().map(|r| r.tag.clone());
         let install_failed = self
+            .versions
             .install_error
             .as_ref()
             .filter(|(tag, _)| update.as_ref() == Some(tag))
@@ -336,7 +352,7 @@ impl Launcher {
         if let Some(e) = install_failed {
             return ui::error_state(
                 "play-download-failed",
-                tr("Couldn't download Eclipse"),
+                ui::page_only(tr("Couldn't download Eclipse")),
                 &e,
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.install_update();
@@ -344,30 +360,22 @@ impl Launcher {
                 }),
             );
         }
-        if let Some(e) = self.update_error.clone() {
-            let import = if self.importing_build {
-                ui::disabled(ui::link("play-check-failed-import", tr("Importing…")))
-            } else {
-                ui::link(
-                    "play-check-failed-import",
-                    tr("Import a version from file…"),
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
-            };
+        if let Some(e) = self.update_check.error().map(str::to_owned) {
             return ui::error_state_with(
                 "play-check-failed",
-                tr("Couldn't load versions"),
+                ui::page_only(tr("Couldn't load versions")),
                 &e,
                 cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.update_error = None;
-                    this.releases = Load::Loading;
+                    this.versions.releases = Load::Loading;
                     this.fetch_startup_releases();
                     cx.notify();
                 }),
-                vec![Self::proxy_settings_button("play-check-failed", cx)],
+                vec![
+                    Self::proxy_settings_button("play-check-failed", cx),
+                    self.import_build_button("play-check-failed-import", cx),
+                ],
                 ButtonKind::Primary,
-            )
-            .child(import.mt(px(space::MD)));
+            );
         }
         let choose = |kind| {
             ui::button(
@@ -382,26 +390,28 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        if matches!(self.releases, Load::Loading) && update.is_none() {
-            return ui::loading_state("play-checking", tr("Looking for the newest Eclipse…"));
+        if matches!(self.versions.releases, Load::Loading) && update.is_none() {
+            return ui::loading_state(
+                "play-checking",
+                ui::page_only(tr("Looking for the newest Eclipse…")),
+            );
         }
         if let Some(own) = self.selected_instance().and_then(|i| i.version.clone()) {
             let name = eclipse_launcher::nightly::display_name(&own);
             return ui::empty_state(
                 "play-not-installed",
                 crate::icons::VERSION,
-                trf("{version} isn't installed", &[("version", &name)]),
+                ui::page_only(trf("{version} isn't installed", &[("version", &name)])),
                 tr("Choose a version to play."),
                 vec![choose(ButtonKind::Primary)],
             );
         }
-        let no_build =
-            matches!(&self.releases, Load::Ready(list) if !list.iter().any(|r| r.asset.is_some()));
+        let no_build = matches!(&self.versions.releases, Load::Ready(list) if !list.iter().any(|r| r.asset.is_some()));
         if no_build {
             return ui::empty_state(
                 "play-not-installed",
                 crate::icons::VERSION,
-                tr("Eclipse isn't installed yet"),
+                ui::page_only(tr("Eclipse isn't installed yet")),
                 tr("There's no Eclipse build for this computer yet."),
                 vec![choose(ButtonKind::Secondary)],
             );
@@ -425,7 +435,7 @@ impl Launcher {
         ui::empty_state(
             "play-not-installed",
             crate::icons::VERSION,
-            tr("Eclipse isn't installed yet"),
+            ui::page_only(tr("Eclipse isn't installed yet")),
             tr("Install the newest version to start playing."),
             vec![install, choose(ButtonKind::Secondary)],
         )

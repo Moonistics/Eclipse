@@ -14,6 +14,7 @@ use std::time::Duration;
 pub const FONT: &str = "Geist";
 pub const MONO: &str = "Geist Mono";
 pub mod glass;
+pub use glass as corona;
 pub mod night;
 
 /// The website's display face (headings, navigation, buttons, badges only): Pixelify Sans,
@@ -67,10 +68,12 @@ pub mod glass_icons {
         "color-picker",
         "computer",
         "computer-terminal-01",
+        "contrast",
         "copy-01",
         "cube",
         "dashboard-square-01",
         "delete-02",
+        "dice",
         "discord",
         "download-04",
         "earth",
@@ -79,12 +82,14 @@ pub mod glass_icons {
         "game-controller-01",
         "github",
         "globe-02",
+        "home-01",
         "image-01",
         "information-circle",
         "language-square",
         "link-01",
         "minus-sign",
         "more-horizontal",
+        "note-01",
         "package-01",
         "pencil-edit-02",
         "play",
@@ -92,6 +97,7 @@ pub mod glass_icons {
         "puzzle",
         "refresh",
         "search-01",
+        "settings-01",
         "sliders-horizontal",
         "source-code",
         "star",

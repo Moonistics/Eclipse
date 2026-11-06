@@ -8,17 +8,17 @@ impl Launcher {
             .flex()
             .flex_col()
             .child(ui::page_head(Page::Notes.title(), ""));
-        let releases = match &self.releases {
+        let releases = match &self.versions.releases {
             Load::Loading => {
                 return page.child(ui::empty_card(ui::loading_state(
                     "notes-loading",
-                    tr("Loading patch notes…"),
+                    ui::page_only(tr("Loading patch notes…")),
                 )))
             }
             Load::Failed(e) => {
                 return page.child(ui::empty_card(ui::error_state_with(
                     "notes-failed",
-                    tr("Couldn't load patch notes"),
+                    ui::page_only(tr("Couldn't load patch notes")),
                     e,
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.fetch_releases();
@@ -31,8 +31,8 @@ impl Launcher {
             Load::Ready(r) if r.is_empty() => {
                 return page.child(ui::empty_card(ui::empty_state(
                     "notes-empty",
-                    "information-circle",
-                    tr("No patch notes yet"),
+                    crate::icons::NOTES,
+                    ui::page_only(tr("No patch notes yet")),
                     tr("Eclipse hasn't published a version yet."),
                     vec![],
                 )));
@@ -71,12 +71,10 @@ impl Launcher {
                         ),
                     )
                     .child(div().child(if release.body.trim().is_empty() {
-                        ui::text(
-                            eclipse_theme::glass::step::BODY,
-                            FontWeight::NORMAL,
-                            ink::MUTED,
+                        ui::empty_line(
+                            SharedString::from(format!("notes-none-{}", release.tag)),
+                            tr("No notes for this release."),
                         )
-                        .child(tr("No notes for this release."))
                         .into_any_element()
                     } else {
                         markdown::render(&release.body)

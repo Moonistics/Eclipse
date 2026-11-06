@@ -553,7 +553,7 @@ impl Launcher {
             .gap(px(space::XS))
             .child(ui::label(title.to_string()).w(px(FILTER_NAME)))
             .children(lead);
-        ui::options(list, rows, false, move |i, _, cx| {
+        ui::options(list, title.to_string(), rows, false, move |i, _, cx| {
             let _ = this.update(cx, |this, cx| {
                 this.mods_filter(|f| pick(f, i));
                 cx.notify();
@@ -736,7 +736,12 @@ impl Launcher {
             } else {
                 trf("Install in {instance}", &[("instance", &instance)])
             };
-            let mut install = ui::primary("mods-page-install", label, ui::ButtonSize::Md);
+            let mut install = ui::primary(
+                "mods-page-install",
+                Some("download-04"),
+                label,
+                ui::ButtonSize::Md,
+            );
             if let Some(why) = self.mods_wait() {
                 install = ui::unavailable(install, why);
             } else if self.mods.needs_world(&p) {
@@ -753,6 +758,7 @@ impl Launcher {
             action = action.child(
                 ui::primary(
                     "mods-page-new-fabric",
+                    Some("plus-sign"),
                     tr("Create a Fabric instance…"),
                     ui::ButtonSize::Md,
                 )
@@ -890,7 +896,6 @@ impl Launcher {
             .filter(|(shown, _)| !(no_gallery && *shown == Tab::Gallery))
             .map(|(shown, label)| StripTab {
                 value: shown,
-                key: format!("{shown:?}"),
                 label: tr(label).into(),
                 count: None,
             })
@@ -934,9 +939,9 @@ impl Launcher {
             Tab::Gallery => match &details {
                 None => loading(),
                 Some(Err(e)) => failed(e, cx),
-                Some(Ok(d)) if d.gallery.is_empty() => ui::empty()
-                    .child(tr("No gallery images."))
-                    .into_any_element(),
+                Some(Ok(d)) if d.gallery.is_empty() => {
+                    ui::empty("mods-gallery-empty", tr("No gallery images.")).into_any_element()
+                }
                 Some(Ok(d)) => self.mods_gallery(&d.gallery, shot, cx).into_any_element(),
             },
             Tab::Versions => match &versions {
@@ -1020,11 +1025,7 @@ impl Launcher {
             .child(
                 ui::picture_button(
                     "mods-shot",
-                    div()
-                        .rounded(px(radius::ROW))
-                        .overflow_hidden()
-                        .bg(ui::inset())
-                        .child(large),
+                    ui::picture_slot().child(large),
                     picture_name(&current.title, shot, count),
                 )
                 .on_press(pick((shot + 1) % count)),

@@ -14,7 +14,6 @@ use eclipse_theme::glass::{ink, space, step};
 const HEAD: f32 = ui::FACE_XL;
 const MICROSOFT_MIN: f32 = 280.;
 const MICROSOFT_LOGO: f32 = 36.;
-const DIVIDER: f32 = 1.;
 
 impl Launcher {
     pub(super) fn account_card(&mut self, cx: &mut Context<Self>) -> Div {
@@ -33,12 +32,7 @@ impl Launcher {
             .when(!wide, |d| d.flex_col())
             .child(left.when(wide, |d| d.flex_1()))
             .when(!wide, |d| {
-                d.child(
-                    div()
-                        .h(px(DIVIDER))
-                        .mx(px(ui::SETTING_ROW_PADDING))
-                        .bg(ui::edge()),
-                )
+                d.child(ui::rule().mx(px(ui::SETTING_ROW_PADDING)))
             })
             .child(right.when(wide, |d| d.flex_1().min_w(px(MICROSOFT_MIN)).border_l_1()))
     }
@@ -158,7 +152,7 @@ impl Launcher {
                     .child(
                         ui::icon_button(
                             "game-name-new",
-                            "refresh",
+                            crate::icons::RANDOM,
                             tr("New name"),
                             ButtonKind::Ghost,
                             ui::ButtonSize::Sm,
@@ -169,7 +163,10 @@ impl Launcher {
                                 cx.stop_propagation();
                                 match instances::new_player_name() {
                                     Ok(name) => this.offline_name = Some(name),
-                                    Err(e) => this.sign_in_state = Some(SignInState::Done(Err(e))),
+                                    Err(e) => {
+                                        this.accounts_ui.sign_in_state =
+                                            Some(SignInState::Done(Err(e)))
+                                    }
                                 }
                                 cx.notify();
                             },
@@ -227,8 +224,8 @@ impl Launcher {
         account::client_id().is_some()
             && !self.can_add_offline_names()
             && self.accounts.accounts.is_empty()
-            && self.sign_in_target.is_none()
-            && self.sign_in_state.is_none()
+            && self.accounts_ui.sign_in_target.is_none()
+            && self.accounts_ui.sign_in_state.is_none()
     }
 
     /// An offline name's chip: its head and name, a tick and a stronger fill on the one playing.
@@ -254,9 +251,9 @@ impl Launcher {
                 .child(ui::card_note(tr(account::NOT_CONFIGURED)).p(px(ui::SETTING_ROW_PADDING)));
         }
         let (title, detail, action) = self.sign_in_parts(cx);
-        let idle = self.sign_in_state.is_none()
-            || matches!(self.sign_in_state, Some(SignInState::Done(_)));
-        let first = !has_accounts && self.sign_in_target.is_none();
+        let idle = self.accounts_ui.sign_in_state.is_none()
+            || matches!(self.accounts_ui.sign_in_state, Some(SignInState::Done(_)));
+        let first = !has_accounts && self.accounts_ui.sign_in_target.is_none();
         let heading = if first {
             tr("Play online with your Microsoft account").to_string()
         } else {
@@ -264,7 +261,7 @@ impl Launcher {
         };
         // Adding an account is Microsoft's white button; signing one in again, the code and the
         // waiting keep their own buttons.
-        let button: Option<AnyElement> = if idle && self.sign_in_target.is_none() {
+        let button: Option<AnyElement> = if idle && self.accounts_ui.sign_in_target.is_none() {
             Some(
                 div()
                     .flex()
@@ -353,19 +350,24 @@ impl Launcher {
                 );
             }
             let sign_in_progress = self
+                .accounts_ui
                 .sign_in_target
                 .as_ref()
                 .filter(|a| a.uuid == uuid)
-                .and_then(|_| match self.sign_in_state.as_ref() {
+                .and_then(|_| match self.accounts_ui.sign_in_state.as_ref() {
                     Some(SignInState::Starting) => Some("Asking Microsoft…"),
                     Some(SignInState::Code(_)) => Some("Waiting for browser sign-in…"),
                     Some(SignInState::Working(phase)) => Some(phase.label()),
                     _ => None,
                 });
-            let progress = sign_in_progress
-                .or_else(|| self.auth_progress.get(&uuid).map(|phase| phase.label()));
-            let busy = self.auth_busy.contains_key(&uuid) || sign_in_progress.is_some();
-            let status = self.auth_status.get(&uuid);
+            let progress = sign_in_progress.or_else(|| {
+                self.accounts_ui
+                    .auth_progress
+                    .get(&uuid)
+                    .map(|phase| phase.label())
+            });
+            let busy = self.accounts_ui.auth_busy.contains_key(&uuid) || sign_in_progress.is_some();
+            let status = self.accounts_ui.auth_status.get(&uuid);
             let needs_sign_in =
                 status.is_some_and(|s| s.state == account::session::State::SignInRequired);
             let refresh_id = uuid.clone();
@@ -462,10 +464,10 @@ impl Launcher {
         let t = self.theme;
         let configured = account::client_id().is_some();
         let busy = matches!(
-            self.sign_in_state,
+            self.accounts_ui.sign_in_state,
             Some(SignInState::Starting | SignInState::Code(_) | SignInState::Working(_))
         );
-        let detail = match &self.sign_in_state {
+        let detail = match &self.accounts_ui.sign_in_state {
             _ if !configured => div().child(tr(account::NOT_CONFIGURED)),
             Some(SignInState::Starting) => div().child(tr("Asking Microsoft…")),
             Some(SignInState::Working(phase)) => div().child(tr(phase.label())),
@@ -487,7 +489,7 @@ impl Launcher {
             )),
             None => div(),
         };
-        let detail = if let Some(target) = &self.sign_in_target {
+        let detail = if let Some(target) = &self.accounts_ui.sign_in_target {
             div()
                 .flex()
                 .flex_col()
@@ -500,7 +502,7 @@ impl Launcher {
         } else {
             detail
         };
-        let detail = match self.keychain.clone() {
+        let detail = match self.accounts_ui.keychain.clone() {
             Some(said) if !self.accounts.accounts.is_empty() => div()
                 .flex()
                 .flex_col()
@@ -511,7 +513,7 @@ impl Launcher {
         };
         let action = if !configured {
             None
-        } else if let Some(SignInState::Code(code)) = &self.sign_in_state {
+        } else if let Some(SignInState::Code(code)) = &self.accounts_ui.sign_in_state {
             let (uri, user_code) = (code.verification_uri.clone(), code.user_code.clone());
             Some(
                 div()
@@ -566,7 +568,11 @@ impl Launcher {
                 .into_any_element(),
             )
         } else {
-            let target = self.sign_in_target.as_ref().map(|a| a.uuid.clone());
+            let target = self
+                .accounts_ui
+                .sign_in_target
+                .as_ref()
+                .map(|a| a.uuid.clone());
             let targeted = target.is_some();
             // Re-signing one account names it; adding one is Microsoft's own button.
             let sign_in = if targeted {
@@ -610,7 +616,7 @@ impl Launcher {
             }
             Some(actions.into_any_element())
         };
-        let title = match &self.sign_in_target {
+        let title = match &self.accounts_ui.sign_in_target {
             Some(target) => trf("Sign in again as {name}", &[("name", &target.name)]),
             None if self.accounts.accounts.is_empty() => tr("Microsoft account").to_owned(),
             None => tr("Another account").to_owned(),

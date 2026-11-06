@@ -278,7 +278,7 @@ impl Launcher {
                     &[("port", &port.to_string())],
                 )).mt(px(space::XS)))
                 .child(act(
-                    ui::button("ts-install", None, tr("Install Tailscale"), ButtonKind::Secondary, ui::ButtonSize::Md)
+                    ui::button("ts-install", Some("download-04"), tr("Install Tailscale"), ButtonKind::Secondary, ui::ButtonSize::Md)
                         .on_press(|_, _, cx| cx.open_url(tailscale::install_url())),
                     check,
                 )),

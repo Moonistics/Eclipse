@@ -111,8 +111,8 @@ impl Launcher {
     /// The installed version `instance` plays: its own, else the launcher's.
     pub(super) fn version_of(&self, instance: &Instance) -> Option<&String> {
         match &instance.version {
-            Some(own) => self.installed.iter().find(|t| *t == own),
-            None => self.launcher_version(),
+            Some(own) => self.versions.installed.iter().find(|t| *t == own),
+            None => self.default_version(),
         }
     }
 
@@ -123,7 +123,7 @@ impl Launcher {
         };
         match instances::edit(&id, |m| m.version = tag) {
             Ok(_) => self.reload_instances(),
-            Err(e) => self.game.error = Some(e),
+            Err(e) => self.game.problem = Some(game_run::GameProblem::Failed(e)),
         }
     }
 
@@ -138,7 +138,10 @@ impl Launcher {
 
     /// A texture from the selected version's prepared files, its first frame, drawn as pixels.
     pub(super) fn texture_image(&mut self, name: &str, size: f32) -> Option<Arc<RenderImage>> {
-        let tag = self.selected().filter(|t| backend::is_prepared(t))?.clone();
+        let tag = self
+            .selected_version()
+            .filter(|t| backend::is_prepared(t))?
+            .clone();
         let scale = self.scale;
         self.instances
             .icons
@@ -435,7 +438,7 @@ impl Launcher {
 
 impl Launcher {
     pub(super) fn delete_instance(&mut self, id: &str) {
-        if self.game.client.is_some() || self.game.starting.is_some() {
+        if self.game.active() {
             return;
         }
         let name = self

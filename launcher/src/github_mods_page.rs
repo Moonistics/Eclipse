@@ -206,7 +206,7 @@ impl Launcher {
         let busy = self.github.busy();
         let mut add = ui::button(
             "github-add",
-            None,
+            Some("plus-sign"),
             tr("Add from GitHub"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -361,7 +361,7 @@ impl Launcher {
         buttons = buttons.child(
             ui::button(
                 "github-pick-all",
-                None,
+                Some("download-04"),
                 tr("Install all"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,

@@ -1,5 +1,8 @@
 use super::*;
+use crate::ui::Tone;
 use eclipse_launcher::instances::Instance;
+
+pub(super) const START_SLACK: Duration = Duration::from_secs(2);
 
 pub(super) struct Started {
     pub(super) instance: String,
@@ -23,7 +26,7 @@ impl Default for Starts {
 pub(super) struct GameRun {
     pub(super) starts: Starts,
     pub(super) client: Option<Running>,
-    pub(super) error: Option<String>,
+    pub(super) problem: Option<GameProblem>,
     pub(super) started: Option<std::time::SystemTime>,
     pub(super) home: Option<std::path::PathBuf>,
     pub(super) run: Option<(String, Instant)>,
@@ -58,12 +61,37 @@ impl GameRun {
         }
     }
 
-    pub(super) fn busy(&self) -> bool {
-        self.preparing || self.client.is_some() || self.starting.is_some()
+    pub(super) fn active(&self) -> bool {
+        self.client.is_some() || self.starting.is_some()
     }
 
-    pub(super) fn failed_to_start(&self) -> bool {
-        self.started.is_some() && self.client.is_none() && self.starting.is_none()
+    pub(super) fn busy(&self) -> bool {
+        self.preparing || self.active()
+    }
+
+    pub(super) fn starting_now(&mut self, instance: &Instance) {
+        self.problem = None;
+        self.crash = None;
+        self.begin(Some(instance));
+        self.started = Some(std::time::SystemTime::now() - START_SLACK);
+        self.starting = Some(instance.id.clone());
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub(super) enum GameProblem {
+    NeedsOwner,
+    Failed(String),
+    Notice(String),
+}
+
+impl GameProblem {
+    pub(super) fn failure(&self) -> Option<String> {
+        match self {
+            GameProblem::NeedsOwner => Some(account::NoOwner::in_window()),
+            GameProblem::Failed(e) => Some(e.clone()),
+            GameProblem::Notice(_) => None,
+        }
     }
 }
 
@@ -87,6 +115,10 @@ pub(super) enum InstallState {
 }
 
 impl PlayState {
+    pub(super) fn playing(self) -> bool {
+        matches!(self, PlayState::Starting | PlayState::Running)
+    }
+
     pub(super) fn busy_line(self) -> Option<String> {
         let (label, progress) = self.busy()?;
         Some(match progress {
@@ -102,6 +134,37 @@ impl PlayState {
             PlayState::Preparing(p) => Some((tr("Preparing"), p)),
             PlayState::Starting => Some((tr("Starting"), None)),
             PlayState::Idle | PlayState::Running => None,
+        }
+    }
+}
+
+impl InstallState {
+    pub(super) fn line(&self) -> (Tone, String) {
+        match self {
+            InstallState::NotInstalled => (Tone::Off, tr("Not installed").into()),
+            InstallState::UpdateReady(tag) => (
+                Tone::Accent(ui::look().accent_soft),
+                trf(
+                    "{version} available",
+                    &[("version", &eclipse_launcher::nightly::display_name(tag))],
+                ),
+            ),
+            InstallState::NotSetUp => (Tone::Off, tr("Not set up").into()),
+            InstallState::Built(build) => (
+                Tone::Live,
+                trf(
+                    "Built with mods · {version}",
+                    &[("version", &build.eclipse_short())],
+                ),
+            ),
+            InstallState::Ready { pinned: Some(tag) } => (
+                Tone::Live,
+                trf(
+                    "Ready · {version}",
+                    &[("version", &eclipse_launcher::nightly::display_name(tag))],
+                ),
+            ),
+            InstallState::Ready { pinned: None } => (Tone::Live, tr("Ready").into()),
         }
     }
 }
@@ -135,20 +198,21 @@ impl Launcher {
             return PlayState::Running;
         }
         let update = self.update_for(i);
-        let installing = |tag: &str| {
-            self.installing
-                .as_ref()
-                .filter(|(t, _)| t == tag)
-                .map(|(_, p)| *p)
-        };
+        let installing = |tag: &str| self.versions.installing(tag).map(|i| i.done());
         if let Some(p) = update.and_then(|u| installing(&u.tag)) {
             return PlayState::Updating(p);
         }
-        if let Some(own) = &i.version {
-            if let Some(p) = installing(own) {
+        let plays = i.version.as_ref().or(self.default_version());
+        if let Some(tag) = plays.filter(|_| i.java.is_none()) {
+            if let Some(p) = installing(tag) {
                 return PlayState::Installing(Some(p));
             }
-            if self.install_next.as_ref().is_some_and(|r| r.tag == *own) {
+            if self
+                .versions
+                .install_next
+                .as_ref()
+                .is_some_and(|r| r.tag == *tag)
+            {
                 return PlayState::Installing(None);
             }
         }
@@ -182,8 +246,8 @@ impl Launcher {
             .filter(|_| !java && self.game.belongs_to(self.selected_instance()))
     }
 
-    pub(super) fn shown_game_error(&self) -> Option<&String> {
-        self.game.error.as_ref().filter(|_| {
+    pub(super) fn shown_game_problem(&self) -> Option<&GameProblem> {
+        self.game.problem.as_ref().filter(|_| {
             self.game.log_for.is_none() || self.game.belongs_to(self.selected_instance())
         })
     }

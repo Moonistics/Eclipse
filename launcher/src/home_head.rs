@@ -88,6 +88,9 @@ impl Launcher {
                 &[("time", &instances::play_time(since.elapsed()))],
             ),
             (None, Some(i)) if i.java.is_none() && !prepared => {
+                if self.shown_prepare_error().is_some() {
+                    return ui::page_note("home-played", "");
+                }
                 let version = backend::game_version(tag);
                 if self.owner == Some(true) {
                     trf(
@@ -234,7 +237,7 @@ impl Launcher {
                 false,
                 PlayItem::MinecraftFolder,
             ));
-            let mut menu = self.menu_popover("play-menu", cx);
+            let mut menu = self.menu_popover("play-menu", tr("Play options"), cx);
             for (key, icon, label, locked, what) in items {
                 let row = ui::menu_row(key, icon, label, false);
                 menu = menu.child(if locked {
@@ -258,11 +261,13 @@ impl Launcher {
 
     pub(super) fn press_play(&mut self) {
         let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
-            || self.selected().is_some_and(|tag| backend::is_prepared(tag));
+            || self
+                .selected_version()
+                .is_some_and(|tag| backend::is_prepared(tag));
         match play_press(ready, self.game.busy()) {
             PlayPress::Play => self.play(),
             PlayPress::PrepareThenPlay => {
-                self.game.play_when_prepared = self.selected().cloned();
+                self.game.play_when_prepared = self.selected_version().cloned();
                 self.prepare(backend::MinecraftFrom::Install);
             }
             PlayPress::Nothing => {
@@ -276,7 +281,7 @@ impl Launcher {
     /// The version: "Version" over the one played, a chevron that turns while its list is open;
     /// the list ticks the one played and ends with Manage versions.
     fn version_picker(&self, cx: &mut Context<Self>) -> Div {
-        let label = self.selected().map_or_else(
+        let label = self.selected_version().map_or_else(
             || tr("No version").into(),
             |tag| eclipse_launcher::nightly::display_name(tag),
         );
@@ -293,22 +298,23 @@ impl Launcher {
         let button = self.menu_opener(button, Menu::Version, cx);
         let mut wrap = div().relative().child(button);
         if open {
-            let follows = self.launcher_version().cloned();
-            let mut menu = self.menu_popover("version-picker-menu", cx);
-            for tag in &self.installed {
-                let chosen = self.selected() == Some(tag);
-                let latest = follows.as_ref() == Some(tag);
+            let follows = self.default_version().cloned();
+            let newest =
+                follows.as_ref() == backend::newest_release_or_nightly(&self.versions.installed);
+            let mut menu = self.menu_popover("version-picker-menu", tr("Version"), cx);
+            for tag in &self.versions.installed {
+                let chosen = self.selected_version() == Some(tag);
                 let name = eclipse_launcher::nightly::display_name(tag);
-                let note = if latest {
-                    tr("Always the newest").to_string()
-                } else {
-                    tag.clone()
+                let note = match follows.as_ref() == Some(tag) {
+                    true if newest => tr("Always the newest"),
+                    true => tr("Default version"),
+                    false => tr("Stays on this version"),
                 };
                 let pick = tag.clone();
                 let row = ui::pick_item(format!("version-pick-{tag}"), name, note, chosen);
                 menu = menu.child(
                     row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.pin_version((!latest).then(|| pick.clone()));
+                        this.use_version(pick.clone());
                         this.close_menu();
                         cx.notify();
                     })),
@@ -373,8 +379,6 @@ impl Launcher {
     fn invite_field(&mut self, tag: &str, width: Option<f32>, cx: &mut Context<Self>) -> Div {
         let code = self.fields.value(Field::InviteCode);
         let valid = eclipse_friends::invite::parse(code).is_some();
-        let wrong = !valid && !code.trim().is_empty();
-        self.fields.set_field_invalid(Field::InviteCode, wrong);
         let can = valid && self.can_start(tag);
         let join = ui::button(
             "join-friend",
@@ -411,9 +415,8 @@ impl Launcher {
                 None => d.flex_1().min_w(px(INVITE_MIN)),
             })
             .child(field)
-            .children(wrong.then(|| {
-                ui::error_note(tr("That isn't an invite code."))
-                    .absolute()
+            .children(self.field_error(Field::InviteCode).map(|note| {
+                note.absolute()
                     .top(px(tall() + space::XS))
                     .left_0()
                     .right_0()

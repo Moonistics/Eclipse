@@ -4,7 +4,7 @@
 //! the foot.
 use super::*;
 use crate::ui::{self, white};
-use eclipse_theme::glass::{fill, ink, pixel_text, radius, space, step};
+use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
 use gpui::{img, ImageFormat};
 use std::sync::{Arc, LazyLock};
 
@@ -228,6 +228,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let kinds = ui::options(
             div().id("create-world-kinds").flex().gap(px(space::MD)),
+            tr("World type"),
             vec![
                 (
                     card(
@@ -278,13 +279,10 @@ impl Launcher {
                 .map(|(name, path)| {
                     let on = copy.as_ref() == Some(path);
                     let icon = path.join("icon.png");
-                    let thumb = div()
+                    let thumb = ui::picture_slot()
                         .flex_none()
                         .w(px(WORLD_THUMB.0))
                         .h(px(WORLD_THUMB.1))
-                        .overflow_hidden()
-                        .rounded(px(radius::ROW))
-                        .bg(white(fill::BUTTON))
                         .when(icon.is_file(), |d| {
                             d.child(img(icon).size_full().object_fit(gpui::ObjectFit::Cover))
                         });
@@ -307,6 +305,7 @@ impl Launcher {
             let this = cx.entity().downgrade();
             let list = ui::options(
                 ui::list_box("create-worlds", WORLD_LIST),
+                tr("World"),
                 rows,
                 true,
                 move |i, _, cx| {
@@ -348,6 +347,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let modes = ui::options(
             div().id("create-modes").flex().gap(px(space::MD)),
+            tr("Mode"),
             mode_cards,
             true,
             move |i, _, cx| {
@@ -402,6 +402,7 @@ impl Launcher {
         let this = cx.entity().downgrade();
         let joins = ui::options(
             div().id("create-who").flex().gap(px(space::MD)),
+            tr("Who can join"),
             vec![
                 (
                     card(
@@ -516,18 +517,18 @@ impl Launcher {
 
     fn create_needs(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let need = self.server_needs()?;
-        let action = if need == Needs::Eclipse && self.installing.is_some() {
-            ui::progress_line(tr("Installing Eclipse"), Some(self.bar), "")
-                .w(px(layout::FIELD_MD))
-                .into_any_element()
+        let installing = self.install_bar().filter(|_| need == Needs::Eclipse);
+        let action = if let Some(bar) = installing {
+            bar.into_any_element()
         } else {
             self.server_need_button("create", need, ButtonKind::Secondary, cx)
                 .into_any_element()
         };
         let failed = self
+            .versions
             .install_error
             .as_ref()
-            .filter(|_| need == Needs::Eclipse && self.installing.is_none())
+            .filter(|_| need == Needs::Eclipse && self.versions.installing.is_none())
             .filter(|(tag, _)| self.updates.eclipse.as_ref().is_some_and(|r| &r.tag == tag))
             .map(|(_, e)| {
                 ui::error_line_for(
@@ -545,7 +546,7 @@ impl Launcher {
                 .gap(px(space::MD))
                 .child(ui::notice(
                     ui::Notice::Info,
-                    "information-circle",
+                    crate::icons::INFO,
                     need.line(),
                     vec![action],
                 ))
@@ -707,7 +708,12 @@ impl Launcher {
                 }))
                 .into_any_element(),
         );
-        let create = ui::primary("create-go", tr("Create server"), ui::ButtonSize::Md);
+        let create = ui::primary(
+            "create-go",
+            Some("plus-sign"),
+            tr("Create server"),
+            ui::ButtonSize::Md,
+        );
         foot.push(match self.server_needs() {
             Some(need) => ui::unavailable(create, need.line()).into_any_element(),
             None => create

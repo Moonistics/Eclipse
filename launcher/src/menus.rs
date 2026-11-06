@@ -82,7 +82,7 @@ impl Launcher {
 
     pub(super) fn open_menu_for(&mut self, menu: Menu, opener: &str, window: &Window, cx: &App) {
         self.open_menu_from(menu, window, cx);
-        self.menu_opener = ui::try_focus_for(format!("opener-{opener}"));
+        self.menu_opener = opener_focus(opener);
     }
 
     pub(super) fn menu_opener(
@@ -91,27 +91,41 @@ impl Launcher {
         menu: Menu,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        el.aria_expanded(self.menu_is(&menu)).on_press(cx.listener(
-            move |this, event: &ClickEvent, window, cx| {
+        let combo = el.a11y_role() == Some(gpui::Role::ComboBox);
+        let opens = menu.clone();
+        el.aria_expanded(self.menu_is(&menu))
+            .when(combo, |d| {
+                d.on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
+                    if ev.keystroke.key != "down" || this.menu_is(&opens) {
+                        return;
+                    }
+                    this.toggle_menu(opens.clone(), window, cx);
+                    cx.stop_propagation();
+                    cx.notify();
+                }))
+            })
+            .on_press(cx.listener(move |this, event: &ClickEvent, window, cx| {
                 cx.stop_propagation();
                 if !this.closed_by_this_press(event) {
                     this.toggle_menu(menu.clone(), window, cx);
                 }
                 cx.notify();
-            },
-        ))
+            }))
     }
 
     pub(super) fn menu_popover(
         &self,
         id: impl Into<SharedString>,
+        label: impl Into<SharedString>,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        ui::popover(id).on_mouse_down_out(cx.listener(|this, event: &MouseDownEvent, _, cx| {
-            this.close_menu();
-            this.menu_closed_at = Some(event.position);
-            cx.notify();
-        }))
+        ui::popover(id, label).on_mouse_down_out(cx.listener(
+            |this, event: &MouseDownEvent, _, cx| {
+                this.close_menu();
+                this.menu_closed_at = Some(event.position);
+                cx.notify();
+            },
+        ))
     }
 
     pub(super) fn mod_detail_floats(&self) -> bool {
@@ -125,13 +139,27 @@ impl Launcher {
         self.stop_asking(Asking::in_a_menu);
     }
 
-    pub(super) fn close_menus(&mut self) -> bool {
+    pub(super) fn close_menus(&mut self, window: &mut Window, cx: &mut App) -> bool {
         let open = self.menu_open();
         self.close_menu();
         if self.mod_detail_floats() {
-            self.mods.picked = None;
+            self.close_mod_detail(window, cx);
         }
         open
+    }
+
+    pub(super) fn close_mod_detail(&mut self, window: &mut Window, cx: &mut App) {
+        self.mods.picked = None;
+        self.asking = None;
+        let inside = ui::try_focus_for(crate::mods_page::DETAIL_FLOAT)
+            .is_some_and(|float| float.contains_focused(window, cx));
+        if let Some(results) = ui::options_focus("mods-results").filter(|_| inside) {
+            window.focus(&results, cx);
+        }
+    }
+
+    pub(super) fn drawn(&self, handle: &FocusHandle, window: &Window) -> bool {
+        self.frame_focus.contains(handle, window)
     }
 
     pub(super) fn is_asking(&self, about: &Asking) -> bool {
@@ -161,8 +189,13 @@ impl Launcher {
             return;
         };
         let lost = window.focused(cx).is_none() || ui::menu_focus().contains_focused(window, cx);
-        if lost {
+        if !lost {
+            return;
+        }
+        if self.drawn(&opener, window) {
             window.focus(&opener, cx);
+        } else {
+            window.focus(&self.content_focus, cx);
         }
     }
 
@@ -199,7 +232,8 @@ impl Launcher {
             }
             "f6" if ui::modal_open() => {}
             "f6" => {
-                self.close_menus();
+                self.close_menus(window, cx);
+                self.ring_pending = None;
                 let in_content = self.content_focus.contains_focused(window, cx);
                 let in_side = self.side_focus.contains_focused(window, cx);
                 let to_sidebar = if in_content || in_side {
@@ -216,8 +250,8 @@ impl Launcher {
                 window.focus_next(cx);
             }
             "escape" if self.palette.is_some() => self.palette_close(),
-            "escape" if self.close_menus() => {
-                if let Some(opener) = self.menu_opener.take() {
+            "escape" if self.close_menus(window, cx) => {
+                if let Some(opener) = self.menu_opener.take().filter(|o| self.drawn(o, window)) {
                     window.focus(&opener, cx);
                 }
             }
@@ -260,8 +294,8 @@ impl Launcher {
             "pagedown" => at + view - KEY_SCROLL_OVERLAP,
             "space" if on_page => at + view - KEY_SCROLL_OVERLAP,
             "pageup" => at - view + KEY_SCROLL_OVERLAP,
-            "down" => at + KEY_SCROLL_STEP,
-            "up" => at - KEY_SCROLL_STEP,
+            "down" if on_page => at + KEY_SCROLL_STEP,
+            "up" if on_page => at - KEY_SCROLL_STEP,
             "home" => 0.,
             "end" => max,
             _ => return false,
@@ -290,6 +324,10 @@ impl Launcher {
             cx.notify();
         }
     }
+}
+
+pub(super) fn opener_focus(key: &str) -> Option<FocusHandle> {
+    ui::try_focus_for(format!("opener-{key}"))
 }
 
 /// Whether the click `event` began with the mouse-down that closed a menu at `closed_at`.

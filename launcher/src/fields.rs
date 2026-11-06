@@ -74,7 +74,7 @@ impl Field {
             Field::InviteCode => tr("Invite code"),
             Field::ModsSearch => tr("Search mods"),
             Field::GithubLink => tr("GitHub repository link"),
-            Field::GameArgs => tr("Game arguments"),
+            Field::GameArgs => tr("Eclipse game arguments"),
             Field::Proxy => tr("Proxy"),
             Field::PaletteSearch => tr("Search commands"),
         }
@@ -178,20 +178,8 @@ impl Fields {
 const TRAILING_INSET: f32 = space::SM + space::XXS;
 
 fn visible_chars(room: f32, size: ui::ButtonSize) -> usize {
-    let text = if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
-        step::LEAD
-    } else {
-        step::BODY
-    };
+    let text = size.field_text();
     (room / (GEIST_ADVANCE * text.size / step::BODY.size)).max(1.) as usize
-}
-
-fn field_pad(size: ui::ButtonSize) -> f32 {
-    if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
-        space::LG
-    } else {
-        space::MD
-    }
 }
 
 impl Launcher {
@@ -220,13 +208,14 @@ impl Launcher {
     ) -> Stateful<Div> {
         let focused = self.fields.has_focus(f);
         let selected = focused && self.fields.selected == Some(f);
-        let invalid = self.fields.invalid.is_some_and(|(g, _)| g == f);
+        let refused = self.fields.invalid.filter(|(g, _)| *g == f);
+        let invalid = refused.is_some();
         let secret = f == Field::TailscaleToken;
         let placeholder: SharedString = placeholder.into();
         let measured = self.fields.widths.entry(f).or_default().clone();
         let room = match measured.get() {
             seen if seen > 0. => seen,
-            _ => width - 2. * field_pad(size),
+            _ => width - 2. * size.field_pad(),
         };
         self.fields.text(f).show(visible_chars(room, size));
         let content = line_edit::content_with(
@@ -241,6 +230,9 @@ impl Launcher {
             .role(gpui::Role::TextInput)
             .aria_label(f.name())
             .aria_placeholder(placeholder)
+            .when_some(refused.filter(|(_, why)| !why.is_empty()), |d, (_, why)| {
+                d.aria_description(tr(why))
+            })
             .when(!secret, |d| d.aria_value(self.fields.value(f).to_string()))
             .w(px(width))
             .when(f.holds_code(), |d| {
@@ -282,8 +274,8 @@ impl Launcher {
             ui::ButtonSize::Sm,
         );
         let add = if can_add {
-            add.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.field_enter(f);
+            add.on_press(cx.listener(move |this, _: &ClickEvent, window, cx| {
+                this.field_enter(f, window, cx);
                 cx.notify();
             }))
         } else {
@@ -317,7 +309,7 @@ impl Launcher {
                 window.focus(&this.fields.handle(f, cx), cx);
                 cx.notify();
             }))
-            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, _, cx| {
+            .on_key_down(cx.listener(move |this, ev: &KeyDownEvent, window, cx| {
                 if ev.keystroke.key != "enter" && this.fields.invalid.is_some_and(|(g, _)| g == f) {
                     this.fields.invalid = None;
                 }
@@ -327,10 +319,7 @@ impl Launcher {
                     this.fields.text(f).select_all();
                 }
                 match line_edit::handle(this.fields.text(f), ev, cx) {
-                    Key::Enter if matches!(f, Field::InstanceName | Field::InstanceGroup) => {
-                        this.save_instance(cx)
-                    }
-                    Key::Enter => this.field_enter(f),
+                    Key::Enter => this.field_enter(f, window, cx),
                     Key::Edited => this.field_edited(f),
                     Key::Escape if !selected && ui::modal_open() => return,
                     // Tab and the rest go on to the window: Tab moves the focus.
@@ -344,7 +333,15 @@ impl Launcher {
         line_edit::mouse(el, cx, move |this| this.fields.text(f))
     }
 
-    pub(super) fn field_enter(&mut self, f: Field) {
+    pub(super) fn field_error(&self, f: Field) -> Option<Div> {
+        let (_, why) = self
+            .fields
+            .invalid
+            .filter(|(g, why)| *g == f && !why.is_empty())?;
+        Some(ui::error_note(tr(why)))
+    }
+
+    pub(super) fn field_enter(&mut self, f: Field, window: &mut Window, cx: &mut Context<Self>) {
         match f {
             Field::NewServerName
             | Field::NewServerSeed
@@ -355,15 +352,14 @@ impl Launcher {
             | Field::ServerPort => self.server_field_enter(f),
             Field::TailscaleToken => self.save_token(),
             Field::FriendEmail => self.invite_friend(),
-            Field::InstanceName
-            | Field::InstanceGroup
-            | Field::VersionSearch
+            Field::InstanceName | Field::InstanceGroup => self.save_instance(cx),
+            Field::VersionSearch
             | Field::InstanceModsFilter
             | Field::ConsoleSearch
             | Field::AccentHex
             | Field::GameArgs
-            | Field::Proxy
-            | Field::PaletteSearch => {}
+            | Field::Proxy => {}
+            Field::PaletteSearch => self.palette_enter(window, cx),
             Field::PreLaunch | Field::LaunchWrapper | Field::LaunchEnv | Field::PostExit => {
                 self.save_launch()
             }
@@ -383,6 +379,16 @@ impl Launcher {
                 self.save_settings();
             }
             Field::Proxy => self.save_proxy(),
+            Field::PaletteSearch => self.palette_edited(),
+            Field::InviteCode => {
+                let code = self.fields.value(Field::InviteCode).trim();
+                let wrong = !code.is_empty() && eclipse_friends::invite::parse(code).is_none();
+                self.fields.invalid = if wrong {
+                    Some((f, tr("That isn't an invite code.")))
+                } else {
+                    self.fields.invalid.filter(|(g, _)| *g != f)
+                };
+            }
             _ => {}
         }
     }

@@ -1,7 +1,7 @@
 use super::{
     button, color, copy_details, danger, entity_title, hand_back_at_ends, heading, icon, inset,
     light, look, menu_keys, modal_keys, nested_list, said, scroll_pane, section_title, text, tile,
-    white, ButtonKind, ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG,
+    white, ButtonKind, ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG, TILE_MD,
 };
 use crate::scrollbar::Scrollbar;
 use eclipse_theme::glass::{
@@ -27,9 +27,7 @@ const MORE_BELOW_FADE: f32 = 32.;
 
 const MORE_BELOW_FADE_SHORT: f32 = 16.;
 
-pub const SCROLL_FADE: f32 = MORE_BELOW_FADE;
-
-fn fade_height() -> f32 {
+pub fn fade_height() -> f32 {
     if super::short_window() {
         MORE_BELOW_FADE_SHORT
     } else {
@@ -38,6 +36,8 @@ fn fade_height() -> f32 {
 }
 
 const STATE_ACTIONS_GAP: f32 = space::XL;
+
+const COPY_INSET: f32 = space::LG - PANEL_INSET;
 
 const DIALOG_NARROW: f32 = 520.;
 
@@ -101,19 +101,43 @@ pub fn card() -> Div {
         .child(backdrop(Surface::Card, radius::PANEL))
 }
 
+thread_local! {
+    static FOOT: std::cell::Cell<f32> = const { std::cell::Cell::new(0.) };
+    static LAST_FOOT: std::cell::Cell<f32> = const { std::cell::Cell::new(0.) };
+}
+
+pub(super) fn roll_foot() {
+    LAST_FOOT.set(FOOT.take());
+}
+
+pub fn rule() -> Div {
+    div().flex_none().h(px(super::ROW_EDGE)).bg(edge())
+}
+
 pub fn foot_card() -> Div {
+    let lift = gpui::canvas(
+        |bounds, window, _| {
+            let under = window.viewport_size().height - bounds.top();
+            FOOT.set(FOOT.get().max(f32::from(under)));
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .size_full();
     let shade = if light() {
         color(eclipse_theme::glass::ON_LIGHT).opacity(FOOT_SHADE_LIGHT)
     } else {
         gpui::black().opacity(FOOT_SHADE)
     };
-    card().shadow(vec![gpui::BoxShadow {
-        color: shade,
-        offset: point(px(0.), px(-FOOT_LIFT)),
-        blur_radius: px(FOOT_BLUR),
-        spread_radius: px(0.),
-        inset: false,
-    }])
+    card()
+        .shadow(vec![gpui::BoxShadow {
+            color: shade,
+            offset: point(px(0.), px(-FOOT_LIFT)),
+            blur_radius: px(FOOT_BLUR),
+            spread_radius: px(0.),
+            inset: false,
+        }])
+        .child(lift)
 }
 
 pub fn float_card() -> Div {
@@ -124,10 +148,11 @@ pub fn float_card() -> Div {
         .child(backdrop(Surface::Float, radius::POPOVER))
 }
 
-pub fn popover(id: impl Into<SharedString>) -> Stateful<Div> {
+pub fn popover(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {
     menu_keys(
         nested_list(id)
             .role(Role::Menu)
+            .aria_label(label.into())
             .rounded(px(radius::POPOVER))
             .bg(surface_colour(Surface::Float))
             .border_1()
@@ -224,7 +249,7 @@ pub fn corner_float(content: impl IntoElement) -> Div {
     div()
         .absolute()
         .right(px(space::XL))
-        .bottom(px(space::XL))
+        .bottom(px(space::XL.max(LAST_FOOT.get() + space::SM)))
         .max_w(px(CORNER_FLOAT_WIDTH))
         .child(content)
 }
@@ -393,7 +418,64 @@ pub fn dialog_colour() -> Hsla {
     plate.blend(white(fill::HOVER))
 }
 
-fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) -> Stateful<Div> {
+pub struct StateTitle {
+    text: SharedString,
+    lone: bool,
+}
+
+impl From<&'static str> for StateTitle {
+    fn from(text: &'static str) -> Self {
+        Self {
+            text: text.into(),
+            lone: false,
+        }
+    }
+}
+
+impl From<String> for StateTitle {
+    fn from(text: String) -> Self {
+        Self {
+            text: text.into(),
+            lone: false,
+        }
+    }
+}
+
+impl From<SharedString> for StateTitle {
+    fn from(text: SharedString) -> Self {
+        Self { text, lone: false }
+    }
+}
+
+pub fn page_only(title: impl Into<SharedString>) -> StateTitle {
+    StateTitle {
+        text: title.into(),
+        lone: true,
+    }
+}
+
+impl StateTitle {
+    fn glyph(&self, name: &'static str, tone: Hsla) -> Div {
+        if self.lone {
+            tile(TILE_LG).child(icon(name, IconSize::Px24, tone))
+        } else {
+            tile(TILE_MD).child(icon(name, IconSize::Px16, tone))
+        }
+    }
+}
+
+fn state(
+    id: SharedString,
+    glyph: &'static str,
+    tone: Hsla,
+    title: StateTitle,
+    note: SharedString,
+) -> Stateful<Div> {
+    let (size, gap) = if title.lone {
+        (pixel_text::CARD_TITLE, space::LG)
+    } else {
+        (pixel_text::PRESS, space::MD)
+    };
     div()
         .id(id.clone())
         .relative()
@@ -402,11 +484,11 @@ fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) 
         .items_center()
         .p(px(PANEL_INSET))
         .text_center()
-        .child(glyph)
+        .child(title.glyph(glyph, tone))
         .child(
-            heading(format!("{id}-title"), title.clone(), 2)
-                .mt(px(space::LG))
-                .child(entity_title(title, pixel_text::CARD_TITLE)),
+            heading(format!("{id}-title"), title.text.clone(), 2)
+                .mt(px(gap))
+                .child(entity_title(title.text, size)),
         )
         .when(!note.is_empty(), |d| {
             d.child(
@@ -436,24 +518,29 @@ fn actions(d: Stateful<Div>, actions: Vec<Stateful<Div>>) -> Stateful<Div> {
 pub fn empty_state(
     id: impl Into<SharedString>,
     icon_name: &'static str,
-    title: impl Into<SharedString>,
+    title: impl Into<StateTitle>,
     note: impl Into<SharedString>,
     actions: Vec<Stateful<Div>>,
 ) -> Stateful<Div> {
     let note: SharedString = note.into();
     debug_assert!(!note.is_empty(), "an empty state says what to do next");
-    let glyph = tile(TILE_LG).child(icon(icon_name, IconSize::Px24, white(ink::MUTED)));
-    self::actions(state(id.into(), glyph, title.into(), note), actions)
+    let state = state(id.into(), icon_name, white(ink::MUTED), title.into(), note);
+    self::actions(state, actions)
 }
 
-pub fn loading_state(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
-    let glyph = tile(TILE_LG).child(icon("clock", IconSize::Px24, white(ink::MUTED)));
-    state(id.into(), glyph, title.into(), SharedString::default())
+pub fn loading_state(id: impl Into<SharedString>, title: impl Into<StateTitle>) -> Stateful<Div> {
+    state(
+        id.into(),
+        "clock",
+        white(ink::MUTED),
+        title.into(),
+        SharedString::default(),
+    )
 }
 
 pub fn error_state(
     id: impl Into<SharedString>,
-    title: impl Into<SharedString>,
+    title: impl Into<StateTitle>,
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
@@ -462,7 +549,7 @@ pub fn error_state(
 
 pub fn error_state_with(
     id: impl Into<SharedString>,
-    title: impl Into<SharedString>,
+    title: impl Into<StateTitle>,
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     extra: Vec<Stateful<Div>>,
@@ -473,7 +560,7 @@ pub fn error_state_with(
 
 pub fn error_state_told(
     id: impl Into<SharedString>,
-    title: impl Into<SharedString>,
+    title: impl Into<StateTitle>,
     cause: impl Into<SharedString>,
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
@@ -481,20 +568,22 @@ pub fn error_state_told(
     retry: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px24, danger()));
     let retry = button(
         format!("{id}-retry"),
-        Some("refresh"),
+        Some(crate::icons::RETRY),
         crate::tr("Try again"),
         retry,
         ButtonSize::Md,
     )
     .on_press(on_retry);
-    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
-    actions(
-        state(id, glyph, title.into(), cause.into()),
-        std::iter::once(retry).chain(extra).chain([copy]).collect(),
-    )
+    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md)
+        .absolute()
+        .top(px(COPY_INSET))
+        .right(px(COPY_INSET));
+    let state = state(id, "alert-circle", danger(), title.into(), cause.into())
+        .role(Role::Alert)
+        .child(copy);
+    actions(state, std::iter::once(retry).chain(extra).collect())
 }
 
 pub fn plain_error(error: &str) -> &str {
@@ -516,9 +605,12 @@ pub fn empty_card(state: Stateful<Div>) -> Div {
     card().p(px(PANEL_INSET)).child(state)
 }
 
-/// An empty state inside an area that is already a card; the message goes in as a child.
-pub fn empty() -> Div {
-    empty_style().py(px(space::XL))
+pub fn empty(id: impl Into<gpui::ElementId>, text: impl Into<SharedString>) -> Div {
+    empty_line(id, text).py(px(space::XL))
+}
+
+pub fn empty_line(id: impl Into<gpui::ElementId>, text: impl Into<SharedString>) -> Div {
+    empty_style().child(said(id, text))
 }
 
 fn empty_style() -> Div {
@@ -603,8 +695,10 @@ pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
         .border_color(edge())
 }
 
+const SCROLLED_SLACK: f32 = 1.;
+
 pub fn scrolled(pane: &ScrollHandle) -> bool {
-    pane.offset().y < px(-1.)
+    pane.offset().y < px(-SCROLLED_SLACK)
 }
 
 pub fn more_above_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
@@ -635,7 +729,7 @@ pub fn page_pane(pane: Stateful<Div>, bar: &Scrollbar, reach: f32) -> Div {
 }
 
 pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
-    let more = -pane.offset().y < pane.max_offset().y - px(1.);
+    let more = -pane.offset().y < pane.max_offset().y - px(SCROLLED_SLACK);
     more.then(|| {
         div()
             .absolute()
@@ -667,7 +761,7 @@ pub fn focus_ring(radius: f32) -> Div {
 
 pub fn field_bg(focused: bool) -> Hsla {
     if light() {
-        white(if focused { fill::SELECTED } else { fill::FIELD })
+        color(PAPER).opacity(if focused { 1. } else { fill::CONTROL_LIGHT })
     } else {
         color(if focused {
             eclipse_theme::glass::FIELD_BG_FOCUS
@@ -692,12 +786,7 @@ pub(crate) fn danger_fill() -> Hsla {
 /// A field at `size`: its own fill and edge, a stronger fill and the focus ring with the
 /// focus, a red fill and edge while what it holds is refused.
 pub fn field(focused: bool, invalid: bool, size: ButtonSize) -> Div {
-    let large = matches!(size, ButtonSize::Lg | ButtonSize::Hero);
-    let (pad, text) = if large {
-        (space::LG, step::LEAD)
-    } else {
-        (space::MD, step::BODY)
-    };
+    let (pad, text) = (size.field_pad(), size.field_text());
     div()
         .relative()
         .flex()

@@ -71,7 +71,11 @@ pub fn side_row(
     name: impl Into<SharedString>,
     current: bool,
 ) -> Stateful<Div> {
-    side_selected(row_body(id, name.into(), current), current)
+    row_body(id, name.into(), current)
+        .rounded(px(radius::ROW))
+        .border(px(ROW_EDGE))
+        .border_color(gpui::transparent_black())
+        .when(current, |d| d.bg(white(fill::SELECTED)))
 }
 
 pub fn side_row_text_room(row_width: f32, pad_start: f32, pad_end: f32) -> f32 {
@@ -591,13 +595,7 @@ pub fn notice(
                 .flex()
                 .items_start()
                 .gap(px(space::MD))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(step::BODY.line))
-                        .child(icon(icon_name, IconSize::Px16, mark)),
-                )
+                .child(notice_icon(icon_name, mark))
                 .child(
                     text(step::BODY, FontWeight::NORMAL, ink::FULL)
                         .flex_1()
@@ -617,18 +615,20 @@ pub fn notice(
         })
 }
 
+fn notice_icon(name: &'static str, colour: gpui::Hsla) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .h(px(step::BODY.line))
+        .child(icon(name, IconSize::Px16, colour))
+}
+
 pub fn error_note(said: impl Into<SharedString>) -> Div {
     div()
         .flex()
         .items_start()
         .gap(px(space::MD))
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .h(px(step::BODY.line))
-                .child(icon("alert-circle", IconSize::Px16, danger())),
-        )
+        .child(notice_icon("alert-circle", danger()))
         .child(
             text(step::BODY, FontWeight::NORMAL, ink::FULL)
                 .flex_1()
@@ -645,6 +645,7 @@ fn said_once(text: SharedString) -> Stateful<Div> {
         gpui::ElementId::NamedInteger("said".into(), hash.finish()),
         text,
     )
+    .role(Role::Alert)
 }
 
 pub fn error_line(said: impl Into<SharedString>, actions: Vec<AnyElement>) -> Div {
@@ -683,6 +684,7 @@ pub fn error_line_for(
     let actions: Vec<_> = retry.into_iter().chain(extra).collect();
     div()
         .id(id.clone())
+        .role(Role::Alert)
         .relative()
         .flex()
         .flex_col()
@@ -696,13 +698,7 @@ pub fn error_line_for(
                 .flex()
                 .items_start()
                 .gap(px(space::MD))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .h(px(step::BODY.line))
-                        .child(icon("alert-circle", IconSize::Px16, danger())),
-                )
+                .child(notice_icon("alert-circle", danger()))
                 .child(
                     div()
                         .flex()
@@ -732,6 +728,28 @@ pub fn error_line_for(
                     .children(actions),
             )
         })
+}
+
+pub fn release_head(
+    title: impl Into<SharedString>,
+    note: impl Into<SharedString>,
+    states: Vec<Div>,
+) -> Div {
+    div()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .gap(px(space::XXS))
+        .child(
+            div()
+                .flex()
+                .items_center()
+                .gap(px(space::MD))
+                .child(super::card_title(title).truncate())
+                .children(states),
+        )
+        .child(super::card_note(note.into()).truncate())
 }
 
 pub fn pick_item(

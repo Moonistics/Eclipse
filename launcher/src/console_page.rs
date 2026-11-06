@@ -110,8 +110,7 @@ impl Launcher {
     pub(super) fn console_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let log = self.console_log()?;
         let count = log.len();
-        let running =
-            self.game.client.is_some() && self.selected_play_state() == PlayState::Running;
+        let running = self.selected_play_state() == PlayState::Running;
         let shown = count.to_string();
         let counted = [("count", shown.as_str())];
         let note = match (running, count) {

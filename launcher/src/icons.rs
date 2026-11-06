@@ -17,6 +17,17 @@ pub const LANGUAGE: &str = "language-square";
 pub const NETWORK: &str = "globe-02";
 pub const CONSOLE: &str = "computer-terminal-01";
 pub const DEVELOPER: &str = "source-code";
+pub const HOME: &str = "home-01";
+pub const NOTES: &str = "note-01";
+pub const INFO: &str = "information-circle";
+pub const SETTINGS: &str = "settings-01";
+pub const UPDATES: &str = "download-04";
+pub const RETRY: &str = "refresh";
+pub const RANDOM: &str = "dice";
+pub const LAUNCH_OPTIONS: &str = "sliders-horizontal";
+pub const APPEARANCE: &str = "contrast";
+pub const ANY_COLOUR: &str = "color-picker";
+pub const SERVER_PANEL: &str = "dashboard-square-01";
 
 macro_rules! large_icons {
     ($($name:literal),* $(,)?) => {

@@ -213,48 +213,52 @@ impl Launcher {
                 }))
                 .into_any_element()
         };
-        self.menu_popover("world-menu", cx)
-            .child(
-                ui::menu_row("world-menu-backup", "download-04", tr("Back up"), false).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        act(this, Action::Backup, &backup, cx)
-                    }),
-                ),
+        self.menu_popover(
+            "world-menu",
+            trf("{name} options", &[("name", &w.name)]),
+            cx,
+        )
+        .child(
+            ui::menu_row("world-menu-backup", "download-04", tr("Back up"), false).on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    act(this, Action::Backup, &backup, cx)
+                }),
+            ),
+        )
+        .child(
+            ui::menu_row(
+                "world-menu-duplicate",
+                "copy-01",
+                tr("Duplicate world"),
+                false,
             )
-            .child(
-                ui::menu_row(
-                    "world-menu-duplicate",
-                    "copy-01",
-                    tr("Duplicate world"),
-                    false,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    act(this, Action::Duplicate, &dup, cx)
-                })),
-            )
-            .child(
-                ui::menu_row("world-menu-packs", crate::icons::PACK, packs_label, false).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.close_menu();
-                        this.toggle_world_packs(&packs);
-                        cx.notify();
-                    }),
-                ),
-            )
-            .child(
-                ui::menu_row(
-                    "world-menu-folder",
-                    "folder-01",
-                    tr("Open world folder"),
-                    false,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                act(this, Action::Duplicate, &dup, cx)
+            })),
+        )
+        .child(
+            ui::menu_row("world-menu-packs", crate::icons::PACK, packs_label, false).on_press(
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.close_menu();
-                    ui::open_folder(&folder, cx);
+                    this.toggle_world_packs(&packs);
                     cx.notify();
-                })),
+                }),
+            ),
+        )
+        .child(
+            ui::menu_row(
+                "world-menu-folder",
+                "folder-01",
+                tr("Open world folder"),
+                false,
             )
-            .child(delete)
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.close_menu();
+                ui::open_folder(&folder, cx);
+                cx.notify();
+            })),
+        )
+        .child(delete)
     }
 
     /// Home's Multiplayer tab: the selected instance's saved servers (the game's own list), and

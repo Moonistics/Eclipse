@@ -1,5 +1,5 @@
 /// The memory slider's stops, in MiB.
-const SLIDER_STEP: u32 = 64;
+pub const SLIDER_STEP: u32 = 64;
 /// The slider's top when the computer's memory is not known.
 const UNKNOWN_TOTAL_MB: u32 = 64 * 1024;
 

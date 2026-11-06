@@ -37,8 +37,9 @@ impl Launcher {
             .as_ref()
             .filter(|_| state != State::NoMods)
             .and_then(|b| {
-                native_mods::newer_than(&b.base, &self.installed).or_else(|| {
-                    (!pinned.is_empty() && self.installed.contains(&b.base)).then(|| b.base.clone())
+                native_mods::newer_than(&b.base, &self.versions.installed).or_else(|| {
+                    (!pinned.is_empty() && self.versions.installed.contains(&b.base))
+                        .then(|| b.base.clone())
                 })
             });
         let mine = self.native.for_instance.as_deref() == Some(instance.id.as_str());

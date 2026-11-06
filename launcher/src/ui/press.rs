@@ -16,6 +16,8 @@ const RING_WIDTH: f32 = 4.;
 
 const RING_GAP: f32 = 1.5;
 
+const SPLIT_RING_GAP: f32 = 2.5;
+
 const INSET_RING: f32 = 2.;
 
 const TIP_GAP: f32 = eclipse_theme::glass::space::SM;
@@ -47,7 +49,6 @@ struct FocusTip {
     label: SharedString,
     bounds: Bounds<Pixels>,
     handle: FocusHandle,
-    beside: bool,
 }
 
 #[derive(Default)]
@@ -182,15 +183,29 @@ fn reveal_spot(spot: &Rc<RefCell<Spot>>, window: &mut Window) {
 
 pub fn options(
     list: Stateful<Div>,
+    name: impl Into<SharedString>,
     rows: Vec<(Stateful<Div>, SharedString, bool)>,
     follow: bool,
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    options_with_heads(list, rows, Vec::new(), follow, on_pick)
+    options_with_heads(list, name, rows, Vec::new(), follow, on_pick)
+}
+
+fn options_key(list: &str) -> String {
+    format!("options-{list}")
+}
+
+pub fn options_has_keyboard(list: &str) -> bool {
+    try_focus_for(options_key(list)).is_some_and(|h| keyboard_focus(&h))
+}
+
+pub fn options_focus(list: &str) -> Option<FocusHandle> {
+    try_focus_for(options_key(list))
 }
 
 pub fn options_with_heads(
     mut list: Stateful<Div>,
+    name: impl Into<SharedString>,
     rows: Vec<(Stateful<Div>, SharedString, bool)>,
     heads: Vec<(usize, AnyElement)>,
     follow: bool,
@@ -200,7 +215,7 @@ pub fn options_with_heads(
         Some(gpui::ElementId::Name(id)) => id,
         _ => SharedString::from("options"),
     };
-    let handle = try_focus_for(format!("options-{id}"));
+    let handle = try_focus_for(options_key(&id));
     let count = rows.len();
     let labels: Vec<SharedString> = rows.iter().map(|r| r.1.clone()).collect();
     let first = rows.iter().position(|r| r.2);
@@ -271,6 +286,12 @@ pub fn options_with_heads(
     } else {
         list
     };
+    let name: SharedString = name.into();
+    let list = if name.is_empty() {
+        list
+    } else {
+        list.aria_label(name)
+    };
     let list = match &handle {
         Some(handle) => list.track_focus(handle),
         None => list,
@@ -330,6 +351,19 @@ pub fn options_cursor(id: &str) -> usize {
     CURSORS.with_borrow(|c| c.get(id).copied().unwrap_or(0))
 }
 
+pub fn options_step(id: &str, by: isize, count: usize) {
+    let to = options_cursor(id)
+        .saturating_add_signed(by)
+        .min(count.saturating_sub(1));
+    set_options_cursor(id, to);
+}
+
+pub fn set_options_cursor(id: &str, at: usize) {
+    let id = SharedString::from(id.to_string());
+    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), at));
+    REVEAL_SOON.with_borrow_mut(|r| r.insert(id));
+}
+
 fn typed_match(k: &gpui::Keystroke, labels: &[SharedString], cursor: usize) -> Option<usize> {
     let m = &k.modifiers;
     if m.control || m.alt || m.platform {
@@ -386,11 +420,15 @@ fn inset_shadow() -> Vec<gpui::BoxShadow> {
     vec![shadow(color(look().accent_soft), INSET_RING, true)]
 }
 
-pub fn gap_ring(s: StyleRefinement) -> StyleRefinement {
-    s.shadow(vec![
-        shadow(gap_colour(), INSET_RING + RING_GAP, true),
+fn gap_ring_shadows(gap: f32) -> Vec<gpui::BoxShadow> {
+    vec![
+        shadow(gap_colour(), INSET_RING + gap, true),
         shadow(color(look().accent_soft), INSET_RING, true),
-    ])
+    ]
+}
+
+pub fn gap_ring(s: StyleRefinement) -> StyleRefinement {
+    s.shadow(gap_ring_shadows(SPLIT_RING_GAP))
 }
 
 pub fn measure(f: impl FnOnce(Bounds<Pixels>) + 'static) -> impl IntoElement {
@@ -475,14 +513,6 @@ fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
 }
 
 pub fn tip_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
-    tip_when_focused(el, label, false)
-}
-
-pub fn tip_beside_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
-    tip_when_focused(el, label, true)
-}
-
-fn tip_when_focused(el: Stateful<Div>, label: SharedString, beside: bool) -> Stateful<Div> {
     let spot = Rc::new(Cell::new(None));
     let seen = spot.clone();
     el.child(measure(move |bounds| seen.set(Some(bounds))))
@@ -495,7 +525,6 @@ fn tip_when_focused(el: Stateful<Div>, label: SharedString, beside: bool) -> Sta
                     label: label.clone(),
                     bounds,
                     handle,
-                    beside,
                 }));
                 window.refresh();
             }
@@ -529,10 +558,7 @@ pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div
         .size_full()
         .rounded(px(eclipse_theme::glass::radius::CONTROL))
         .shadow(if filled {
-            vec![
-                shadow(gap_colour(), INSET_RING + RING_GAP, true),
-                shadow(color(look().accent_soft), INSET_RING, true),
-            ]
+            gap_ring_shadows(RING_GAP)
         } else {
             inset_shadow()
         });
@@ -542,7 +568,6 @@ pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div
                 label: label.clone(),
                 bounds,
                 handle: handle.clone(),
-                beside: false,
             });
             if FOCUS_TIP.with_borrow(|t| *t != tip) {
                 FOCUS_TIP.set(tip);
@@ -563,21 +588,21 @@ pub fn focus_tip(window: &Window) -> Option<AnyElement> {
         label,
         bounds,
         handle,
-        beside,
     } = FOCUS_TIP.with_borrow(|t| t.clone())?;
     if !handle.is_focused(window) || !window.last_input_was_keyboard() {
         FOCUS_TIP.set(None);
         return None;
     }
-    let at = if beside {
-        point(bounds.right() + px(TIP_GAP), bounds.top())
-    } else {
-        point(bounds.left(), bounds.bottom() + px(TIP_GAP))
-    };
+    let at = point(bounds.left(), bounds.bottom() + px(TIP_GAP));
     Some(
-        deferred(gpui::anchored().position(at).child(tip_body(label)))
-            .with_priority(2)
-            .into_any_element(),
+        deferred(
+            gpui::anchored()
+                .position(at)
+                .snap_to_window_with_margin(px(TIP_GAP))
+                .child(tip_body(label)),
+        )
+        .with_priority(2)
+        .into_any_element(),
     )
 }
 

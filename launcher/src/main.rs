@@ -4,6 +4,7 @@
 #![cfg_attr(target_os = "windows", windows_subsystem = "windows")]
 
 mod accounts_switch;
+mod accounts_ui;
 mod agents_page;
 mod art;
 mod cli;
@@ -83,6 +84,7 @@ mod titlebar;
 mod toast;
 mod ui;
 mod versions_page;
+mod versions_state;
 mod while_playing;
 
 use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
@@ -175,12 +177,12 @@ impl Page {
 
     fn icon(self) -> &'static str {
         match self {
-            Page::Home => "dashboard-square-01",
+            Page::Home => crate::icons::HOME,
             Page::Mods => "puzzle",
             Page::Servers => crate::icons::SERVER,
             Page::Versions => crate::icons::VERSION,
-            Page::Notes => "information-circle",
-            Page::Settings => "sliders-horizontal",
+            Page::Notes => crate::icons::NOTES,
+            Page::Settings => crate::icons::SETTINGS,
             Page::InstanceEditor => "plus-sign",
         }
     }
@@ -232,36 +234,10 @@ struct Launcher {
     /// The rows of the page's long list (Versions, Patch notes) last drawn.
     long_list: cull::Cull,
     updates: Updates,
-    checked: Option<Instant>,
-    checking_updates: bool,
-    update_error: Option<String>,
+    update_check: versions_state::UpdateCheck,
     self_update: SelfUpdate,
     self_update_hidden: bool,
-    /// The Eclipse version being installed as an update, and whether it becomes the selected one.
-    update_install: Option<(String, bool)>,
-    /// The Eclipse version being installed because an instance was made or saved to play it: it
-    /// becomes the launcher's version only when the launcher has none.
-    instance_install: Option<String>,
-    /// One for an instance waiting for the install running now to end.
-    install_next: Option<Release>,
-    /// The install bar's previous and current fraction, so it moves rather than jumps.
-    bar: (f32, f32),
-    releases: Load<Vec<Release>>,
-    installed: Vec<String>,
-    installing: Option<(String, f32)>,
-    /// The versions being deleted on background threads. Each is already out of `installed`, so
-    /// nothing can launch, select or prepare it, and its row can't install or remove it again.
-    /// More than one may run at once: a row's Remove stays usable while another version goes.
-    removing: Vec<String>,
-    /// What each installed version takes on disk, measured on a thread for the Versions page, and
-    /// the installed list it was measured for.
-    disk: Vec<(String, u64)>,
-    disk_for: Vec<String>,
-    install_error: Option<(String, String)>,
-    /// Import a game build (`build_import`, on the Versions page): whether one is being copied in,
-    /// and why the last one failed.
-    importing_build: bool,
-    import_error: Option<String>,
+    versions: versions_state::Versions,
     native: native_build::NativeBuild,
     /// The Mod build log panel, opened from the sidebar's foot (`native_log_page.rs`).
     native_log: native_log_page::NativeLog,
@@ -300,6 +276,7 @@ struct Launcher {
     toast_seen: Option<u64>,
     /// The window's own focus, so Tab reaches the controls when nothing else has the keyboard.
     root_focus: FocusHandle,
+    frame_focus: FocusHandle,
     side_focus: FocusHandle,
     content_focus: FocusHandle,
     play_focus: FocusHandle,
@@ -308,18 +285,8 @@ struct Launcher {
     ring_pending: Option<FocusHandle>,
     /// Microsoft accounts (accounts.json), the sign-in under way and what it last showed.
     accounts: Accounts,
-    auth_status: HashMap<String, account::session::Status>,
-    auth_progress: HashMap<String, account::session::Phase>,
+    accounts_ui: accounts_ui::AccountsUi,
     profile_heads: profile_heads::Heads,
-    /// When page switches last checked every account's sign-in.
-    auth_checked: Option<Instant>,
-    sign_in_target: Option<account::Account>,
-    auth_busy: HashMap<String, u64>,
-    auth_next: u64,
-    sign_in: Option<SignIn>,
-    sign_in_state: Option<SignInState>,
-    /// What to say when the keychain doesn't keep sign-ins ([`account::no_keychain`]).
-    keychain: Option<String>,
     /// Whether an account here owns the game, by the keychain's last answers (the owner gate);
     /// none until the keychain has been read.
     owner: Option<bool>,
@@ -347,7 +314,6 @@ struct Launcher {
     _activation: Subscription,
     /// The session's measurements (`perf.rs`), and when the steps they time began.
     perf: perf::Perf,
-    install_started: Option<Instant>,
     /// The download under way as first seen (when, files done), for the time left.
     download_seen: Option<(Instant, usize)>,
     /// The tab open under Home's head (`home_tabs.rs`).
@@ -396,8 +362,8 @@ struct Launcher {
 impl Launcher {
     fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (tx, rx) = channel();
-        let appearance = cx.observe_window_appearance(window, |this, window, cx| {
-            this.theme = this.settings_theme(window);
+        let appearance = cx.observe_window_appearance(window, |this, _, cx| {
+            this.restyle();
             cx.notify();
         });
         cx.spawn(async move |this, cx| loop {
@@ -430,11 +396,11 @@ impl Launcher {
         }
         let installed = backend::installed();
         if settings
-            .selected
+            .default_version
             .as_ref()
             .is_none_or(|s| !installed.contains(s))
         {
-            settings.selected = installed.first().cloned();
+            settings.default_version = installed.first().cloned();
         }
         // Pin the window's chrome (macOS title bar) to the choice before the theme reads
         // `window.appearance()`, so both draw the same look.
@@ -449,26 +415,12 @@ impl Launcher {
             mods_sticky: sticky::Sticky::default(),
             long_list: cull::Cull::default(),
             updates: Updates::default(),
-            checked: None,
-            checking_updates: false,
-            update_error: None,
+            update_check: versions_state::UpdateCheck::Never,
             // The installer the last Update started could not put the new launcher in place.
             self_update: eclipse_launcher::update_handoff::take_failure()
                 .map_or(SelfUpdate::Idle, |e| SelfUpdate::Stuck(Some(e))),
             self_update_hidden: false,
-            update_install: None,
-            instance_install: None,
-            install_next: None,
-            bar: (0., 0.),
-            releases: Load::Loading,
-            installed,
-            installing: None,
-            removing: Vec::new(),
-            disk: Vec::new(),
-            disk_for: Vec::new(),
-            install_error: None,
-            importing_build: false,
-            import_error: None,
+            versions: versions_state::Versions::new(installed),
             native: Default::default(),
             native_log: Default::default(),
             open_menu: None,
@@ -491,6 +443,7 @@ impl Launcher {
             servers: servers_page::Servers::new(),
             internet: internet::Internet::new(),
             root_focus: cx.focus_handle(),
+            frame_focus: cx.focus_handle(),
             side_focus: cx.focus_handle().tab_index(0).tab_stop(false),
             content_focus: cx.focus_handle().tab_index(0).tab_stop(false),
             play_focus: cx.focus_handle().tab_index(0).tab_stop(true),
@@ -500,16 +453,8 @@ impl Launcher {
             palette: None,
             toast_seen: None,
             accounts: Accounts::load(),
-            auth_status: HashMap::new(),
-            auth_progress: HashMap::new(),
+            accounts_ui: Default::default(),
             profile_heads: profile_heads::Heads::default(),
-            auth_checked: None,
-            sign_in_target: None,
-            auth_busy: HashMap::new(),
-            auth_next: 0,
-            sign_in: None,
-            sign_in_state: None,
-            keychain: None,
             owner: None,
             owner_screen_open: false,
             dev_clicks: 0,
@@ -525,7 +470,6 @@ impl Launcher {
             _appearance: appearance,
             _activation: cx.observe_window_activation(window, |_, _, cx| cx.notify()),
             perf: perf::Perf::new("session"),
-            install_started: None,
             download_seen: None,
             home_tab: home_tabs::HomeTab::from_env(),
             instance_mods: Default::default(),
@@ -588,7 +532,7 @@ impl Launcher {
         this.fetch_links();
         if home::getting_ready_preview() {
             this.game.preparing = true;
-            this.game.play_when_prepared = this.selected().cloned();
+            this.game.play_when_prepared = this.selected_version().cloned();
         }
         // `ECLIPSE_LAUNCHER_PAGE=new-instance`: the New instance page on Modded, for screenshots
         // (`new-instance-eclipse`, `new-instance-vanilla`: on those).
@@ -610,6 +554,10 @@ impl Launcher {
         // What the game and the launcher kept, if the player allows it and there is a server.
         telemetry::send_in_background();
         this
+    }
+
+    fn restyle(&mut self) {
+        self.restyle = true;
     }
 
     /// Keeps the current choices in memory if writing fails; every page offers the same retry.
@@ -644,7 +592,7 @@ impl Launcher {
         let error = self.settings_save_error.as_ref()?;
         let retry = ui::button(
             "settings-save-retry",
-            Some("refresh"),
+            Some(crate::icons::RETRY),
             tr("Try again"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -676,9 +624,11 @@ impl Launcher {
         // Each check reads the keychain (a prompt on macOS): page switches check every account
         // at most once a minute, and an account added meanwhile at once.
         if self
+            .accounts_ui
             .auth_checked
             .is_none_or(|t| t.elapsed() >= Duration::from_secs(60))
-            || (self.accounts.accounts.iter()).any(|a| !self.auth_status.contains_key(&a.uuid))
+            || (self.accounts.accounts.iter())
+                .any(|a| !self.accounts_ui.auth_status.contains_key(&a.uuid))
         {
             self.load_auth_statuses(false);
         }
@@ -702,8 +652,7 @@ impl Launcher {
     }
 
     fn check_updates(&mut self) {
-        self.checked = Some(Instant::now());
-        self.checking_updates = true;
+        self.update_check = versions_state::UpdateCheck::Checking(Instant::now());
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Updates(backend::check_updates().map(Box::new)));
@@ -778,16 +727,19 @@ impl Launcher {
         let Some(release) = self.updates.eclipse.clone() else {
             return;
         };
-        if self.installing.is_some() || self.removing.contains(&release.tag) {
+        if self.versions.installing.is_some() || self.versions.removing.contains(&release.tag) {
             return;
         }
-        let downgrade = backend::nightly_downgrade(&release, &self.installed);
+        let downgrade = backend::nightly_downgrade(&release, &self.versions.installed);
         if let Some(warning) = &downgrade {
             crate::toast::say(warning.clone());
         }
         let select = downgrade.is_none()
-            && backend::select_after_update(self.settings.selected.as_deref(), &self.installed);
-        self.update_install = Some((release.tag.clone(), select));
+            && backend::select_after_update(
+                self.settings.default_version.as_deref(),
+                &self.versions.installed,
+            );
+        self.versions.update_install = Some((release.tag.clone(), select));
         self.install(&release);
     }
 
@@ -834,7 +786,7 @@ impl Launcher {
         let on_base = std::mem::take(&mut self.native.on_base);
         let base = match self.native.update.take() {
             Some(newer) => Some(newer),
-            None => native_mods::base_for(plays.as_deref(), &self.installed, false),
+            None => native_mods::base_for(plays.as_deref(), &self.versions.installed, false),
         };
         let Some(base) = base else {
             let error = tr("Install Eclipse first.").to_string();
@@ -872,7 +824,7 @@ impl Launcher {
     }
 
     fn fetch_releases(&mut self) {
-        self.releases = Load::Loading;
+        self.versions.releases = Load::Loading;
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Releases(backend::releases()));
@@ -880,8 +832,7 @@ impl Launcher {
     }
 
     fn fetch_startup_releases(&mut self) {
-        self.checked = Some(Instant::now());
-        self.checking_updates = true;
+        self.update_check = versions_state::UpdateCheck::Checking(Instant::now());
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let updates = backend::releases_and_updates(|releases| {
@@ -922,43 +873,72 @@ impl Launcher {
     }
 
     /// The version Play starts: the selected instance's own, else the launcher's.
-    fn selected(&self) -> Option<&String> {
+    fn selected_version(&self) -> Option<&String> {
         self.selected_instance()
             .and_then(|i| self.version_of(i))
-            .or_else(|| self.launcher_version())
+            .or_else(|| self.default_version())
     }
 
     /// The launcher's version: what instances without one of their own play.
-    fn launcher_version(&self) -> Option<&String> {
+    fn default_version(&self) -> Option<&String> {
         self.settings
-            .selected
+            .default_version
             .as_ref()
-            .filter(|s| self.installed.contains(s))
+            .filter(|s| self.versions.installed.contains(s))
+    }
+
+    fn use_version(&mut self, tag: String) {
+        let eclipse = self.selected_instance().is_some_and(|i| i.java.is_none());
+        if eclipse {
+            self.pin_version((Some(&tag) != self.default_version()).then_some(tag));
+        } else {
+            self.settings.default_version = Some(tag);
+            self.save_settings();
+        }
+    }
+
+    fn reinstall(&mut self, tag: &str) {
+        let Some(release) = self.versions.release(tag).cloned() else {
+            return;
+        };
+        let playing = self
+            .instances
+            .list
+            .iter()
+            .filter(|i| self.version_of(i).map(String::as_str) == Some(tag))
+            .any(|i| self.play_state(i) != PlayState::Idle);
+        if playing || self.versions.installing.is_some() {
+            return;
+        }
+        self.game.prepare_error = None;
+        self.install(&release);
     }
 
     /// Installs `release` for an instance made or edited to play it, after the install running
     /// now if there is one.
     fn install_for_instance(&mut self, release: Release) {
-        match &self.installing {
-            Some((now, _)) if *now == release.tag => {}
-            Some(_) => self.install_next = Some(release),
+        match &self.versions.installing {
+            Some(now) if now.tag == release.tag => {}
+            Some(_) => self.versions.install_next = Some(release),
             None => {
-                self.instance_install = Some(release.tag.clone());
+                self.versions.instance_install = Some(release.tag.clone());
                 self.install(&release);
             }
         }
     }
 
     fn install(&mut self, release: &Release) {
-        if release.asset.is_none() || self.removing.contains(&release.tag) {
+        if release.asset.is_none() || self.versions.removing.contains(&release.tag) {
             return;
         }
         let (release, tx) = (release.clone(), self.tx.clone());
         let tag = release.tag.clone();
-        self.installing = Some((tag.clone(), 0.0));
-        self.install_started = Some(Instant::now());
-        self.bar = (0., 0.);
-        self.install_error = None;
+        self.versions.installing = Some(versions_state::Install {
+            tag: tag.clone(),
+            bar: (0., 0.),
+        });
+        self.versions.install_started = Some(Instant::now());
+        self.versions.install_error = None;
         std::thread::spawn(move || {
             let progress = |p| {
                 let _ = tx.send(Msg::Progress(tag.clone(), p));
@@ -972,15 +952,22 @@ impl Launcher {
     /// the window must keep drawing meanwhile. `Msg::Removed` ends it.
     fn remove(&mut self, tag: &str) {
         self.stop_asking(|a| matches!(a, menus::Asking::Version(_)));
-        let installing = self.installing.as_ref().map(|(t, _)| t.as_str());
-        if !removable(&self.installed, installing, &self.removing, tag) {
+        let installing = self.versions.installing.as_ref().map(|i| i.tag.as_str());
+        if !removable(
+            &self.versions.installed,
+            installing,
+            &self.versions.removing,
+            tag,
+        ) {
             return;
         }
-        self.install_error = None;
-        self.removing.push(tag.to_string());
-        self.installed.retain(|t| t != tag);
-        self.settings.selected =
-            selection_after_removal(&self.installed, self.settings.selected.take());
+        self.versions.install_error = None;
+        self.versions.removing.push(tag.to_string());
+        self.versions.installed.retain(|t| t != tag);
+        self.settings.default_version = selection_after_removal(
+            &self.versions.installed,
+            self.settings.default_version.take(),
+        );
         let (tag, tx) = (tag.to_string(), self.tx.clone());
         std::thread::spawn(move || {
             let result = backend::remove_version(&tag);
@@ -1017,7 +1004,7 @@ impl Launcher {
     /// Whether a build may be imported now. A removal still running could take
     /// the folder of the same program imported again.
     fn can_import_build(&self) -> bool {
-        !self.importing_build && self.removing.is_empty()
+        !self.versions.importing && self.versions.removing.is_empty()
     }
     /// Starts importing the build at `path` on a thread, as the picker does.
     /// Separate from [`Self::import_build`] so a file dropped on the window can
@@ -1027,8 +1014,8 @@ impl Launcher {
         if !self.can_import_build() {
             return;
         }
-        self.importing_build = true;
-        self.import_error = None;
+        self.versions.importing = true;
+        self.versions.import_error = None;
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let _ = tx.send(Msg::Imported(build_import::import(&path, None)));
@@ -1039,7 +1026,7 @@ impl Launcher {
     /// Prepares the selected version, its Minecraft files from the player's install or, for an
     /// owner who asks, from Mojang.
     fn prepare(&mut self, from: backend::MinecraftFrom) {
-        let Some(tag) = self.selected().cloned() else {
+        let Some(tag) = self.selected_version().cloned() else {
             return;
         };
         let minecraft = self
@@ -1103,14 +1090,14 @@ impl Launcher {
                 .take()
                 .filter(|(flag, _)| *flag == "--server")
                 .map(|(_, ip)| ip);
-            if self.game.client.is_some() || self.game.starting.is_some() {
+            if self.game.active() {
                 return;
             }
             self.game.pack = None;
             self.start_java(instance, server);
             return;
         }
-        let Some(tag) = self.selected().cloned() else {
+        let Some(tag) = self.selected_version().cloned() else {
             return;
         };
         if !self.can_start(&tag) {
@@ -1138,11 +1125,7 @@ impl Launcher {
     /// (downloaded the first time, their lines in the log), then `drain` starts the game when
     /// the command arrives.
     fn start_java(&mut self, instance: instances::Instance, server: Option<String>) {
-        self.game.error = None;
-        self.game.crash = None;
-        self.game.begin(Some(&instance));
-        self.game.started = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
-        self.game.starting = Some(instance.id.clone());
+        self.game.starting_now(&instance);
         let play = backend::Play {
             server,
             ..backend::Play::of(instance)
@@ -1179,24 +1162,27 @@ impl Launcher {
     /// Whether `tag` can start now ([`starts_now`]): prepared, no preparation under way, no game
     /// running or starting.
     pub(crate) fn can_start(&self, tag: &str) -> bool {
-        let running = self.game.client.is_some() || self.game.starting.is_some();
-        starts_now(backend::is_prepared(tag), self.game.preparing, running)
+        starts_now(
+            backend::is_prepared(tag),
+            self.game.preparing,
+            self.game.active(),
+        )
     }
 
     /// Whether the selected instance's version can start now, from a shortcut (a server's Join,
     /// a world's Play, a friend's code): Eclipse's only, never a Java instance.
     pub(crate) fn can_start_selected(&self) -> bool {
         self.selected_instance().is_none_or(|i| i.java.is_none())
-            && self.selected().is_some_and(|tag| self.can_start(tag))
+            && self
+                .selected_version()
+                .is_some_and(|tag| self.can_start(tag))
     }
 
     /// Whether a server's Join starts the selected instance now: a Java instance too, as Play
     /// would (no game running or starting).
     pub(crate) fn can_join_selected(&self) -> bool {
         match self.selected_instance() {
-            Some(i) if i.java.is_some() => {
-                self.game.client.is_none() && self.game.starting.is_none()
-            }
+            Some(i) if i.java.is_some() => !self.game.active(),
             _ => self.can_start_selected(),
         }
     }
@@ -1205,8 +1191,6 @@ impl Launcher {
     /// renewing), then `drain` starts the process when it arrives. A pack's Play plays the
     /// instance made for that pack; Play the selected one.
     fn start_client(&mut self, tag: String) {
-        self.game.error = None;
-        self.game.crash = None;
         let pack = self.game.pack.take();
         let instance = match &pack {
             Some(work) => self
@@ -1220,10 +1204,7 @@ impl Launcher {
         let Some(instance) = instance else {
             return;
         };
-        self.game.begin(Some(&instance));
-        // A little earlier than the spawn: file times can be coarse.
-        self.game.started = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
-        self.game.starting = Some(tag.clone());
+        self.game.starting_now(&instance);
         self.game.pressed = Some(Instant::now());
         // Registry mods update before the game reads them (`eclipse::auto`); native mods only
         // at start, where a build can follow.
@@ -1251,8 +1232,8 @@ impl Launcher {
 
     fn load_profile_heads(&mut self) {
         let resources = self
-            .selected()
-            .or_else(|| self.installed.first())
+            .selected_version()
+            .or_else(|| self.versions.installed.first())
             .map(|tag| backend::resources(tag))
             .unwrap_or_default();
         // Offline names wear their own skin's face, or the default skin of their offline UUID.
@@ -1267,20 +1248,23 @@ impl Launcher {
     }
 
     fn begin_auth_job(&mut self, uuid: &str) -> Option<u64> {
-        if self.auth_busy.contains_key(uuid) {
+        if self.accounts_ui.auth_busy.contains_key(uuid) {
             return None;
         }
-        self.auth_next += 1;
-        self.auth_busy.insert(uuid.into(), self.auth_next);
-        self.auth_progress
+        self.accounts_ui.auth_next += 1;
+        self.accounts_ui
+            .auth_busy
+            .insert(uuid.into(), self.accounts_ui.auth_next);
+        self.accounts_ui
+            .auth_progress
             .insert(uuid.into(), account::session::Phase::Queued);
-        Some(self.auth_next)
+        Some(self.accounts_ui.auth_next)
     }
 
     /// Only workers read the keychain or contact authentication services. Cached public status
     /// keeps drawing independent of keychain prompts, network timeouts and refresh operations.
     fn load_auth_statuses(&mut self, renew_due: bool) {
-        self.auth_checked = Some(Instant::now());
+        self.accounts_ui.auth_checked = Some(Instant::now());
         for account in self.accounts.accounts.clone() {
             let Some(generation) = self.begin_auth_job(&account.uuid) else {
                 continue;
@@ -1346,20 +1330,20 @@ impl Launcher {
 
     fn begin_sign_in(&mut self, target: Option<account::Account>) {
         self.cancel_sign_in();
-        self.sign_in = Some(match &target {
+        self.accounts_ui.sign_in = Some(match &target {
             Some(account) => SignIn::start_for(account.clone()),
             None => SignIn::start(),
         });
-        self.sign_in_target = target;
-        self.sign_in_state = Some(SignInState::Starting);
+        self.accounts_ui.sign_in_target = target;
+        self.accounts_ui.sign_in_state = Some(SignInState::Starting);
     }
 
     fn cancel_sign_in(&mut self) {
-        if let Some(old) = self.sign_in.take() {
+        if let Some(old) = self.accounts_ui.sign_in.take() {
             old.cancel();
         }
-        self.sign_in_state = None;
-        self.sign_in_target = None;
+        self.accounts_ui.sign_in_state = None;
+        self.accounts_ui.sign_in_target = None;
     }
 
     fn choose_folder(&mut self, cx: &mut Context<Self>) {
@@ -1474,6 +1458,20 @@ fn selection_after_removal(installed: &[String], saved: Option<String>) -> Optio
         .or_else(|| installed.first().cloned())
 }
 
+fn becomes_default(
+    tag: &str,
+    update: Option<bool>,
+    for_instance: bool,
+    default: Option<&str>,
+) -> bool {
+    match (update, default) {
+        (Some(select), _) => select && (!for_instance || default.is_none()),
+        (None, None) => true,
+        (None, Some(_)) if for_instance => false,
+        (None, Some(now)) => backend::compare_versions(tag, now).is_gt(),
+    }
+}
+
 /// The name the game made up for a player without an account, once it has run.
 fn offline_name() -> Option<String> {
     player_name(&std::fs::read_to_string(backend::game_home().join("eclipse-player.txt")).ok()?)
@@ -1537,10 +1535,11 @@ fn megabytes(bytes: u64) -> String {
 
 impl Render for Launcher {
     fn render(&mut self, window: &mut Window, cx: &mut Context<Self>) -> impl IntoElement {
-        let t = self.theme;
         if std::mem::take(&mut self.restyle) {
+            titlebar::apply_appearance(window, self.settings.appearance);
             self.theme = self.settings_theme(window);
         }
+        let t = self.theme;
         let size = window.viewport_size();
         ui::begin_frame(
             &self.theme,
@@ -1602,6 +1601,12 @@ impl Render for Launcher {
             );
         if window.focused(cx).is_none() {
             window.focus(&self.root_focus, cx);
+        } else if !self.frame_focus.contains_focused(window, cx) {
+            cx.on_next_frame(window, |this, window, cx| {
+                if !this.frame_focus.contains_focused(window, cx) {
+                    window.focus(&this.content_focus, cx);
+                }
+            });
         }
         self.scene.update(cx, |scene, _| scene.set_look(&t.night));
         let sky = self.scene.clone().into_any_element();
@@ -1632,6 +1637,7 @@ impl Render for Launcher {
                                 .wrap(
                                     ui::scroll_pane("content", &self.content_scroll.handle)
                                         .role(gpui::Role::Main)
+                                        .aria_label(self.page.label())
                                         .track_focus(&self.content_focus)
                                         .relative()
                                         .flex_1()
@@ -1716,6 +1722,7 @@ impl Render for Launcher {
         root = root.children(ui::focus_tip(window));
         ui::end_frame(window, cx);
         div()
+            .track_focus(&self.frame_focus)
             .flex()
             .flex_col()
             .relative()
@@ -1879,11 +1886,12 @@ fn main() {
                 (f32::from(shown.width), f32::from(shown.height))
             });
             let (width, height) = layout::default_window(display);
+            let (min_width, min_height) = layout::min_window(display);
             let bounds = Bounds::centered(None, size(px(width), px(height)), cx);
             cx.open_window(
                 WindowOptions {
                     window_bounds: Some(WindowBounds::Windowed(bounds)),
-                    window_min_size: Some(size(px(layout::MIN_WINDOW.0), px(layout::MIN_WINDOW.1))),
+                    window_min_size: Some(size(px(min_width), px(min_height))),
                     titlebar: Some(titlebar::options()),
                     #[cfg(target_os = "linux")]
                     window_decorations: Some(gpui::WindowDecorations::Client),
@@ -1945,6 +1953,20 @@ mod tests {
             "v0.2.76"
         ));
         assert!(!super::removable(&installed, None, &[], "v0.2.85"));
+    }
+
+    #[test]
+    fn an_install_moves_the_default_only_forward() {
+        use super::becomes_default;
+        let newer = "nightly-2026-11-01-4aa6854";
+        let older = "nightly-2026-10-20-1b2c3d4";
+        assert!(becomes_default(older, None, false, None));
+        assert!(becomes_default(newer, None, false, Some(older)));
+        assert!(!becomes_default(older, None, false, Some(newer)));
+        assert!(!becomes_default(newer, None, true, Some(older)));
+        assert!(becomes_default(newer, None, true, None));
+        assert!(becomes_default(newer, Some(true), false, Some(older)));
+        assert!(!becomes_default(newer, Some(false), false, Some(older)));
     }
 
     #[test]

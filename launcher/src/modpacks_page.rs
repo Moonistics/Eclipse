@@ -106,7 +106,7 @@ impl Launcher {
             return;
         };
         let resources = self
-            .selected()
+            .selected_version()
             .filter(|tag| backend::is_prepared(tag))
             .map(|tag| backend::resources(tag));
         if !ask {
@@ -139,7 +139,7 @@ impl Launcher {
         let pack = self.instances.list.iter().find(|i| i.work == work);
         let Some(tag) = pack
             .and_then(|i| self.version_of(i))
-            .or_else(|| self.launcher_version())
+            .or_else(|| self.default_version())
             .cloned()
         else {
             return;
@@ -209,10 +209,7 @@ impl Launcher {
                     .gap(px(ui::TITLE_NOTE_GAP))
                     .child(ui::section_title("modpacks-title", tr("Your modpacks")))
                     .when(none, |d| {
-                        d.child(ui::card_note(ui::said(
-                            "modpacks-none",
-                            tr("No modpacks yet."),
-                        )))
+                        d.child(ui::empty_line("modpacks-none", tr("No modpacks yet.")))
                     }),
             )
             .child(actions);
@@ -250,6 +247,7 @@ impl Launcher {
             let this = cx.entity().downgrade();
             page = page.child(ui::options(
                 div().id("modpacks-imported").flex().flex_col(),
+                tr("Your modpacks"),
                 rows,
                 true,
                 move |i, _, cx| {
@@ -338,7 +336,7 @@ impl Launcher {
         key: Asking,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        if self.game.client.is_some() || self.game.starting.is_some() {
+        if self.game.active() {
             return ui::unavailable(opener, tr("Close the game first"));
         }
         opener.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -634,7 +632,13 @@ impl Launcher {
                 }))
                 .child(counts)
                 .child(buttons)
-                .children(self.game.error.clone().map(ui::error_note))
+                .children(
+                    self.game
+                        .problem
+                        .as_ref()
+                        .and_then(|p| p.failure())
+                        .map(ui::error_note),
+                )
                 .children(
                     notes
                         .into_iter()

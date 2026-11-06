@@ -1,7 +1,7 @@
 use super::*;
 use crate::menus::Asking;
-use crate::ui::{self, white};
-use eclipse_theme::glass::{fill, ink, radius, space};
+use crate::ui;
+use eclipse_theme::glass::{ink, space};
 
 impl Launcher {
     /// Home's Screenshots tab: the pictures in a grid, 4 across on wide windows, else 2, each
@@ -67,12 +67,9 @@ impl Launcher {
                 let tile = div()
                     .min_w_0()
                     .child(
-                        div()
+                        ui::picture_slot()
                             .w_full()
                             .aspect_ratio(16. / 9.)
-                            .rounded(px(radius::ROW))
-                            .overflow_hidden()
-                            .bg(white(fill::HOVER))
                             .children(picture),
                     )
                     .child(

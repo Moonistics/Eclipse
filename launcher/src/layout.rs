@@ -37,7 +37,7 @@ pub const FIELD_LG: f32 = 400.;
 pub const FIELD_XL: f32 = MEASURE_NOTE;
 
 pub fn sidebar(window: f32) -> f32 {
-    if window < NARROW_WINDOW {
+    if window < NARROW_WINDOW && !crate::ui::pixel_text_grows() {
         SIDEBAR_NARROW
     } else {
         SIDEBAR
@@ -64,9 +64,34 @@ pub fn default_window(display: Option<(f32, f32)>) -> (f32, f32) {
     let (width, height) = DEFAULT_WINDOW;
     match display {
         Some((w, h)) => (
-            width.min(w * DEFAULT_WINDOW_SHARE).max(MIN_WINDOW.0),
-            height.min(h * DEFAULT_WINDOW_SHARE).max(MIN_WINDOW.1),
+            width.min(w * DEFAULT_WINDOW_SHARE).max(MIN_WINDOW.0.min(w)),
+            height
+                .min(h * DEFAULT_WINDOW_SHARE)
+                .max(MIN_WINDOW.1.min(h)),
         ),
         None => DEFAULT_WINDOW,
+    }
+}
+
+pub fn min_window(display: Option<(f32, f32)>) -> (f32, f32) {
+    match display {
+        Some((w, h)) => (MIN_WINDOW.0.min(w), MIN_WINDOW.1.min(h)),
+        None => MIN_WINDOW,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_window_never_opens_larger_than_the_screen() {
+        assert_eq!(default_window(None), DEFAULT_WINDOW);
+        assert_eq!(default_window(Some((2560., 1440.))), DEFAULT_WINDOW);
+        let small = (910., 480.);
+        let (w, h) = default_window(Some(small));
+        assert!(w <= small.0 && h <= small.1, "{w}x{h}");
+        assert_eq!(min_window(Some(small)), (MIN_WINDOW.0, small.1));
+        assert_eq!(min_window(None), MIN_WINDOW);
     }
 }

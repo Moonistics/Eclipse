@@ -4332,7 +4332,7 @@ mod tests {
         let folder = dir("server-mods");
         write_bundle(&folder, "hello", "fn hook() {}");
         let instances_before = instances::list();
-        let selected_before = backend::Settings::load().selected;
+        let selected_before = backend::Settings::load().default_version;
         let err = build_server(
             "v0.0.0-not-installed",
             &folder,
@@ -4365,7 +4365,7 @@ mod tests {
         assert!(!managed.exists());
         assert_eq!(instances::list(), instances_before, "no instance is edited");
         assert_eq!(
-            backend::Settings::load().selected,
+            backend::Settings::load().default_version,
             selected_before,
             "no version is selected"
         );

@@ -8,7 +8,7 @@ use eclipse_launcher::account::Player;
 use eclipse_launcher::servers::{
     self, Applied, Backup, Entry, Fix, NewServer, Problem, Status, World,
 };
-use eclipse_theme::glass::{ink, space, step};
+use eclipse_theme::glass::space;
 use gpui::ScrollHandle;
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap};
@@ -391,7 +391,7 @@ impl Launcher {
         if servers::program().is_some() && servers::game_files_ready() {
             return None;
         }
-        match self.selected() {
+        match self.selected_version() {
             None => Some(Needs::Eclipse),
             Some(tag) if !backend::is_prepared(tag) => Some(Needs::GameFiles),
             Some(_) => None,
@@ -425,7 +425,7 @@ impl Launcher {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| "Server".into());
-        let tag = self.selected().cloned();
+        let tag = self.selected_version().cloned();
         let tx = self.servers.tx.clone();
         self.servers.creating = true;
         self.servers.problem = None;
