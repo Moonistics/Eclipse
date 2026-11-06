@@ -606,7 +606,7 @@ impl Source for Registry {
             body,
             links: [
                 Link {
-                    label: "Source".into(),
+                    label: "Source code".into(),
                     url: p.source.clone(),
                 },
                 Link {
@@ -614,7 +614,7 @@ impl Source for Registry {
                     url: project.page.clone(),
                 },
                 Link {
-                    label: "Report".into(),
+                    label: "Report to Eclipse".into(),
                     url: format!("{REPORT}&title={}", p.id),
                 },
             ]

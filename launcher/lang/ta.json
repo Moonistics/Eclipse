@@ -291,7 +291,6 @@
   "simulation distance": "உருவகப்படுத்துதல் தூரம்",
   "Updated": "புதுப்பிக்கப்பட்டது",
   "Modded": "மாற்றியமைக்கப்பட்டது",
-  "Source": "ஆதாரம்",
   "Sign in with Microsoft": "Microsoft மூலம் உள்நுழை",
   "Name": "பெயர்",
   "Sponsor": "ஸ்பான்சர்",
@@ -712,7 +711,6 @@
   "{mode} · stopped": "{mode} · நிறுத்தப்பட்டது",
   "{online} of {max}": "{max}-இல் {online}",
   "{support} in Eclipse": "Eclipse-இல் {support}",
-  "First Light": "முதல் ஒளி",
   "{m} min": "{m} நிமி",
   "Paste a friend's invite code": "நண்பரின் அழைப்புக் குறியீட்டை ஒட்டவும்",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "{build} விளையாடுகிறது, {version} இல் அல்ல, {mods} பின் செய்த commit ஆன Eclipse {commit} இல் கட்டப்பட்டது.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "{name}-க்கு டெஸ்க்டாப் குறுக்குவழி சேர்க்கப்பட்டது.",
   "Added {names}. Turn it on to use it.": "{names} சேர்க்கப்பட்டது. பயன்படுத்த அதை இயக்கவும்.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title}, {instance}-இல் சேர்க்கப்பட்டது. பொதிகள் பகுதியில் அதை இயக்கவும்.",
-  "Agent commands": "முகவர் கட்டளைகள்",
   "All patch notes": "அனைத்து பேட்ச் குறிப்புகள்",
   "Always the newest": "எப்போதும் புதியது",
   "Auto-scroll": "தானாக உருட்டு",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

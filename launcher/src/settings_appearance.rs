@@ -33,7 +33,7 @@ impl Launcher {
         }
     }
 
-    /// Settings' sky colours: Eclipse's own sky or First Light, free for everyone.
+    /// Settings' sky colours: Eclipse's own sky or Daybreak, free for everyone.
     pub(super) fn launcher_theme_row(&mut self, cx: &mut Context<Self>) -> Div {
         let current = themes::theme(self.settings.theme.as_deref()).map(|th| th.id);
         let mut options: Vec<(Option<&'static str>, &'static str)> = vec![(None, "Eclipse")];

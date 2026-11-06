@@ -24,15 +24,15 @@ pub struct Theme {
     pub sky: [u32; 6],
 }
 
-/// First Light: the sky just before sunrise, with a harbour skyline.
-pub const FIRST_LIGHT: Theme = Theme {
+/// Daybreak: the sky just before sunrise, with a harbour skyline.
+pub const DAYBREAK: Theme = Theme {
     id: "first_light",
-    name: "First Light",
+    name: "Daybreak",
     sky: [0x0b1030, 0x1d2a63, 0x3d4c94, 0x7f78c0, 0xe2a0b0, 0xffd6a0],
 };
 
 /// The launcher themes past Eclipse's own sky.
-pub const THEMES: [Theme; 1] = [FIRST_LIGHT];
+pub const THEMES: [Theme; 1] = [DAYBREAK];
 
 /// The theme named `id` (`Settings::theme`); None for Eclipse's own sky or a name this launcher
 /// doesn't know.

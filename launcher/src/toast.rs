@@ -134,8 +134,8 @@ impl Launcher {
                 .children(close)
                 .with_animation(
                     ElementId::named_usize("toast", n as usize),
-                    crate::motion::eased(crate::motion::POP),
-                    |d, p| d.opacity(p).top(px(crate::motion::POP_RISE * (1. - p))),
+                    crate::motion::eased(crate::motion::ARRIVE),
+                    |d, p| d.opacity(p).top(px(crate::motion::ARRIVE_RISE * (1. - p))),
                 ),
         ))
     }

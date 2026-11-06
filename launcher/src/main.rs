@@ -73,6 +73,7 @@ mod shortcut_page;
 mod shot_blur;
 mod skin_page;
 mod sticky;
+mod tab_strip;
 mod theme;
 mod titlebar;
 mod toast;
@@ -1565,7 +1566,7 @@ impl Render for Launcher {
             Page::InstanceEditor => self.instance_page(cx),
         };
         self.pictures.free_retired(window);
-        // The new page fades in and rises a few pixels, as the website's tabs do (`hzl-pop`).
+        // The new page fades in and rises a few pixels, as the website's tabs do.
         let content = div()
             .relative()
             .w_full()
@@ -1575,8 +1576,8 @@ impl Render for Launcher {
             .child(scene::track_content(&self.scene))
             .with_animation(
                 ElementId::named_usize("page", self.switches),
-                motion::eased(motion::POP),
-                |d, p| d.opacity(p).top(px(motion::POP_RISE * (1. - p))),
+                motion::eased(motion::ARRIVE),
+                |d, p| d.opacity(p).top(px(motion::ARRIVE_RISE * (1. - p))),
             );
         if window.focused(cx).is_none() {
             window.focus(&self.root_focus, cx);

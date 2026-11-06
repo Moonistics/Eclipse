@@ -51,6 +51,7 @@ pub(super) struct InstanceDraft {
     pub(super) scroll: Scrollbar,
     /// A new instance copies the selected one's worlds, options and packs.
     pub(super) copy: bool,
+    pub(super) duplicate: bool,
     pub(super) icon: Option<Icon>,
     /// A picture chosen since it opened (None in it: the instance's is removed on Save).
     pub(super) picture: Option<Option<instance_icons::Chosen>>,
@@ -174,6 +175,7 @@ impl Launcher {
             back,
             scroll: Scrollbar::default(),
             copy: false,
+            duplicate: false,
             error: None,
             busy: false,
             reveal_version: java.version.is_some(),
@@ -204,6 +206,7 @@ impl Launcher {
             .set(source.group.clone().unwrap_or_default());
         if let Some(d) = &mut self.instances.draft {
             d.copy = true;
+            d.duplicate = true;
             d.java = java_choice_of(&source);
             d.reveal_version = d.java.version.is_some();
             d.pin = source.version.clone();

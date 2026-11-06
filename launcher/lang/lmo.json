@@ -293,7 +293,6 @@
   "simulation distance": "distanza de simulaziun",
   "Updated": "Aggiornà",
   "Modded": "Modificad",
-  "Source": "Font",
   "Sign in with Microsoft": "Accedi cun Microsoft",
   "Name": "Nom",
   "Sponsor": "Sponsor",
@@ -712,7 +711,6 @@
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "I sò mod fà per Minecraft {from} resten in la soa cartella; quaivun el podariss minga cargàss in {to}.",
   "Its mods made for {loader} stay in its folder but won't load.": "I sò mod fà per {loader} resten in la soa cartella, ma se cargaran minga.",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "I sò mond hinn staa salvaa de Minecraft {from}: {to} i aggiorna per semper, e el po minga dervii se l'è pussee vegg.",
-  "First Light": "Prima lus",
   "{m} min": "{m} min",
   "Paste a friend's invite code": "Incolla el codex de invito d'un amigo",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Gioca {build}, costruida su Eclipse {commit}, el commit fissaa de {mods}, minga su {version}.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "Giontada la scorciatoia del desktop per {name}.",
   "Added {names}. Turn it on to use it.": "Giontaa {names}. Impizzel per dovràll.",
   "Added {title} to {instance}. Turn it on in Packs.": "Giontaa {title} a {instance}. Impizzel in Pachett.",
-  "Agent commands": "Comand de l'agent",
   "All patch notes": "Tutt i note del patch",
   "Always the newest": "Semper la pussee noeuva",
   "Auto-scroll": "Scorriment automatich",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

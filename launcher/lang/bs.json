@@ -291,7 +291,6 @@
   "simulation distance": "simulaciona udaljenost",
   "Updated": "Ažurirano",
   "Modded": "Modeded",
-  "Source": "Izvor",
   "Sign in with Microsoft": "Prijavite se pomoću Microsofta",
   "Name": "Ime",
   "Sponsor": "Sponzor",
@@ -712,7 +711,6 @@
   "{mode} · stopped": "{mode} · zaustavljeno",
   "{online} of {max}": "{online} od {max}",
   "{support} in Eclipse": "{support} u Eclipseu",
-  "First Light": "Prva svjetlost",
   "{m} min": "{m} min",
   "Paste a friend's invite code": "Zalijepite prijateljev pozivni kod",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Igra {build}, izgrađeno na Eclipse {commit}, commitu koji je prikvačio {mods}, a ne na {version}.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "Dodana je prečica na radnoj površini za {name}.",
   "Added {names}. Turn it on to use it.": "Dodano: {names}. Uključite ga da biste ga koristili.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} je dodan u {instance}. Uključite ga u Paketima.",
-  "Agent commands": "Komande agenta",
   "All patch notes": "Sve bilješke o izdanjima",
   "Always the newest": "Uvijek najnovija",
   "Auto-scroll": "Automatsko pomicanje",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

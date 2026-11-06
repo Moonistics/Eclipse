@@ -291,7 +291,6 @@
   "simulation distance": "სიმულაციური მანძილი",
   "Updated": "განახლებულია",
   "Modded": "მოდებული",
-  "Source": "წყარო",
   "Sign in with Microsoft": "შედით Microsoft-ით",
   "Name": "სახელი",
   "Sponsor": "სპონსორი",
@@ -712,7 +711,6 @@
   "{mode} · stopped": "{mode} · შეჩერებულია",
   "{online} of {max}": "{online} / {max}",
   "{support} in Eclipse": "{support} Eclipse-ში",
-  "First Light": "პირველი სინათლე",
   "{m} min": "{m} წთ",
   "Paste a friend's invite code": "ჩასვით მეგობრის მოწვევის კოდი",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "უკრავს {build}, აგებულია Eclipse {commit}-ზე, {mods}-ის მიერ მიმაგრებულ commit-ზე და არა {version}-ზე.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "{name}-ისთვის დესკტოპის მალსახმობი დაემატა.",
   "Added {names}. Turn it on to use it.": "დაემატა {names}. გამოსაყენებლად ჩართეთ.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} დაემატა {instance}-ში. ჩართეთ პაკეტებში.",
-  "Agent commands": "აგენტის ბრძანებები",
   "All patch notes": "ყველა პაჩის ნოტი",
   "Always the newest": "ყოველთვის უახლესი",
   "Auto-scroll": "ავტოგადახვევა",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

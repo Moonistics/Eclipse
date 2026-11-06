@@ -272,6 +272,19 @@ pub fn more_button(
     icon_button(id, "more-horizontal", label, kind, size, open).aria_expanded(open)
 }
 
+pub fn more_busy(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    open: bool,
+) -> Stateful<Div> {
+    more_button(id, label, ButtonKind::Primary, size, open).bg(busy_track())
+}
+
+fn busy_track() -> Hsla {
+    color(look().accent).opacity(BUSY_TRACK)
+}
+
 pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div {
     let rule = match kind {
         ButtonKind::Primary => color(look().on_accent).opacity(SPLIT_RULE),
@@ -375,7 +388,7 @@ pub fn primary_busy(
             .when_some(progress, |d, p| {
                 d.aria_numeric_value(f64::from(p.clamp(0., 1.)))
             })
-            .bg(color(look.accent).opacity(BUSY_TRACK))
+            .bg(busy_track())
             .child(
                 div()
                     .absolute()
@@ -603,14 +616,6 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         }))
 }
 
-pub fn tab(
-    id: impl Into<SharedString>,
-    text: impl Into<SharedString>,
-    open: bool,
-) -> Stateful<Div> {
-    padded_tab(id, text, open, TAB_PAD)
-}
-
 fn padded_tab(
     id: impl Into<SharedString>,
     text: impl Into<SharedString>,
@@ -666,13 +671,6 @@ pub fn tab_width(label: &str, count: Option<usize>, pad: f32) -> f32 {
 pub const TAB_PAD_TIGHT: f32 = space::SM;
 
 pub const TAB_STRIP_GAP: f32 = space::LG;
-
-pub fn tab_strip(
-    id: impl Into<SharedString>,
-    tabs: impl IntoIterator<Item = Stateful<Div>>,
-) -> Stateful<Div> {
-    tab_strip_padded(id, TAB_PAD, tabs)
-}
 
 pub fn tab_strip_padded(
     id: impl Into<SharedString>,

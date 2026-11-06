@@ -223,8 +223,8 @@ pub fn modrinth_details(project: &Value, members: &Value) -> Details {
     gallery.sort_by_key(|(order, i)| (!i.featured, *order));
     let mut links = Vec::new();
     for (key, label) in [
-        ("source_url", "Source"),
-        ("issues_url", "Issues"),
+        ("source_url", "Source code"),
+        ("issues_url", "Report a bug"),
         ("wiki_url", "Wiki"),
         ("discord_url", "Discord"),
     ] {
@@ -359,7 +359,7 @@ mod tests {
         );
         assert_eq!(
             d.links.iter().map(|l| l.label.as_str()).collect::<Vec<_>>(),
-            ["Source", "Discord", "Donate (Ko-fi)"]
+            ["Source code", "Discord", "Donate (Ko-fi)"]
         );
         assert_eq!(d.authors, ["Macaw", "helper"]);
         assert_eq!(d.categories, ["decoration", "utility"]);

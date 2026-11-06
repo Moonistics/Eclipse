@@ -24,7 +24,7 @@ pub(super) struct ShotBlur {
 }
 
 impl Launcher {
-    /// The eye button (`ICON_BUTTON`, 32 px): blurs the screenshots, or shows them again.
+    /// The eye button: blurs the screenshots, or shows them again.
     pub(super) fn shots_privacy(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let hidden = self.shot_blur.hidden;
         ui::icon_button(
@@ -36,7 +36,7 @@ impl Launcher {
                 "Hide screenshots"
             }),
             ButtonKind::Ghost,
-            ui::ButtonSize::Sm,
+            ui::ButtonSize::Md,
             hidden,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

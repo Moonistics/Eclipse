@@ -447,9 +447,12 @@ mod tests {
         assert_eq!(n.label(), Some("Install automatically"));
         assert_eq!(n.toggled(), Some(Toggled::False));
 
-        let (role, n) = read(&tab("home-tab-worlds", "Worlds", true));
+        let (role, n) = read(&count_tab("home-tab-worlds", "Worlds", None, true, TAB_PAD));
         assert_eq!((role, n.is_selected()), (Some(Role::Tab), Some(true)));
-        assert_eq!(read(&tab_strip("home-tabs", [])).0, Some(Role::TabList));
+        assert_eq!(
+            read(&tab_strip_padded("home-tabs", TAB_PAD, [])).0,
+            Some(Role::TabList)
+        );
 
         let (role, n) = read(&nav_row(
             "nav-home",

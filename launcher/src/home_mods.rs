@@ -237,9 +237,7 @@ pub(super) fn find_on_mods_page(
     cx: &Context<Launcher>,
 ) -> ui::Listener<ClickEvent> {
     Box::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
-        this.go(Page::Mods);
-        this.mods_load();
-        this.mods_set_kind(kind);
+        this.show_mods(kind);
         cx.notify();
     }))
 }

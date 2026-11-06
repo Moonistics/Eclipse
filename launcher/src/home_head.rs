@@ -213,13 +213,17 @@ impl Launcher {
         let play = if tag.is_empty() {
             main.min_w(width).into_any_element()
         } else {
-            let more = ui::more_button(
-                "play-more",
-                tr("Play options"),
-                kind,
-                ui::ButtonSize::Hero,
-                open,
-            );
+            let more = if busy.is_some() {
+                ui::more_busy("play-more", tr("Play options"), ui::ButtonSize::Hero, open)
+            } else {
+                ui::more_button(
+                    "play-more",
+                    tr("Play options"),
+                    kind,
+                    ui::ButtonSize::Hero,
+                    open,
+                )
+            };
             let more = self.menu_opener(more, Menu::Play, cx);
             ui::split(main, more, kind).min_w(width).into_any_element()
         };
@@ -277,7 +281,7 @@ impl Launcher {
         wrap
     }
 
-    fn press_play(&mut self) {
+    pub(super) fn press_play(&mut self) {
         let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
             || self.selected().is_some_and(|tag| backend::is_prepared(tag));
         let busy = self.preparing || self.client.is_some() || self.starting_client.is_some();

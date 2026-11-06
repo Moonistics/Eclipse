@@ -291,7 +291,6 @@
   "simulation distance": "մոդելավորման հեռավորություն",
   "Updated": "Թարմացվել է",
   "Modded": "Մոդավորված",
-  "Source": "Աղբյուր",
   "Sign in with Microsoft": "Մուտք գործեք Microsoft-ով",
   "Name": "Անուն",
   "Sponsor": "Հովանավոր",
@@ -712,7 +711,6 @@
   "{mode} · stopped": "{mode} · կանգնեցված",
   "{online} of {max}": "{online}՝ {max}-ից",
   "{support} in Eclipse": "{support} Eclipse-ում",
-  "First Light": "Առաջին լույս",
   "{m} min": "{m} րոպե",
   "Paste a friend's invite code": "Տեղադրեք ընկերոջ հրավերի կոդը",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Խաղում է {build}, կառուցված Eclipse {commit}-ի վրա՝ {mods}-ի ամրացրած commit-ի, ոչ թե {version}-ի:",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "{name}-ի համար աշխատասեղանի դյուրանցում ավելացվեց:",
   "Added {names}. Turn it on to use it.": "{names}-ն ավելացվեց: Միացրեք այն՝ օգտագործելու համար:",
   "Added {title} to {instance}. Turn it on in Packs.": "{title}-ն ավելացվեց {instance}-ին: Միացրեք այն Փաթեթներում:",
-  "Agent commands": "Գործակալի հրամաններ",
   "All patch notes": "Patch-ի բոլոր նշումները",
   "Always the newest": "Միշտ ամենանորը",
   "Auto-scroll": "Ինքնոլորում",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

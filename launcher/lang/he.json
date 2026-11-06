@@ -293,7 +293,6 @@
   "simulation distance": "מרחק סימולציה",
   "Updated": "עודכן",
   "Modded": "מודדים",
-  "Source": "מקור",
   "Sign in with Microsoft": "היכנס עם Microsoft",
   "Name": "שם",
   "Sponsor": "נותן חסות",
@@ -713,7 +712,6 @@
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "המודים שלו שנבנו ל־Minecraft {from} נשארים בתיקייה שלו; חלקם אולי לא ייטענו ב־{to}.",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "העולמות שלו נשמרו ב־Minecraft {from}: ‏{to} משדרג אותם לתמיד, ולא יכול לפתוח אותם אם הוא ישן יותר.",
   "{m} min": "{m} דק'",
-  "First Light": "אור ראשון",
   "Paste a friend's invite code": "הדבק קוד הזמנה של חבר",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "מריץ את {build}, שנבנה על Eclipse {commit}, הקומיט שננעץ על ידי {mods}, ולא על {version}.",
   "Could not open the data folder: {error}": "Could not open the data folder: {error}",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "נוסף קיצור דרך בשולחן העבודה עבור {name}.",
   "Added {names}. Turn it on to use it.": "{names} נוסף. הפעל אותו כדי להשתמש בו.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} נוסף ל-{instance}. הפעל אותו בחבילות.",
-  "Agent commands": "פקודות הסוכן",
   "All patch notes": "כל הערות התיקון",
   "Always the newest": "תמיד החדשה ביותר",
   "Auto-scroll": "גלילה אוטומטית",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

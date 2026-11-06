@@ -1,7 +1,7 @@
 //! The launcher's motion, as the website's launcher plays it (eclipse-site's `launcher.css` and
 //! Tailwind's defaults): hovers ease over the design's quick curve (150 ms,
-//! `cubic-bezier(0.4, 0, 0.2, 1)`); toasts and a new page arrive as `hzl-pop` does (a fade and a
-//! 6 px rise over 200 ms); a switch's knob slides for 200 ms. Under reduced motion nothing moves:
+//! `cubic-bezier(0.4, 0, 0.2, 1)`); toasts and a new page arrive with a fade and a 6 px rise over
+//! 200 ms; a switch's knob slides for 200 ms. Under reduced motion nothing moves:
 //! everything is drawn where it ends. Menus open at once:
 //! an animation inside a `deferred` menu kept its first frame (invisible) under GPUI Fast.
 use eclipse_theme as tokens;
@@ -12,13 +12,14 @@ use std::sync::atomic::{AtomicBool, AtomicU8, Ordering};
 use std::sync::{LazyLock, Once};
 use std::time::{Duration, Instant};
 
-/// `hzl-pop`: `0.2s cubic-bezier(0.2, 0.7, 0.2, 1)`, from transparent and 6 px lower.
-pub const POP: tokens::Motion = tokens::Motion {
-    name: "pop",
+/// A toast or a new page arriving: `0.2s cubic-bezier(0.2, 0.7, 0.2, 1)`, from transparent and
+/// 6 px lower.
+pub const ARRIVE: tokens::Motion = tokens::Motion {
+    name: "arrive",
     ms: 200,
     curve: [0.2, 0.7, 0.2, 1.],
 };
-pub const POP_RISE: f32 = 6.;
+pub const ARRIVE_RISE: f32 = 6.;
 
 /// A switch's knob (`transition-[translate] duration-200`, Tailwind's default curve).
 const SLIDE: tokens::Motion = tokens::Motion {

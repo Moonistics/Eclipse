@@ -293,7 +293,6 @@
   "simulation distance": "simulointietäisyys",
   "Updated": "Päivitetty",
   "Modded": "Muokattu",
-  "Source": "lähde",
   "Sign in with Microsoft": "Kirjaudu sisään Microsoftilla",
   "Name": "Nimi",
   "Sponsor": "Sponsori",
@@ -713,7 +712,6 @@
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "Sen Minecraft {from} -modit jäävät sen kansioon; osa ei ehkä lataudu versiossa {to}.",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "Sen maailmat on tallennettu Minecraft {from} -versiolla: {to} päivittää ne pysyvästi eikä voi avata niitä, jos se on vanhempi.",
   "{m} min": "{m} min",
-  "First Light": "Ensivalo",
   "Paste a friend's invite code": "Liitä ystävän kutsukoodi",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Pelaa {build}, rakennettu Eclipse {commit} -commitille, jonka {mods} kiinnittää, ei {version}:lle.",
   "Could not open the data folder: {error}": "Could not open the data folder: {error}",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "Työpöydän pikakuvake lisätty: {name}.",
   "Added {names}. Turn it on to use it.": "Lisätty {names}. Ota se käyttöön käyttääksesi sitä.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} lisätty ilmentymään {instance}. Ota se käyttöön Pakkauksissa.",
-  "Agent commands": "Agentin komennot",
   "All patch notes": "Kaikki julkaisutiedot",
   "Always the newest": "Aina uusin",
   "Auto-scroll": "Automaattinen vieritys",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

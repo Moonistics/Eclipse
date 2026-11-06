@@ -11,6 +11,7 @@
 //!   a placeholder stands in until one arrives.
 use super::mods_page::{Checking, Event};
 use super::*;
+use crate::tab_strip::StripTab;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::{
     self,
@@ -879,7 +880,7 @@ impl Launcher {
                     ui::button(
                         format!("mods-link-{url}"),
                         None,
-                        link_label(&l.label),
+                        tr(&l.label).to_string(),
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
@@ -890,25 +891,27 @@ impl Launcher {
         }
         // No Gallery tab for a project without images.
         let no_gallery = matches!(&details, Some(Ok(d)) if d.gallery.is_empty());
-        let tabs = ui::tab_strip(
-            "mods-project-tabs",
-            TABS.into_iter()
-                .filter(|(shown, _)| !(no_gallery && *shown == Tab::Gallery))
-                .map(|(shown, label)| {
-                    ui::tab(
-                        SharedString::from(format!("mods-project-tab-{shown:?}")),
-                        tr(label),
-                        shown == tab,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            if let Some(o) = &mut this.mods.browse.open {
-                                o.tab = shown;
-                            }
-                            cx.notify();
-                        },
-                    ))
-                }),
+        let named = TABS
+            .into_iter()
+            .filter(|(shown, _)| !(no_gallery && *shown == Tab::Gallery))
+            .map(|(shown, label)| StripTab {
+                value: shown,
+                key: format!("{shown:?}"),
+                label: tr(label).into(),
+                count: None,
+            })
+            .collect();
+        let tabs = self.tab_strip(
+            "mods-project-tab",
+            named,
+            tab,
+            layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
+            |this, shown| {
+                if let Some(o) = &mut this.mods.browse.open {
+                    o.tab = shown;
+                }
+            },
+            cx,
         );
         let failed = |e: &str, cx: &mut Context<Self>| {
             let again = p.clone();
@@ -985,15 +988,6 @@ impl Launcher {
             },
         };
         Some(page.child(div().flex().flex_col().child(tabs).child(body)))
-    }
-}
-
-fn link_label(label: &str) -> SharedString {
-    match label {
-        "Source" => tr("Source code").into(),
-        "Issues" => tr("Report a bug").into(),
-        "Report" => tr("Report to Eclipse").into(),
-        other => tr(other).to_string().into(),
     }
 }
 

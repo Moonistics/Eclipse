@@ -62,8 +62,9 @@ numbers `launcher/src/layout.rs`.
   Secondary (a faint fill, its label in body ink that turns full under the pointer) or Ghost (text
   only); fields take the same sizes, an icon before the text and their button inside. A disabled
   control is 40 % opaque and never lights under the pointer; one that can't be pressed for a reason
-  keeps its Tab stop and says why in a tooltip (`ui::unavailable`). Play that can't start is one
-  opaque Secondary block with its reason (`ui::split_unavailable`). The keyboard focus ring is 2 px
+  keeps its Tab stop and says why in a tooltip (`ui::unavailable`). Play never greys out: it
+  prepares the game first when it has to, and while it works it fills its block with its ⋯ on the
+  same track (`ui::primary_busy`, `ui::more_busy`). The keyboard focus ring is 2 px
   of `accent-soft`: outside a solid control with a gap in the page colour, inside anything
   translucent.
 - **Window**: at least 800 × 500 (`layout::MIN_WINDOW`); the sidebar is 236 wide, 200 under 960
@@ -112,7 +113,8 @@ numbers `launcher/src/layout.rs`.
   instance at the foot. Cards for the kind (Eclipse, Vanilla, Modded); a Java kind lists
   Mojang's versions (search, snapshots, old versions; the newest release chosen), Modded adds the
   loader at its newest stable version, and the name follows the choice ("Fabric 1.21.4") until
-  the player types one. Create instance is the main action.
+  the player types one. Create instance is the main action. An instance's Duplicate… opens the
+  same page as "Duplicate {name}", with the game it plays and Duplicate as the main action.
 
 ## Components
 
@@ -129,20 +131,24 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   error states inside a screen that already has one use Secondary (`ui::error_state_with` takes
   the kind of its Try again). *Secondary*, a faint fill, is every other action, in rows, cards and
   headers. *Ghost*, text only, is for Cancel, Close, Dismiss and Not now; icon-only buttons (⋯,
-  the bin, a folder, Close) are Ghost too, their label the tooltip and the accessible name. An
-  icon button that is open or current is selected (the plate and the icon in the mark). Work under
-  way keeps its button and disables it with the label in progress ("Checking…", "Installing…");
-  Play fills its block instead (`ui::primary_busy`). A disabled control is 40 % opaque
-  (`ui::disabled`); `ui::unavailable(control, why)` keeps it a Tab stop and says why.
+  the bin, a folder, Close) are Ghost too, their label the tooltip and the accessible name (the
+  one exception is Home's folder beside Play: a filled Secondary, Hero size like Play). An icon
+  button that is open or current is selected (the plate and the icon in the mark). Work under way
+  keeps its button and disables it with the label in progress ("Checking…", "Installing…"); Play
+  fills its block instead (`ui::primary_busy`), its ⋯ on the same track (`ui::more_busy`). A
+  disabled control is 40 % opaque (`ui::disabled`); `ui::unavailable(control, why)` keeps it a
+  Tab stop and says why.
 - **Delete and remove**: one opener per context. A row's is the bin (`ui::remove_button`, labelled
   "Delete…" or "Remove…"), a menu's the danger row (`ui::menu_row(.., true)`), and a card without
   rows a plain Secondary. The opener turns into a line that names the thing in danger text, a
   Ghost Cancel and a Secondary verb (`ui::confirm`, `ui::menu_confirm`): "Delete" when files go to
   the trash, "Remove" when an entry leaves a list. One question at a time; Escape cancels it.
-- **Tabs** (`ui::tab_strip`, `ui::tab`, `ui::count_tab`, `ui::tab_width`): Monocraft labels, the
-  open one underlined in the accent, 16 above what they open. Home's strip shows counts when they
-  fit and tightens its tabs (`TAB_PAD_TIGHT`) before it would wrap. **Segments** (`ui::segments`)
-  pick one of a few values on an inset track.
+- **Tabs** (`Launcher::tab_strip` in `launcher/src/tab_strip.rs`, drawn with `ui::count_tab`,
+  `ui::tab_strip_padded` and `ui::tab_width`): Monocraft labels, the open one underlined in the
+  accent, 16 above what they open. Every strip (Home, Mods, a project's page, a server, Settings in
+  a narrow window) shows its counts when they fit, then tightens its tabs (`TAB_PAD_TIGHT`), then
+  moves the tabs that still don't fit under More tabs (a ⋯ menu), keeping the open one in the
+  strip: it never wraps. **Segments** (`ui::segments`) pick one of a few values on an inset track.
 - **Switches** (`ui::toggle`, `ui::toggle_row`, `ui::toggle_label`): a blocky switch; in a row the
   whole row is pressed and is the switch.
 - **Navigation** (`ui::nav_row` with `NavDensity::Sidebar` or `List`): the sidebar's pages and

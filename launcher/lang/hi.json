@@ -293,7 +293,6 @@
   "simulation distance": "सिमुलेशन दूरी",
   "Updated": "अपडेट किया गया",
   "Modded": "मॉडेड",
-  "Source": "स्रोत",
   "Sign in with Microsoft": "माइक्रोसॉफ्ट के साथ साइन इन करें",
   "Name": "नाम",
   "Sponsor": "प्रयोजक",
@@ -713,7 +712,6 @@
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "Minecraft {from} के लिए बने इसके मॉड इसके फ़ोल्डर में रहते हैं; कुछ {to} में शायद लोड न हों।",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "इसकी दुनिया Minecraft {from} से सहेजी गई थीं: {to} उन्हें हमेशा के लिए अपग्रेड करता है, और पुराना हो तो उन्हें खोल नहीं सकता।",
   "{m} min": "{m} मि",
-  "First Light": "पहली किरण",
   "Paste a friend's invite code": "किसी दोस्त का आमंत्रण कोड पेस्ट करें",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "{build} खेलता है, Eclipse {commit} पर निर्मित, जो {mods} द्वारा पिन किया गया कमिट है, {version} पर नहीं।",
   "Data move failed: {error}": "डेटा स्थानांतरण विफल रहा: {error}",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "{name} के लिए डेस्कटॉप शॉर्टकट जोड़ा गया।",
   "Added {names}. Turn it on to use it.": "{names} जोड़ा गया। इस्तेमाल करने के लिए इसे चालू करें।",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} को {instance} में जोड़ा गया। इसे पैक में चालू करें।",
-  "Agent commands": "एजेंट कमांड",
   "All patch notes": "सभी पैच नोट्स",
   "Always the newest": "हमेशा सबसे नया",
   "Auto-scroll": "अपने-आप स्क्रॉल",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

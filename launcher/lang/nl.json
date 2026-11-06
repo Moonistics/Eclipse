@@ -293,7 +293,6 @@
   "simulation distance": "simulatie afstand",
   "Updated": "Bijgewerkt",
   "Modded": "Gemodificeerd",
-  "Source": "Bron",
   "Sign in with Microsoft": "Meld u aan bij Microsoft",
   "Name": "Naam",
   "Sponsor": "Sponsor",
@@ -712,7 +711,6 @@
   "Its mods made for {loader} stay in its folder but won't load.": "Zijn mods voor {loader} blijven in zijn map, maar worden niet geladen.",
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "Zijn mods voor Minecraft {from} blijven in zijn map; sommige laden misschien niet in {to}.",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "Zijn werelden zijn opgeslagen door Minecraft {from}: {to} werkt ze voorgoed bij en kan ze niet openen als het ouder is.",
-  "First Light": "Eerste licht",
   "{m} min": "{m} min",
   "Paste a friend's invite code": "Plak de uitnodigingscode van een vriend",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Speelt {build}, gebouwd op Eclipse {commit}, de commit die {mods} vastzet, niet op {version}.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "Snelkoppeling op het bureaublad toegevoegd voor {name}.",
   "Added {names}. Turn it on to use it.": "{names} toegevoegd. Zet het aan om het te gebruiken.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} toegevoegd aan {instance}. Zet het aan bij Pakken.",
-  "Agent commands": "Agentopdrachten",
   "All patch notes": "Alle patch-opmerkingen",
   "Always the newest": "Altijd de nieuwste",
   "Auto-scroll": "Automatisch scrollen",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

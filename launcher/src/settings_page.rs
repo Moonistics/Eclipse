@@ -1,9 +1,9 @@
 //! The Settings page: the sections as cards in a pane that scrolls on its own under the title,
-//! and a list of the sections beside them (a row of tabs under the title in a narrow window, a
-//! dropdown when the tabs don't fit); the list follows the scroll and takes the pane to a section.
+//! and a list of the sections beside them (a row of tabs under the title in a narrow window, with
+//! More tabs for those that don't fit); the list follows the scroll and takes the pane to a section.
 
 use super::*;
-use crate::menus::Menu;
+use crate::tab_strip::StripTab;
 use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, space, step};
 
@@ -196,32 +196,6 @@ impl Launcher {
         };
         self.settings_marked = active;
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
-        let tabs_fit = shown
-            .iter()
-            .map(|s| ui::tab_width(tr(s.name()), None, ui::TAB_PAD))
-            .sum::<f32>()
-            <= layout::content_width(self.window_width) + 2. * ui::TAB_PAD;
-        let entries = shown.iter().enumerate().map(|(i, &section)| {
-            let id = format!("settings-section-{}", section.id());
-            let entry = if tabs {
-                ui::tab(id, tr(section.name()), i == active)
-            } else {
-                ui::nav_row(
-                    id,
-                    section.icon(),
-                    tr(section.name()),
-                    i == active,
-                    ui::NavDensity::List,
-                )
-            };
-            entry.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.settings_jump = Some(Jump {
-                    to: section,
-                    landed: false,
-                });
-                cx.notify();
-            }))
-        });
         let pane = ui::scroll_pane("settings-pane", &self.settings_pane.handle)
             .size_full()
             .pr(px(Scrollbar::ROOM))
@@ -251,12 +225,28 @@ impl Launcher {
             .mr(px(-Scrollbar::ROOM))
             .child(self.settings_pane.wrap(pane).size_full());
         let body = if tabs {
-            let head = if tabs_fit {
-                ui::tab_strip("settings-sections", entries).into_any_element()
-            } else {
-                self.settings_section_picker(&shown, active, cx)
-                    .into_any_element()
-            };
+            let named = shown
+                .iter()
+                .map(|&section| StripTab {
+                    value: section,
+                    key: section.id().to_string(),
+                    label: tr(section.name()).into(),
+                    count: None,
+                })
+                .collect();
+            let head = self.tab_strip(
+                "settings-section",
+                named,
+                shown[active],
+                layout::content_width(self.window_width),
+                |this, section| {
+                    this.settings_jump = Some(Jump {
+                        to: section,
+                        landed: false,
+                    })
+                },
+                cx,
+            );
             div()
                 .flex()
                 .flex_col()
@@ -265,6 +255,22 @@ impl Launcher {
                 .child(head)
                 .child(pane)
         } else {
+            let entries = shown.iter().enumerate().map(|(i, &section)| {
+                ui::nav_row(
+                    format!("settings-section-{}", section.id()),
+                    section.icon(),
+                    tr(section.name()),
+                    i == active,
+                    ui::NavDensity::List,
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.settings_jump = Some(Jump {
+                        to: section,
+                        landed: false,
+                    });
+                    cx.notify();
+                }))
+            });
             div()
                 .flex()
                 .gap(px(layout::CARD_GAP))
@@ -288,57 +294,6 @@ impl Launcher {
             .h_full()
             .child(ui::page_head(tr("Settings"), ""))
             .child(body)
-    }
-
-    fn settings_section_picker(
-        &self,
-        shown: &[SettingsSection],
-        active: usize,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let open = self.menu_is(&Menu::SettingsSections);
-        let picker = ui::dropdown(
-            "settings-sections",
-            tr("Settings section"),
-            None,
-            tr(shown[active].name()),
-            open,
-            ui::ButtonSize::Md,
-        )
-        .w(px(SECTION_LIST_WIDTH));
-        let mut wrap = div()
-            .relative()
-            .flex_none()
-            .mb(px(ui::TAB_STRIP_GAP))
-            .child(self.menu_opener(picker, Menu::SettingsSections, cx));
-        if open {
-            let mut menu = self.menu_popover("settings-sections-menu", cx);
-            for (i, &section) in shown.iter().enumerate() {
-                menu = menu.child(
-                    ui::pick_row(
-                        format!("settings-section-{}", section.id()),
-                        tr(section.name()),
-                        i == active,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.close_menu();
-                            this.settings_jump = Some(Jump {
-                                to: section,
-                                landed: false,
-                            });
-                            cx.notify();
-                        },
-                    )),
-                );
-            }
-            wrap = wrap.child(ui::menu_under(
-                ui::ButtonSize::Md.height(),
-                ui::Align::Start,
-                menu,
-            ));
-        }
-        wrap
     }
 
     pub(super) fn show_settings(&mut self, section: SettingsSection) {

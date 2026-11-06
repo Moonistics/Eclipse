@@ -293,7 +293,6 @@
   "simulation distance": "distansa de simulasion",
   "Updated": "Ajornà",
   "Modded": "Modifegà",
-  "Source": "Fonte",
   "Sign in with Microsoft": "Accedi con Microsoft",
   "Name": "Nome",
   "Sponsor": "Sponsor",
@@ -712,7 +711,6 @@
   "Its mods made for {loader} stay in its folder but won't load.": "I so mod fati par {loader} i resta neła so cartèła ma no i se cariga.",
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "I suoi mod fatti per Minecraft {from} restano nella sua cartella; alcuni pol no cargarse in {to}.",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "I so mondi i xe stai salvài da Minecraft {from}: {to} i li agiorna par senpre, e no i pol verxarli se i xe pì veci.",
-  "First Light": "Prima luce",
   "{m} min": "{m} min",
   "Paste a friend's invite code": "Incoła el còdexe de invito de un amigo",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Gioca {build}, costruito su Eclipse {commit}, el commit fisà da {mods}, no su {version}.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "Xontà un colegamento sul desktop par {name}.",
   "Added {names}. Turn it on to use it.": "Xontà {names}. Inpìsilo par doprarlo.",
   "Added {title} to {instance}. Turn it on in Packs.": "Xontà {title} a {instance}. Inpìsilo in Pacheti.",
-  "Agent commands": "Comandi de l'agente",
   "All patch notes": "Tute łe note de ajornamento",
   "Always the newest": "Senpre el pì novo",
   "Auto-scroll": "Scorimento automatico",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

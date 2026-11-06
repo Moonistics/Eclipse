@@ -291,7 +291,6 @@
   "simulation distance": "ಸಿಮ್ಯುಲೇಶನ್ ದೂರ",
   "Updated": "ನವೀಕರಿಸಲಾಗಿದೆ",
   "Modded": "ಮಾರ್ಪಡಿಸಲಾಗಿದೆ",
-  "Source": "ಮೂಲ",
   "Sign in with Microsoft": "Microsoft ನೊಂದಿಗೆ ಸೈನ್ ಇನ್ ಮಾಡಿ",
   "Name": "ಹೆಸರು",
   "Sponsor": "ಪ್ರಾಯೋಜಕರು",
@@ -712,7 +711,6 @@
   "{mode} · stopped": "{mode} · ನಿಲ್ಲಿಸಲಾಗಿದೆ",
   "{online} of {max}": "{max} ರಲ್ಲಿ {online}",
   "{support} in Eclipse": "Eclipse ನಲ್ಲಿ {support}",
-  "First Light": "ಮೊದಲ ಬೆಳಕು",
   "{m} min": "{m} ನಿಮಿ",
   "Paste a friend's invite code": "ಸ್ನೇಹಿತನ ಆಹ್ವಾನ ಕೋಡ್ ಅನ್ನು ಅಂಟಿಸಿ",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "{build} ಆಡುತ್ತದೆ, {version} ಅಲ್ಲ, {mods} ಪಿನ್ ಮಾಡಿದ ಕಮಿಟ್ Eclipse {commit} ನಲ್ಲಿ ನಿರ್ಮಿಸಲಾಗಿದೆ.",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "{name} ಗಾಗಿ ಡೆಸ್ಕ್‌ಟಾಪ್ ಶಾರ್ಟ್‌ಕಟ್ ಸೇರಿಸಲಾಗಿದೆ.",
   "Added {names}. Turn it on to use it.": "{names} ಸೇರಿಸಲಾಗಿದೆ. ಬಳಸಲು ಅದನ್ನು ಆನ್ ಮಾಡಿ.",
   "Added {title} to {instance}. Turn it on in Packs.": "{title} ಅನ್ನು {instance} ಗೆ ಸೇರಿಸಲಾಗಿದೆ. ಪ್ಯಾಕ್‌ಗಳಲ್ಲಿ ಅದನ್ನು ಆನ್ ಮಾಡಿ.",
-  "Agent commands": "ಏಜೆಂಟ್ ಆಜ್ಞೆಗಳು",
   "All patch notes": "ಎಲ್ಲಾ ಪ್ಯಾಚ್ ಟಿಪ್ಪಣಿಗಳು",
   "Always the newest": "ಯಾವಾಗಲೂ ಹೊಸದು",
   "Auto-scroll": "ಸ್ವಯಂ ಸ್ಕ್ರಾಲ್",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

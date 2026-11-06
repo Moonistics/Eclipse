@@ -469,7 +469,7 @@ impl Launcher {
                 .instances
                 .draft
                 .as_ref()
-                .is_some_and(|d| d.editing.is_none());
+                .is_some_and(|d| d.editing.is_none() && !d.duplicate);
         let add = ui::icon_button(
             "add-instance",
             "plus-sign",

@@ -207,7 +207,7 @@ impl Launcher {
             });
         }
         steps = steps.child(
-            ui::link("agent-docs", tr("Agent commands"))
+            ui::link("agent-docs", tr("Agent commands (docs)"))
                 .on_press(|_, _, cx| cx.open_url(backend::AGENT_DOCS_URL)),
         );
         Some(ui::setting_row_stacked(

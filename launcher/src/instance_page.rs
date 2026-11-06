@@ -56,7 +56,8 @@ impl Launcher {
         let Some(d) = self.instances.draft.as_ref() else {
             return div();
         };
-        let (busy, copy, error, scroll) = (d.busy, d.copy, d.error.clone(), d.scroll.clone());
+        let (busy, copy, duplicate) = (d.busy, d.copy, d.duplicate);
+        let (error, scroll) = (d.error.clone(), d.scroll.clone());
         let editing = d
             .editing
             .as_ref()
@@ -66,13 +67,17 @@ impl Launcher {
         let running = editing.as_ref().is_some_and(|i| {
             self.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id)
         });
-        let (title, note) = match editing {
+        let (title, note): (SharedString, _) = match editing {
             Some(_) if running => (
-                tr("Edit instance"),
+                tr("Edit instance").into(),
                 tr("Changes apply the next time it starts."),
             ),
-            Some(_) => (tr("Edit instance"), ""),
-            None => (tr("New instance"), ""),
+            Some(_) => (tr("Edit instance").into(), ""),
+            None if duplicate => {
+                let from = self.selected_instance().map_or("", |i| i.name.as_str());
+                (trf("Duplicate {name}", &[("name", from)]).into(), "")
+            }
+            None => (tr("New instance").into(), ""),
         };
         let mut cards: Vec<AnyElement> = Vec::new();
         if let Some(i) = &editing {
@@ -88,7 +93,7 @@ impl Launcher {
         cards.push(self.name_and_group(editing.as_ref(), cx).into_any_element());
         if kind == NewKind::Eclipse {
             cards.push(self.eclipse_versions(cx).into_any_element());
-            if editing.is_none() {
+            if editing.is_none() && !duplicate {
                 cards.push(self.start_from(copy, cx).into_any_element());
             }
         } else {
@@ -464,7 +469,7 @@ pub(super) fn eclipse_choices(releases: &[Release], installed: &[String]) -> Vec
     out
 }
 
-/// "Nightly · c9d474d", "Imported · 2026-10-30", or the tag.
+/// "Nightly 2026-10-30 · c9d474d", "Imported · 2026-10-30", or the tag.
 pub(super) fn version_label(tag: &str) -> String {
     eclipse_launcher::nightly::label(tag)
         .or_else(|| build_import::label(tag))
@@ -508,8 +513,11 @@ impl Launcher {
             ButtonKind::Ghost,
             button,
         );
+        let duplicate = self.instances.draft.as_ref().is_some_and(|d| d.duplicate);
         let label = match (editing.is_some(), busy) {
             (true, _) => tr("Save changes"),
+            (false, true) if duplicate => tr("Duplicating…"),
+            (false, false) if duplicate => tr("Duplicate"),
             (false, true) if copy => tr("Copying…"),
             (false, _) => tr("Create instance"),
         };

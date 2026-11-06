@@ -291,7 +291,6 @@
   "simulation distance": "simulasie afstand",
   "Updated": "Opgedateer",
   "Modded": "Gemodifiseerd",
-  "Source": "Bron",
   "Sign in with Microsoft": "Meld aan met Microsoft",
   "Name": "Naam",
   "Sponsor": "Borg",
@@ -712,7 +711,6 @@
   "{mode} · stopped": "{mode} · gestop",
   "{online} of {max}": "{online} van {max}",
   "{support} in Eclipse": "{support} in Eclipse",
-  "First Light": "Eerste Lig",
   "{m} min": "{m} min",
   "Paste a friend's invite code": "Plak 'n vriend se uitnodigingskode",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "Speel {build}, gebou op Eclipse {commit}, die commit wat {mods} vaspen, nie op {version} nie.",
@@ -753,7 +751,6 @@
   "Doesn't build on the Eclipse you play ({code}): a build leaves it out until its author updates it": "Bou nie op die Eclipse wat jy speel nie ({code}): 'n bou laat dit weg totdat die outeur dit bywerk",
   "Microsoft sign-in isn't available in this copy of the launcher yet.": "Microsoft-aanmelding is nog nie in hierdie kopie van die launcher beskikbaar nie.",
   "{client} adds it with this command:": "{client} voeg dit by met hierdie opdrag:",
-  "Agent commands": "Agent-opdragte",
   "{program} isn't installed. Copy the config instead.": "{program} is nie geïnstalleer nie. Kopieer eerder die konfigurasie.",
   "This version is installed for {installed}, but Settings asks for {selected}. Install the {selected} build first.": "Hierdie weergawe is vir {installed} geïnstalleer, maar Instellings vra vir {selected}. Installeer eers die {selected}-bou.",
   "Not prepared yet. Eclipse needs your copy of Minecraft {version}.": "Nog nie voorberei nie. Eclipse het jou kopie van Minecraft {version} nodig.",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

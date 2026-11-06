@@ -1113,7 +1113,7 @@ mod tests {
         assert_eq!(day.sky, DAWN.sky);
         assert!(window(1920., 1080., day).stars.is_empty());
         let themed = Night {
-            sky: eclipse_launcher::themes::FIRST_LIGHT.sky,
+            sky: eclipse_launcher::themes::DAYBREAK.sky,
             ..DAWN
         };
         let washed = Look::of(&themed).sky;

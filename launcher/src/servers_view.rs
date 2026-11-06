@@ -2,6 +2,7 @@
 //! Stop, its console and command line; beside it the list of servers and how friends reach the
 //! open one. Below, the server's Players, Settings and Backups.
 use super::*;
+use crate::tab_strip::StripTab;
 use crate::ui::{self, white, Tone};
 use eclipse_theme::glass::{ink, pixel_text, radius, space, step, TextStep};
 
@@ -701,20 +702,25 @@ impl Launcher {
 
     /// The server's Players, Settings and Backups, on a card under it.
     fn server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
-        let strip = ui::tab_strip(
-            "server-tabs",
-            LOWER_TABS.iter().map(|&(tab, label)| {
-                ui::tab(
-                    SharedString::from(format!("server-tab-{tab:?}")),
-                    tr(label),
-                    self.servers.tab == tab,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.servers.tab = tab;
-                    this.asking = None;
-                    cx.notify();
-                }))
-            }),
+        let tabs = LOWER_TABS
+            .iter()
+            .map(|&(tab, label)| StripTab {
+                value: tab,
+                key: format!("{tab:?}"),
+                label: tr(label).into(),
+                count: None,
+            })
+            .collect();
+        let strip = self.tab_strip(
+            "server-tab",
+            tabs,
+            self.servers.tab,
+            layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
+            |this, tab| {
+                this.servers.tab = tab;
+                this.asking = None;
+            },
+            cx,
         );
         let players = self.servers.tab == Tab::Players;
         let body = match self.servers.tab {

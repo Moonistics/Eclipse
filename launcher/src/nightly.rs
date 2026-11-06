@@ -37,14 +37,15 @@ pub fn date_of(version: &str) -> Option<&str> {
     is_date(date).then_some(date)
 }
 
-/// A Nightly's version as a player reads it: `Nightly · 4baa571` for `nightly-2026-10-29-4baa571`,
-/// or None for anything that is not one. The date is already on the row beside it.
+/// A Nightly's version as a player reads it, the way its release is titled:
+/// `Nightly 2026-10-29 · 4baa571` for `nightly-2026-10-29-4baa571`, or None for anything that is
+/// not one.
 pub fn label(version: &str) -> Option<String> {
-    date_of(version)?;
+    let date = date_of(version)?;
     let commit = version.strip_prefix("nightly-")?.get(11..);
     Some(match commit {
-        Some(commit) if !commit.is_empty() => format!("Nightly · {commit}"),
-        _ => "Nightly".to_owned(),
+        Some(commit) if !commit.is_empty() => format!("Nightly {date} · {commit}"),
+        _ => format!("Nightly {date}"),
     })
 }
 
@@ -125,12 +126,13 @@ mod tests {
     }
 
     #[test]
-    fn a_nightly_reads_as_its_commit() {
+    fn a_nightly_reads_as_its_release_is_titled() {
+        let r = release("Nightly 2026-10-29 · 4baa571", "2026-10-29");
+        assert_eq!(label(&version_of(&r)), Some(r.name));
         assert_eq!(
-            label("nightly-2026-10-29-4baa571").as_deref(),
-            Some("Nightly · 4baa571")
+            label("nightly-2026-10-29").as_deref(),
+            Some("Nightly 2026-10-29")
         );
-        assert_eq!(label("nightly-2026-10-29").as_deref(), Some("Nightly"));
         assert_eq!(label("v0.2.97"), None);
     }
 

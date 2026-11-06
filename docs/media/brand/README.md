@@ -1,9 +1,10 @@
 # Eclipse's mark and icons
 
-**The mark.** An H whose crossbar is the eclipse: the line runs edge to edge in Eclipse's violet,
-the stems above it in full strength and their reflection below at a third. It is drawn on whole
-units of a 16-unit grid, so it is sharp at 16 px and holds at 1024 px. `docs/design-system.md`
-places it in the design system; `candidates/` keeps the two alternatives that were shown with it.
+**The mark.** A pixel eclipse: the moon (`#0b0c12`) inside a pale rim (`#ffd58f`) and a ring of
+corona amber (`#f5a524`) that reaches the edge in four short rays, a dark outer edge (`#6b4416`)
+around it, and one bright bead (`#fff6e0`) at the upper left where the sun breaks through. It is
+drawn on whole units of a 16-unit grid, so it is sharp at 16 px and holds at 1024 px.
+`docs/design-system.md` places it in the design system.
 
 ## Masters (edit these)
 
@@ -12,7 +13,7 @@ places it in the design system; `candidates/` keeps the two alternatives that we
 | `icon.svg` | the app icon on the 16 grid: the full square with 22 % corners (Windows, Linux, favicons) |
 | `icon-macos.svg` | the same tile on Apple's 1024 grid (824 px tile, 185 px corners, transparent margin) |
 | `avatar.svg` | full-bleed square for services that round or crop the image (GitHub, Discord) |
-| `mark.svg`, `mark-dark.svg` | the mark alone, for light and for dark backgrounds |
+| `mark.svg`, `mark-dark.svg` | the mark alone, on a transparent background (the same drawing: it reads on light and dark) |
 | `social/card.html` | the GitHub social preview, as a page |
 
 ## Generated (don't edit)

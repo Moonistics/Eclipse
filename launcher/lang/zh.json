@@ -293,7 +293,6 @@
   "simulation distance": "模拟距离",
   "Updated": "最近更新",
   "Modded": "模组版",
-  "Source": "源码",
   "Sign in with Microsoft": "使用 Microsoft 账户登录",
   "Name": "名称",
   "Sponsor": "赞助",
@@ -713,7 +712,6 @@
   "Its mods made for Minecraft {from} stay in its folder; some may not load in {to}.": "其为 Minecraft {from} 制作的模组会留在其文件夹中；部分可能无法在 {to} 中加载。",
   "Its worlds were saved by Minecraft {from}: {to} upgrades them for good, and can't open them if it is older.": "其世界由 Minecraft {from} 保存：{to} 会永久升级它们；如果 {to} 更旧，则无法打开它们。",
   "{m} min": "{m} 分钟",
-  "First Light": "第一缕光",
   "Paste a friend's invite code": "粘贴好友的邀请码",
   "Plays {build}, built on Eclipse {commit}, the commit pinned by {mods}, not on {version}.": "运行 {build}，基于 Eclipse {commit} 构建（{mods} 固定的提交），而不是 {version}。",
   "Data move failed: {error}": "数据迁移失败：{error}",
@@ -756,7 +754,6 @@
   "Added a desktop shortcut for {name}.": "已为 {name} 添加桌面快捷方式。",
   "Added {names}. Turn it on to use it.": "已添加 {names}。启用后即可使用。",
   "Added {title} to {instance}. Turn it on in Packs.": "已将 {title} 添加到 {instance}。请在“资源包”中启用。",
-  "Agent commands": "智能体命令",
   "All patch notes": "全部更新日志",
   "Always the newest": "始终最新",
   "Auto-scroll": "自动滚动",
@@ -1040,7 +1037,6 @@
   "Report to Eclipse": "Report to Eclipse",
   "Save server": "Save server",
   "Server address": "Server address",
-  "Settings section": "Settings section",
   "Show Eclipse mods": "Show Eclipse mods",
   "Source code": "Source code",
   "The original Minecraft": "The original Minecraft",
@@ -1056,5 +1052,10 @@
   "Couldn't load Eclipse data packs": "Couldn't load Eclipse data packs",
   "Modrinth pack (.mrpack)": "Modrinth pack (.mrpack)",
   "Zip file (.zip)": "Zip file (.zip)",
-  "Installed versions": "Installed versions"
+  "Installed versions": "Installed versions",
+  "Agent commands (docs)": "Agent commands (docs)",
+  "Duplicate": "Duplicate",
+  "Duplicate {name}": "Duplicate {name}",
+  "Duplicating…": "Duplicating…",
+  "Daybreak": "Daybreak"
 }

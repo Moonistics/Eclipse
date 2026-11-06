@@ -11,6 +11,7 @@
 use super::*;
 use crate::menus::Asking;
 use crate::menus::Menu;
+use crate::tab_strip::StripTab;
 use crate::ui::{self, white};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, radius, space};
@@ -61,21 +62,25 @@ impl Launcher {
             .map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
         let target = self.mods_target(cx);
         let open = self.mods.kind;
-        let tabs = ui::tab_strip(
-            "mods-tabs",
-            KINDS.into_iter().map(|(kind, label)| {
-                ui::tab(
-                    SharedString::from(format!("mods-tab-{kind:?}")),
-                    tr(label),
-                    kind == open,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.mods_set_kind(kind);
-                    cx.notify();
-                }))
-            }),
-        )
-        .mt(px(space::LG));
+        let kinds = KINDS
+            .into_iter()
+            .map(|(kind, label)| StripTab {
+                value: kind,
+                key: format!("{kind:?}"),
+                label: tr(label).into(),
+                count: None,
+            })
+            .collect();
+        let tabs = self
+            .tab_strip(
+                "mods-tab",
+                kinds,
+                open,
+                layout::content_width(self.window_width),
+                |this, kind| this.mods_set_kind(kind),
+                cx,
+            )
+            .mt(px(space::LG));
         let header = ui::page_head(tr("Mods"), "")
             .mb_0()
             .children(target)
