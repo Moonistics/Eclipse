@@ -147,7 +147,7 @@ impl Launcher {
                 }
             }
             Run::Go(page) => self.go(page),
-            Run::NewInstance => self.open_instance_dialog(None),
+            Run::NewInstance => self.open_instance_page(None),
             Run::Folder(home) => {
                 let _ = std::fs::create_dir_all(&home);
                 crate::glass_toast::open(cx, &home);

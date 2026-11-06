@@ -64,20 +64,25 @@ impl Launcher {
         }
         if list.is_empty() {
             let saves = home.join("saves");
-            return Some(
-                body.child(
-                    ui::empty()
-                        .flex()
-                        .gap(px(4.))
-                        .child(tr("No worlds yet. Create one in the game."))
-                        .child(ui::link("worlds-folder", tr("Open folder")).on_click(
-                            move |_, _, cx| {
-                                let _ = std::fs::create_dir_all(&saves);
-                                crate::glass_toast::open(cx, &saves);
-                            },
-                        )),
-                ),
-            );
+            let open = ui::button(
+                "worlds-folder",
+                Some("folder-01"),
+                tr("Open folder"),
+                Kind::Secondary,
+                ui::Size::Md,
+                &t,
+            )
+            .on_click(move |_, _, cx| {
+                let _ = std::fs::create_dir_all(&saves);
+                crate::glass_toast::open(cx, &saves);
+            });
+            return Some(body.child(ui::empty_state(
+                "worlds-empty",
+                "earth",
+                tr("No worlds yet"),
+                tr("Create one in the game."),
+                vec![open],
+            )));
         }
         // Pictures line up: a world without one gets a plain tile when another has one.
         let pictures = list.iter().any(|w| w.icon.is_some());
@@ -273,15 +278,22 @@ impl Launcher {
         let adding = self.multiplayer.adding;
         let mut body = div().flex().flex_col();
         if list.is_empty() && !adding {
-            return Some(
-                body.child(
-                    ui::empty()
-                        .flex()
-                        .gap(px(4.))
-                        .child(tr("No servers saved in this instance."))
-                        .child(ui::link("server-add", tr("Add server")).on_click(toggle_add(cx))),
-                ),
-            );
+            let add = ui::button(
+                "server-add",
+                Some("plus-sign"),
+                tr("Add server"),
+                Kind::Primary,
+                ui::Size::Md,
+                &t,
+            )
+            .on_click(toggle_add(cx));
+            return Some(body.child(ui::empty_state(
+                "multiplayer-empty",
+                "globe-02",
+                tr("No servers saved"),
+                "",
+                vec![add],
+            )));
         }
         let count = list.len().to_string();
         let note = match list.len() {

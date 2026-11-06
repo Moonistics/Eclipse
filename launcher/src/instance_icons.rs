@@ -1,5 +1,5 @@
 //! What an instance's icon shows (plan R8): its own picture (one the player chose, or its
-//! modpack's icon) first; else the block or colour chosen in its dialog; else its mark: the loader
+//! modpack's icon) first; else the block or colour chosen for it; else its mark: the loader
 //! it plays with, the grass block for plain Minecraft, Eclipse's own for Eclipse. The letter tile
 //! is the last resort. Each is decoded once per size and kept in `Instances::icons`.
 use super::*;
@@ -126,7 +126,7 @@ pub(super) fn logo_png(loader: &str) -> Option<&'static [u8]> {
     }
 }
 
-/// An image file's bytes as a picture chosen in the instance dialog: a loader's logo, Minecraft's
+/// An image file's bytes as a picture chosen on the New instance page: a loader's logo, Minecraft's
 /// grass block.
 pub(super) fn chosen(bytes: Vec<u8>) -> Option<Chosen> {
     let png = instances::picture(bytes).ok()?;
@@ -149,7 +149,7 @@ pub(super) fn centred(image: Arc<RenderImage>, size: f32, scale: f32) -> Div {
         )
 }
 
-/// A picture chosen in the instance dialog, written on Save.
+/// A picture chosen on the New instance page, written on Save.
 #[derive(Clone)]
 pub(super) struct Chosen {
     pub(super) png: Vec<u8>,
@@ -159,7 +159,7 @@ pub(super) struct Chosen {
 const MAX_PICTURE_FILE: u64 = 64 << 20;
 
 impl Launcher {
-    /// Asks for an image file and makes it the dialog's picture, read and scaled off the UI
+    /// Asks for an image file and makes it the page's picture, read and scaled off the UI
     /// thread.
     pub(super) fn choose_instance_picture(&mut self, cx: &mut Context<Self>) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
@@ -190,7 +190,7 @@ impl Launcher {
                 })
                 .await;
             let _ = this.update(cx, |this, cx| {
-                if let Some(d) = &mut this.instances.dialog {
+                if let Some(d) = &mut this.instances.draft {
                     match made {
                         Ok(chosen) => {
                             d.picture = Some(Some(chosen));

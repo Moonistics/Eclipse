@@ -132,7 +132,7 @@ impl Launcher {
     fn memory_instance(&self) -> Option<instances::Instance> {
         match self
             .instances
-            .dialog
+            .draft
             .as_ref()
             .and_then(|d| d.editing.as_ref())
         {
@@ -356,7 +356,7 @@ impl Launcher {
         )
     }
 
-    /// Maximum memory in the glass look: a `SettingRow` of the instance's Edit dialog, the name
+    /// Maximum memory in the glass look: a `SettingRow` of the instance's Edit page, the name
     /// and what it does on the left, the mockup's `Slider` (as Settings' Glass and Blur) and the
     /// box in MB on the right. Saved to the instance as it is set, as on Home.
     pub(super) fn glass_memory_row(&mut self, cx: &mut Context<Self>) -> Option<Div> {
@@ -446,23 +446,20 @@ impl Launcher {
             .gap(px(4.))
             .child(tr(about))
             .children(result);
-        Some(
-            ui::setting_row(
-                tr("Maximum memory"),
-                Some(note.into_any_element()),
-                Some(
-                    div()
-                        .flex()
-                        .items_center()
-                        .gap(px(12.))
-                        .child(track)
-                        .child(input)
-                        .child(unit)
-                        .into_any_element(),
-                ),
-            )
-            .px_0(),
-        )
+        Some(ui::setting_row(
+            tr("Maximum memory"),
+            Some(note.into_any_element()),
+            Some(
+                div()
+                    .flex()
+                    .items_center()
+                    .gap(px(12.))
+                    .child(track)
+                    .child(input)
+                    .child(unit)
+                    .into_any_element(),
+            ),
+        ))
     }
 
     /// The Linux switches this computer can use: GameMode and MangoHud when installed, the

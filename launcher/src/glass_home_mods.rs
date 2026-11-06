@@ -27,13 +27,22 @@ impl Launcher {
             return body.child(ui::empty().child(tr("Reading the mods…")));
         }
         if count == 0 {
-            return body.child(
-                ui::empty()
-                    .flex()
-                    .gap(px(4.))
-                    .child(trf("No mods in {name} yet.", &[("name", &name)]))
-                    .child(ui::link("instance-mods-find", tr("Find mods")).on_click(find_mods(cx))),
-            );
+            let find = ui::button(
+                "instance-mods-find",
+                Some("search-01"),
+                tr("Find mods"),
+                Kind::Primary,
+                ui::Size::Md,
+                &t,
+            )
+            .on_click(find_mods(cx));
+            return body.child(ui::empty_state(
+                "instance-mods-empty",
+                "puzzle",
+                tr("No mods yet"),
+                "",
+                vec![find],
+            ));
         }
         let note = match count {
             1 => trf("1 mod in {name}", &[("name", &name)]),
@@ -99,7 +108,13 @@ impl Launcher {
             .cloned()
             .collect();
         if rows.is_empty() {
-            return body.child(ui::empty().child(tr("No mod matches.")));
+            return body.child(ui::empty_state(
+                "instance-mods-no-match",
+                "search-01",
+                tr("No mod matches"),
+                "",
+                vec![],
+            ));
         }
         // A modpack has hundreds: only the rows near the view are built.
         let shown = (rows.len(), filter);

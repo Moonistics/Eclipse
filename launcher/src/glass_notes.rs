@@ -10,22 +10,38 @@ impl Launcher {
             .flex_col()
             .child(ui::page_head(tr("Patch notes"), ""));
         let releases = match &self.releases {
-            Load::Loading => return page.child(ui::empty_card(tr("Loading patch notes…"))),
+            Load::Loading => {
+                return page.child(ui::empty_card(ui::empty_state(
+                    "notes-loading",
+                    "information-circle",
+                    tr("Loading patch notes…"),
+                    "",
+                    vec![],
+                )))
+            }
             Load::Failed(e) => {
-                return page.child(
-                    ui::empty_card(trf("Couldn't load patch notes. {error}", &[("error", e)]))
-                        .child(
-                            button("retry-notes", "Try again", Kind::Secondary, &t).on_click(
-                                cx.listener(|this, _: &ClickEvent, _, cx| {
-                                    this.fetch_releases();
-                                    cx.notify();
-                                }),
-                            ),
-                        ),
-                )
+                let retry = button("retry-notes", "Try again", Kind::Secondary, &t).on_click(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.fetch_releases();
+                        cx.notify();
+                    }),
+                );
+                return page.child(ui::empty_card(ui::empty_state(
+                    "notes-failed",
+                    "information-circle",
+                    tr("Couldn't load patch notes"),
+                    e.clone(),
+                    vec![retry],
+                )));
             }
             Load::Ready(r) if r.is_empty() => {
-                return page.child(ui::empty_card(tr("No patch notes yet.")));
+                return page.child(ui::empty_card(ui::empty_state(
+                    "notes-empty",
+                    "information-circle",
+                    tr("No patch notes yet"),
+                    "",
+                    vec![],
+                )));
             }
             Load::Ready(r) => r,
         };

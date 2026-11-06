@@ -419,7 +419,7 @@ impl Launcher {
                 .h(px(320.))
                 .p(px(24.))
                 .rounded(px(radius::ROW))
-                .bg(gpui::black().opacity(0.25))
+                .bg(ui::well())
                 .child(ui::icon("computer-terminal-01", 22., white(ink::MUTED)))
                 .child(
                     ui::text(14., FontWeight::NORMAL, ink::MUTED).child(if running {
@@ -448,7 +448,7 @@ impl Launcher {
                 .p(px(16.))
                 .overflow_y_scroll()
                 .rounded(px(radius::ROW))
-                .bg(gpui::black().opacity(0.25))
+                .bg(ui::well())
                 .font_family(theme::MONO)
                 .text_size(px(12.))
                 .line_height(px(21.))
@@ -522,10 +522,12 @@ impl Launcher {
 
     fn glass_no_server(&mut self, cx: &mut Context<Self>) -> Div {
         let t = self.theme;
-        let mut d = ui::empty_card(tr("No servers yet. Create one to play with friends."));
-        if let Some(p) = self.servers.problem.clone() {
-            d = d.child(glass_home_lists::danger_line(p.message).relative());
-        }
+        let create = button("server-create-empty", "Create a server", Kind::Primary, &t).on_click(
+            cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.open_create(cx);
+                cx.notify();
+            }),
+        );
         let add = ui::button(
             "server-add-empty",
             Some("folder-01"),
@@ -542,21 +544,21 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        d.child(
-            div()
-                .relative()
-                .flex()
-                .items_center()
-                .gap(px(10.))
-                .child(
-                    button("server-create-empty", "Create a server", Kind::Primary, &t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.open_create(cx);
-                            cx.notify();
-                        }),
-                    ),
-                )
-                .child(add),
+        let problem = self.servers.problem.clone().map(|p| {
+            ui::text(13., FontWeight::NORMAL, ink::FULL)
+                .mt(px(16.))
+                .text_color(ui::danger())
+                .child(p.message)
+        });
+        ui::empty_card(
+            ui::empty_state(
+                "servers-empty",
+                "computer",
+                tr("No servers yet"),
+                tr("Create one to play with friends."),
+                vec![create, add],
+            )
+            .children(problem),
         )
     }
 

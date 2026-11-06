@@ -29,6 +29,26 @@ const FIELD_EDGE: f32 = 0.1;
 
 pub const HOVER_OPACITY: f32 = 0.92;
 
+pub const CARD_PADDING: f32 = 24.;
+
+pub const SETTING_ROW_PADDING: f32 = 16.;
+
+pub const PANEL_INSET: f32 = CARD_PADDING / 2.;
+
+const EMPTY_TILE: f32 = 48.;
+
+const EMPTY_GLYPH: f32 = 32.;
+
+const EMPTY_NOTE_WIDTH: f32 = 420.;
+
+pub const SWITCH_WIDTH: f32 = 40.;
+
+pub const SWITCH_HEIGHT: f32 = 24.;
+
+const SWITCH_EDGE: f32 = 1.;
+
+const SWITCH_KNOB: f32 = 18.;
+
 /// Set as each frame's pages start being built: whether the appearance is light.
 pub fn set_light(light: bool) {
     LIGHT.set(light);
@@ -66,6 +86,14 @@ pub fn danger() -> Hsla {
     color(if light() { DANGER_LIGHT } else { DANGER })
 }
 
+pub fn well() -> Hsla {
+    if light() {
+        white(fill::FIELD)
+    } else {
+        gpui::black().opacity(0.25)
+    }
+}
+
 /// Builds `f`'s rows as Settings rows, for a Settings card: `index_row` and `section_title` ask
 /// [`flat`].
 pub fn flat_rows<R>(f: impl FnOnce() -> R) -> R {
@@ -90,8 +118,7 @@ pub fn setting_row(
         .flex()
         .items_center()
         .gap(px(40.))
-        .px(px(16.))
-        .py(px(16.))
+        .p(px(SETTING_ROW_PADDING))
         .rounded(px(radius::ROW))
         .child(
             div()
@@ -125,8 +152,7 @@ pub fn setting_row_stacked(
         .flex()
         .flex_col()
         .gap(px(16.))
-        .px(px(16.))
-        .py(px(16.))
+        .p(px(SETTING_ROW_PADDING))
         .rounded(px(radius::ROW))
         .child(
             div()
@@ -282,7 +308,7 @@ pub fn nav_row(
                 icon_name,
                 18.,
                 if current {
-                    color(look().accent)
+                    color(look().mark)
                 } else {
                     white(tone)
                 },
@@ -293,18 +319,49 @@ pub fn nav_row(
     keyboard(track_hover(d, id), t)
 }
 
-fn empty_text(message: SharedString) -> Div {
-    empty_style().relative().max_w(px(520.)).child(message)
-}
-
-pub fn empty_card(message: impl Into<SharedString>) -> Div {
-    crate::glass::plate(radius::PANEL)
+pub fn empty_state(
+    id: impl Into<SharedString>,
+    icon_name: &'static str,
+    title: impl Into<SharedString>,
+    note: impl Into<SharedString>,
+    actions: Vec<Stateful<Div>>,
+) -> Stateful<Div> {
+    let note: SharedString = note.into();
+    div()
+        .id(id.into())
+        .relative()
         .flex()
         .flex_col()
-        .items_start()
-        .gap(px(16.))
-        .p(px(24.))
-        .child(empty_text(message.into()))
+        .items_center()
+        .p(px(PANEL_INSET))
+        .text_center()
+        .child(tile(EMPTY_TILE).child(icon(icon_name, EMPTY_GLYPH, white(ink::MUTED))))
+        .child(card_title(title).mt(px(16.)))
+        .when(!note.is_empty(), |d| {
+            d.child(
+                empty_style()
+                    .mt(px(4.))
+                    .max_w(px(EMPTY_NOTE_WIDTH))
+                    .child(note),
+            )
+        })
+        .when(!actions.is_empty(), |d| {
+            d.child(
+                div()
+                    .flex()
+                    .flex_wrap()
+                    .justify_center()
+                    .gap(px(8.))
+                    .mt(px(20.))
+                    .children(actions),
+            )
+        })
+}
+
+pub fn empty_card(state: Stateful<Div>) -> Div {
+    crate::glass::plate(radius::PANEL)
+        .p(px(PANEL_INSET))
+        .child(state)
 }
 
 pub fn card_title(title: impl Into<SharedString>) -> Div {
@@ -334,7 +391,7 @@ impl gpui::Render for Tip {
             .px(px(8.))
             .py(px(4.))
             .rounded(px(radius::CONTROL))
-            .bg(color(eclipse_theme::glass::FLOAT))
+            .bg(crate::glass::colour(crate::glass::Kind::Float))
             .border_1()
             .border_color(white(eclipse_theme::glass::EDGE))
             .font_family(eclipse_theme::glass::FONT)
@@ -560,7 +617,7 @@ pub fn tab(
                 .right(px(12.))
                 .bottom_0()
                 .h(px(2.))
-                .bg(color(look().accent)),
+                .bg(color(look().mark)),
         )
     } else {
         d.text_color(white(ink::MUTED))
@@ -887,18 +944,6 @@ pub fn list_head(note: impl Into<SharedString>) -> Div {
         )
 }
 
-/// A link in a line of text: the accent's soft shade, underlined, white under the pointer.
-pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {
-    div()
-        .id(id.into())
-        .font_weight(FontWeight::MEDIUM)
-        .text_color(color(look().accent_soft))
-        .underline()
-        .cursor_pointer()
-        .hover(|s| s.text_color(white(ink::FULL)))
-        .child(label.into())
-}
-
 /// A field: its own fill and edge, a stronger fill with the focus, red while what it holds is
 /// refused.
 pub fn field(focused: bool, invalid: bool) -> Div {
@@ -922,8 +967,8 @@ pub fn field(focused: bool, invalid: bool) -> Div {
         .text_size(px(14.))
 }
 
-/// A switch: the accent with an `on_accent` knob on the right while on, a faint track with an
-/// edge and a pale knob on the left while off.
+/// A switch: a block sliding in a slot, on the accent while on, in a quiet well with an edge
+/// while off.
 pub fn toggle(
     id: impl Into<SharedString>,
     on: bool,
@@ -932,31 +977,36 @@ pub fn toggle(
     t: &Theme,
 ) -> Stateful<Div> {
     let id = id.into();
-    let knob = div()
-        .absolute()
-        .top(px(4.))
-        .size(px(16.))
-        .rounded_full()
-        .bg(if on {
-            color(on_accent)
-        } else {
-            white(ink::BODY)
-        });
-    let knob = crate::motion::knob(&id, on, knob, 4., 16.);
+    let inset = (SWITCH_HEIGHT - 2. * SWITCH_EDGE - SWITCH_KNOB) / 2.;
+    let travel = SWITCH_WIDTH - 2. * (SWITCH_EDGE + inset) - SWITCH_KNOB;
+    let knob = bevel(
+        div()
+            .absolute()
+            .top(px(inset))
+            .size(px(SWITCH_KNOB))
+            .rounded(px(radius::BLOCK / 2.))
+            .overflow_hidden()
+            .bg(if on {
+                color(on_accent)
+            } else {
+                white(ink::BODY)
+            }),
+    );
+    let knob = crate::motion::knob(&id, on, knob, inset, travel);
     keyboard(
         div()
             .id(id)
             .relative()
             .flex_none()
-            .w(px(40.))
-            .h(px(24.))
-            .rounded_full()
+            .w(px(SWITCH_WIDTH))
+            .h(px(SWITCH_HEIGHT))
+            .rounded(px(radius::BLOCK))
             .bg(if on {
                 color(accent)
             } else {
                 white(fill::ACTIVE)
             })
-            .border_1()
+            .border(px(SWITCH_EDGE))
             .border_color(if on {
                 gpui::transparent_black()
             } else {

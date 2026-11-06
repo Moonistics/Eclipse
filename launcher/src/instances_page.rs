@@ -1,5 +1,5 @@
 //! Instances in the window (`eclipse_launcher::instances`): the sidebar's list, by group, and the
-//! dialog that makes one (empty, or a copy of the selected one) or changes its name, group and
+//! page that makes one (empty, or a copy of the selected one) or changes its name, group and
 //! icon.
 use super::*;
 use eclipse_launcher::instances::{self, Icon, Instance, Kind as InstanceKind};
@@ -37,10 +37,12 @@ pub(super) const TEXTURES: [&str; 24] = [
     "book",
 ];
 
-/// The dialog: a new instance (`editing` None) or one being changed. Its name and group are the
-/// text fields `Field::InstanceName` and `Field::InstanceGroup`.
-pub(super) struct InstanceDialog {
+/// The New instance page: a new instance (`editing` None) or one being changed. Its name and
+/// group are the text fields `Field::InstanceName` and `Field::InstanceGroup`.
+pub(super) struct InstanceDraft {
     pub(super) editing: Option<String>,
+    pub(super) back: Page,
+    pub(super) scroll: gpui::ScrollHandle,
     /// A new instance copies the selected one's worlds, options and packs.
     pub(super) copy: bool,
     pub(super) icon: Option<Icon>,
@@ -60,7 +62,7 @@ pub(super) struct InstanceDialog {
 #[derive(Default)]
 pub(super) struct Instances {
     pub(super) list: Vec<Instance>,
-    pub(super) dialog: Option<InstanceDialog>,
+    pub(super) draft: Option<InstanceDraft>,
     /// The instance whose Delete is waiting for its confirmation, and why the last one failed.
     confirm_delete: Option<String>,
     delete_error: Option<String>,
@@ -68,7 +70,6 @@ pub(super) struct Instances {
     pub(super) icons: HashMap<(String, u32), Option<Arc<RenderImage>>>,
     /// Mojang's versions, for a new Java instance.
     pub(super) versions: new_instance::VersionList,
-    pub(super) dialog_height: std::rc::Rc<std::cell::Cell<f32>>,
 }
 
 impl Instances {}
@@ -139,8 +140,17 @@ impl Launcher {
             .clone()
     }
 
-    /// Opens the dialog for a new instance, or for changing `editing`.
-    pub(super) fn open_instance_dialog(&mut self, editing: Option<Instance>) {
+    /// Opens the page for a new instance, or for changing `editing`.
+    pub(super) fn open_instance_page(&mut self, editing: Option<Instance>) {
+        if self.instances.draft.as_ref().is_some_and(|d| d.busy) {
+            self.go(Page::InstanceEditor);
+            return;
+        }
+        let back = match (self.page, &self.instances.draft) {
+            (Page::InstanceEditor, Some(d)) => d.back,
+            (Page::InstanceEditor, None) => Page::Play,
+            (page, _) => page,
+        };
         let editing_one = editing.is_some();
         let (name, group) = editing
             .as_ref()
@@ -165,12 +175,14 @@ impl Launcher {
                 ..Default::default()
             },
         };
-        self.instances.dialog = Some(InstanceDialog {
+        self.instances.draft = Some(InstanceDraft {
             icon: editing.as_ref().and_then(|i| i.icon.clone()),
             pin: editing.as_ref().and_then(|i| i.version.clone()),
             logo: None,
             picture: None,
             editing: editing.map(|i| i.id),
+            back,
+            scroll: gpui::ScrollHandle::new(),
             copy: false,
             error: None,
             busy: false,
@@ -181,32 +193,44 @@ impl Launcher {
         if !editing_one {
             self.change(|_| {});
         }
+        if self.page == Page::InstanceEditor {
+            self.switches += 1;
+        }
+        self.go(Page::InstanceEditor);
     }
 
-    /// Opens the dialog for a copy of the selected instance, named after it.
+    /// Opens the page for a copy of the selected instance, named after it.
     pub(super) fn start_copy(&mut self) {
         let Some(name) = self.selected_instance().map(|i| i.name.clone()) else {
             return;
         };
-        self.open_instance_dialog(None);
+        self.open_instance_page(None);
         self.servers
             .text(Field::InstanceName)
             .set(format!("{name} copy"));
-        if let Some(d) = &mut self.instances.dialog {
+        if let Some(d) = &mut self.instances.draft {
             d.copy = true;
         }
     }
 
-    /// Escape closes the dialog. Whether it did.
-    pub(super) fn instance_escape(&mut self) -> bool {
-        if self.instances.dialog.as_ref().is_some_and(|d| !d.busy) {
-            self.instances.dialog = None;
-            return true;
+    pub(super) fn close_instance_page(&mut self) {
+        if let Some(d) = self.instances.draft.as_ref().filter(|d| !d.busy) {
+            let back = d.back;
+            self.go(back);
         }
-        false
     }
 
-    /// Creates or changes the instance as the dialog says. A copy can be gigabytes of worlds, so
+    /// Escape closes the page. Whether it did.
+    pub(super) fn instance_escape(&mut self) -> bool {
+        let open = self.page == Page::InstanceEditor
+            && self.instances.draft.as_ref().is_some_and(|d| !d.busy);
+        if open {
+            self.close_instance_page();
+        }
+        open
+    }
+
+    /// Creates or changes the instance as the page says. A copy can be gigabytes of worlds, so
     /// the work runs in the background.
     pub(super) fn save_instance(&mut self, cx: &mut Context<Self>) {
         let selected = self.selected_instance().map(|i| i.id.clone());
@@ -219,7 +243,7 @@ impl Launcher {
         // An edited instance switched to another game (`instances::switch`).
         let switch_to = self
             .instances
-            .dialog
+            .draft
             .as_ref()
             .and_then(|d| d.editing.as_ref())
             .and_then(|id| self.instances.list.iter().find(|i| &i.id == id))
@@ -228,7 +252,7 @@ impl Launcher {
                 self.draft_plays(i)
                     .filter(|to| *to != instances::Plays::of(i))
             });
-        let Some(d) = self.instances.dialog.as_mut().filter(|d| !d.busy) else {
+        let Some(d) = self.instances.draft.as_mut().filter(|d| !d.busy) else {
             return;
         };
         let icon = d.icon.clone();
@@ -251,7 +275,7 @@ impl Launcher {
                 _ => None,
             })
         });
-        let Some(d) = self.instances.dialog.as_mut() else {
+        let Some(d) = self.instances.draft.as_mut() else {
             return;
         };
         let download = download.filter(|_| plays_eclipse);
@@ -301,7 +325,7 @@ impl Launcher {
             Ok(instance)
         });
         cx.spawn(async move |this, cx| {
-            let result = task.await;
+            let result: Result<Instance, String> = task.await;
             let _ = this.update(cx, |this, cx| {
                 match result {
                     Ok(instance) => {
@@ -311,21 +335,27 @@ impl Launcher {
                         } else {
                             trf("Created {name}", &name)
                         });
-                        this.instances.dialog = None;
+                        let back = this.instances.draft.take().map_or(Page::Play, |d| d.back);
                         this.select_instance(&instance);
                         this.reload_instances();
                         // Play shows the download's progress; Versions shows it too.
                         if let Some(release) = download {
                             this.install_for_instance(release);
                         }
-                        if matches!(instance.kind, InstanceKind::Default | InstanceKind::Own) {
-                            this.go(Page::Play);
+                        if this.page == Page::InstanceEditor {
+                            this.go(match instance.kind {
+                                InstanceKind::Default | InstanceKind::Own => Page::Play,
+                                _ => back,
+                            });
                         }
                     }
                     Err(e) => {
-                        if let Some(d) = &mut this.instances.dialog {
+                        if let Some(d) = &mut this.instances.draft {
                             d.busy = false;
-                            d.error = Some(e);
+                            d.error = Some(e.clone());
+                        }
+                        if this.page != Page::InstanceEditor {
+                            crate::glass_toast::say(e);
                         }
                     }
                 }
@@ -333,10 +363,6 @@ impl Launcher {
             });
         })
         .detach();
-    }
-
-    pub(super) fn instance_dialog(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        self.glass_instance_dialog(cx)
     }
 }
 

@@ -343,7 +343,7 @@ impl Launcher {
             .overflow_y_scroll()
             .p(px(16.))
             .rounded(px(radius::ROW))
-            .bg(gpui::black().opacity(0.25))
+            .bg(ui::well())
             .font_family(theme::MONO)
             .text_size(px(12.))
             .line_height(px(21.))

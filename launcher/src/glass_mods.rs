@@ -444,27 +444,58 @@ impl Launcher {
             return ui::empty().child(e.clone());
         }
         if m.results.is_empty() {
-            let line = if m.searching || !m.searched {
-                tr("Searching…").to_string()
-            } else if let Some(target) = m.java_for(m.kind) {
-                trf(
-                    "Nothing found for {target}. Try other words or another instance.",
-                    &[("target", &target.describe(m.kind))],
+            if m.searching || !m.searched {
+                return ui::empty().child(tr("Searching…"));
+            }
+            let mut actions = Vec::new();
+            let (title, note) = if let Some(target) = m.java_for(m.kind) {
+                (
+                    trf(
+                        "Nothing found for {target}",
+                        &[("target", &target.describe(m.kind))],
+                    ),
+                    tr("Try other words or another instance."),
                 )
             } else if !m.text.text().trim().is_empty() {
-                trf(
-                    "Nothing matches “{query}”. Try other words.",
-                    &[("query", m.text.text().trim())],
+                (
+                    trf(
+                        "Nothing matches “{query}”",
+                        &[("query", m.text.text().trim())],
+                    ),
+                    tr("Try other words."),
                 )
             } else if m.source == SourceId::Eclipse {
-                tr("No Eclipse mods match yet.").to_string()
+                (tr("No Eclipse mods match yet").to_string(), "")
             } else if m.everything {
-                tr("Nothing found. Try other words or clear the filters.").to_string()
+                (
+                    tr("Nothing found").to_string(),
+                    tr("Try other words or clear the filters."),
+                )
             } else {
-                tr("Nothing found that runs in Eclipse. Turn on Show all results to see the rest.")
-                    .to_string()
+                actions.push(
+                    ui::button(
+                        "mods-show-all",
+                        None,
+                        tr("Show all results"),
+                        Kind::Secondary,
+                        ui::Size::Md,
+                        &t,
+                    )
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.mods.everything = true;
+                        this.mods_search(0);
+                        cx.notify();
+                    })),
+                );
+                (tr("Nothing found that runs in Eclipse").to_string(), "")
             };
-            return ui::empty().child(line);
+            return div().child(ui::empty_state(
+                "mods-no-results",
+                "search-01",
+                title,
+                note,
+                actions,
+            ));
         }
         let picked = if self.window_width >= SIDE_BY_SIDE || self.mods.picked.is_some() {
             self.mods_picked().map(|p| p.id.clone())

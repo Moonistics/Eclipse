@@ -142,7 +142,13 @@ impl Launcher {
     /// The instances by group (`sections` in the mockup): those without a group first.
     fn glass_instances(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let t = self.theme;
-        let selected = self.selected_instance().map(|i| i.id.clone());
+        let editing = self
+            .instances
+            .draft
+            .as_ref()
+            .filter(|_| self.page == Page::InstanceEditor)
+            .and_then(|d| d.editing.clone());
+        let selected = editing.or_else(|| self.selected_instance().map(|i| i.id.clone()));
         let on_packs = self.page == Page::Mods && self.mods.on_modpacks();
         let mut out = Vec::new();
         let mut group = None;
@@ -446,17 +452,24 @@ impl Launcher {
                     .when(compact, |d| d.h(px(36.))),
             );
         }
+        let adding = self.page == Page::InstanceEditor
+            && self
+                .instances
+                .draft
+                .as_ref()
+                .is_some_and(|d| d.editing.is_none());
         let add = ui::icon_button(
             "add-instance",
             "plus-sign",
             28.,
             15.,
             radius::CONTROL,
-            false,
+            adding,
             &t,
         )
+        .tooltip(ui::tip(tr("New instance")))
         .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.open_instance_dialog(None);
+            this.open_instance_page(None);
             cx.notify();
         }));
         let header = div()
@@ -853,7 +866,7 @@ impl Launcher {
                 item("edit", "pencil-edit-02", tr("Edit…").into()).on_click(cx.listener(
                     move |this, _: &ClickEvent, _, cx| {
                         this.row_menu.open = None;
-                        this.open_instance_dialog(Some(edit.clone()));
+                        this.open_instance_page(Some(edit.clone()));
                         cx.notify();
                     },
                 )),

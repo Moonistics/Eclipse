@@ -41,15 +41,22 @@ impl Launcher {
             )
         };
         if count == 0 {
-            return Some(
-                body.child(
-                    ui::empty()
-                        .flex()
-                        .gap(px(4.))
-                        .child(tr("No resource packs yet."))
-                        .child(ui::link("packs-add", tr("Add pack…")).on_click(add())),
-                ),
-            );
+            let add = ui::button(
+                "packs-add",
+                Some("plus-sign"),
+                tr("Add pack…"),
+                Kind::Primary,
+                ui::Size::Md,
+                &t,
+            )
+            .on_click(add());
+            return Some(body.child(ui::empty_state(
+                "packs-empty",
+                "package-01",
+                tr("No packs yet"),
+                "",
+                vec![add],
+            )));
         }
         let note = match count {
             1 => trf("1 pack in {name}", &[("name", &name)]),
@@ -208,9 +215,13 @@ impl Launcher {
         self.load_screenshots(home.clone());
         let list = self.screenshots.list.clone();
         if list.is_empty() {
-            return Some(
-                div().child(ui::empty().child(tr("No screenshots yet. Press F2 in the game."))),
-            );
+            return Some(div().child(ui::empty_state(
+                "screenshots-empty",
+                "image-01",
+                tr("No screenshots yet"),
+                tr("Press F2 in the game."),
+                vec![],
+            )));
         }
         let count = match list.len() {
             1 => tr("1 screenshot").to_string(),

@@ -47,13 +47,6 @@ pub struct Theme {
     pub dark: bool,
 }
 
-/// The light appearance's look: the soft accent (links, ticks, the sliders) is the accent
-/// itself, which reads on white where the dark look's half-white mix would not.
-fn light_look(mut look: tokens::glass::Glass) -> tokens::glass::Glass {
-    look.accent_soft = look.accent;
-    look
-}
-
 fn c(hex: u32) -> Hsla {
     rgb(hex).into()
 }
@@ -84,7 +77,7 @@ impl Theme {
     pub fn with_glass(mut self, tint: f32, blur: f32) -> Self {
         self.look = tokens::glass::Glass::new(self.look.accent, tint, blur);
         if !self.dark {
-            self.look = light_look(self.look);
+            self.look = self.look.light();
         }
         self
     }
@@ -110,7 +103,7 @@ impl Theme {
             }
         };
         let look = Glass::new(accent.rgb(), TINT, BLUR);
-        let look = if dark { look } else { light_look(look) };
+        let look = if dark { look } else { look.light() };
         Self {
             look,
             page: c(night.page),
@@ -137,9 +130,13 @@ pub const SELECTION: f32 = 0.22;
 #[cfg(test)]
 mod tests {
     use super::SELECTION;
+    use eclipse_launcher::themes::Accent;
     use eclipse_theme::contrast;
-    use eclipse_theme::glass::{Glass, DANGER, FIELD_BG, FLOAT};
-    use eclipse_theme::night::over;
+    use eclipse_theme::glass::{
+        ink, light_surfaces, Glass, BLUR, DANGER, DANGER_LIGHT, FIELD_BG, FLOAT, LIGHT_FLOAT_ALPHA,
+        LIGHT_PLATE_ALPHA, ON_LIGHT, TINT,
+    };
+    use eclipse_theme::night::{over, DAWN};
 
     /// What the dark look draws besides text: the keyboard focus ring and the border of a
     /// refused field on every surface (WCAG 1.4.11 asks 3:1), and text over a selected
@@ -156,5 +153,50 @@ mod tests {
         let selection = over(look.accent_soft, SELECTION, FLOAT);
         let ratio = contrast(0xffffff, selection);
         assert!(ratio >= 4.5, "text on a selection: {ratio:.2}");
+    }
+
+    #[test]
+    fn a_refused_field_reads_on_the_light_plates() {
+        for sky in DAWN.sky {
+            for alpha in [LIGHT_PLATE_ALPHA, LIGHT_FLOAT_ALPHA] {
+                let bg = over(0xffffff, alpha, sky);
+                let refused = contrast(DANGER_LIGHT, bg);
+                assert!(refused >= 3.0, "refused field on #{bg:06x}: {refused:.2}");
+            }
+        }
+    }
+
+    #[test]
+    fn a_switch_that_is_off_shows_its_edge() {
+        let light = DAWN.sky.into_iter().flat_map(|sky| {
+            [LIGHT_PLATE_ALPHA, LIGHT_FLOAT_ALPHA].map(|alpha| over(0xffffff, alpha, sky))
+        });
+        for bg in light {
+            let edge = contrast(over(ON_LIGHT, ink::DIM, bg), bg);
+            assert!(edge >= 3.0, "off switch on #{bg:06x}: {edge:.2}");
+        }
+        for bg in [Glass::default_look().plate, FLOAT] {
+            let edge = contrast(over(0xffffff, ink::DIM, bg), bg);
+            assert!(edge >= 3.0, "off switch on #{bg:06x}: {edge:.2}");
+        }
+    }
+
+    #[test]
+    fn light_marks_read_for_every_accent_the_picker_makes() {
+        let hues = (0..360).map(|hue| Accent::custom(hue as f32));
+        for accent in Accent::ALL.into_iter().chain(hues) {
+            let look = Glass::new(accent.rgb(), TINT, BLUR).light();
+            let name = accent.name();
+            for bg in light_surfaces() {
+                let icon = contrast(look.mark, bg);
+                assert!(icon >= 3.0, "{name}: icon on #{bg:06x}: {icon:.2}");
+                let ring = contrast(look.accent_soft, bg);
+                assert!(ring >= 4.5, "{name}: link and ring on #{bg:06x}: {ring:.2}");
+            }
+            let float = over(0xffffff, LIGHT_FLOAT_ALPHA, DAWN.sky[0]);
+            let selection = over(look.accent_soft, SELECTION, float);
+            let ratio = contrast(ON_LIGHT, selection);
+            assert!(ratio >= 4.5, "{name}: text on a selection: {ratio:.2}");
+        }
     }
 }

@@ -90,7 +90,36 @@ impl Launcher {
         }
         let t = self.theme;
         let path = world.path.clone();
+        let empty = self.world_packs.list.is_empty();
         let mut panel = div().flex().flex_col().gap(px(6.)).ml(px(62.)).mb(px(6.));
+        let (add_kind, folder_kind) = if empty {
+            (Kind::Primary, Kind::Secondary)
+        } else {
+            (Kind::Ghost, Kind::Ghost)
+        };
+        let add = button("world-packs-add", "Add data pack…", add_kind, &t).on_click(cx.listener(
+            move |this, _: &ClickEvent, _, cx| {
+                this.choose_world_packs(path.clone(), cx);
+                cx.notify();
+            },
+        ));
+        let folder = {
+            let dir = world.path.join("datapacks");
+            button("world-packs-folder", "Open folder", folder_kind, &t).on_click(
+                move |_, _, cx| {
+                    let _ = std::fs::create_dir_all(&dir);
+                    crate::glass_toast::open(cx, &dir);
+                },
+            )
+        };
+        let (shown, empty_actions) = if empty {
+            (None, vec![add, folder])
+        } else {
+            (
+                Some(div().flex().gap(px(6.)).child(add).child(folder)),
+                Vec::new(),
+            )
+        };
         let mut head = plate()
             .flex()
             .flex_col()
@@ -103,26 +132,7 @@ impl Launcher {
                     .items_center()
                     .justify_between()
                     .child(caps(tr("Data packs")).text_color(t.muted))
-                    .child(
-                        div()
-                            .flex()
-                            .gap(px(6.))
-                            .child(
-                                button("world-packs-add", "Add data pack…", Kind::Ghost, &t)
-                                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                        this.choose_world_packs(path.clone(), cx);
-                                        cx.notify();
-                                    })),
-                            )
-                            .child({
-                                let dir = world.path.join("datapacks");
-                                button("world-packs-folder", "Open folder", Kind::Ghost, &t)
-                                    .on_click(move |_, _, cx| {
-                                        let _ = std::fs::create_dir_all(&dir);
-                                        crate::glass_toast::open(cx, &dir);
-                                    })
-                            }),
-                    ),
+                    .children(shown),
             );
         let mut failed = None;
         match &self.world_packs.note {
@@ -132,12 +142,14 @@ impl Launcher {
             Some(Err(e)) => failed = Some(notice(e.clone(), &t)),
             None => {}
         }
-        if self.world_packs.list.is_empty() {
-            head = head.child(
-                text(theme::CAPTION)
-                    .text_color(t.muted)
-                    .child(tr("No data packs yet.")),
-            );
+        if empty {
+            head = head.child(glass_ui::empty_state(
+                "world-packs-empty",
+                "package-01",
+                tr("No data packs yet"),
+                "",
+                empty_actions,
+            ));
         }
         panel = panel.child(head).children(failed);
         for (i, pack) in self.world_packs.list.clone().into_iter().enumerate() {

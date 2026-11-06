@@ -40,7 +40,7 @@ pub(super) enum Field {
     Port,
     Token,
     Email,
-    /// The instance dialog's (`instances_page.rs`).
+    /// The New instance page's (`instances_page.rs`).
     InstanceName,
     InstanceGroup,
     /// Its search in Mojang's versions (`new_instance.rs`).

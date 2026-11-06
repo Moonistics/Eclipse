@@ -75,7 +75,7 @@ impl Launcher {
                     .cursor_pointer()
                     .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.open_instance_dialog(Some(edit.clone()));
+                        this.open_instance_page(Some(edit.clone()));
                         cx.notify();
                     }))
                     .child(self.glass_instance_icon(&instance, 48.)),
@@ -637,7 +637,7 @@ impl Launcher {
                 )
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.home_menu = HomeMenu::None;
-                    this.open_instance_dialog(Some(edit.clone()));
+                    this.open_instance_page(Some(edit.clone()));
                     cx.notify();
                 })),
             );

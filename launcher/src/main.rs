@@ -111,14 +111,15 @@ enum Page {
     Servers,
     Notes,
     Settings,
+    InstanceEditor,
 }
 
 impl Page {
     /// `ECLIPSE_LAUNCHER_PAGE=mods` (or `modpacks`, `resourcepacks`, `shaders`, `servers`, `versions`, `notes`,
     /// `settings`) opens on that page, for screenshots; Home otherwise (`getting-ready`: Home
     /// preparing, `home::getting_ready_preview`; `sign-in`: the owner gate's sheet with a
-    /// made-up code, `owner_page::sign_in_preview`; `new-instance`: Home with the New instance
-    /// dialog open on Modded; `edit-instance`: the selected one's Edit dialog; `worlds`, `packs`...: Home on that tab, `HomeTab::from_env`).
+    /// made-up code, `owner_page::sign_in_preview`; `new-instance`: the New instance page on
+    /// Modded; `edit-instance`: the selected one's Edit page; `worlds`, `packs`...: Home on that tab, `HomeTab::from_env`).
     fn from_env() -> Page {
         let page = match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
             Ok("mods" | "modpacks" | "resourcepacks" | "shaders" | "datapacks") => Page::Mods,
@@ -692,7 +693,7 @@ impl Launcher {
             this.preparing = true;
             this.play_when_prepared = this.selected().cloned();
         }
-        // `ECLIPSE_LAUNCHER_PAGE=new-instance`: the dialog open on Modded, for screenshots
+        // `ECLIPSE_LAUNCHER_PAGE=new-instance`: the New instance page on Modded, for screenshots
         // (`new-instance-eclipse`, `new-instance-vanilla`: on those).
         let kind = match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
             Ok("new-instance") => Some(new_instance::NewKind::Modded),
@@ -701,11 +702,11 @@ impl Launcher {
             _ => None,
         };
         if let Some(kind) = kind {
-            this.open_instance_dialog(None);
+            this.open_instance_page(None);
             this.pick_kind(kind, cx);
         }
         if std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("edit-instance") {
-            this.open_instance_dialog(this.selected_instance().cloned());
+            this.open_instance_page(this.selected_instance().cloned());
         }
         // What the game and the launcher kept, if the player allows it and there is a server.
         telemetry::send_in_background();
@@ -774,6 +775,9 @@ impl Launcher {
             self.load_auth_statuses(false);
         }
         self.load_profile_heads();
+        if page != Page::InstanceEditor && self.instances.draft.as_ref().is_some_and(|d| !d.busy) {
+            self.instances.draft = None;
+        }
         if page != self.page {
             self.page = page;
             self.switches += 1;
@@ -2479,22 +2483,27 @@ impl Launcher {
             // The first version, downloading since an instance was made to play it.
             let waiting = match &self.installing {
                 Some((_, p)) => format!("{} {:.0}%", tr("Installing"), p * 100.),
-                None => tr("No version installed yet.").to_string(),
+                None => tr("No version installed").to_string(),
             };
+            let choose = button("go-versions", "Choose a version", Kind::Primary, &t).on_click(
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.go(Page::Versions);
+                    cx.notify();
+                }),
+            );
             return div()
                 .flex()
                 .flex_col()
                 .gap(px(24.))
                 .pt(px(28.))
                 .child(page_header("Play", ""))
-                .child(centered(&waiting, &t).child(
-                    button("go-versions", "Choose a version", Kind::Secondary, &t).on_click(
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.go(Page::Versions);
-                            cx.notify();
-                        }),
-                    ),
-                ))
+                .child(glass_ui::empty_card(glass_ui::empty_state(
+                    "play-no-version",
+                    "package-01",
+                    waiting,
+                    "",
+                    vec![choose],
+                )))
                 .children(memory);
         };
         let prepared = backend::is_prepared(&tag);
@@ -3459,6 +3468,7 @@ impl Render for Launcher {
             Page::Servers => self.servers_page(cx),
             Page::Notes => self.notes_page(cx),
             Page::Settings => self.settings_page(cx),
+            Page::InstanceEditor => self.instance_page(cx),
         };
         self.sky.free_replaced(window);
         self.pictures.free_retired(window);
@@ -3577,11 +3587,15 @@ impl Render for Launcher {
                                             .min_w_0()
                                             .px(px(theme::PAGE_GUTTER))
                                             .pb(px(48.))
-                                            // The Settings page scrolls its own pane under
-                                            // a still title.
-                                            .when(self.page == Page::Settings, |d| {
-                                                d.h_full().pb(px(14.))
-                                            })
+                                            // Settings and the New instance page scroll
+                                            // their own pane under a still title.
+                                            .when(
+                                                matches!(
+                                                    self.page,
+                                                    Page::Settings | Page::InstanceEditor
+                                                ),
+                                                |d| d.h_full().pb(px(14.)),
+                                            )
                                             .child(
                                                 div()
                                                     .flex()
@@ -3607,9 +3621,6 @@ impl Render for Launcher {
         }
         root = self.import_drop_target(root, cx);
         root = root.children(self.import_note(cx));
-        if let Some(dialog) = self.instance_dialog(cx) {
-            root = root.child(dialog);
-        }
         if let Some(panel) = self.native_log_panel(cx) {
             root = root.child(panel);
         }

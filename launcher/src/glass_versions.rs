@@ -115,21 +115,38 @@ impl Launcher {
                 cx,
             ));
         let releases = match &self.releases {
-            Load::Loading => return page.child(ui::empty_card(tr("Loading releases…"))),
+            Load::Loading => {
+                return page.child(ui::empty_card(ui::empty_state(
+                    "releases-loading",
+                    "package-01",
+                    tr("Loading releases…"),
+                    "",
+                    vec![],
+                )))
+            }
             Load::Failed(e) => {
-                return page.child(
-                    ui::empty_card(trf("Couldn't load releases. {error}", &[("error", e)])).child(
-                        button("retry", "Try again", Kind::Secondary, &t).on_click(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.fetch_releases();
-                                cx.notify();
-                            },
-                        )),
-                    ),
-                )
+                let retry = button("retry", "Try again", Kind::Secondary, &t).on_click(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.fetch_releases();
+                        cx.notify();
+                    }),
+                );
+                return page.child(ui::empty_card(ui::empty_state(
+                    "releases-failed",
+                    "package-01",
+                    tr("Couldn't load releases"),
+                    e.clone(),
+                    vec![retry],
+                )));
             }
             Load::Ready(r) if r.is_empty() => {
-                return page.child(ui::empty_card(tr("No releases yet.")));
+                return page.child(ui::empty_card(ui::empty_state(
+                    "releases-empty",
+                    "package-01",
+                    tr("No releases yet"),
+                    "",
+                    vec![],
+                )));
             }
             Load::Ready(r) => r,
         };

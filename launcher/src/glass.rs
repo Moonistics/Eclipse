@@ -1,11 +1,8 @@
 use crate::glass_ui::{light, look};
-use eclipse_theme::glass::{EDGE, FLOAT};
+use eclipse_theme::glass::{EDGE, FLOAT, LIGHT_FLOAT_ALPHA, LIGHT_PLATE_ALPHA};
 use gpui::{div, prelude::*, px, rgb, AnyElement, Div, Hsla};
 
 pub const CONTENT_INSET: f32 = 14.;
-
-const LIGHT_GLASS: f32 = 0.84;
-const LIGHT_FLOAT: f32 = 0.94;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub enum Kind {
@@ -16,9 +13,9 @@ pub enum Kind {
 pub fn colour(kind: Kind) -> Hsla {
     if light() {
         let a = if kind == Kind::Float {
-            LIGHT_FLOAT
+            LIGHT_FLOAT_ALPHA
         } else {
-            LIGHT_GLASS
+            LIGHT_PLATE_ALPHA
         };
         return gpui::white().opacity(a);
     }

@@ -1,11 +1,10 @@
-//! The instance dialog: one plate over the dimmed page. On the left, what the instance will be
-//! (its icon, name and what it plays) and its kind; on the right, what it plays, its name and
-//! group, and its icon; Cancel and Create at the foot.
+//! The New instance page: what the instance plays, its name and group, its version and its icon
+//! in cards; at the foot the instance as it will be, with Cancel and Create.
 use super::*;
 use crate::glass_ui::{self as ui, white};
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{fill, ink, radius, EDGE, FLOAT};
+use eclipse_theme::glass::{fill, ink, radius, EDGE};
 use new_instance::{NewKind, VersionList};
 use servers_page::Field;
 use std::sync::Arc;
@@ -19,6 +18,7 @@ const LOGO_ICONS: [&str; 4] = ["neoforge", "fabric", "quilt", "forge"];
 const COLOURS: [u32; 7] = [
     0x3b82f6, 0x14b8a6, 0x22c55e, 0xeab308, 0xf97316, 0xef4444, 0x8b8a99,
 ];
+const PREVIEW_ICON: f32 = 48.;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
@@ -81,6 +81,33 @@ pub(super) fn section(title: SharedString, aside: Option<Div>, body: impl IntoEl
                 .children(aside),
         )
         .child(body)
+}
+
+pub(super) fn section_card(
+    id: &'static str,
+    title: SharedString,
+    aside: Option<AnyElement>,
+    body: impl IntoElement,
+) -> Stateful<Div> {
+    crate::glass::plate(radius::PANEL)
+        .id(id)
+        .flex()
+        .flex_col()
+        .flex_none()
+        .p(px(ui::CARD_PADDING))
+        .child(
+            div()
+                .relative()
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(16.))
+                .h(px(ui::Size::Sm.height()))
+                .mb(px(12.))
+                .child(ui::label(title))
+                .children(aside),
+        )
+        .child(div().relative().child(body))
 }
 
 pub(super) fn list_choice(id: impl Into<SharedString>, on: bool, t: &Theme) -> Stateful<Div> {
@@ -179,81 +206,84 @@ fn icon_choice(id: impl Into<SharedString>, on: bool, t: &Theme) -> Stateful<Div
 }
 
 impl Launcher {
-    pub(super) fn glass_instance_dialog(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> Option<Stateful<Div>> {
-        let d = self.instances.dialog.as_ref()?;
-        let busy = d.busy;
+    pub(super) fn instance_page(&mut self, cx: &mut Context<Self>) -> Div {
+        let Some(d) = self.instances.draft.as_ref() else {
+            return div();
+        };
+        let (busy, copy, error, scroll) = (d.busy, d.copy, d.error.clone(), d.scroll.clone());
         let editing = d
             .editing
             .as_ref()
             .and_then(|id| self.instances.list.iter().find(|i| &i.id == id))
             .cloned();
         let kind = d.java.kind;
-        let aside = self.instance_aside(editing.as_ref(), kind, cx);
-        let main = self.instance_main(editing.as_ref(), kind, cx);
-        let close = cx.listener(move |this, _: &MouseDownEvent, _, cx| {
-            if !busy {
-                this.instances.dialog = None;
+        let (title, note) = match editing {
+            Some(_) => (
+                tr("Edit instance"),
+                tr("Changes apply the next time it starts."),
+            ),
+            None => (tr("New instance"), ""),
+        };
+        let mut cards: Vec<AnyElement> = Vec::new();
+        if let Some(i) = &editing {
+            cards.extend(self.switch_notice(i).map(IntoElement::into_any_element));
+        }
+        cards.push(
+            self.kind_choice(editing.as_ref(), kind, busy, cx)
+                .into_any_element(),
+        );
+        cards.push(self.name_and_group(editing.as_ref(), cx).into_any_element());
+        if kind == NewKind::Eclipse {
+            cards.push(self.eclipse_versions(cx).into_any_element());
+            if editing.is_none() {
+                cards.push(self.start_from(copy, cx).into_any_element());
             }
-            cx.notify();
-        });
-        let height = self.instances.dialog_height.clone();
-        let measure = gpui::canvas(
-            move |bounds, window, _| {
-                let h = f32::from(bounds.size.height);
-                if height.get() != h {
-                    height.set(h);
-                    window.request_animation_frame();
-                }
-            },
-            |_, _, _, _| {},
-        )
-        .absolute()
-        .size_full();
-        let card = crate::glass::float(radius::MODAL)
-            .id("instance-card")
-            .occlude()
+        } else {
+            self.load_versions(cx);
+            cards.push(self.minecraft_versions(cx).into_any_element());
+            if kind == NewKind::Modded {
+                cards.push(self.loader_choice(cx).into_any_element());
+            }
+        }
+        cards.push(
+            self.icon_choice(editing.as_ref(), kind, cx)
+                .into_any_element(),
+        );
+        // The memory it may use, kept with the instance (not in the mockup, kept here).
+        if editing.is_some() {
+            cards.extend(self.glass_memory_row(cx).map(|row| {
+                crate::glass::plate(radius::PANEL)
+                    .id("instance-memory")
+                    .p(px(ui::CARD_PADDING - ui::SETTING_ROW_PADDING))
+                    .child(row)
+                    .into_any_element()
+            }));
+        }
+        let pane = div()
+            .id("instance-pane")
+            .track_scroll(&scroll)
             .flex()
+            .flex_col()
+            .flex_1()
+            .min_h_0()
+            .gap(px(16.))
+            .pb(px(8.))
+            .overflow_y_scroll()
+            .children(cards);
+        div()
+            .flex()
+            .flex_col()
             .w_full()
-            .max_w(px(1180.))
             .h_full()
-            .max_h(px(820.))
-            .child(aside)
-            .child(main);
-        Some(
-            div()
-                .id("instance-dialog")
-                .absolute()
-                .top_0()
-                .left_0()
-                .size_full()
-                .flex()
-                .items_center()
-                .justify_center()
-                .p(px(24.))
-                .occlude()
-                .on_scroll(|_, _, cx| cx.stop_propagation())
-                .child(ui::scrim_backdrop())
-                .child(measure)
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .left_0()
-                        .size_full()
-                        .bg(ui::scrim())
-                        .on_mouse_down(gpui::MouseButton::Left, close),
-                )
-                .child(card),
-        )
+            .child(ui::page_head(title, note))
+            .child(pane)
+            .child(self.instance_foot(editing.as_ref(), kind, copy, busy, error, cx))
     }
 
     /// The loader a modded instance plays (or will).
     pub(super) fn draft_loader(&self) -> Loader {
         self.instances
-            .dialog
+            .draft
             .as_ref()
             .map_or(Loader::Fabric, |d| d.java.loader)
     }
@@ -264,12 +294,12 @@ impl Launcher {
             VersionList::Ready(v) => Some(v),
             _ => None,
         };
-        self.instances.dialog.as_ref()?.java.minecraft(versions)
+        self.instances.draft.as_ref()?.java.minecraft(versions)
     }
 
     /// The Eclipse version an instance plays: the one it keeps, else the one it follows.
     pub(super) fn draft_eclipse(&self) -> Option<String> {
-        let pin = self.instances.dialog.as_ref()?.pin.clone();
+        let pin = self.instances.draft.as_ref()?.pin.clone();
         pin.or_else(|| self.followed_version())
     }
 
@@ -281,7 +311,7 @@ impl Launcher {
             .or_else(|| self.eclipse_choices().into_iter().next())
     }
 
-    /// The Eclipse versions the dialog offers (the mockup's `data.nightlies`): see
+    /// The Eclipse versions the page offers (the mockup's `data.nightlies`): see
     /// [`eclipse_choices`].
     pub(super) fn eclipse_choices(&self) -> Vec<String> {
         let releases = match &self.releases {
@@ -333,7 +363,7 @@ impl Launcher {
         name: &str,
         size: f32,
     ) -> AnyElement {
-        let Some(d) = self.instances.dialog.as_ref() else {
+        let Some(d) = self.instances.draft.as_ref() else {
             return div().into_any_element();
         };
         let d_logo = d.logo;
@@ -378,21 +408,7 @@ impl Launcher {
         }
     }
 
-    /// The left column: the instance as it will be, and its kind.
-    fn instance_aside(
-        &mut self,
-        editing: Option<&Instance>,
-        kind: NewKind,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let t = self.theme;
-        let typed = self.servers.value(Field::InstanceName).trim().to_string();
-        let name = if typed.is_empty() {
-            tr("New instance").to_string()
-        } else {
-            typed
-        };
-        let loader = self.draft_loader();
+    fn draft_summary(&self, kind: NewKind) -> String {
         let minecraft = trf(
             "Minecraft {version}",
             &[(
@@ -400,24 +416,34 @@ impl Launcher {
                 &self.draft_minecraft().unwrap_or_else(|| "…".into()),
             )],
         );
-        let mut summary = match kind {
+        let summary = match kind {
             NewKind::Eclipse => match self.draft_eclipse() {
                 Some(tag) => format!("Eclipse · {}", version_label(&tag)),
                 None => "Eclipse".into(),
             },
             NewKind::Vanilla => format!("{} · {minecraft}", tr("Vanilla")),
-            NewKind::Modded => format!("{} · {minecraft}", loader.name()),
+            NewKind::Modded => format!("{} · {minecraft}", self.draft_loader().name()),
         };
         let group = self.servers.value(Field::InstanceGroup).trim().to_string();
-        if !group.is_empty() {
-            summary = format!("{summary} · {group}");
+        if group.is_empty() {
+            summary
+        } else {
+            format!("{summary} · {group}")
         }
-        let short = (1. ..700.).contains(&self.instances.dialog_height.get());
-        let icon = self.draft_icon(editing, kind, &name, if short { 64. } else { 88. });
+    }
+
+    fn kind_choice(
+        &mut self,
+        editing: Option<&Instance>,
+        kind: NewKind,
+        busy: bool,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let t = self.theme;
+        let loader = self.draft_loader();
         // One made in the launcher can switch what it plays; the game's home and modpacks
         // play what they were made with.
         let switches = editing.is_none_or(|i| i.kind == instances::Kind::Own);
-        let kinds = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
         let names: Vec<&str> = loaders().iter().map(|l| l.name()).collect();
         let modded = match names.split_last() {
             Some((last, [])) => last.to_string(),
@@ -428,7 +454,7 @@ impl Launcher {
             None => String::new(),
         };
         let mut cards = Vec::new();
-        for k in kinds {
+        for k in [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded] {
             let (id, title, note) = match k {
                 NewKind::Eclipse => (
                     "eclipse",
@@ -452,8 +478,9 @@ impl Launcher {
                 .items_center()
                 .gap(px(14.))
                 .p(px(12.))
+                .min_w_0()
                 .child(tile)
-                .child(choice_text(title, if short { String::new() } else { note }));
+                .child(choice_text(title, note));
             cards.push(if !switches {
                 card.cursor_default().when(k != kind, crate::disabled)
             } else {
@@ -465,69 +492,61 @@ impl Launcher {
         }
         // A modpack becomes an instance by being imported, on the Mods page. Edit offers it too,
         // as the mockup's does.
-        let import = (!self.instances.dialog.as_ref().is_some_and(|d| d.busy)).then(|| {
+        let import = (!busy).then(|| {
             ui::button(
                 "instance-import",
-                (!short).then_some("package-01"),
+                Some("package-01"),
                 tr("Import a modpack…"),
-                Kind::Secondary,
-                ui::Size::Md,
+                Kind::Ghost,
+                ui::Size::Sm,
                 &t,
             )
             .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.instances.dialog = None;
                 this.show_modpack(None);
                 cx.notify();
             }))
+            .into_any_element()
         });
-        div()
-            .id("instance-aside")
-            .flex()
-            .flex_col()
-            .flex_none()
-            .w(px(if short { 220. } else { 340. }))
-            .h_full()
-            .p(px(if short { 20. } else { 28. }))
-            .overflow_y_scroll()
-            .border_r_1()
-            .border_color(white(EDGE))
-            .child(ui::label(tr(if editing.is_some() {
-                "Edit instance"
-            } else {
-                "New instance"
-            })))
-            .child(
-                div()
-                    .id("aside-instance-icon")
-                    .mt(px(if short { 16. } else { 24. }))
-                    .cursor_pointer()
-                    .hover(|s| s.opacity(crate::glass_ui::HOVER_OPACITY))
-                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.choose_instance_picture(cx);
-                    }))
-                    .child(icon),
-            )
-            .child(
-                ui::entity_title(name, 24.)
-                    .flex_none()
-                    .mt(px(if short { 12. } else { 20. }))
-                    .truncate(),
-            )
-            .child(
-                ui::text(14., FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(8.))
-                    .child(summary),
-            )
-            .child(
-                div()
-                    .mt(px(if short { 20. } else { 32. }))
-                    .flex()
-                    .flex_col()
-                    .gap(px(8.))
-                    .children(cards),
-            )
-            .child(div().flex_1().min_h(px(if short { 16. } else { 32. })))
-            .children(import)
+        section_card(
+            "instance-game",
+            tr("Game").into(),
+            import,
+            div()
+                .grid()
+                .grid_cols(cards.len() as u16)
+                .gap(px(10.))
+                .children(cards),
+        )
+    }
+
+    fn name_and_group(
+        &mut self,
+        editing: Option<&Instance>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let name = self
+            .field(Field::InstanceName, tr("My instance"), 340., cx)
+            .flex_1()
+            .min_w_0();
+        let group = self
+            .field(Field::InstanceGroup, tr("No group"), 340., cx)
+            .flex_1()
+            .min_w_0();
+        section_card(
+            "instance-name",
+            tr("Name and group").into(),
+            None,
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(12.))
+                .child(div().flex().gap(px(10.)).child(name).child(group))
+                .children(editing.map(|i| {
+                    ui::card_note(short(&i.home))
+                        .font_family(theme::MONO)
+                        .truncate()
+                })),
+        )
     }
 }
 
@@ -556,155 +575,33 @@ fn version_label(tag: &str) -> String {
 }
 
 impl Launcher {
-    /// The right column: the title, what the instance plays, its name and group, its icon, and
-    /// the foot.
-    fn instance_main(
-        &mut self,
-        editing: Option<&Instance>,
-        kind: NewKind,
-        cx: &mut Context<Self>,
-    ) -> Div {
-        let t = self.theme;
-        let Some(d) = self.instances.dialog.as_ref() else {
-            return div();
-        };
-        let (busy, copy, error) = (d.busy, d.copy, d.error.clone());
-        let title = match (editing, kind) {
-            (Some(i), _) => trf("Edit {name}", &[("name", &i.name)]),
-            (None, NewKind::Eclipse) => tr("New Eclipse instance").into(),
-            (None, NewKind::Vanilla) => tr("New vanilla instance").into(),
-            (None, NewKind::Modded) => tr("New modded instance").into(),
-        };
-        let sub = editing.map(|_| tr("Changes apply the next time it starts."));
-        // The mockup's `clamp(1.6rem, 2.4vw, 2.1rem)`.
-        let size = (self.window_width * 0.024).clamp(25.6, 33.6);
-        let head = div()
-            .flex()
-            .flex_none()
-            .items_start()
-            .justify_between()
-            .gap(px(16.))
-            .px(px(36.))
-            .pt(px(28.))
-            .pb(px(16.))
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .min_w_0()
-                    .child(ui::entity_title(title, size).truncate())
-                    .children(sub.map(|sub| {
-                        ui::text(14., FontWeight::NORMAL, ink::MUTED)
-                            .mt(px(6.))
-                            .child(sub)
-                    })),
-            )
-            .child(
-                ui::icon_button(
-                    "instance-close",
-                    "cancel-01",
-                    36.,
-                    18.,
-                    radius::CONTROL,
-                    false,
-                    &t,
-                )
-                .when(!busy, |b| {
-                    b.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.instances.dialog = None;
-                        cx.notify();
-                    }))
-                }),
-            );
-        let mut body = div()
-            .id("instance-body")
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_h_0()
-            .gap(px(24.))
-            .px(px(36.))
-            .pb(px(32.))
-            .overflow_y_scroll();
-        if let Some(i) = editing {
-            body = body.children(self.switch_notice(i));
-        }
-        let name = self
-            .field(Field::InstanceName, tr("My instance"), 340., cx)
-            .flex_1()
-            .min_w_0();
-        let group = self
-            .field(Field::InstanceGroup, tr("No group"), 340., cx)
-            .flex_1()
-            .min_w_0();
-        body = body.child(section(
-            tr("Name and group").into(),
-            None,
-            div().flex().gap(px(10.)).child(name).child(group),
-        ));
-        if kind == NewKind::Eclipse {
-            body = body.child(self.eclipse_versions(cx));
-            if editing.is_none() {
-                body = body.child(self.start_from(copy, cx));
-            }
-        } else {
-            self.load_versions(cx);
-            body = body.child(self.minecraft_versions(cx));
-            if kind == NewKind::Modded {
-                body = body.child(self.loader_choice(cx));
-            }
-        }
-        body = body.child(self.icon_choice(editing, kind, cx));
-        // The memory it may use, kept with the instance (not in the mockup, kept here).
-        if editing.is_some() {
-            body = body.children(self.glass_memory_row(cx));
-        }
-        div()
-            .flex()
-            .flex_col()
-            .flex_1()
-            .min_w_0()
-            .child(head)
-            .child(
-                div()
-                    .relative()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_h_0()
-                    .child(body)
-                    .child(
-                        div()
-                            .absolute()
-                            .left_0()
-                            .right_0()
-                            .bottom_0()
-                            .h(px(16.))
-                            .bg(gpui::linear_gradient(
-                                180.,
-                                gpui::linear_color_stop(ui::color(FLOAT).opacity(0.), 0.),
-                                gpui::linear_color_stop(ui::color(FLOAT), 1.),
-                            )),
-                    ),
-            )
-            .child(self.instance_foot(editing, copy, busy, error, cx))
-    }
-
-    /// The foot: where the instance lives, Cancel and Create.
+    /// The foot: the instance as it will be, Cancel and Create.
     fn instance_foot(
         &mut self,
         editing: Option<&Instance>,
+        kind: NewKind,
         copy: bool,
         busy: bool,
         error: Option<String>,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> Stateful<Div> {
         let t = self.theme;
-        let place = match editing {
-            Some(i) => short(&i.home),
-            None => String::new(),
+        let typed = self.servers.value(Field::InstanceName).trim().to_string();
+        let name = if typed.is_empty() {
+            tr("New instance").to_string()
+        } else {
+            typed
         };
-        let cancel = button("instance-cancel", "Cancel", Kind::Ghost, &t);
+        let summary = self.draft_summary(kind);
+        let icon = self.draft_icon(editing, kind, &name, PREVIEW_ICON);
+        let cancel = ui::button(
+            "instance-cancel",
+            None,
+            tr("Cancel"),
+            Kind::Ghost,
+            ui::Size::Lg,
+            &t,
+        );
         let label = match (editing.is_some(), busy) {
             (true, _) => tr("Save changes"),
             (false, true) if copy => tr("Copying…"),
@@ -724,7 +621,7 @@ impl Launcher {
                 .items_center()
                 .gap(px(8.))
                 .child(cancel.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.instances.dialog = None;
+                    this.close_instance_page();
                     cx.notify();
                 })))
                 .child(save.on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -732,33 +629,51 @@ impl Launcher {
                     cx.notify();
                 })))
         };
-        div()
+        crate::glass::plate(radius::PANEL)
+            .id("instance-foot")
             .flex()
             .flex_none()
             .items_center()
-            .justify_between()
-            .gap(px(12.))
-            .px(px(36.))
-            .py(px(20.))
-            .border_t_1()
-            .border_color(white(EDGE))
-            // Why Create failed takes the folder's place, by the buttons.
-            .child(match error {
-                Some(e) => ui::text(13., FontWeight::NORMAL, ink::FULL)
+            .gap(px(16.))
+            .mt(px(12.))
+            .p(px(ui::PANEL_INSET))
+            .child(
+                div()
+                    .id("instance-preview-icon")
+                    .relative()
+                    .flex_none()
+                    .cursor_pointer()
+                    .hover(|s| s.opacity(ui::HOVER_OPACITY))
+                    .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.choose_instance_picture(cx);
+                    }))
+                    .child(icon),
+            )
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .flex_1()
                     .min_w_0()
-                    .text_color(ui::danger())
-                    .child(e),
-                None => ui::text(13., FontWeight::NORMAL, ink::MUTED)
-                    .min_w_0()
-                    .truncate()
-                    .child(place),
-            })
-            .child(buttons.flex_none())
+                    .gap(px(4.))
+                    .child(ui::entity_title(name, 24.).truncate())
+                    // Why Create failed takes the summary's place, by the buttons.
+                    .child(match error {
+                        Some(e) => ui::text(13., FontWeight::NORMAL, ink::FULL)
+                            .text_color(ui::danger())
+                            .child(e),
+                        None => ui::text(13., FontWeight::NORMAL, ink::MUTED)
+                            .truncate()
+                            .child(summary),
+                    }),
+            )
+            .child(buttons.relative().flex_none())
     }
 
     /// Eclipse's versions, the newest first: picking the one the launcher plays lets the
     /// instance follow it; any other is kept, and installed on Create when it isn't yet.
-    fn eclipse_versions(&mut self, cx: &mut Context<Self>) -> Div {
+    fn eclipse_versions(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let t = self.theme;
         let soft = self.look.accent_soft;
         let follows = self.followed_version();
@@ -784,32 +699,40 @@ impl Launcher {
                     }))
                     .child(tick(on, soft))
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        if let Some(d) = &mut this.instances.dialog {
+                        if let Some(d) = &mut this.instances.draft {
                             d.pin = (!latest).then(|| pick.clone());
                         }
                         cx.notify();
                     }))
             })
             .collect();
-        let list = if rows.is_empty() {
-            let empty = match &self.releases {
-                Load::Loading => tr("Loading releases…"),
-                _ => tr("No version installed"),
-            };
-            list_box("eclipse-versions", 248.).child(
+        let list = list_box("eclipse-versions", 248.);
+        let list = match (&self.releases, rows.is_empty()) {
+            (_, false) => list.children(rows),
+            (Load::Loading, true) => list.child(
                 ui::text(14., FontWeight::NORMAL, ink::MUTED)
                     .px(px(16.))
                     .py(px(24.))
-                    .child(empty),
-            )
-        } else {
-            list_box("eclipse-versions", 248.).children(rows)
+                    .child(tr("Loading releases…")),
+            ),
+            (_, true) => list.child(ui::empty_state(
+                "eclipse-versions-empty",
+                "package-01",
+                tr("No version installed"),
+                "",
+                vec![],
+            )),
         };
-        section(tr("Version").into(), None, list)
+        section_card(
+            "instance-eclipse-version",
+            tr("Eclipse version").into(),
+            None,
+            list,
+        )
     }
 
     /// Empty, or a copy of the selected instance.
-    fn start_from(&mut self, copy: bool, cx: &mut Context<Self>) -> Div {
+    fn start_from(&mut self, copy: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let t = self.theme;
         let selected = self.selected_instance().cloned();
         let from = selected
@@ -827,7 +750,7 @@ impl Launcher {
                 .gap(px(12.))
                 .p(px(16.))
                 .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    if let Some(d) = &mut this.instances.dialog {
+                    if let Some(d) = &mut this.instances.draft {
                         d.copy = id == "instance-from-copy";
                     }
                     cx.notify();
@@ -842,7 +765,8 @@ impl Launcher {
                 trf("A copy of {name}", &[("name", &from)]),
                 tr("Its mods, worlds and options"),
             ));
-        section(
+        section_card(
+            "instance-start-from",
             tr("Start from").into(),
             None,
             div().flex().gap(px(10.)).child(empty).child(copied),
@@ -856,11 +780,11 @@ impl Launcher {
         editing: Option<&Instance>,
         kind: NewKind,
         cx: &mut Context<Self>,
-    ) -> Div {
+    ) -> Stateful<Div> {
         let t = self.theme;
         let (icon, logo, d_picture) = {
-            let Some(d) = self.instances.dialog.as_ref() else {
-                return div();
+            let Some(d) = self.instances.draft.as_ref() else {
+                return div().id("instance-icon");
             };
             (d.icon.clone(), d.logo, d.picture.clone())
         };
@@ -873,7 +797,7 @@ impl Launcher {
         let pick = |icon: Option<Icon>| {
             cx.listener(
                 move |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
-                    if let Some(d) = &mut this.instances.dialog {
+                    if let Some(d) = &mut this.instances.draft {
                         d.icon = icon.clone();
                         d.picture = Some(None);
                         d.logo = None;
@@ -904,7 +828,7 @@ impl Launcher {
                             move |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
                                 if picture_active {
                                     this.choose_instance_picture(cx);
-                                } else if let Some(d) = &mut this.instances.dialog {
+                                } else if let Some(d) = &mut this.instances.draft {
                                     d.icon = None;
                                     d.logo = None;
                                     if has_saved_picture {
@@ -950,7 +874,7 @@ impl Launcher {
                     .child(shown)
                     .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         let made = instance_icons::chosen(png.clone());
-                        if let (Some(d), Some(made)) = (&mut this.instances.dialog, made) {
+                        if let (Some(d), Some(made)) = (&mut this.instances.draft, made) {
                             d.picture = Some(Some(made));
                             d.icon = None;
                             d.logo = Some(id);
@@ -1013,7 +937,7 @@ impl Launcher {
                     .child(tr("Prepare a version to use block and item icons.")),
             );
         }
-        section(tr("Icon").into(), None, body)
+        section_card("instance-icon", tr("Icon").into(), None, body)
     }
 }
 
@@ -1035,7 +959,7 @@ mod tests {
     }
 
     #[test]
-    fn the_dialog_offers_every_published_nightly_then_what_only_this_computer_has() {
+    fn new_instance_offers_every_published_nightly_then_what_only_this_computer_has() {
         let releases = [
             release("nightly-2026-11-03-aaaaaaa", true, true),
             // No build for this platform: nothing to install.

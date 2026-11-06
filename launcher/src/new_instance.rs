@@ -1,6 +1,6 @@
 //! New instance's kinds (docs/design-system.md, "Night"; plan R0, screen 4): Eclipse, Vanilla
 //! (Minecraft: Java Edition as Mojang ships it) and Modded (with Fabric, Quilt, Forge or NeoForge). A Java kind picks
-//! its version from Mojang's public list (`minecraft_versions`), fetched once when the dialog first
+//! its version from Mojang's public list (`minecraft_versions`), fetched once when the page first
 //! needs it; the game itself comes with the first Play, for an account that owns it.
 use super::*;
 use eclipse_launcher::loaders::{self, Kind as Loader};
@@ -30,7 +30,7 @@ pub(super) struct JavaChoice {
     pub(super) loader_versions: LoaderVersions,
 }
 
-/// A loader's versions for one Minecraft version, as the dialog has them.
+/// A loader's versions for one Minecraft version, as the page has them.
 #[derive(Clone, Debug, Default)]
 pub(super) enum LoaderVersions {
     #[default]
@@ -96,7 +96,7 @@ fn free_name(base: String, taken: &[&str]) -> String {
         .unwrap_or(base)
 }
 
-/// Mojang's list as the dialog has it.
+/// Mojang's list as the page has it.
 #[derive(Default)]
 pub(super) enum VersionList {
     #[default]
@@ -108,13 +108,13 @@ pub(super) enum VersionList {
 
 impl Launcher {
     fn java_choice(&mut self) -> Option<&mut JavaChoice> {
-        self.instances.dialog.as_mut().map(|d| &mut d.java)
+        self.instances.draft.as_mut().map(|d| &mut d.java)
     }
 
     /// The name a new instance gets for what it plays now (the mockup's `defaultName`): "My
     /// Eclipse", "Vanilla 1.21.4", "Fabric 1.21.4", numbered past the ones already taken.
     fn default_name(&self) -> Option<String> {
-        let j = &self.instances.dialog.as_ref()?.java;
+        let j = &self.instances.draft.as_ref()?.java;
         let versions = match &self.instances.versions {
             VersionList::Ready(v) => Some(v),
             _ => None,
@@ -132,7 +132,7 @@ impl Launcher {
         Some(free_name(base, &taken))
     }
 
-    /// Changes what the new instance plays. Its name follows while it is the one the dialog gave
+    /// Changes what the new instance plays. Its name follows while it is the one the page gave
     /// (or none), never one the player typed.
     pub(super) fn change(&mut self, f: impl FnOnce(&mut JavaChoice)) {
         let before = self.default_name();
@@ -146,7 +146,7 @@ impl Launcher {
         // An instance being edited keeps its name.
         if self
             .instances
-            .dialog
+            .draft
             .as_ref()
             .is_some_and(|d| d.editing.is_some())
         {
@@ -159,7 +159,7 @@ impl Launcher {
         }
     }
 
-    /// Picks the dialog's kind; a Java one fetches Mojang's list the first time.
+    /// Picks the page's kind; a Java one fetches Mojang's list the first time.
     pub(super) fn pick_kind(&mut self, kind: NewKind, cx: &mut Context<Self>) {
         self.change(|j| j.kind = kind);
         if kind != NewKind::Eclipse {
@@ -167,7 +167,7 @@ impl Launcher {
         }
     }
 
-    /// Asks Mojang for its versions, the first time the dialog needs them.
+    /// Asks Mojang for its versions, the first time the page needs them.
     pub(super) fn load_versions(&mut self, cx: &mut Context<Self>) {
         if !matches!(self.instances.versions, VersionList::NotAsked) {
             return;
@@ -194,7 +194,7 @@ impl Launcher {
         .detach();
     }
 
-    /// Asks the chosen loader's service for its versions for `minecraft`, unless the dialog has
+    /// Asks the chosen loader's service for its versions for `minecraft`, unless the page has
     /// them or is asking already.
     pub(super) fn ask_loader_versions(&mut self, minecraft: &str, cx: &mut Context<Self>) {
         let Some(j) = self.java_choice() else {

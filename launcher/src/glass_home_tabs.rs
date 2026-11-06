@@ -51,10 +51,7 @@ impl Launcher {
                     cx.notify();
                 }))
             }));
-        let panel = crate::glass::plate(radius::PANEL)
-            .flex()
-            .flex_col()
-            .min_h(px(120.));
+        let panel = crate::glass::plate(radius::PANEL).flex().flex_col();
         let body: Option<AnyElement> = match open {
             HomeTab::Overview => Some(self.glass_overview(rows, cx).into_any_element()),
             HomeTab::Mods => Some(self.glass_instance_mods(cx).into_any_element()),
@@ -70,7 +67,7 @@ impl Launcher {
         };
         div().flex().flex_col().gap(px(16.)).child(strip).child(
             panel
-                .when(open != HomeTab::Overview, |d| d.p(px(12.)))
+                .when(open != HomeTab::Overview, |d| d.p(px(ui::PANEL_INSET)))
                 .children(body),
         )
     }
@@ -134,7 +131,7 @@ impl Launcher {
                         .mt(px(12.))
                         .p(px(16.))
                         .rounded(px(radius::ROW))
-                        .bg(gpui::black().opacity(0.25))
+                        .bg(ui::well())
                         .font_family(theme::MONO)
                         .text_size(px(12.))
                         .line_height(px(21.))
@@ -202,10 +199,14 @@ impl Launcher {
                 .children(pictures.next())
         };
         let body = match shots.len() {
-            0 => ui::text(14., FontWeight::NORMAL, ink::MUTED)
-                .mt(px(8.))
-                .child(tr("No screenshots yet. Press F2 in the game."))
-                .into_any_element(),
+            0 => ui::empty_state(
+                "overview-screenshots-empty",
+                "image-01",
+                tr("No screenshots yet"),
+                tr("Press F2 in the game."),
+                vec![],
+            )
+            .into_any_element(),
             n if n >= 3 => {
                 let first = shot(0).flex_1().h_full().on_click(see_all());
                 let rest: Vec<_> = (1..n)
@@ -261,7 +262,9 @@ impl Launcher {
             Load::Ready(list) => patch_source(list, played.as_deref()),
             _ => None,
         }
-        .unwrap_or_else(|| (tr("No notes yet").to_string(), Vec::new()));
+        .map_or((None, Vec::new()), |(note, sections)| {
+            (Some(note), sections)
+        });
         let many = sections.len() > 1;
         let list =
             div()
@@ -331,11 +334,21 @@ impl Launcher {
                             })),
                     ),
             )
-            .child(
+            .children(note.as_ref().map(|note| {
                 ui::text(13., FontWeight::NORMAL, ink::MUTED)
                     .mt(px(2.))
-                    .child(note),
-            )
+                    .child(note.clone())
+            }))
+            .children(note.is_none().then(|| {
+                ui::empty_state(
+                    "patch-log-empty",
+                    "information-circle",
+                    tr("No patch notes yet"),
+                    "",
+                    vec![],
+                )
+                .mt(px(16.))
+            }))
             .child(list)
     }
 }

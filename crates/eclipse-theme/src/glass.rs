@@ -8,6 +8,8 @@ pub const BLUR: f32 = 24.;
 pub const PAGE: u32 = 0x08090f;
 pub const BASE: u32 = 0x10131c;
 pub const PLATE_ALPHA: f32 = 1.;
+pub const LIGHT_PLATE_ALPHA: f32 = 0.84;
+pub const LIGHT_FLOAT_ALPHA: f32 = 0.94;
 pub const FLOAT: u32 = 0x161a25;
 pub const EDGE: f32 = 0.07;
 pub const ON_LIGHT: u32 = 0x14151c;
@@ -37,6 +39,7 @@ pub mod radius {
     pub const POPOVER: f32 = 10.;
     pub const ROW: f32 = 8.;
     pub const CONTROL: f32 = 6.;
+    pub const BLOCK: f32 = 4.;
 }
 
 pub mod ink {
@@ -65,6 +68,7 @@ pub struct Glass {
     pub accent: u32,
     /// The accent mixed half with white: progress bars, ticks, the focus ring, links.
     pub accent_soft: u32,
+    pub mark: u32,
     /// The charcoal with a trace of the accent: what the plates are filled with.
     pub base: u32,
     /// Text on the accent: white, or [`ON_LIGHT`] on a light accent.
@@ -82,6 +86,7 @@ impl Glass {
         Glass {
             accent,
             accent_soft: mix_oklab(accent, 0xffffff, 0.62),
+            mark: accent,
             base,
             on_accent: if luminance(accent) > 0.4 {
                 ON_LIGHT
@@ -97,6 +102,14 @@ impl Glass {
 
     pub fn default_look() -> Glass {
         Glass::new(ACCENT, TINT, BLUR)
+    }
+
+    pub fn light(self) -> Glass {
+        Glass {
+            accent_soft: on_light(self.accent, 4.5),
+            mark: on_light(self.accent, 3.),
+            ..self
+        }
     }
 
     /// Every colour by its CSS name (`--glass-<name>`), for `tokens.css`.
@@ -127,6 +140,31 @@ impl Glass {
         .map(|(name, value)| format!("  --glass-{name}: {value};\n"))
         .collect()
     }
+}
+
+pub fn light_surfaces() -> Vec<u32> {
+    use crate::night::{over, DAWN};
+    let selected = |under| over(ON_LIGHT, fill::SELECTED, under);
+    let mut out = vec![DAWN.side, selected(DAWN.side)];
+    for sky in DAWN.sky {
+        let plate = over(0xffffff, LIGHT_PLATE_ALPHA, sky);
+        out.extend([
+            sky,
+            plate,
+            selected(plate),
+            over(0xffffff, LIGHT_FLOAT_ALPHA, sky),
+        ]);
+    }
+    out
+}
+
+fn on_light(accent: u32, ratio: f32) -> u32 {
+    let surfaces = light_surfaces();
+    let [l, a, b] = oklab(accent);
+    (0..200)
+        .map(|step| from_oklab([l - step as f32 * 0.005, a, b]))
+        .find(|&c| surfaces.iter().all(|&s| crate::contrast(c, s) >= ratio))
+        .unwrap_or(0)
 }
 
 /// Builds a colour from a function of each channel's shift (16, 8, 0) giving 0..=1.
@@ -240,7 +278,8 @@ mod tests {
                 assert!(ratio >= 4.5, "#{c:06x} on #{bg:06x}: {ratio:.2}");
             }
         }
-        let light_plate = crate::night::over(0xffffff, 0.84, crate::night::DAWN.sky[3]);
+        let light_plate =
+            crate::night::over(0xffffff, LIGHT_PLATE_ALPHA, crate::night::DAWN.sky[3]);
         for c in [LIVE_LIGHT, WARN_LIGHT, DANGER_LIGHT] {
             let ratio = crate::contrast(c, light_plate);
             assert!(ratio >= 4.5, "#{c:06x} on the light plate: {ratio:.2}");
@@ -253,6 +292,39 @@ mod tests {
             let off = (hue(warn) - hue(ACCENT)).abs();
             assert!(off >= 15., "#{warn:06x} is {off:.0}° from the accent");
         }
+    }
+
+    #[test]
+    fn the_light_look_marks_read_on_every_light_surface() {
+        let typed = (0..216).map(|i: u32| {
+            [i / 36, i / 6 % 6, i % 6]
+                .iter()
+                .fold(0, |c, n| c << 8 | n * 0x33)
+        });
+        for accent in [ACCENT].into_iter().chain(typed) {
+            let look = Glass::new(accent, TINT, BLUR).light();
+            for bg in light_surfaces() {
+                let icon = crate::contrast(look.mark, bg);
+                assert!(icon >= 3., "#{accent:06x}'s mark on #{bg:06x}: {icon:.2}");
+                let link = crate::contrast(look.accent_soft, bg);
+                assert!(link >= 4.5, "#{accent:06x}'s links on #{bg:06x}: {link:.2}");
+            }
+            assert_eq!(look.accent, accent, "the fill stays the accent");
+        }
+    }
+
+    #[test]
+    fn the_dark_look_keeps_its_colours() {
+        let look = Glass::default_look();
+        assert_eq!(look.mark, ACCENT);
+        assert!(
+            close(look.accent_soft, 0xfbc989),
+            "{:06x}",
+            look.accent_soft
+        );
+        let light = look.light();
+        assert_ne!(light.mark, ACCENT);
+        assert_eq!((light.base, light.on_accent), (look.base, look.on_accent));
     }
 
     #[test]

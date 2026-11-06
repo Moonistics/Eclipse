@@ -1,4 +1,4 @@
-//! A Java instance's part of the glass instance dialog (`glass_instance.rs`; the mockup's
+//! A Java instance's part of the New instance page (`glass_instance.rs`; the mockup's
 //! `InstanceModal` for Vanilla and Modded): Mojang's versions to pick from, then for Modded the
 //! loaders, each with its logo, as many as `loaders::Kind` knows.
 use super::*;
@@ -8,9 +8,10 @@ use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
 use eclipse_theme::glass::{fill, ink, radius};
 use glass_instance::{
-    choice, choice_text, letter_tile, list_box, list_choice, loaders, section, tick, tile_image,
+    choice, choice_text, letter_tile, list_box, list_choice, loaders, section_card, tick,
+    tile_image,
 };
-use new_instance::{LoaderVersions, NewKind, VersionList};
+use new_instance::{JavaChoice, LoaderVersions, NewKind, VersionList};
 use servers_page::Field;
 
 /// Mojang versions listed at most: the search finds the others.
@@ -18,11 +19,11 @@ const ROWS: usize = 60;
 const LIST: f32 = 206.;
 
 impl Launcher {
-    pub(super) fn minecraft_versions(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn minecraft_versions(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let t = self.theme;
         let soft = self.look.accent_soft;
-        let Some(choice) = self.instances.dialog.as_ref().map(|d| d.java.clone()) else {
-            return div();
+        let Some(choice) = self.instances.draft.as_ref().map(|d| d.java.clone()) else {
+            return div().id("instance-minecraft-version");
         };
         let typed = self
             .servers
@@ -31,22 +32,47 @@ impl Launcher {
             .to_string();
         let search = typed.to_lowercase();
         let chosen = self.draft_minecraft();
-        let filter = |id: &'static str, label: &'static str, on: bool| {
-            ui::button(
-                id,
-                on.then_some("tick-02"),
-                tr(label),
-                Kind::Secondary,
-                ui::Size::Lg,
-                &t,
-            )
-            .when(on, |d| d.bg(white(fill::ACTIVE)))
-            .when(!on, |d| d.text_color(white(ink::MUTED)))
+        let look = self.look;
+        let filter = |id: &'static str,
+                      label: &'static str,
+                      on: bool,
+                      flip: fn(&mut JavaChoice)| {
+            let flip =
+                move |this: &mut Self, _: &ClickEvent, _: &mut Window, cx: &mut Context<Self>| {
+                    this.change(flip);
+                    cx.notify();
+                };
+            div()
+                .flex()
+                .items_center()
+                .gap(px(10.))
+                .child(
+                    ui::toggle(id, on, look.accent, look.on_accent, &t).on_click(cx.listener(flip)),
+                )
+                .child(
+                    ui::text(13., FontWeight::NORMAL, ink::BODY)
+                        .id(SharedString::from(format!("{id}-label")))
+                        .cursor_pointer()
+                        .child(tr(label))
+                        .on_click(cx.listener(flip)),
+                )
         };
+        let filters = div()
+            .flex()
+            .items_center()
+            .gap(px(20.))
+            .child(filter(
+                "mc-snapshots",
+                "Show snapshots",
+                choice.snapshots,
+                |j| j.snapshots = !j.snapshots,
+            ))
+            .child(filter("mc-old", "Show old versions", choice.old, |j| {
+                j.old = !j.old
+            }));
         let field = div()
             .relative()
-            .flex_1()
-            .min_w_0()
+            .mb(px(8.))
             .child(
                 self.field(Field::InstanceVersion, tr("Search versions"), 600., cx)
                     .w_full()
@@ -61,27 +87,6 @@ impl Launcher {
                     .flex()
                     .items_center()
                     .child(ui::icon("search-01", 17., white(ink::DIM))),
-            );
-        let tools = div()
-            .flex()
-            .gap(px(8.))
-            .mb(px(8.))
-            .child(field)
-            .child(
-                filter("mc-snapshots", "Snapshots", choice.snapshots).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.change(|j| j.snapshots = !j.snapshots);
-                        cx.notify();
-                    },
-                )),
-            )
-            .child(
-                filter("mc-old", "Old versions", choice.old).on_click(cx.listener(
-                    |this, _: &ClickEvent, _, cx| {
-                        this.change(|j| j.old = !j.old);
-                        cx.notify();
-                    },
-                )),
             );
         let line = |s: String, a: f32| {
             ui::text(14., FontWeight::NORMAL, a)
@@ -135,23 +140,27 @@ impl Launcher {
                     })
                     .collect();
                 if rows.is_empty() {
-                    list_box("mc-versions", LIST).child(line(
-                        trf("No version matches “{search}”.", &[("search", &typed)]),
-                        ink::MUTED,
+                    list_box("mc-versions", LIST).child(ui::empty_state(
+                        "mc-versions-no-match",
+                        "search-01",
+                        trf("No version matches “{search}”", &[("search", &typed)]),
+                        "",
+                        vec![],
                     ))
                 } else {
                     list_box("mc-versions", LIST).children(rows)
                 }
             }
         };
-        section(
+        section_card(
+            "instance-minecraft-version",
             tr("Minecraft version").into(),
-            None,
-            div().flex().flex_col().child(tools).child(list),
+            Some(filters.into_any_element()),
+            div().flex().flex_col().child(field).child(list),
         )
     }
 
-    pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn loader_choice(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let t = self.theme;
         let now = self.draft_loader();
         let version = self.loader_version_shown(cx);
@@ -186,13 +195,13 @@ impl Launcher {
                     })),
             );
         }
-        section(tr("Loader").into(), None, grid)
+        section_card("instance-loader", tr("Loader").into(), None, grid)
     }
 
     fn loader_version_shown(&mut self, cx: &mut Context<Self>) -> Option<String> {
         let minecraft = self.draft_minecraft()?;
         self.ask_loader_versions(&minecraft, cx);
-        let d = self.instances.dialog.as_ref()?;
+        let d = self.instances.draft.as_ref()?;
         let editing = d
             .editing
             .as_ref()
@@ -217,11 +226,11 @@ impl Launcher {
         }
     }
 
-    /// What the dialog has `editing` play: Eclipse, or a Java game with its loader. The loader
+    /// What the page has `editing` play: Eclipse, or a Java game with its loader. The loader
     /// keeps its version while its kind and Minecraft stay; a new one's (empty here) is the
     /// newest stable, asked of its service on Save.
     pub(super) fn draft_plays(&self, editing: &Instance) -> Option<Plays> {
-        let d = self.instances.dialog.as_ref()?;
+        let d = self.instances.draft.as_ref()?;
         if d.java.kind == NewKind::Eclipse {
             return Some(Plays::Eclipse);
         }
