@@ -20,8 +20,8 @@ use eclipse_theme::glass::{
     ink, light_ink, pixel_text as pixel, space, step, Glass, TextStep, MONOCRAFT_PIXEL, ON_LIGHT,
 };
 use gpui::{
-    div, prelude::*, px, rgb, svg, AnimationExt, App, Div, FontWeight, Hsla, Role, SharedString,
-    Stateful, Svg, Window,
+    div, prelude::*, px, rgb, svg, AnimationExt, AnyElement, App, Div, ElementId, FontWeight, Hsla,
+    Role, SharedString, Stateful, Svg, Window,
 };
 use std::cell::Cell;
 
@@ -39,9 +39,9 @@ pub type Listener<E> = Box<dyn Fn(&E, &mut Window, &mut App)>;
 /// The light appearance's ink, at the opacities the dark look gives white.
 const INK: u32 = ON_LIGHT;
 
-pub const CARD_PADDING: f32 = 24.;
+pub const CARD_PADDING: f32 = space::XL;
 
-pub const SETTING_ROW_PADDING: f32 = 16.;
+pub const SETTING_ROW_PADDING: f32 = space::LG;
 
 pub const PANEL_INSET: f32 = CARD_PADDING / 2.;
 
@@ -61,11 +61,11 @@ const PAGE_HEAD_GAP: f32 = space::XL + space::XS;
 
 const PAGE_HEAD_GAP_SHORT: f32 = space::LG;
 
-const PAGE_NOTE_WIDTH: f32 = 615.;
-
 const TIP_PAD: f32 = space::SM;
 
-const DOT: f32 = 7.;
+const ODD_PIXEL: f32 = 1.;
+
+const DOT: f32 = space::SM - ODD_PIXEL;
 
 pub const DOT_ROOM: f32 = DOT + space::SM;
 
@@ -172,6 +172,25 @@ pub fn text(step: TextStep, weight: FontWeight, a: f32) -> Div {
         .text_color(white(a))
 }
 
+pub fn mono(step: TextStep, a: f32) -> Div {
+    text(step, FontWeight::NORMAL, a).font_family(crate::theme::MONO)
+}
+
+pub fn sign_in_code(code: impl Into<SharedString>) -> Div {
+    text(step::CODE, FontWeight::MEDIUM, ink::FULL)
+        .font_family(crate::theme::MONO)
+        .child(code.into())
+}
+
+pub fn said(id: impl Into<ElementId>, text: impl Into<SharedString>) -> Stateful<Div> {
+    let text: SharedString = text.into();
+    div()
+        .id(id)
+        .role(Role::Label)
+        .aria_label(text.clone())
+        .child(text)
+}
+
 pub fn text_width(text: &str, step: TextStep) -> f32 {
     text.chars().count() as f32 * eclipse_theme::glass::GEIST_ADVANCE * step.size / step::BODY.size
 }
@@ -193,10 +212,13 @@ pub fn label(text: impl Into<SharedString>) -> Div {
     self::text(step::LABEL, FontWeight::SEMIBOLD, ink::DIM).child(text.to_uppercase())
 }
 
-pub fn section_title(title: impl Into<SharedString>) -> Div {
-    pixel_text(pixel::PRESS)
-        .text_color(white(ink::FULL))
-        .child(title.into())
+pub fn section_title(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
+    let title: SharedString = title.into();
+    heading(id, title.clone(), 2).child(
+        pixel_text(pixel::PRESS)
+            .text_color(white(ink::FULL))
+            .child(title),
+    )
 }
 
 pub fn card_title(title: impl Into<SharedString>) -> Div {
@@ -204,8 +226,8 @@ pub fn card_title(title: impl Into<SharedString>) -> Div {
 }
 
 /// A card's note.
-pub fn card_note(label: impl Into<SharedString>) -> Div {
-    text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(label.into())
+pub fn card_note(label: impl IntoElement) -> Div {
+    text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(label)
 }
 
 pub fn page_top() -> f32 {
@@ -226,23 +248,50 @@ pub fn page_gap() -> f32 {
 }
 
 pub fn page_head(title: impl Into<SharedString>, note: impl Into<SharedString>) -> Div {
+    page_head_with(title, note, None)
+}
+
+pub fn page_head_with(
+    title: impl Into<SharedString>,
+    note: impl Into<SharedString>,
+    aside: Option<AnyElement>,
+) -> Div {
     let (title, note): (SharedString, SharedString) = (title.into(), note.into());
+    let title = page_title(title);
+    let head = match aside {
+        Some(aside) => div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .justify_between()
+            .gap(px(space::LG))
+            .child(title)
+            .child(aside),
+        None => div().child(title),
+    };
     div()
         .flex()
         .flex_col()
         .pt(px(page_top()))
         .mb(px(page_gap()))
-        .child(
-            heading("page-title", title.clone(), 1).child(entity_title(title, pixel::PAGE_TITLE)),
-        )
+        .child(head)
         .when(!note.is_empty(), |d| {
             d.child(
                 text(step::LEAD, FontWeight::NORMAL, ink::BODY)
                     .mt(px(TITLE_NOTE_GAP))
-                    .max_w(px(PAGE_NOTE_WIDTH))
-                    .child(note),
+                    .max_w(px(crate::layout::MEASURE_NOTE))
+                    .child(said("page-note", note)),
             )
         })
+}
+
+pub fn page_title(title: SharedString) -> Stateful<Div> {
+    heading("page-title", title.clone(), 1)
+        .flex()
+        .items_center()
+        .min_w_0()
+        .min_h(px(TILE_LG))
+        .child(entity_title(title, pixel::PAGE_TITLE).min_w_0().truncate())
 }
 
 pub fn entity_title(text: impl Into<SharedString>, size: f32) -> Div {
@@ -267,7 +316,7 @@ pub enum IconSize {
 }
 
 impl IconSize {
-    pub fn px(self) -> f32 {
+    pub const fn px(self) -> f32 {
         match self {
             IconSize::Px16 => 16.,
             IconSize::Px24 => 24.,
@@ -278,7 +327,7 @@ impl IconSize {
 
 pub fn icon(name: &'static str, size: IconSize, color: Hsla) -> Svg {
     svg()
-        .path(format!("icons/{name}.svg"))
+        .path(crate::icons::path(name, size))
         .flex_none()
         .size(px(size.px()))
         .text_color(color)
@@ -473,7 +522,7 @@ mod tests {
             ButtonSize::Md,
         ));
         assert_eq!((role, n.is_expanded()), (Some(Role::ComboBox), Some(false)));
-        assert_eq!(n.label(), Some("Version"));
+        assert_eq!((n.label(), n.value()), (Some("Version"), Some("Nightly")));
 
         let (role, n) = read(&menu_row(
             "row-menu-edit",
@@ -513,6 +562,40 @@ mod tests {
 
         let (role, n) = read(&heading("page-title", "Settings".into(), 1));
         assert_eq!((role, n.level()), (Some(Role::Heading), Some(1)));
+
+        let (role, n) = read(&section_title("game-title", "Game"));
+        assert_eq!(
+            (role, n.level(), n.label()),
+            (Some(Role::Heading), Some(2), Some("Game"))
+        );
+    }
+
+    #[test]
+    fn rows_and_lines_of_text_reach_assistive_tech() {
+        let (_, n) = read(&side_row("side-instance-survival", "Survival World", true));
+        assert_eq!(
+            (n.label(), n.is_selected()),
+            (Some("Survival World"), Some(true))
+        );
+        let (_, n) = read(&row("server-row-lobby", "Lobby", false));
+        assert_eq!((n.label(), n.is_selected()), (Some("Lobby"), Some(false)));
+
+        let (role, n) = read(&said(
+            "play-failed-note",
+            "GitHub's certificate couldn't be checked.",
+        ));
+        assert_eq!(role, Some(Role::Label));
+        assert_eq!(n.label(), Some("GitHub's certificate couldn't be checked."));
+
+        let (role, n) = read(&disabled(button(
+            "check-updates",
+            None,
+            "Checking…",
+            ButtonKind::Secondary,
+            ButtonSize::Md,
+        )));
+        assert_eq!(role, Some(Role::Button));
+        assert!(n.description().is_some());
     }
 
     #[test]

@@ -82,8 +82,6 @@ impl SettingsSection {
 
 const SECTION_LIST_WIDTH: f32 = 240.;
 
-const WIDE_CONTROL_BESIDE: f32 = 840.;
-
 const LANDING_SLACK: f32 = 1.;
 
 #[derive(Clone, Copy)]
@@ -93,10 +91,7 @@ pub(super) struct Jump {
 }
 
 fn card() -> Div {
-    ui::card(radius::PANEL)
-        .flex()
-        .flex_col()
-        .p(px(ui::LIST_INSET))
+    ui::card().flex().flex_col().p(px(ui::LIST_INSET))
 }
 
 fn update_tile(
@@ -114,7 +109,9 @@ fn update_tile(
         .p(px(ui::SETTING_ROW_PADDING))
         .child(div().child(lead))
         .child(ui::card_title(name).mt(px(space::LG)))
-        .child(ui::card_note(version).mt(px(space::XXS)).truncate())
+        .when(!version.is_empty(), |d| {
+            d.child(ui::card_note(version).mt(px(space::XXS)).truncate())
+        })
         .children(state.map(|s| div().mt(px(space::MD)).child(s)))
         .children(action.map(|a| div().mt(px(space::LG)).flex().child(a)))
 }
@@ -125,9 +122,7 @@ fn folder_row(
     open: &'static str,
     dir: std::path::PathBuf,
 ) -> Div {
-    let path = div()
-        .font_family(theme::MONO)
-        .text_size(px(step::CAPTION.size))
+    let path = ui::mono(step::CAPTION, ink::MUTED)
         .child(short(&dir))
         .into_any_element();
     let open = ui::button(
@@ -198,7 +193,6 @@ impl Launcher {
         let tabs = self.window_width < layout::SETTINGS_LIST_BESIDE;
         let pane = ui::scroll_pane("settings-pane", &self.settings_pane.handle)
             .size_full()
-            .pr(px(Scrollbar::ROOM))
             // A scroll redraws the pane from its layer without rendering the page again, so the
             // list follows it here: on the next frame, once the offset has moved, and only when
             // the section changed.
@@ -215,15 +209,21 @@ impl Launcher {
             .flex_col()
             .gap(px(layout::CARD_GAP))
             .pb(px(space::SM))
-            .children(sections);
+            .children(
+                sections
+                    .into_iter()
+                    .map(|s| s.max_w(px(layout::SETTINGS_COLUMN_MAX))),
+            );
         let pane = div()
             .relative()
             .flex_1()
             .min_w_0()
             .min_h_0()
-            .max_w(px(layout::SETTINGS_COLUMN_MAX + Scrollbar::ROOM))
-            .mr(px(-Scrollbar::ROOM))
-            .child(self.settings_pane.wrap(pane).size_full());
+            .child(ui::page_pane(
+                pane,
+                &self.settings_pane,
+                layout::page_margin(self.window_width),
+            ));
         let body = if tabs {
             let named = shown
                 .iter()
@@ -292,7 +292,7 @@ impl Launcher {
             .flex_col()
             .w_full()
             .h_full()
-            .child(ui::page_head(tr("Settings"), ""))
+            .child(ui::page_head(Page::Settings.title(), ""))
             .child(body)
     }
 
@@ -338,7 +338,7 @@ impl Launcher {
         } else {
             SECTION_LIST_WIDTH + layout::CARD_GAP
         };
-        content - list >= WIDE_CONTROL_BESIDE
+        content - list >= layout::SETTINGS_CONTROL_BESIDE
     }
 
     /// The section the list marks, from where the pane's sections are now ([`spy`]). A section's
@@ -396,7 +396,7 @@ impl Launcher {
                     let _ = this.update(cx, |this, cx| {
                         this.settings.native_profile = Some(choice);
                         this.settings.native_release = false;
-                        this.native_done = None;
+                        this.native.done = None;
                         this.save_settings();
                         cx.notify();
                     });
@@ -439,7 +439,7 @@ impl Launcher {
     fn eclipse_update_tile(&mut self, cx: &mut Context<Self>) -> Div {
         let installed = self
             .launcher_version()
-            .map(|tag| instance_page::version_label(tag));
+            .map(|tag| eclipse_launcher::nightly::display_name(tag));
         let state = match (&self.installing, &self.updates.eclipse) {
             (Some((_, done)), _) => Some(ui::state_note(
                 ui::Tone::Busy,
@@ -449,7 +449,7 @@ impl Launcher {
                 ui::Tone::Accent(ui::look().accent_soft),
                 trf(
                     "{version} available",
-                    &[("version", &instance_page::version_label(&r.tag))],
+                    &[("version", &eclipse_launcher::nightly::display_name(&r.tag))],
                 ),
             )),
             (None, None)
@@ -460,6 +460,7 @@ impl Launcher {
             {
                 Some(ui::state_note(ui::Tone::Live, tr("Up to date")))
             }
+            _ if installed.is_none() => Some(ui::state_note(ui::Tone::Off, tr("Not installed"))),
             _ => None,
         };
         let install = self
@@ -484,7 +485,7 @@ impl Launcher {
         update_tile(
             ui::mark_tile(self.eclipse_mark(ui::MARK)).into_any_element(),
             "Eclipse".into(),
-            installed.unwrap_or_else(|| tr("Not installed").to_string()),
+            installed.unwrap_or_default(),
             state.map(IntoElement::into_any_element),
             install,
         )
@@ -593,40 +594,36 @@ impl Launcher {
                 cx.notify();
             }))
         };
-        let failed = self.update_error.as_ref().filter(|_| !checking).map(|e| {
-            ui::error_line(
-                tr("Couldn't check for updates"),
-                vec![
-                    ui::copy_details("check-updates-copy", e.clone(), ui::ButtonSize::Md)
-                        .into_any_element(),
-                ],
-            )
-            .mt(px(space::SM))
-        });
-        let beside = match (&failed, self.checked) {
+        if let Some(e) = self.update_error.clone().filter(|_| !checking) {
+            return div()
+                .p(px(ui::SETTING_ROW_PADDING))
+                .child(ui::error_line_for(
+                    "check-updates-failed",
+                    tr("Couldn't check for updates"),
+                    &e,
+                    Some(check),
+                    vec![Self::proxy_settings_button("check-updates", cx)],
+                ));
+        }
+        let beside = match self.checked {
             _ if checking => None,
-            (Some(_), _) => {
-                Some(Self::proxy_settings_button("check-updates", cx).into_any_element())
-            }
-            (None, Some(at)) => {
-                let when = home_head::last_played(std::time::SystemTime::now() - at.elapsed());
+            Some(at) => {
+                let when = dates::ago(std::time::SystemTime::now() - at.elapsed());
                 Some(
                     ui::card_note(trf("Last checked {when}", &[("when", &when)]))
                         .into_any_element(),
                 )
             }
-            (None, None) => None,
+            None => None,
         };
-        div().flex().flex_col().children(failed).child(
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(space::MD))
-                .p(px(ui::SETTING_ROW_PADDING))
-                .child(check)
-                .children(beside),
-        )
+        div()
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(space::MD))
+            .p(px(ui::SETTING_ROW_PADDING))
+            .child(check)
+            .children(beside)
     }
 
     fn settings_card(&mut self, section: SettingsSection, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -813,12 +810,12 @@ impl Launcher {
             .field(
                 Field::GameArgs,
                 tr("For example --server-thread"),
-                ui::WIDE_FIELD_MAX,
+                layout::FIELD_XL,
                 ui::ButtonSize::Md,
                 cx,
             )
             .w_full()
-            .max_w(px(ui::WIDE_FIELD_MAX));
+            .max_w(px(layout::FIELD_XL));
         ui::setting_row_stacked(tr("Game arguments"), None, field.into_any_element())
     }
 
@@ -830,12 +827,12 @@ impl Launcher {
             .field(
                 Field::Proxy,
                 tr("For example http://127.0.0.1:7890"),
-                ui::WIDE_FIELD_MAX,
+                layout::FIELD_XL,
                 ui::ButtonSize::Md,
                 cx,
             )
             .w_full()
-            .max_w(px(ui::WIDE_FIELD_MAX));
+            .max_w(px(layout::FIELD_XL));
         // A half-typed address is no reason to complain; one left behind is.
         let detail = match (
             focused,

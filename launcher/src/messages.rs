@@ -6,8 +6,7 @@ impl Launcher {
         self.perf.tick();
         match self.bench.as_mut().map(|b| b.tick(&self.perf)) {
             Some(perf::Step::Go(page)) => {
-                let pages: Vec<Page> = Page::NAV.iter().map(|p| p.0).collect();
-                self.go(pages[page % pages.len()]);
+                self.go(Page::NAV[page % Page::NAV.len()]);
                 changed = true;
             }
             Some(perf::Step::Scroll) => {
@@ -18,7 +17,7 @@ impl Launcher {
             Some(perf::Step::Wait) | None => {}
         }
         // The running build's clock moves on each second.
-        if let Some((started, shown)) = &mut self.native_started {
+        if let Some((started, shown)) = &mut self.native.started {
             if started.elapsed().as_secs() != *shown {
                 *shown = started.elapsed().as_secs();
                 changed = true;
@@ -84,41 +83,41 @@ impl Launcher {
                     }
                 }
                 Msg::JavaGame(id, home, cmd) => {
-                    self.starting_client = None;
+                    self.game.starting = None;
                     let spawned = cmd.and_then(|(cmd, vars)| {
-                        self.client_vars = vars;
+                        self.game.vars = vars;
                         backend::spawn(Job::Client, cmd, self.tx.clone())
                     });
                     match spawned {
                         Ok(r) => {
-                            self.client = Some(r);
-                            self.client_home = Some(home);
-                            self.client_run = Some((id, Instant::now()));
-                            self.client_error = account::take_unsaved();
+                            self.game.client = Some(r);
+                            self.game.home = Some(home);
+                            self.game.run = Some((id, Instant::now()));
+                            self.game.error = account::take_unsaved();
                             self.step_aside(cx);
                         }
                         Err(e) => {
                             if e == account::NoOwner.to_string() {
                                 self.owner = Some(false);
                                 self.owner_screen_open = true;
-                                self.client_error = Some(account::NoOwner::in_window());
+                                self.game.error = Some(account::NoOwner::in_window());
                             } else {
-                                self.client_error = Some(e);
+                                self.game.error = Some(e);
                             }
                         }
                     }
                 }
                 Msg::Session(session) => {
                     self.load_auth_statuses(false);
-                    if let Some(tag) = self.starting_client.take() {
+                    if let Some(tag) = self.game.starting.take() {
                         let mut cmd = backend::client_command(&tag);
                         let account::GameSession { file, offline, env } = match session {
                             Ok(pass) => pass,
                             Err(account::NoOwner) => {
                                 self.owner = Some(false);
                                 self.owner_screen_open = true;
-                                self.client_error = Some(account::NoOwner::in_window());
-                                self.starting_pack = None;
+                                self.game.error = Some(account::NoOwner::in_window());
+                                self.game.pack = None;
                                 self.joining = None;
                                 self.quick_play = None;
                                 continue;
@@ -134,9 +133,9 @@ impl Launcher {
                         cmd.envs(env);
                         // Still play, offline, and say why.
                         if let Some(e) = offline {
-                            self.client_error = Some(format!("Playing offline: {e}"));
+                            self.game.error = Some(format!("Playing offline: {e}"));
                         } else if let Some(e) = account::take_unsaved() {
-                            self.client_error = Some(e);
+                            self.game.error = Some(e);
                         }
                         self.accounts = Accounts::load();
                         // An offline name the player picked (the quick switch).
@@ -145,7 +144,7 @@ impl Launcher {
                         }
                         cmd.envs(self.accounts.look_env());
                         // A pack's Play button plays that pack; Play plays the selected instance.
-                        let (profile, run) = match self.starting_pack.take() {
+                        let (profile, run) = match self.game.pack.take() {
                             Some(work) => {
                                 let id = instances::list()
                                     .into_iter()
@@ -161,13 +160,13 @@ impl Launcher {
                             }
                         };
                         if let Err(e) = profile {
-                            self.client_error = Some(e);
+                            self.game.error = Some(e);
                             account::discard_unread_sessions();
                             continue;
                         }
                         if let Some(code) = self.joining.take() {
                             if let Err(e) = backend::join_friend(&mut cmd, &code) {
-                                self.client_error = Some(e);
+                                self.game.error = Some(e);
                             }
                         }
                         if let Some((flag, value)) = self.quick_play.take() {
@@ -179,22 +178,22 @@ impl Launcher {
                         let instance = run
                             .as_ref()
                             .and_then(|id| instances::list().into_iter().find(|i| &i.id == id));
-                        self.client_vars = instance
+                        self.game.vars = instance
                             .as_ref()
                             .map(|i| i.vars(cmd.get_program()))
                             .unwrap_or_default();
-                        cmd.envs(self.client_vars.iter().map(|(k, v)| (k, v)));
+                        cmd.envs(self.game.vars.iter().map(|(k, v)| (k, v)));
                         let launch = instance.map(|i| i.launch).unwrap_or_default();
                         let cmd = eclipse_launcher::launch::wrap(cmd, &launch);
-                        self.client_home = cmd.get_current_dir().map(|d| d.to_path_buf());
+                        self.game.home = cmd.get_current_dir().map(|d| d.to_path_buf());
                         match backend::spawn(Job::Client, cmd, self.tx.clone()) {
                             Ok(r) => {
-                                self.client = Some(r);
-                                self.client_run = run.map(|id| (id, Instant::now()));
+                                self.game.client = Some(r);
+                                self.game.run = run.map(|id| (id, Instant::now()));
                                 self.step_aside(cx);
                             }
                             Err(e) => {
-                                self.client_error = Some(e);
+                                self.game.error = Some(e);
                                 account::discard_unread_sessions();
                             }
                         }
@@ -290,12 +289,12 @@ impl Launcher {
                     self.checking_updates = false;
                     self.update_error = Some(e);
                 }
-                Msg::NativeProgress(step) => self.native_step = Some(step),
+                Msg::NativeProgress(step) => self.native.step = Some(step),
                 Msg::Native(result) => {
                     // The last step of a build that worked says how it went.
-                    let last = self.native_step.take();
-                    self.native_started = None;
-                    self.native_done = result.is_ok().then_some(last).flatten();
+                    let last = self.native.step.take();
+                    self.native.started = None;
+                    self.native.done = result.is_ok().then_some(last).flatten();
                     self.installed = backend::installed();
                     self.reload_instances();
                     // A build attempt ended: an open panel reads the log it left.
@@ -304,8 +303,8 @@ impl Launcher {
                         Some(list) => Ok(list.to_owned()),
                         None => Err(e),
                     }) {
-                        Err(Ok(list)) => self.native_mismatch = Some(list),
-                        Err(Err(e)) => self.native_error = Some(e),
+                        Err(Ok(list)) => self.native.mismatch = Some(list),
+                        Err(Err(e)) => self.native.error = Some(e),
                         // Play waited for this build (`Mods::rebuild`).
                         Ok(_) if std::mem::take(&mut self.mods.play_after_build) => self.play(),
                         Ok(_) => {}
@@ -331,9 +330,9 @@ impl Launcher {
                     };
                 }
                 Msg::PackLine(line) => {
-                    self.pack_log.push_back(line);
-                    if self.pack_log.len() > LOG_LINES {
-                        self.pack_log.pop_front();
+                    self.modpacks.log.push_back(line);
+                    if self.modpacks.log.len() > LOG_LINES {
+                        self.modpacks.log.pop_front();
                     }
                 }
                 Msg::PackDone(result) => self.pack_done(result),
@@ -341,7 +340,7 @@ impl Launcher {
                 Msg::Line(_, line) if line.contains("Session ID is") => {}
                 Msg::Line(job, line) => {
                     if job == Job::Client && line.starts_with(perf::GAME_FIRST_FRAME) {
-                        if let Some(pressed) = self.play_pressed.take() {
+                        if let Some(pressed) = self.game.pressed.take() {
                             self.perf
                                 .record_since("launcher.play_to_game_frame_ms", pressed);
                         }
@@ -349,9 +348,9 @@ impl Launcher {
                     // The MCP server keeps its own server's log; the launcher's are the preparer's
                     // and the game's.
                     if job != Job::Server {
-                        self.prepare_log.push_back(line);
-                        if self.prepare_log.len() > LOG_LINES {
-                            self.prepare_log.pop_front();
+                        self.game.log.push_back(line);
+                        if self.game.log.len() > LOG_LINES {
+                            self.game.log.pop_front();
                         }
                     }
                 }
@@ -359,22 +358,25 @@ impl Launcher {
                     let error = result.err();
                     match job {
                         Job::Prepare => {
-                            self.preparing = false;
+                            self.game.preparing = false;
                             // Play pressed before the version was prepared plays now.
-                            if let Some(tag) = self.play_when_prepared.take() {
+                            if let Some(tag) = self.game.play_when_prepared.take() {
                                 if error.is_none() && backend::is_prepared(&tag) {
-                                    self.starting_pack = None;
+                                    self.game.pack = None;
                                     self.start_client(tag);
                                 }
                             }
-                            if let (None, Some(started)) = (&error, self.prepare_started.take()) {
+                            if let (None, Some(started)) =
+                                (&error, self.game.prepare_started.take())
+                            {
                                 self.perf.record_since("launcher.prepare_ms", started);
                             }
                             // A preparer process's exit status says little, so its last line
                             // follows; the launcher's own errors are full sentences already.
-                            self.prepare_error = error.map(|e| {
+                            self.game.prepare_error = error.map(|e| {
                                 let tail = self
-                                    .prepare_log
+                                    .game
+                                    .log
                                     .iter()
                                     .rev()
                                     .find(|l| !l.trim().is_empty())
@@ -383,7 +385,7 @@ impl Launcher {
                             });
                         }
                         Job::Client => {
-                            self.client = None;
+                            self.game.client = None;
                             // Any session file the game didn't read (it crashed first).
                             account::discard_unread_sessions();
                             self.come_back(cx);
@@ -392,8 +394,8 @@ impl Launcher {
                             self.multiplayer.stale();
                             self.screenshots.stale();
                             self.game_packs.stale();
-                            let vars = std::mem::take(&mut self.client_vars);
-                            if let Some((id, started)) = self.client_run.take() {
+                            let vars = std::mem::take(&mut self.game.vars);
+                            if let Some((id, started)) = self.game.run.take() {
                                 if let Err(e) = instances::record_play(&id, started.elapsed()) {
                                     eprintln!("Play time not saved: {e}");
                                 }
@@ -406,9 +408,10 @@ impl Launcher {
                                 self.reload_instances();
                             }
                             // The run's own game folder: an instance's or a pack's keeps its reports.
-                            let home = self.client_home.clone().unwrap_or_else(backend::game_home);
+                            let home = self.game.home.clone().unwrap_or_else(backend::game_home);
                             let report = self
-                                .client_started
+                                .game
+                                .started
                                 .take()
                                 .and_then(|since| backend::crash_report_since(&home, since));
                             let switched = if error.is_some() && report.is_none() {
@@ -417,7 +420,7 @@ impl Launcher {
                                 None
                             };
                             if let Some(api) = switched {
-                                self.client_error = Some(trf(
+                                self.game.error = Some(trf(
                                     "Eclipse's Vulkan renderer crashed while starting on this \
                                      graphics card, so the game now uses {api}. Press Play to \
                                      start it again. Video Settings > Graphics API switches back.",
@@ -430,7 +433,8 @@ impl Launcher {
                                     .and_then(|text| backend::crash_summary(&text))
                                     .or_else(|| {
                                         let tail = self
-                                            .prepare_log
+                                            .game
+                                            .log
                                             .iter()
                                             .rev()
                                             .find(|l| !l.trim().is_empty());
@@ -439,7 +443,7 @@ impl Launcher {
                                         })
                                     })
                                     .unwrap_or_default();
-                                self.crash = Some(Crash {
+                                self.game.crash = Some(Crash {
                                     report,
                                     summary,
                                     copied: false,
@@ -467,7 +471,7 @@ impl Launcher {
                     // Sign-in refuses accounts that don't own the game.
                     self.owner = Some(true);
                     self.owner_screen_open = false;
-                    self.client_error = None;
+                    self.game.error = None;
                     if !self.settings.owner_notice_seen {
                         self.settings.owner_notice_seen = true;
                         self.save_settings();

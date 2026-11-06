@@ -52,7 +52,6 @@
   --night-rule: rgba(31, 35, 48, 0.1);
   --glass-accent: #f5a524;
   --glass-accent-soft: #fbc989;
-  --glass-base: #15171e;
   --glass-on-accent: #14151c;
   --glass-page: #08090f;
   --glass-live: #4ade80;
@@ -207,7 +206,6 @@
     --night-rule: rgba(185, 172, 255, 0.1);
     --glass-accent: #f5a524;
     --glass-accent-soft: #fbc989;
-    --glass-base: #15171e;
     --glass-on-accent: #14151c;
     --glass-page: #08090f;
     --glass-live: #4ade80;
@@ -268,7 +266,6 @@
   --night-rule: rgba(185, 172, 255, 0.1);
   --glass-accent: #f5a524;
   --glass-accent-soft: #fbc989;
-  --glass-base: #15171e;
   --glass-on-accent: #14151c;
   --glass-page: #08090f;
   --glass-live: #4ade80;

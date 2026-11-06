@@ -32,6 +32,7 @@ pub(super) enum Asking {
     AllowedPlayer(String),
     InstanceDelete(String),
     WorldDelete(SharedString),
+    DiscardDraft,
 }
 
 const KEY_SCROLL_STEP: f32 = 40.;
@@ -70,6 +71,17 @@ impl Launcher {
             self.accounts = Accounts::load();
             self.load_profile_heads();
         }
+    }
+
+    pub(super) fn open_menu_from(&mut self, menu: Menu, window: &Window, cx: &App) {
+        if !self.menu_is(&menu) {
+            self.toggle_menu(menu, window, cx);
+        }
+    }
+
+    pub(super) fn open_menu_for(&mut self, menu: Menu, opener: &str, window: &Window, cx: &App) {
+        self.open_menu_from(menu, window, cx);
+        self.menu_opener = ui::try_focus_for(format!("opener-{opener}"));
     }
 
     pub(super) fn menu_opener(
@@ -161,6 +173,14 @@ impl Launcher {
     ) {
         let k = &ev.keystroke;
         match k.key.as_str() {
+            "tab"
+                if self
+                    .ring_pending
+                    .take()
+                    .is_some_and(|f| f.is_focused(window)) =>
+            {
+                window.refresh();
+            }
             "tab" => {
                 if self.open_menu.is_some() {
                     self.close_menu();
@@ -194,6 +214,7 @@ impl Launcher {
                 window.focus(region, cx);
                 window.focus_next(cx);
             }
+            "escape" if self.palette.is_some() => self.palette_close(),
             "escape" if self.close_menus() => {
                 if let Some(opener) = self.menu_opener.take() {
                     window.focus(&opener, cx);

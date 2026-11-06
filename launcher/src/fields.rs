@@ -1,7 +1,9 @@
 use super::line_edit::{self, Key, LineEdit};
 use super::*;
 use crate::ui;
-use eclipse_theme::glass::{space, GEIST_ADVANCE};
+use eclipse_theme::glass::{space, step, GEIST_ADVANCE};
+use std::cell::Cell;
+use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
 pub(super) enum Field {
@@ -46,6 +48,38 @@ pub(super) enum Field {
 }
 
 impl Field {
+    fn name(self) -> &'static str {
+        match self {
+            Field::NewServerName | Field::MultiplayerName => tr("Server name"),
+            Field::NewServerSeed => tr("World seed"),
+            Field::NewServerFriend | Field::ServerPlayer => tr("Player name"),
+            Field::ServerCommand => tr("Server command"),
+            Field::ServerMotd => tr("Server description (MOTD)"),
+            Field::ServerPort => tr("Port"),
+            Field::TailscaleToken => tr("Tailscale API token"),
+            Field::FriendEmail => tr("Friend's email"),
+            Field::InstanceName => tr("Name"),
+            Field::InstanceGroup => tr("Group (optional)"),
+            Field::VersionSearch => tr("Search versions"),
+            Field::InstanceModsFilter => tr("Filter installed"),
+            Field::MultiplayerAddress => tr("Server address"),
+            Field::ConsoleSearch => tr("Search the log"),
+            Field::PreLaunch => tr("Command before the game"),
+            Field::LaunchWrapper => tr("Run the game through"),
+            Field::LaunchEnv => tr("Environment variables"),
+            Field::PostExit => tr("Command after the game"),
+            Field::MemoryLimit => tr("Maximum memory"),
+            Field::OfflineName => tr("Offline name"),
+            Field::AccentHex => tr("Accent colour (hex)"),
+            Field::InviteCode => tr("Invite code"),
+            Field::ModsSearch => tr("Search mods"),
+            Field::GithubLink => tr("GitHub repository link"),
+            Field::GameArgs => tr("Game arguments"),
+            Field::Proxy => tr("Proxy"),
+            Field::PaletteSearch => tr("Search commands"),
+        }
+    }
+
     fn empty(self) -> LineEdit {
         let max = match self {
             Field::InviteCode | Field::Proxy => 256,
@@ -62,6 +96,7 @@ impl Field {
 #[derive(Default)]
 pub(super) struct Fields {
     texts: HashMap<Field, LineEdit>,
+    widths: HashMap<Field, Rc<Cell<f32>>>,
     focus: HashMap<Field, FocusHandle>,
     focused: Option<Field>,
     /// The field to put the keyboard in on the next frame.
@@ -116,8 +151,14 @@ impl Fields {
 
     /// Which field has the keyboard, read every frame.
     pub(super) fn note_focus(&mut self, window: &mut Window, cx: &mut App) {
-        if let Some(h) = self.focus_soon.take().and_then(|f| self.focus.get(&f)) {
-            window.focus(h, cx);
+        if let Some(f) = self.focus_soon {
+            match self.focus.get(&f) {
+                Some(h) => {
+                    window.focus(h, cx);
+                    self.focus_soon = None;
+                }
+                None => window.refresh(),
+            }
         }
         self.focused = self
             .focus
@@ -132,13 +173,21 @@ impl Fields {
 
 const TRAILING_INSET: f32 = space::SM + space::XXS;
 
-fn visible_chars(width: f32, size: ui::ButtonSize) -> usize {
-    let pad = if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
+fn visible_chars(room: f32, size: ui::ButtonSize) -> usize {
+    let text = if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
+        step::LEAD
+    } else {
+        step::BODY
+    };
+    (room / (GEIST_ADVANCE * text.size / step::BODY.size)).max(1.) as usize
+}
+
+fn field_pad(size: ui::ButtonSize) -> f32 {
+    if matches!(size, ui::ButtonSize::Lg | ui::ButtonSize::Hero) {
         space::LG
     } else {
         space::MD
-    };
-    ((width - 2. * pad) / GEIST_ADVANCE).max(1.) as usize
+    }
 }
 
 impl Launcher {
@@ -170,7 +219,12 @@ impl Launcher {
         let invalid = self.fields.invalid.is_some_and(|(g, _)| g == f);
         let secret = f == Field::TailscaleToken;
         let placeholder: SharedString = placeholder.into();
-        self.fields.text(f).show(visible_chars(width, size));
+        let measured = self.fields.widths.entry(f).or_default().clone();
+        let room = match measured.get() {
+            seen if seen > 0. => seen,
+            _ => width - 2. * field_pad(size),
+        };
+        self.fields.text(f).show(visible_chars(room, size));
         let content = line_edit::content_with(
             self.fields.text(f),
             focused,
@@ -181,7 +235,7 @@ impl Launcher {
         let field = ui::field(focused, invalid, size)
             .id(SharedString::from(format!("field-{f:?}")))
             .role(gpui::Role::TextInput)
-            .aria_label(placeholder.clone())
+            .aria_label(f.name())
             .aria_placeholder(placeholder)
             .when(!secret, |d| d.aria_value(self.fields.value(f).to_string()))
             .w(px(width))
@@ -193,6 +247,10 @@ impl Launcher {
                     .flex_1()
                     .min_w_0()
                     .overflow_hidden()
+                    .whitespace_nowrap()
+                    .child(ui::measure(move |bounds| {
+                        measured.set(f32::from(bounds.size.width))
+                    }))
                     .child(content),
             )
             .when(trailing.is_some(), |d| d.pr(px(TRAILING_INSET)))
@@ -232,10 +290,7 @@ impl Launcher {
                     }
                     Key::Enter => this.field_enter(f),
                     Key::Edited => this.field_edited(f),
-                    Key::Escape if selected => {}
-                    Key::Escape => {
-                        this.servers_escape();
-                    }
+                    Key::Escape if !selected && ui::modal_open() => return,
                     // Tab and the rest go on to the window: Tab moves the focus.
                     Key::Pass => return,
                     _ => {}

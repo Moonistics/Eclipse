@@ -8,7 +8,7 @@
 use super::*;
 use crate::ui;
 use eclipse_launcher::native_mods;
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use gpui::{ClipboardItem, ScrollHandle, SharedString};
 
 /// How much of the log the panel shows: its last lines. Copy log still copies all of it.
@@ -253,11 +253,7 @@ impl Launcher {
                 })),
             );
         if let Some(note) = &self.native_log.note {
-            actions = actions.child(
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                    .min_w_0()
-                    .child(note.clone()),
-            );
+            actions = actions.child(ui::card_note(note.clone()).min_w_0());
         }
         let top = div()
             .flex()
@@ -273,8 +269,7 @@ impl Launcher {
                     .child(ui::card_title(tr("Native build log")))
                     // The actual file the actions below work on, wrapping rather than cut off.
                     .child(
-                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
-                            .font_family(theme::MONO)
+                        ui::mono(step::CAPTION, ink::MUTED)
                             .min_w_0()
                             .child(short(&path)),
                     ),
@@ -315,24 +310,20 @@ impl Launcher {
                 .gap(px(space::SM))
                 // Only the tail is laid out; the whole log stays one Copy away.
                 .children((log.lines > SHOWN).then(|| {
-                    ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(trf(
+                    ui::card_note(trf(
                         "Showing the last {lines} lines.",
                         &[("lines", &SHOWN.to_string())],
                     ))
                 }))
                 .child(
-                    div()
+                    ui::well()
                         .id("native-log-lines")
                         .track_scroll(&self.native_log.scroll)
                         .flex_1()
                         .min_h_0()
                         .overflow_scroll()
-                        .p(px(ui::PANEL_INSET))
-                        .rounded(px(radius::ROW))
-                        .bg(ui::inset())
                         .child(
-                            ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
-                                .font_family(theme::MONO)
+                            ui::mono(step::CAPTION, ink::BODY)
                                 .children(log.preview.iter().map(|line| div().child(line.clone()))),
                         ),
                 ),
@@ -348,7 +339,7 @@ impl Launcher {
                 .py(px(space::XL))
                 .child(top)
                 .child(actions)
-                .children(self.native_step.as_ref().map(|now| {
+                .children(self.native.step.as_ref().map(|now| {
                     ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                         .child(ui::state_line(ui::Tone::Busy, now.clone()))
                 }))

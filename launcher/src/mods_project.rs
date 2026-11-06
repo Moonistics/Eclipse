@@ -157,7 +157,7 @@ const IMAGE_WORKERS: usize = 4;
 
 const FILTER_NAME: f32 = 120.;
 
-const PAGE_TEXT: f32 = 760.;
+const PAGE_TEXT: f32 = layout::MEASURE_TEXT;
 
 const HEAD_TEXT_MIN: f32 = 240.;
 
@@ -389,9 +389,7 @@ impl Launcher {
             return Some(bar);
         }
         let Some(tags) = self.mods_tags().cloned() else {
-            return Some(bar.child(
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr("Loading filters")),
-            ));
+            return Some(bar.child(ui::card_note(tr("Loading filters"))));
         };
         let loaders = {
             let values = tags.loaders.clone();
@@ -702,7 +700,7 @@ impl Launcher {
             ),
             _ => None,
         };
-        let icon = self.mods_icon(&p, 72.);
+        let icon = self.mods_icon(&p, ui::FACE_XL);
         let busy = self.mods.busy.as_ref().map(|b| b.0.clone());
         let installed = self.mods.entry(&p).is_some();
         let checking = self.mods.checking(&p);
@@ -787,33 +785,27 @@ impl Launcher {
                             )
                         },
                     ))
-                    .child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                            .child(meta.join(" · ")),
-                    )
+                    .child(ui::card_note(meta.join(" · ")))
                     .children(
                         categories
                             .map(|c| ui::text(step::NOTE, FontWeight::NORMAL, ink::DIM).child(c)),
                     ),
             )
             .child(action);
-        let mut page =
-            div()
-                .flex()
-                .flex_col()
-                .gap(px(space::XL))
-                .child(div().flex().child(back))
-                .child(head)
-                .children(status.map(|(tone, said, reason)| {
-                    div()
-                        .flex()
-                        .flex_col()
-                        .gap(px(space::XS))
-                        .child(state(tone, said))
-                        .children(reason.map(|why| {
-                            ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(why)
-                        }))
-                }));
+        let mut page = div()
+            .flex()
+            .flex_col()
+            .gap(px(space::XL))
+            .child(div().flex().child(back))
+            .child(head)
+            .children(status.map(|(tone, said, reason)| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::XS))
+                    .child(state(tone, said))
+                    .children(reason.map(ui::card_note))
+            }));
         // Registry projects are starred on their source repository, which the player does there
         // themselves.
         if p.source == SourceId::Eclipse {
@@ -977,11 +969,12 @@ impl Launcher {
                                 false,
                             )
                             .child(ui::item_text(v.number.clone(), detail.join(" · ")))
-                            .children(list[i].verdict.as_ref().map(|verdict| {
-                                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                                    .flex_none()
-                                    .child(tr(verdict.label()))
-                            }))
+                            .children(
+                                list[i]
+                                    .verdict
+                                    .as_ref()
+                                    .map(|verdict| ui::card_note(tr(verdict.label())).flex_none()),
+                            )
                         },
                     )
                     .into_any_element(),
@@ -1023,16 +1016,15 @@ impl Launcher {
             .gap(px(space::MD))
             .max_w(px(PAGE_TEXT))
             .child(
-                ui::hover_over(
+                ui::picture_button(
                     "mods-shot",
-                    radius::ROW,
                     div()
                         .rounded(px(radius::ROW))
                         .overflow_hidden()
                         .bg(ui::inset())
                         .child(large),
+                    picture_name(&current.title, shot, count),
                 )
-                .cursor_pointer()
                 .on_press(pick((shot + 1) % count)),
             );
         if !current.title.is_empty() {
@@ -1046,28 +1038,19 @@ impl Launcher {
         let mut strip = div().flex().flex_wrap().items_center().gap(px(space::SM));
         for (i, g) in gallery.iter().enumerate() {
             let thumb = image(self, &g.url, THUMB.0, THUMB.1);
-            strip = strip.child(
-                ui::selected(
-                    div()
-                        .id(SharedString::from(format!("mods-shot-{}", g.url)))
-                        .flex_none()
-                        .p(px(space::XXS))
-                        .cursor_pointer()
-                        .child(
-                            div()
-                                .rounded(px(radius::CONTROL))
-                                .overflow_hidden()
-                                .child(thumb),
-                        ),
-                    i == shot,
-                )
-                .on_press(pick(i)),
-            );
+            let thumb = ui::picture_button(
+                SharedString::from(format!("mods-shot-{}", g.url)),
+                div()
+                    .rounded(px(radius::CONTROL))
+                    .overflow_hidden()
+                    .child(thumb),
+                picture_name(&g.title, i, count),
+            )
+            .p(px(space::XXS))
+            .on_press(pick(i));
+            strip = strip.child(ui::selected(thumb, i == shot));
         }
-        strip = strip.child(
-            ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                .child(format!("{} / {count}", shot + 1)),
-        );
+        strip = strip.child(ui::card_note(format!("{} / {count}", shot + 1)));
         out.child(strip)
     }
 }
@@ -1083,5 +1066,12 @@ impl Opened {
                 row.verdict = Some(*verdict);
             }
         }
+    }
+}
+
+fn picture_name(title: &str, at: usize, count: usize) -> String {
+    match title.trim() {
+        "" => format!("{} / {count}", at + 1),
+        title => title.to_string(),
     }
 }

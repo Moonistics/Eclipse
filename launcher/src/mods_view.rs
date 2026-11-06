@@ -12,7 +12,7 @@ use super::*;
 use crate::menus::Asking;
 use crate::menus::Menu;
 use crate::tab_strip::StripTab;
-use crate::ui::{self, white};
+use crate::ui::{self};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, radius, space};
 
@@ -71,19 +71,22 @@ impl Launcher {
                 count: None,
             })
             .collect();
-        let tabs = self
-            .tab_strip(
-                "mods-tab",
-                kinds,
-                open,
-                layout::content_width(self.window_width),
-                |this, kind| this.mods_set_kind(kind),
-                cx,
-            )
-            .mt(px(space::LG));
-        let header = ui::page_head(tr("Mods"), "")
-            .mb_0()
-            .children(target)
+        let tabs = self.tab_strip(
+            "mods-tab",
+            kinds,
+            open,
+            layout::content_width(self.window_width),
+            |this, kind| this.mods_set_kind(kind),
+            cx,
+        );
+        let header = div()
+            .flex()
+            .flex_col()
+            .child(ui::page_head_with(
+                Page::Mods.title(),
+                "",
+                target.map(IntoElement::into_any_element),
+            ))
             .child(tabs);
 
         // Installation can pause for consent in either view. Keep the notice before
@@ -99,7 +102,7 @@ impl Launcher {
                 .child(header)
                 .children(notice)
                 .child(
-                    ui::card(radius::PANEL)
+                    ui::card()
                         .p(px(ui::CARD_PADDING))
                         .children(self.mods_busy_plate())
                         .child(project),
@@ -150,7 +153,7 @@ impl Launcher {
             )
             .child(self.mods_sort(cx))
             .child(self.mods_filters_button(cx));
-        let list = ui::card(radius::PANEL)
+        let list = ui::card()
             .flex()
             .flex_col()
             .flex_1()
@@ -192,7 +195,7 @@ impl Launcher {
                 this.asking = None;
                 cx.notify();
             }));
-            ui::float_card(radius::PANEL)
+            ui::float_card()
                 .flex_none()
                 .w(px(DETAIL))
                 .ml(px(-DETAIL))
@@ -205,7 +208,7 @@ impl Launcher {
                         .child(d),
                 )
                 .children(
-                    ui::more_below_fade(scroll, ui::surface_colour(ui::Surface::Card))
+                    ui::more_below_fade(scroll, ui::surface_colour(ui::Surface::Float))
                         .map(|fade| fade.rounded_b(px(radius::PANEL))),
                 )
                 .child(self.mods_sticky.panel())
@@ -234,7 +237,7 @@ impl Launcher {
             )
         };
 
-        let card = |inner: Div| ui::card(radius::PANEL).p(px(ui::CARD_PADDING)).child(inner);
+        let card = |inner: Div| ui::card().p(px(ui::CARD_PADDING)).child(inner);
         let mut more: Vec<Div> = Vec::new();
         more.extend(self.mods_busy_plate().into_iter().map(card));
         let packs = (self.mods.kind == PackKind::Modpack).then(|| {
@@ -250,8 +253,8 @@ impl Launcher {
             .mods_vanilla_notice(cx)
             .or_else(|| self.mods_modrinth_notice(cx))
             .map(|advice| {
-                ui::card(radius::PANEL)
-                    .p(px(ui::LIST_INSET))
+                ui::card()
+                    .p(px(ui::CARD_PADDING))
                     .mb(px(layout::CARD_GAP))
                     .child(advice)
             });
@@ -306,8 +309,7 @@ impl Launcher {
             .flex()
             .items_center()
             .gap(px(space::MD))
-            .h(px(ui::ButtonSize::Md.height()))
-            .mt(px(space::MD));
+            .h(px(ui::ButtonSize::Md.height()));
         let note = |s: SharedString| {
             ui::text(
                 eclipse_theme::glass::step::LEAD,
@@ -322,7 +324,7 @@ impl Launcher {
         let current = self.selected_instance()?.clone();
         let choices = self.mods_targets(&current);
         let open = self.menu_is(&Menu::ModsTarget);
-        let button = ui::dropdown(
+        let button = ui::labelled_dropdown(
             "mods-target",
             tr("Install to"),
             Some(self.instance_icon(&current, ui::TILE_SM)),
@@ -330,6 +332,10 @@ impl Launcher {
             open,
             ui::ButtonSize::Md,
         );
+        let button = match ui::try_focus_for("opener-mods-target") {
+            Some(focus) => button.track_focus(&focus),
+            None => button,
+        };
         let button = self.menu_opener(button, Menu::ModsTarget, cx);
         let mut wrap = div().relative().flex_none().child(button);
         if open {
@@ -359,7 +365,7 @@ impl Launcher {
                 menu,
             ));
         }
-        Some(row.child(note(tr("Install to").into())).child(wrap))
+        Some(row.child(wrap))
     }
 
     fn mods_targets(&self, current: &Instance) -> Vec<Instance> {
@@ -400,8 +406,7 @@ impl Launcher {
                 VANILLA_ACTION,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
-                this.open_menu = Some(Menu::ModsTarget);
-                this.opened_menu(window, cx);
+                this.open_menu_for(Menu::ModsTarget, "mods-target", window, cx);
                 cx.notify();
             }))
             .into_any_element()
@@ -414,7 +419,7 @@ impl Launcher {
             .chain(choose)
             .collect();
         Some(div().id("mods-vanilla").child(ui::notice(
-            ui::Notice::Info,
+            ui::Notice::InCard,
             "information-circle",
             said,
             actions,
@@ -438,7 +443,7 @@ impl Launcher {
             cx.notify();
         }));
         Some(div().id("mods-modrinth-eclipse").child(ui::notice(
-            ui::Notice::Info,
+            ui::Notice::InCard,
             "information-circle",
             tr("Most Modrinth mods are made for Fabric or Forge and don't run in Eclipse."),
             vec![show.into_any_element()],
@@ -478,11 +483,11 @@ impl Launcher {
             .find(|(value, _)| Some(*value) == shown)
             .map_or("", |(_, label)| *label);
         let open = self.menu_is(&Menu::ModsSort);
-        let button = ui::dropdown(
+        let button = ui::labelled_dropdown(
             "mods-sort",
-            trf("Sort by: {order}", &[("order", tr(name))]),
+            tr("Sort by"),
             None,
-            trf("Sort by: {order}", &[("order", tr(name))]),
+            tr(name),
             open,
             ui::ButtonSize::Md,
         );
@@ -529,13 +534,7 @@ impl Launcher {
                 }),
                 _ => tr("Couldn't search Modrinth"),
             };
-            let error = match e.contains('\n') {
-                true => e.clone(),
-                false => format!(
-                    "{}\n{e}",
-                    tr("Try again later, or copy the details to report it.")
-                ),
-            };
+            let error = e.clone();
             let retry = match self.mods_vanilla_target() {
                 Some(_) => ButtonKind::Secondary,
                 None => ButtonKind::Primary,
@@ -548,7 +547,7 @@ impl Launcher {
                     this.mods_search(0);
                     cx.notify();
                 }),
-                Some(Self::proxy_settings_button("mods-failed", cx)),
+                vec![Self::proxy_settings_button("mods-failed", cx)],
                 retry,
             ));
         }
@@ -643,10 +642,12 @@ impl Launcher {
             None
         };
         let vanilla = self.mods_vanilla_target().is_some();
-        let mut list = div().flex().flex_col();
+        let cursor = ui::options_cursor("mods-results");
+        let mut rows = Vec::new();
+        let mut ids = Vec::new();
         for i in 0..self.mods.results.len() {
             let p = self.mods.results[i].clone();
-            let icon = self.mods_icon(&p, MOD_TILE);
+            let icon = self.mods_icon(&p, ui::TILE_MD);
             let m = &self.mods;
             let installed = m.entry(&p).is_some();
             let busy = m.busy.as_ref().is_some_and(|b| b.0 == p.id);
@@ -684,6 +685,7 @@ impl Launcher {
                             this.mods_install(known.source, known.id.clone(), Some(known.clone()));
                             cx.notify();
                         }))
+                        .when(i != cursor, |b| b.tab_stop(false))
                         .into_any_element()
                 } else {
                     ui::disabled(button).into_any_element()
@@ -714,39 +716,44 @@ impl Launcher {
                 let said = said.filter(|_| !vanilla && support != Support::Works && !checking);
                 let quiet = vanilla || !support.installable();
                 said.map(|said| {
-                    let line = ui::text(
-                        eclipse_theme::glass::step::NOTE,
-                        FontWeight::MEDIUM,
-                        ink::FULL,
-                    );
-                    match quiet {
-                        true => line
-                            .font_weight(FontWeight::NORMAL)
-                            .text_color(white(ink::DIM)),
-                        false => line.text_color(ui::warn()),
-                    }
-                    .child(said)
+                    ui::card_note(ui::state_line(
+                        if quiet { ui::Tone::Off } else { ui::Tone::Warn },
+                        said,
+                    ))
                 })
             };
-            let id = p.id.clone();
+            ids.push(p.id.clone());
             let by = p.author.clone();
             let summary = p.summary.split_whitespace().collect::<Vec<_>>().join(" ");
-            list = list.child(
-                ui::row(row_id, current)
+            rows.push((
+                ui::row(row_id, p.title.clone(), current)
+                    .aria_description(summary.clone())
                     .child(div().relative().child(icon))
                     .child(ui::item_text_by(p.title.clone(), by, summary))
                     .children(right.map(|r| r.flex_none()))
-                    .child(action)
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.mods.picked = Some(id.clone());
-                        this.mods
-                            .float_scroll
-                            .set_offset(gpui::point(px(0.), px(0.)));
-                        this.asking = None;
-                        cx.notify();
-                    })),
-            );
+                    .child(action),
+                SharedString::from(p.title.clone()),
+                current,
+            ));
         }
+        let open = cx.listener(move |this, i: &usize, _, cx| {
+            this.mods.picked = ids.get(*i).cloned();
+            this.mods
+                .float_scroll
+                .set_offset(gpui::point(px(0.), px(0.)));
+            this.asking = None;
+            cx.notify();
+        });
+        let mut list = div().flex().flex_col().child(ui::options(
+            div()
+                .id("mods-results")
+                .aria_label(tr("Results"))
+                .flex()
+                .flex_col(),
+            rows,
+            false,
+            move |i, window, cx| open(&i, window, cx),
+        ));
         if self.mods.more {
             let searching = self.mods.searching;
             let offset = self.mods.results.len();
@@ -755,7 +762,11 @@ impl Launcher {
                     ui::button(
                         "mods-more",
                         None,
-                        tr("Load more"),
+                        if searching {
+                            tr("Loading…")
+                        } else {
+                            tr("Load more")
+                        },
                         ButtonKind::Secondary,
                         ui::ButtonSize::Md,
                     )
@@ -847,11 +858,10 @@ impl Launcher {
             let id = e.project.clone();
             let trash = goes_to_trash(e.kind);
             if confirming {
-                let (question, verb) = removal(e.kind, &e.title);
+                let asked = removal(e.kind, &e.title);
                 ui::confirm(
                     remove_id,
-                    question,
-                    verb,
+                    asked,
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
@@ -926,7 +936,7 @@ impl Launcher {
         };
         let open = p.clone();
         Some(
-            ui::card(radius::PANEL)
+            ui::card()
                 .flex()
                 .flex_col()
                 .p(px(ui::CARD_PADDING))

@@ -17,7 +17,7 @@ pub const SWITCH_EDGE_LIGHT: f32 = 0.56;
 pub const ON_LIGHT: u32 = 0x14151c;
 /// A running game or server, and a ready instance.
 pub const LIVE: u32 = 0x4ade80;
-/// Busy (pulsing) and partly-working states: a red-orange well off the accent's amber.
+/// Busy and partly-working states: a red-orange well off the accent's amber.
 pub const WARN: u32 = 0xff7059;
 /// Destructive menu rows, and the fill under one while hovered.
 pub const DANGER: u32 = 0xff8a8a;
@@ -51,8 +51,8 @@ pub struct TextStep {
 pub mod step {
     use super::TextStep;
     pub const LABEL: TextStep = TextStep {
-        size: 11.,
-        line: 14.,
+        size: 12.,
+        line: 16.,
     };
     pub const CAPTION: TextStep = TextStep {
         size: 12.,
@@ -77,6 +77,10 @@ pub mod step {
     pub const FIGURE: TextStep = TextStep {
         size: 22.,
         line: 28.,
+    };
+    pub const CODE: TextStep = TextStep {
+        size: 28.,
+        line: 36.,
     };
 }
 
@@ -184,7 +188,6 @@ impl Glass {
         [
             ("accent", hex(self.accent)),
             ("accent-soft", hex(self.accent_soft)),
-            ("base", hex(self.plate)),
             ("on-accent", hex(self.on_accent)),
             ("page", hex(PAGE)),
             ("live", hex(LIVE)),

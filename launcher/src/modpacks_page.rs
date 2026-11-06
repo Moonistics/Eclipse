@@ -6,7 +6,7 @@ use crate::ui::{self, white};
 use eclipse_launcher::browser::eclipse::pack as eclipse_pack;
 use eclipse_launcher::modpacks::{self, Imported};
 use eclipse_port_pack::report::Status;
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use std::path::PathBuf;
 
 /// The report's filter: every row, or one status.
@@ -21,13 +21,22 @@ pub(super) const FILTERS: [(Option<Status>, &str); 5] = [
 /// Lines of the pipeline's log the page shows while it works.
 const LOG_SHOWN: usize = 6;
 
-const NOTE_WIDTH: f32 = 720.;
-
 const COUNT_MIN: f32 = 120.;
+
+#[derive(Default)]
+pub(super) struct Modpacks {
+    pub(super) registry: Vec<eclipse_pack::Installed>,
+    pub(super) loaded: Option<Instant>,
+    pub(super) open: Option<String>,
+    pub(super) filter: Option<Status>,
+    pub(super) busy: bool,
+    pub(super) log: VecDeque<String>,
+    pub(super) error: Option<String>,
+}
 
 impl Launcher {
     fn open_pack(&self) -> Option<&Imported> {
-        let slug = self.pack_open.as_ref()?;
+        let slug = self.modpacks.open.as_ref()?;
         self.packs.iter().find(|p| &p.slug == slug)
     }
 
@@ -36,12 +45,12 @@ impl Launcher {
         &mut self,
         job: impl FnOnce(&dyn Fn(String)) -> Result<Imported, String> + Send + 'static,
     ) {
-        if self.pack_busy {
+        if self.modpacks.busy {
             return;
         }
-        self.pack_busy = true;
-        self.pack_log.clear();
-        self.pack_error = None;
+        self.modpacks.busy = true;
+        self.modpacks.log.clear();
+        self.modpacks.error = None;
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let lines = tx.clone();
@@ -55,16 +64,16 @@ impl Launcher {
 
     /// A finished step: the pack's new state, opened.
     pub(super) fn pack_done(&mut self, result: Result<Box<Imported>, String>) {
-        self.pack_busy = false;
+        self.modpacks.busy = false;
         match result {
             Ok(pack) => {
                 self.mods.report_list.reset();
-                self.pack_open = Some(pack.slug.clone());
+                self.modpacks.open = Some(pack.slug.clone());
                 self.packs.retain(|p| p.slug != pack.slug);
                 self.packs.push(*pack);
                 self.packs.sort_by_key(|p| p.title().to_ascii_lowercase());
             }
-            Err(e) => self.pack_error = Some(e),
+            Err(e) => self.modpacks.error = Some(e),
         }
     }
 
@@ -135,33 +144,33 @@ impl Launcher {
         if !self.can_start(&tag) {
             return;
         }
-        self.starting_pack = Some(work);
+        self.game.pack = Some(work);
         self.start_client(tag);
     }
 
     /// Reads the imported packs, once (the sidebar and the Modpacks tab both show them).
     pub(super) fn load_packs(&mut self) {
-        if self.packs_loaded.is_none() {
+        if self.modpacks.loaded.is_none() {
             self.mods.report_list.reset();
             self.packs = modpacks::list();
-            self.registry_packs = eclipse_pack::list();
+            self.modpacks.registry = eclipse_pack::list();
             self.reload_instances();
-            if self.pack_open.is_none() {
-                self.pack_open = self.packs.first().map(|p| p.slug.clone());
+            if self.modpacks.open.is_none() {
+                self.modpacks.open = self.packs.first().map(|p| p.slug.clone());
             }
-            self.packs_loaded = Some(Instant::now());
+            self.modpacks.loaded = Some(Instant::now());
         }
     }
 
     /// The imported packs, above the Modpacks tab's search.
     pub(super) fn imported_packs(&mut self, cx: &mut Context<Self>) -> Div {
         self.load_packs();
-        let busy = self.pack_busy;
+        let busy = self.modpacks.busy;
         let pick = |id: &'static str, label: &'static str, folder: bool| {
             let b = ui::button(
                 id,
                 None,
-                tr(label),
+                if busy { tr("Importing…") } else { tr(label) },
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
@@ -190,41 +199,47 @@ impl Launcher {
                     .flex()
                     .flex_col()
                     .gap(px(ui::TITLE_NOTE_GAP))
-                    .child(ui::section_title(tr("Your modpacks")))
+                    .child(ui::section_title("modpacks-title", tr("Your modpacks")))
                     .child(ui::card_note(tr(
                         "A .mrpack, a CurseForge .zip, or a Prism, MultiMC or CurseForge instance.",
                     ))),
             )
             .child(actions);
-        if busy || !self.pack_log.is_empty() {
+        if busy || !self.modpacks.log.is_empty() {
             page = page.child(self.pack_log_plate());
         }
-        if let Some(e) = &self.pack_error {
+        if let Some(e) = &self.modpacks.error {
             page = page.child(ui::error_note(e.clone()));
         }
-        if !self.registry_packs.is_empty() {
+        if !self.modpacks.registry.is_empty() {
             page = page.child(self.registry_pack_rows(cx));
         }
-        if self.packs.is_empty() && !self.registry_packs.is_empty() {
+        if self.packs.is_empty() && !self.modpacks.registry.is_empty() {
             return page;
         }
         if self.packs.is_empty() {
-            return page.child(ui::empty().p_0().child(tr("No modpacks yet.")));
+            return page.child(ui::empty().child(tr("No modpacks yet.")));
         }
         if self.packs.len() > 1 {
             let mut list = div().flex().flex_col();
             for p in self.packs.iter() {
-                let open = self.pack_open.as_ref() == Some(&p.slug);
+                let open = self.modpacks.open.as_ref() == Some(&p.slug);
                 let slug = p.slug.clone();
                 list = list.child(
-                    ui::row(SharedString::from(format!("open-{slug}")), open)
-                        .pr(px(space::MD))
-                        .child(ui::item_text(p.title().to_string(), p.summary()))
-                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                            this.pack_open = Some(slug.clone());
+                    ui::row(
+                        SharedString::from(format!("open-{slug}")),
+                        p.title().to_string(),
+                        open,
+                    )
+                    .pr(px(space::MD))
+                    .child(ui::item_text(p.title().to_string(), p.summary()))
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.modpacks.open = Some(slug.clone());
                             this.mods.report_list.reset();
                             cx.notify();
-                        })),
+                        },
+                    )),
                 );
             }
             page = page.child(list);
@@ -238,7 +253,7 @@ impl Launcher {
     /// The modpacks installed from Eclipse's registry: each plays its own profile.
     fn registry_pack_rows(&self, cx: &mut Context<Self>) -> Div {
         let mut list = div().flex().flex_col();
-        for p in self.registry_packs.iter() {
+        for p in self.modpacks.registry.iter() {
             let play = p.work.clone();
             let id = p.id.clone();
             let key = Asking::RegistryPack(id.clone());
@@ -248,8 +263,7 @@ impl Launcher {
                 let gone = format!("pack:{id}");
                 div().flex_none().child(ui::confirm(
                     remove_id,
-                    trf("Delete {name}?", &[("name", &p.name)]),
-                    tr("Delete"),
+                    ui::Confirm::Delete(&p.name),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
@@ -307,7 +321,7 @@ impl Launcher {
         key: Asking,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        if self.client.is_some() || self.starting_client.is_some() {
+        if self.game.client.is_some() || self.game.starting.is_some() {
             return ui::unavailable(opener, tr("Close the game first"));
         }
         opener.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -319,33 +333,33 @@ impl Launcher {
     fn delete_pack(&mut self, instance: &str) {
         self.asking = None;
         self.delete_instance(instance);
-        self.pack_open = None;
-        self.packs_loaded = None;
+        self.modpacks.open = None;
+        self.modpacks.loaded = None;
         self.mods.report_list.reset();
     }
 
     fn pack_log_plate(&self) -> Div {
-        let start = self.pack_log.len().saturating_sub(LOG_SHOWN);
-        div()
+        let start = self.modpacks.log.len().saturating_sub(LOG_SHOWN);
+        ui::well()
             .flex()
             .flex_col()
             .gap(px(space::XS))
-            .p(px(ui::PANEL_INSET))
-            .rounded(px(radius::ROW))
-            .bg(ui::inset())
             .child(
                 ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(
-                    if self.pack_busy {
+                    if self.modpacks.busy {
                         ui::Tone::Busy
                     } else {
                         ui::Tone::Live
                     },
-                    tr(if self.pack_busy { "Working" } else { "Done" }),
+                    tr(if self.modpacks.busy {
+                        "Working"
+                    } else {
+                        "Done"
+                    }),
                 )),
             )
-            .children(self.pack_log.iter().skip(start).map(|line| {
-                ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
-                    .font_family(theme::MONO)
+            .children(self.modpacks.log.iter().skip(start).map(|line| {
+                ui::mono(step::CAPTION, ink::MUTED)
                     .truncate()
                     .child(line.clone())
             }))
@@ -362,15 +376,12 @@ impl Launcher {
                 _ => white(ink::FULL),
             };
             counts = counts.child(
-                div()
+                ui::well()
                     .flex()
                     .flex_col()
                     .flex_1()
                     .min_w(px(COUNT_MIN))
                     .gap(px(space::XS))
-                    .p(px(ui::PANEL_INSET))
-                    .rounded(px(radius::ROW))
-                    .bg(ui::inset())
                     .child(
                         ui::text(step::FIGURE, FontWeight::SEMIBOLD, ink::FULL)
                             .text_color(color)
@@ -397,7 +408,7 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        if !p.can_play() || !can_play || self.pack_busy {
+        if !p.can_play() || !can_play || self.modpacks.busy {
             play = ui::disabled(play);
         } else {
             let work = p.work.clone();
@@ -436,7 +447,7 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        if self.pack_busy || !p.can_port() {
+        if self.modpacks.busy || !p.can_port() {
             port = ui::disabled(port);
             from = ui::disabled(from);
         } else {
@@ -458,8 +469,7 @@ impl Launcher {
             let gone = format!("port:{}", p.slug);
             ui::confirm(
                 "pack-remove",
-                trf("Delete {name}?", &[("name", &p.pack.name)]),
-                tr("Delete"),
+                ui::Confirm::Delete(&p.pack.name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();
@@ -506,69 +516,66 @@ impl Launcher {
         let mut rows: Vec<&eclipse_port_pack::report::Row> = p
             .rows
             .iter()
-            .filter(|r| self.pack_filter.is_none_or(|s| r.status == s))
+            .filter(|r| self.modpacks.filter.is_none_or(|s| r.status == s))
             .collect();
         rows.sort_by(|a, b| (a.status, &a.key).cmp(&(b.status, &b.key)));
         let filter = ui::segments(
             "pack-filter",
             &ui::translated(&FILTERS),
-            self.pack_filter,
+            self.modpacks.filter,
             {
                 let this = cx.entity().downgrade();
                 move |value, _, cx| {
                     let _ = this.update(cx, |this, cx| {
-                        this.pack_filter = value;
+                        this.modpacks.filter = value;
                         this.mods.report_list.reset();
                         cx.notify();
                     });
                 }
             },
         );
-        let row =
-            |i: usize| {
-                let r = rows[i];
-                let (tone, status_label) = match r.status {
-                    Status::Ported => (ui::Tone::Live, tr("Ported")),
-                    Status::Partial => (ui::Tone::Accent(ui::look().accent_soft), tr("Partial")),
-                    Status::NotYet => (ui::Tone::Warn, tr("Not yet")),
-                    Status::NotNeeded => (ui::Tone::Off, tr("Not needed")),
-                };
-                let name = if r.name.is_empty() || r.name == r.key {
-                    r.key.clone()
-                } else {
-                    format!("{}  ({})", r.name, r.key)
-                };
-                // What it means in plain words, then the technical terms for modders. A report an
-                // older build wrote has no plain words.
-                let technical = format!("{} · {} · {}: {}", r.class, r.tier, r.license, r.reason);
-                let mut text = div()
-                    .flex()
-                    .flex_col()
-                    .flex_1()
-                    .min_w_0()
-                    .gap(px(space::XXS))
-                    .child(
-                        ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
-                            .truncate()
-                            .child(name),
-                    );
-                if !r.plain.is_empty() {
-                    text = text.child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-                            .child(modpacks::row_plain(r)),
-                    );
-                }
-                ui::list_row(SharedString::from(format!("pack-row-{}", r.key)), false)
-                    .items_start()
-                    .child(text.child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(technical),
-                    ))
-                    .child(
-                        ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
-                            .flex_none()
-                            .child(ui::state_line(tone, status_label)),
-                    )
+        let row = |i: usize| {
+            let r = rows[i];
+            let (tone, status_label) = match r.status {
+                Status::Ported => (ui::Tone::Live, tr("Ported")),
+                Status::Partial => (ui::Tone::Accent(ui::look().accent_soft), tr("Partial")),
+                Status::NotYet => (ui::Tone::Warn, tr("Not yet")),
+                Status::NotNeeded => (ui::Tone::Off, tr("Not needed")),
             };
+            let name = if r.name.is_empty() || r.name == r.key {
+                r.key.clone()
+            } else {
+                format!("{}  ({})", r.name, r.key)
+            };
+            // What it means in plain words, then the technical terms for modders. A report an
+            // older build wrote has no plain words.
+            let technical = format!("{} · {} · {}: {}", r.class, r.tier, r.license, r.reason);
+            let mut text = div()
+                .flex()
+                .flex_col()
+                .flex_1()
+                .min_w_0()
+                .gap(px(space::XXS))
+                .child(
+                    ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                        .truncate()
+                        .child(name),
+                );
+            if !r.plain.is_empty() {
+                text = text.child(
+                    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                        .child(modpacks::row_plain(r)),
+                );
+            }
+            ui::list_row(SharedString::from(format!("pack-row-{}", r.key)), false)
+                .items_start()
+                .child(text.child(ui::card_note(technical)))
+                .child(
+                    ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY)
+                        .flex_none()
+                        .child(ui::state_line(tone, status_label)),
+                )
+        };
         let headline = p.headline();
         let list = self.mods.report_list.column(
             &self.content_scroll.handle,
@@ -598,23 +605,23 @@ impl Launcher {
                         .flex()
                         .flex_col()
                         .gap(px(space::SM))
-                        .max_w(px(NOTE_WIDTH))
+                        .max_w(px(layout::MEASURE_TEXT))
                         .children(headline.into_iter().enumerate().map(|(i, line)| {
                             if i == 0 {
                                 ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(line)
                             } else {
-                                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(line)
+                                ui::card_note(line)
                             }
                         }))
                 }))
                 .child(counts)
                 .child(buttons)
-                .children(self.client_error.clone().map(ui::error_note))
-                .children(notes.into_iter().map(|n| {
-                    ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                        .max_w(px(NOTE_WIDTH))
-                        .child(n)
-                }))
+                .children(self.game.error.clone().map(ui::error_note))
+                .children(
+                    notes
+                        .into_iter()
+                        .map(|n| ui::card_note(n).max_w(px(layout::MEASURE_TEXT))),
+                )
                 .child(div().flex().child(filter))
                 .child(list),
         )

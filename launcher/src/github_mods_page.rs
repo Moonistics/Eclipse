@@ -6,7 +6,7 @@ use super::*;
 use crate::menus::Asking;
 use crate::ui::{self};
 use eclipse_launcher::github_mods::{self, Origin, Packed, Resolved};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use std::path::{Path, PathBuf};
 
 enum Event {
@@ -222,7 +222,10 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(space::MD))
-            .child(ui::section_title(tr("Add a native mod from GitHub")))
+            .child(ui::section_title(
+                "github-add-title",
+                tr("Add a native mod from GitHub"),
+            ))
             .child(
                 div()
                     .flex()
@@ -276,54 +279,55 @@ impl Launcher {
         };
         let (url, open) = (found.source_url(), found.source_url());
         let install = found.clone();
-        div()
+        let said = div()
             .flex()
             .flex_col()
-            .gap(px(space::MD))
-            .p(px(ui::PANEL_INSET))
-            .rounded(px(radius::ROW))
-            .bg(ui::inset())
-            .child(ui::error_note(tr("Not reviewed by the Eclipse registry")))
+            .gap(px(space::XS))
             .child(
-                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
-                    .flex()
-                    .flex_col()
-                    .gap(px(space::XS))
-                    .child(what)
-                    .child(tr(
-                        "Native mods run with full access to this computer. Read the source before you install it.",
-                    )),
+                ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                    .child(tr("Not reviewed by the Eclipse registry")),
             )
-            .child(
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                    .font_family(theme::MONO)
-                    .child(url),
+            .child(what)
+            .child(tr(
+                "Native mods run with full access to this computer. Read the source before you install it.",
+            ))
+            .child(ui::mono(step::NOTE, ink::MUTED).child(url));
+        let actions = vec![
+            ui::button(
+                "github-cancel",
+                None,
+                tr("Cancel"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
             )
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .gap(px(space::SM))
-                    .child(
-                        ui::button("github-trust", None, tr("I read it and trust it: install"), ButtonKind::Secondary, ui::ButtonSize::Md)
-                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                this.github_install(install.clone(), only.clone());
-                                cx.notify();
-                            })),
-                    )
-                    .child(
-                        ui::button("github-source", None, tr("Open the source"), ButtonKind::Secondary, ui::ButtonSize::Md)
-                            .on_press(move |_, _, cx| cx.open_url(&open)),
-                    )
-                    .child(
-                        ui::button("github-cancel", None, tr("Cancel"), ButtonKind::Ghost, ui::ButtonSize::Md).on_press(cx.listener(
-                            |this, _: &ClickEvent, _, cx| {
-                                this.github.stage = Stage::Idle;
-                                cx.notify();
-                            },
-                        )),
-                    ),
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.github.stage = Stage::Idle;
+                cx.notify();
+            }))
+            .into_any_element(),
+            ui::button(
+                "github-source",
+                None,
+                tr("Open the source"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
             )
+            .on_press(move |_, _, cx| cx.open_url(&open))
+            .into_any_element(),
+            ui::button(
+                "github-trust",
+                None,
+                tr("I read it and trust it: install"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.github_install(install.clone(), only.clone());
+                cx.notify();
+            }))
+            .into_any_element(),
+        ];
+        ui::notice(ui::Notice::Warn, "alert-circle", said, actions)
     }
 
     /// A source with several mods: one, or all.
@@ -359,13 +363,10 @@ impl Launcher {
                 cx.notify();
             })),
         );
-        div()
+        ui::well()
             .flex()
             .flex_col()
             .gap(px(space::MD))
-            .p(px(ui::PANEL_INSET))
-            .rounded(px(radius::ROW))
-            .bg(ui::inset())
             .child(
                 ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(trf(
                     "{name} holds {count} mods. Install which?",
@@ -474,11 +475,10 @@ impl Launcher {
         let confirming = self.is_asking(&Asking::GithubMod(row.file.clone()));
         let remove_id = SharedString::from(format!("native-remove-{}", row.file));
         if confirming && !busy {
-            let row = row.clone();
+            let (row, name) = (row.clone(), row.id.clone());
             return div().flex_none().child(ui::confirm(
                 remove_id,
-                trf("Remove {name}?", &[("name", &row.id)]),
-                tr("Remove"),
+                ui::Confirm::Remove(&name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();
@@ -527,7 +527,7 @@ impl Launcher {
             SharedString::from(format!("native-row-{}", row.id)),
             confirming,
         )
-        .child(icons::slot(None, &row.id, mods_page::MOD_TILE))
+        .child(icons::slot(None, &row.id, ui::TILE_MD))
         .child(ui::item_text(
             row.id.clone(),
             format!("{} · {source}", row.version),

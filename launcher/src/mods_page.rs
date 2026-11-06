@@ -16,7 +16,7 @@ use eclipse_launcher::browser::{
 use eclipse_launcher::modpacks;
 use eclipse_launcher::native_status;
 use eclipse_port_pack::check::Check;
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use java_instance::Target;
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -37,7 +37,6 @@ pub(super) const SOURCES: [(SourceId, &str); 2] = [
     (SourceId::Modrinth, "Modrinth"),
 ];
 const PAGE: usize = 20;
-pub(super) const MOD_TILE: f32 = ui::TILE_MD;
 const MODS_SEARCH_WIDTH: f32 = 600.;
 
 #[path = "mods_view.rs"]
@@ -321,7 +320,7 @@ impl Launcher {
     pub(super) fn show_modpack(&mut self, slug: Option<String>) {
         self.show_mods(PackKind::Modpack);
         if slug.is_some() {
-            self.pack_open = slug;
+            self.modpacks.open = slug;
             self.mods.report_list.reset();
         }
     }
@@ -383,7 +382,7 @@ impl Launcher {
                     m.installed_list.reset();
                     if modpack {
                         // The Modpacks page reads its list again.
-                        self.packs_loaded = None;
+                        self.modpacks.loaded = None;
                     }
                 }
                 Event::Updates(found) => m.updates = found,
@@ -1095,7 +1094,7 @@ impl Launcher {
 
     /// The world data packs go into: one of the instance's, picked here.
     fn mods_world_picker(&self, instance: &str, cx: &mut Context<Self>) -> Div {
-        let note = |s: String| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(s);
+        let note = |s: String| ui::card_note(s);
         if self.mods.worlds.is_empty() {
             return div().child(note(trf(
                 "{instance} has no worlds yet. Create one in the game first.",
@@ -1153,16 +1152,12 @@ impl Launcher {
             }
             cx.notify();
         }));
-        Some(
-            ui::card(radius::PANEL)
-                .p(px(ui::LIST_INSET))
-                .child(ui::notice(
-                    ui::Notice::Warn,
-                    "alert-circle",
-                    tr(native_status::NOTICE),
-                    vec![cancel.into_any_element(), install.into_any_element()],
-                )),
-        )
+        Some(ui::card().p(px(ui::LIST_INSET)).child(ui::notice(
+            ui::Notice::Warn,
+            "alert-circle",
+            tr(native_status::NOTICE),
+            vec![cancel.into_any_element(), install.into_any_element()],
+        )))
     }
 
     /// The install under way and the last install's answer.
@@ -1192,11 +1187,7 @@ impl Launcher {
                             ),
                     )
                     .child(ui::bar(*f))
-                    .child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                            .truncate()
-                            .child(line.clone()),
-                    ),
+                    .child(ui::card_note(line.clone()).truncate()),
             );
         }
         match &self.mods.message {
@@ -1346,11 +1337,10 @@ impl Launcher {
             right = right.child(remove);
             if confirming {
                 let id = e.project.clone();
-                let (question, verb) = removal(e.kind, &e.title);
+                let asked = removal(e.kind, &e.title);
                 right = div().flex_none().child(ui::confirm(
                     remove_id,
-                    question,
-                    verb,
+                    asked,
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
@@ -1378,7 +1368,7 @@ impl Launcher {
                 .collect::<Vec<_>>()
                 .join(" · ");
             let skipped = (!e.skipped.is_empty()).then(|| {
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(ui::state_line(
+                ui::card_note(ui::state_line(
                     ui::Tone::Warn,
                     trf("Not ported: {item}", &[("item", &e.skipped.join(", "))]),
                 ))
@@ -1386,7 +1376,7 @@ impl Launcher {
             let icon = icons::slot(
                 icons[i].clone().map(gpui::ImageSource::from),
                 &e.title,
-                MOD_TILE,
+                ui::TILE_MD,
             );
             ui::list_row(
                 SharedString::from(format!("mods-installed-{}", e.project)),
@@ -1429,6 +1419,7 @@ impl Launcher {
             row,
         );
         Some(ui::field_group(
+            "mods-installed-title",
             tr("Installed"),
             update_all.map(IntoElement::into_any_element),
             div()
@@ -1480,9 +1471,9 @@ impl Launcher {
                     (!pinned.is_empty() && self.installed.contains(&b.base)).then(|| b.base.clone())
                 })
             });
-        let mine = self.native_for.as_deref() == Some(instance.id.as_str());
-        let step = self.native_step.as_ref().filter(|_| mine);
-        let error = self.native_error.as_ref().filter(|_| mine);
+        let mine = self.native.for_instance.as_deref() == Some(instance.id.as_str());
+        let step = self.native.step.as_ref().filter(|_| mine);
+        let error = self.native.error.as_ref().filter(|_| mine);
         let name = [("instance", instance.name.as_str())];
         let line = |s: String| div().child(s);
         let (status, badge) = match (step, error, state) {
@@ -1490,7 +1481,7 @@ impl Launcher {
                 line(format!(
                     "{step} - {}",
                     native_mods::duration_label(
-                        self.native_started.map_or(0, |(s, _)| s.elapsed().as_secs())
+                        self.native.started.map_or(0, |(s, _)| s.elapsed().as_secs())
                     )
                 ))
                 .text_color(ui::color(ui::look().accent_soft)),
@@ -1522,7 +1513,7 @@ impl Launcher {
             .flex_col()
             .gap(px(space::XS))
             .child(status);
-        if let Some(done) = self.native_done.as_ref().filter(|_| mine && step.is_none()) {
+        if let Some(done) = self.native.done.as_ref().filter(|_| mine && step.is_none()) {
             detail = detail.child(div().text_color(white(ink::MUTED)).child(done.clone()));
         }
         if let (Some(tag), Some(build)) = (&version, &build) {
@@ -1546,9 +1537,10 @@ impl Launcher {
                 detail = detail.child(div().text_color(ui::warn()).child(left.label()));
             }
         }
-        if self.native_step.is_some() && !mine {
+        if self.native.step.is_some() && !mine {
             let other = self
-                .native_for
+                .native
+                .for_instance
                 .as_deref()
                 .and_then(|id| self.instances.list.iter().find(|i| i.id == id));
             detail = detail.child(div().text_color(white(ink::MUTED)).child(trf(
@@ -1557,12 +1549,13 @@ impl Launcher {
             )));
         }
         let mismatch = self
-            .native_step
+            .native
+            .step
             .is_none()
-            .then_some(self.native_mismatch.as_ref())
+            .then_some(self.native.mismatch.as_ref())
             .flatten();
         let idle =
-            self.native_step.is_none() && self.native_confirm.is_none() && mismatch.is_none();
+            self.native.step.is_none() && self.native.confirm.is_none() && mismatch.is_none();
         let can_build =
             idle && (error.is_some() || matches!(state, State::NotBuilt | State::Outdated));
         let mut right = div()
@@ -1587,9 +1580,9 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.native_update = Some(newer.clone());
-                    this.native_on_base = true;
-                    this.native_confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
+                    this.native.update = Some(newer.clone());
+                    this.native.on_base = true;
+                    this.native.confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
                     cx.notify();
                 })),
             );
@@ -1604,9 +1597,9 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.native_update = None;
-                    this.native_on_base = false;
-                    this.native_confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
+                    this.native.update = None;
+                    this.native.on_base = false;
+                    this.native.confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
                     cx.notify();
                 })),
             );
@@ -1625,18 +1618,15 @@ impl Launcher {
         if let Some(list) = mismatch {
             detail = detail.child(self.native_mismatch_panel(list, cx));
         }
-        if let Some(mods) = &self.native_confirm {
+        if let Some(mods) = &self.native.confirm {
             detail = detail.child(self.native_warning(mods, cx));
         }
         Some(
-            div()
+            ui::well()
                 .id("native-build")
                 .flex()
                 .items_start()
                 .gap(px(space::LG))
-                .p(px(ui::PANEL_INSET))
-                .rounded(px(radius::ROW))
-                .bg(ui::inset())
                 .child(
                     div()
                         .flex()
@@ -1713,10 +1703,10 @@ fn goes_to_trash(kind: PackKind) -> bool {
     kind != PackKind::Mod
 }
 
-fn removal(kind: PackKind, name: &str) -> (String, &'static str) {
+fn removal(kind: PackKind, name: &str) -> ui::Confirm<'_> {
     match goes_to_trash(kind) {
-        true => (trf("Delete {name}?", &[("name", name)]), tr("Delete")),
-        false => (trf("Remove {name}?", &[("name", name)]), tr("Remove")),
+        true => ui::Confirm::Delete(name),
+        false => ui::Confirm::Remove(name),
     }
 }
 
@@ -1749,7 +1739,7 @@ impl Launcher {
             .child(tr("They can read, change or delete your files and use your accounts. Build them only if you trust their authors.").to_string())
             .child(trf("Mods: {mods}", &[("mods", &list)]))
             .child(tr("The first build takes 20 to 30 minutes and a few GB of disk. Later ones take a few minutes.").to_string())
-            .children(self.native_update.as_ref().map(|newer| {
+            .children(self.native.update.as_ref().map(|newer| {
                 div().text_color(ui::warn()).child(trf(
                     "This moves the instance to Eclipse {version}. It compiles the game from scratch, so it takes longer than a normal rebuild: up to 30 minutes.",
                     &[("version", &native_status::eclipse_label(newer))],
@@ -1781,9 +1771,9 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.native_confirm = None;
-                    this.native_update = None;
-                    this.native_on_base = false;
+                    this.native.confirm = None;
+                    this.native.update = None;
+                    this.native.on_base = false;
                     cx.notify();
                 })),
             ),
@@ -1813,7 +1803,7 @@ impl Launcher {
                     .child(
                         ui::button("native-mismatch-cancel", None, tr("Cancel"), ButtonKind::Ghost, ui::ButtonSize::Md).on_press(
                             cx.listener(|this, _: &ClickEvent, _, cx| {
-                                this.native_mismatch = None;
+                                this.native.mismatch = None;
                                 cx.notify();
                             }),
                         ),

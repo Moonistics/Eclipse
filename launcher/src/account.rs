@@ -28,6 +28,7 @@ pub const NOT_CONFIGURED: &str =
 /// What every Play says while no account in the launcher owns the game.
 pub const NEEDS_OWNER: &str =
     "Sign in with a Microsoft account that owns Minecraft: Java Edition to play";
+pub const DEFAULT_PLAYER: &str = "Player";
 const DOES_NOT_OWN: &str = "This account doesn't own Minecraft: Java Edition.";
 const NO_PROFILE: &str =
     "This account has no Minecraft profile yet. Create one at minecraft.net, then sign in again.";

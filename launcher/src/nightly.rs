@@ -49,6 +49,12 @@ pub fn label(version: &str) -> Option<String> {
     })
 }
 
+pub fn display_name(version: &str) -> String {
+    label(version)
+        .or_else(|| crate::build_import::label(version))
+        .unwrap_or_else(|| version.trim_start_matches('v').to_string())
+}
+
 fn is_date(text: &str) -> bool {
     text.len() == 10
         && text.chars().enumerate().all(|(i, c)| {

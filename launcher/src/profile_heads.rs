@@ -5,7 +5,7 @@ use eclipse_theme::glass::{fill, ink};
 use gpui::{img, RenderImage};
 use std::{
     cell::RefCell,
-    path::PathBuf,
+    path::{Path, PathBuf},
     sync::Arc,
     time::{Duration, Instant},
 };
@@ -16,7 +16,7 @@ const RETRY: Duration = Duration::from_secs(60);
 const BIG_HEAD: f32 = 64.;
 
 #[derive(Default)]
-pub(super) struct Heads(HashMap<String, Head>);
+pub(super) struct Heads(HashMap<String, Head>, HashMap<String, Head>);
 
 struct Head {
     url: Option<String>,
@@ -130,33 +130,48 @@ impl Heads {
     }
 
     pub fn draw(&self, uuid: Option<&str>, size: f32, scale: f32) -> Div {
-        let image = uuid.and_then(|uuid| self.0.get(uuid)).and_then(|head| {
-            let face = head.face.as_ref()?;
-            Some(
-                head.images
-                    .borrow_mut()
-                    .entry((size.to_bits(), scale.to_bits()))
-                    .or_insert_with(|| art::bake(face, 8, 8, size / 8., scale))
-                    .clone(),
-            )
+        face_tile(uuid.and_then(|uuid| self.0.get(uuid)), size, scale)
+    }
+
+    pub fn draw_player(&mut self, uuid: &str, resources: &Path, size: f32, scale: f32) -> Div {
+        let head = self.1.entry(uuid.to_string()).or_insert_with(|| Head {
+            url: None,
+            pending: false,
+            face: eclipse_launcher::heads::default_face(resources, uuid),
+            retry_at: None,
+            images: RefCell::default(),
         });
-        let d = div()
-            .flex_none()
-            .size(px(size))
-            .overflow_hidden()
-            .bg(ui::white(fill::BUTTON))
-            .flex()
-            .items_center()
-            .justify_center();
-        let placeholder = if size >= BIG_HEAD {
-            ui::IconSize::Px32
-        } else {
-            ui::IconSize::Px16
-        };
-        match image {
-            Some(image) => d.child(img(image).size(px(size))),
-            None => d.child(ui::icon("user", placeholder, ui::white(ink::MUTED))),
-        }
+        face_tile(Some(head), size, scale)
+    }
+}
+
+fn face_tile(head: Option<&Head>, size: f32, scale: f32) -> Div {
+    let image = head.and_then(|head| {
+        let face = head.face.as_ref()?;
+        Some(
+            head.images
+                .borrow_mut()
+                .entry((size.to_bits(), scale.to_bits()))
+                .or_insert_with(|| art::bake(face, 8, 8, size / 8., scale))
+                .clone(),
+        )
+    });
+    let d = div()
+        .flex_none()
+        .size(px(size))
+        .overflow_hidden()
+        .bg(ui::white(fill::BUTTON))
+        .flex()
+        .items_center()
+        .justify_center();
+    let placeholder = if size >= BIG_HEAD {
+        ui::IconSize::Px32
+    } else {
+        ui::IconSize::Px16
+    };
+    match image {
+        Some(image) => d.child(img(image).size(px(size))),
+        None => d.child(ui::icon("user", placeholder, ui::white(ink::MUTED))),
     }
 }
 

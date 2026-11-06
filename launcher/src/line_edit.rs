@@ -534,15 +534,26 @@ pub(super) fn content_with(
 ) -> Div {
     let (color, full) = (ui::white(ink::DIM), ui::white(ink::FULL));
     if edit.text.is_empty() && !focused {
-        return div().text_color(color).child(placeholder);
+        return div()
+            .min_w_0()
+            .truncate()
+            .text_color(color)
+            .child(placeholder);
     }
     // A focused empty field keeps its placeholder after the caret, as a browser's does.
     if edit.text.is_empty() {
         return div()
             .flex()
             .items_center()
+            .min_w_0()
             .child(div().flex_none().w(px(1.)).h(px(CARET)).bg(full))
-            .child(div().text_color(color).child(placeholder));
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(color)
+                    .child(placeholder),
+            );
     }
     let (before, selected, after, caret_first) = edit.view(whole);
     let text = |s: String| {

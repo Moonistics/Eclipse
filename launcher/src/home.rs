@@ -50,14 +50,14 @@ impl Launcher {
                     ("total", &thousands(total as u64)),
                 ],
             ),
-            (None, _) => self.prepare_log.back().cloned().unwrap_or_default(),
+            (None, _) => self.game.log.back().cloned().unwrap_or_default(),
         };
         let left = left.map(|d| match d.as_secs().div_ceil(60) {
             0 | 1 => tr("about a minute left").to_string(),
             m => trf("about {n} min left", &[("n", &m.to_string())]),
         });
         // Play is the last step when it was pressed, not Prepare.
-        let play = self.play_when_prepared.is_some();
+        let play = self.game.play_when_prepared.is_some();
         let soft = ui::look().accent_soft;
         let pill = |name: &str, state: std::cmp::Ordering| {
             let (mark, tone) = match state {
@@ -175,7 +175,8 @@ impl Launcher {
             .as_ref()
             .map_or_else(|| backend::game_version(&tag), |j| j.minecraft.clone());
         let left = self.download_left();
-        let steps = self.preparing.then(|| self.steps(&version, left));
+        let preparing = matches!(self.selected_play_state(), PlayState::Preparing(_));
+        let steps = preparing.then(|| self.steps(&version, left));
         let banner = div()
             .flex()
             .flex_col()
@@ -183,17 +184,17 @@ impl Launcher {
             .child(self.home_head(&tag, prepared, cx))
             .children(steps);
         let mut page = div().flex().flex_col().gap(px(space::XL)).child(banner);
-        if let Some(e) = self.prepare_error.clone() {
+        if let Some(e) = self.shown_prepare_error().cloned() {
             page = page.child(ui::error_card(e));
         }
         page = page
             .children(self.export_panel(cx))
             .children(self.launch_panel(cx))
             .child(self.home_tab_card(cx));
-        if let Some(e) = self.client_error.clone() {
+        if let Some(e) = self.shown_game_error().cloned() {
             page = page.child(ui::error_card(e));
         }
-        if let Some(crash) = self.crash.clone() {
+        if let Some(crash) = self.shown_crash().cloned() {
             page = page.child(self.crash_notice(crash, cx));
         }
         page
@@ -238,7 +239,7 @@ impl Launcher {
                     this.fetch_startup_releases();
                     cx.notify();
                 }),
-                Some(Self::proxy_settings_button("play-download-failed", cx)),
+                vec![Self::proxy_settings_button("play-download-failed", cx)],
                 ButtonKind::Primary,
             );
         }
@@ -259,9 +260,7 @@ impl Launcher {
             return ui::loading_state("play-checking", tr("Looking for the newest Eclipse…"));
         }
         if let Some(own) = self.selected_instance().and_then(|i| i.version.clone()) {
-            let name = eclipse_launcher::nightly::label(&own)
-                .or_else(|| build_import::label(&own))
-                .unwrap_or(own);
+            let name = eclipse_launcher::nightly::display_name(&own);
             return ui::empty_state(
                 "play-not-installed",
                 "package-01",
@@ -346,7 +345,7 @@ impl Launcher {
                                     cx,
                                     gpui::ClipboardItem::new_string(text),
                                 );
-                                if let Some(c) = &mut this.crash {
+                                if let Some(c) = &mut this.game.crash {
                                     c.copied = true;
                                 }
                             }
@@ -378,7 +377,7 @@ impl Launcher {
                 ui::ButtonSize::Md,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.crash = None;
+                this.game.crash = None;
                 cx.notify();
             })),
         );
@@ -408,16 +407,13 @@ impl Launcher {
         }
         if let Some(report) = &crash.report {
             body = body.child(
-                ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
-                    .font_family(theme::MONO)
+                ui::mono(step::CAPTION, ink::MUTED)
                     .truncate()
                     .child(short(report)),
             );
         }
         body = body.child(actions).children(help.map(ui::card_note));
-        ui::card(eclipse_theme::glass::radius::PANEL)
-            .p(px(ui::CARD_PADDING))
-            .child(body)
+        ui::card().p(px(ui::CARD_PADDING)).child(body)
     }
 }
 

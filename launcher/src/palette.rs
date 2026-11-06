@@ -11,7 +11,7 @@ use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::browser::Project;
 use eclipse_launcher::instances::Kind as InstanceKind;
-use eclipse_theme::glass::{ink, radius, space};
+use eclipse_theme::glass::{ink, space};
 use std::path::PathBuf;
 
 /// Commands listed at most.
@@ -89,7 +89,7 @@ impl Launcher {
         });
     }
 
-    fn palette_close(&mut self) {
+    pub(super) fn palette_close(&mut self) {
         self.palette = None;
     }
 
@@ -108,9 +108,9 @@ impl Launcher {
                 });
             }
         }
-        for (page, label, _) in Page::NAV {
+        for page in Page::NAV {
             all.push(Command {
-                label: trf("Open {page}", &[("page", tr(label))]),
+                label: trf("Open {page}", &[("page", page.label())]),
                 hint: tr("Page").to_string(),
                 run: Run::Go(page),
             });
@@ -224,12 +224,16 @@ impl Launcher {
             .map_or(0, |p| p.index)
             .min(list.len().saturating_sub(1));
         let runs: Vec<Run> = list.iter().map(|c| c.run.clone()).collect();
+        let count = list.len();
         let empty = list.is_empty();
         let size = window.viewport_size();
         let (w, h) = (f32::from(size.width), f32::from(size.height));
 
         let field = div()
             .id("palette-search")
+            .role(gpui::Role::TextInput)
+            .aria_label(tr("Search commands"))
+            .aria_value(raw.clone())
             .track_focus(&focus)
             .flex()
             .items_center()
@@ -297,6 +301,8 @@ impl Launcher {
 
         let mut rows = div()
             .id("palette-list")
+            .role(gpui::Role::ListBox)
+            .aria_label(tr("Commands"))
             .flex()
             .flex_col()
             .pt(px(space::XS))
@@ -304,10 +310,17 @@ impl Launcher {
             .overflow_y_scroll();
         for (i, (c, run)) in list.into_iter().zip(runs).enumerate() {
             let id = SharedString::from(format!("palette-row-{}", run.key()));
+            let label: SharedString = c.label.clone().into();
             rows = rows.child(
-                ui::selected(
+                ui::chosen(
                     div()
                         .id(id)
+                        .role(gpui::Role::ListBoxOption)
+                        .aria_label(label)
+                        .aria_selected(i == index)
+                        .aria_position_in_set(i + 1)
+                        .aria_size_of_set(count)
+                        .when(i == index, |d| d.aria_active_descendant())
                         .flex()
                         .items_center()
                         .justify_between()
@@ -363,7 +376,7 @@ impl Launcher {
             );
         }
 
-        let card = ui::dialog_plate(radius::MODAL)
+        let card = ui::dialog_plate()
             .id("palette")
             .occlude()
             .w(px(CARD_WIDTH.min(w - 32.)))

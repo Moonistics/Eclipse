@@ -7,7 +7,7 @@
 use super::*;
 use crate::fields::Field;
 use crate::menus::Asking;
-use crate::ui::{self, white, Tone};
+use crate::ui::{self, white};
 use account::Player;
 use eclipse_theme::glass::{fill, ink, radius, space, step};
 
@@ -46,39 +46,10 @@ impl Launcher {
     /// The player now, the offline names and the field to add one.
     fn who_plays_card(&mut self, cx: &mut Context<Self>) -> Div {
         let now = self.accounts.player();
-        let (face, name, status) = match &now {
-            Player::Microsoft(uuid) => (
-                Some(uuid.clone()),
-                self.accounts
-                    .accounts
-                    .iter()
-                    .find(|a| &a.uuid == uuid)
-                    .map(|a| a.name.clone())
-                    .unwrap_or_default(),
-                (Tone::Live, tr("Microsoft account · online play")),
-            ),
-            Player::Offline(name) => (
-                Some(profile_heads::offline_key(name)),
-                name.clone(),
-                (
-                    Tone::Off,
-                    tr("Offline account · can't join online-mode servers"),
-                ),
-            ),
-            Player::GameName => {
-                let name = self.offline_name.clone().unwrap_or_else(|| "Player".into());
-                (
-                    Some(profile_heads::offline_key(&name)),
-                    name,
-                    (
-                        Tone::Off,
-                        tr("Offline account · can't join online-mode servers"),
-                    ),
-                )
-            }
-        };
+        let who = self.who_plays();
+        let (name, status) = (who.name, (who.tone, who.means));
         let head = ui::face(
-            self.profile_heads.draw(face.as_deref(), HEAD, self.scale),
+            self.profile_heads.draw(Some(&who.face), HEAD, self.scale),
             HEAD,
         );
         let header = div()
@@ -118,8 +89,7 @@ impl Launcher {
                 chips = chips.child(
                     ui::confirm(
                         forget_id,
-                        trf("Remove {name}?", &[("name", &offline)]),
-                        tr("Remove"),
+                        ui::Confirm::Remove(&offline),
                         cx.listener(|this, _: &ClickEvent, _, cx| {
                             this.asking = None;
                             cx.notify();
@@ -220,7 +190,7 @@ impl Launcher {
             .child(self.field(
                 Field::OfflineName,
                 tr("Add a name"),
-                150.,
+                layout::FIELD_SM,
                 ui::ButtonSize::Md,
                 cx,
             ))
@@ -257,7 +227,7 @@ impl Launcher {
             .flex_col()
             .child(header)
             .when(show_names, |d| {
-                d.child(ui::section_title(tr("Offline names")).mt(px(space::XXL)))
+                d.child(ui::section_title("offline-names-title", tr("Offline names")).mt(px(space::XXL)))
             })
             .when(show_names || has_chips, |d| {
                 d.child(
@@ -303,11 +273,11 @@ impl Launcher {
         let rows = has_accounts.then(|| self.microsoft_rows(cx).0);
         let configured = account::client_id().is_some();
         if !configured {
-            return div().flex().flex_col().children(rows).child(
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                    .p(px(ui::SETTING_ROW_PADDING))
-                    .child(tr(account::NOT_CONFIGURED)),
-            );
+            return div()
+                .flex()
+                .flex_col()
+                .children(rows)
+                .child(ui::card_note(tr(account::NOT_CONFIGURED)).p(px(ui::SETTING_ROW_PADDING)));
         }
         let (title, detail, action) = self.sign_in_parts(cx);
         let idle = self.sign_in_state.is_none()
@@ -483,7 +453,8 @@ impl Launcher {
             });
             n += 1;
             rows = rows.child(account_row(
-                self.profile_heads.draw(Some(&a.uuid), 32., self.scale),
+                self.profile_heads
+                    .draw(Some(&a.uuid), ui::TILE_MD, self.scale),
                 a.name.clone(),
                 Some(
                     div()
@@ -530,15 +501,7 @@ impl Launcher {
                     "Open {link} in your browser and enter this code:",
                     &[("link", &code.verification_uri)],
                 ))
-                .child(
-                    ui::text(
-                        eclipse_theme::glass::step::FIGURE,
-                        FontWeight::MEDIUM,
-                        eclipse_theme::glass::ink::FULL,
-                    )
-                    .font_family(theme::MONO)
-                    .child(code.user_code.clone()),
-                ),
+                .child(ui::sign_in_code(code.user_code.clone())),
             Some(SignInState::Done(Ok(a))) => {
                 div().child(trf("Signed in as {name}.", &[("name", &a.name)]))
             }

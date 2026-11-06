@@ -1,10 +1,12 @@
 use super::{
-    button, color, copy_details, danger, hand_back_at_ends, heading, icon, inset, light, look,
-    menu_keys, modal_keys, nested_list, scroll_pane, section_title, text, tile, white, ButtonKind,
-    ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG,
+    button, color, copy_details, danger, entity_title, hand_back_at_ends, heading, icon, inset,
+    light, look, menu_keys, modal_keys, nested_list, said, scroll_pane, section_title, text, tile,
+    white, ButtonKind, ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG,
 };
+use crate::scrollbar::Scrollbar;
 use eclipse_theme::glass::{
-    fill, ink, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT, PAPER,
+    fill, ink, pixel_text, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT,
+    FLOAT, PAPER,
 };
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, AnyElement, App, ClickEvent, Div, FontWeight,
@@ -21,13 +23,17 @@ const POPOVER_PAD: f32 = space::XS + space::XXS;
 
 const CORNER_FLOAT_WIDTH: f32 = 440.;
 
-const EMPTY_NOTE_WIDTH: f32 = 520.;
-
-pub const WIDE_FIELD_MAX: f32 = 560.;
-
 const MORE_BELOW_FADE: f32 = 32.;
 
-const STATE_ACTIONS_GAP: f32 = 20.;
+pub const SCROLL_FADE: f32 = MORE_BELOW_FADE;
+
+const STATE_ACTIONS_GAP: f32 = space::XL;
+
+const DIALOG_NARROW: f32 = 520.;
+
+const DIALOG_WIDE: f32 = 680.;
+
+const DIALOG_PADDING: f32 = space::XXL;
 
 const SCRIM_SHADE: f32 = 0.5;
 
@@ -68,18 +74,18 @@ pub fn edge() -> Hsla {
     white(if light() { EDGE_LIGHT } else { EDGE })
 }
 
-pub fn card(radius: f32) -> Div {
+pub fn card() -> Div {
     div()
         .relative()
-        .rounded(px(radius))
-        .child(backdrop(Surface::Card, radius))
+        .rounded(px(radius::PANEL))
+        .child(backdrop(Surface::Card, radius::PANEL))
 }
 
-pub fn float_card(radius: f32) -> Div {
+pub fn float_card() -> Div {
     div()
         .relative()
-        .rounded(px(radius))
-        .child(backdrop(Surface::Float, radius))
+        .rounded(px(radius::POPOVER))
+        .child(backdrop(Surface::Float, radius::POPOVER))
 }
 
 pub fn popover(id: impl Into<SharedString>) -> Stateful<Div> {
@@ -203,24 +209,100 @@ pub fn scrim() -> Hsla {
     })
 }
 
-/// A dialog's plate, round at `radius`: its piece of the scene under the scrim's dimming, then
-/// the plates' white. The content goes after it.
-pub fn dialog_plate(radius: f32) -> Div {
+/// A dialog's plate: its piece of the scene under the scrim's dimming, then the plates' white.
+/// The content goes after it.
+pub fn dialog_plate() -> Div {
     let layer = |c: Hsla| {
         div()
             .absolute()
             .top_0()
             .left_0()
             .size_full()
-            .rounded(px(radius))
+            .rounded(px(radius::MODAL))
             .bg(c)
     };
-    card(radius)
+    div()
+        .relative()
+        .rounded(px(radius::MODAL))
+        .child(backdrop(Surface::Card, radius::MODAL))
         // Light plates are already day-lit: no dimming under them.
         .child(layer(
             color(eclipse_theme::glass::SCRIM).opacity(if light() { 0. } else { SCRIM_SHADE }),
         ))
         .child(layer(white(fill::HOVER)))
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum DialogWidth {
+    Narrow,
+    Wide,
+}
+
+pub fn dialog(
+    id: impl Into<SharedString>,
+    eyebrow: Option<SharedString>,
+    title: impl Into<SharedString>,
+    width: DialogWidth,
+    body: impl IntoElement,
+    foot: Vec<AnyElement>,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let title: SharedString = title.into();
+    dialog_plate()
+        .id(id.clone())
+        .occlude()
+        .flex()
+        .flex_col()
+        .w(px(match width {
+            DialogWidth::Narrow => DIALOG_NARROW,
+            DialogWidth::Wide => DIALOG_WIDE,
+        }))
+        .max_w_full()
+        .max_h_full()
+        .child(
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .gap(px(space::SM))
+                .px(px(DIALOG_PADDING))
+                .pt(px(DIALOG_PADDING))
+                .children(eyebrow.map(super::label))
+                .child(
+                    heading(format!("{id}-title"), title.clone(), 2)
+                        .child(entity_title(title, pixel_text::CARD_TITLE)),
+                ),
+        )
+        .child(
+            div()
+                .relative()
+                .flex()
+                .flex_col()
+                .min_h_0()
+                .px(px(DIALOG_PADDING))
+                .pt(px(space::MD))
+                .pb(px(if foot.is_empty() {
+                    DIALOG_PADDING
+                } else {
+                    space::LG
+                }))
+                .child(body),
+        )
+        .when(!foot.is_empty(), |d| {
+            d.child(
+                div()
+                    .relative()
+                    .flex()
+                    .flex_none()
+                    .flex_wrap()
+                    .justify_end()
+                    .gap(px(space::MD))
+                    .px(px(DIALOG_PADDING))
+                    .pb(px(DIALOG_PADDING))
+                    .children(foot),
+            )
+        })
 }
 
 pub fn dialog_colour() -> Hsla {
@@ -242,14 +324,14 @@ fn state(id: SharedString, glyph: Div, title: SharedString, note: SharedString) 
         .child(
             heading(format!("{id}-title"), title.clone(), 2)
                 .mt(px(space::LG))
-                .child(section_title(title)),
+                .child(entity_title(title, pixel_text::CARD_TITLE)),
         )
         .when(!note.is_empty(), |d| {
             d.child(
                 empty_style()
-                    .mt(px(space::XS))
-                    .max_w(px(EMPTY_NOTE_WIDTH))
-                    .child(note),
+                    .mt(px(space::SM))
+                    .max_w(px(crate::layout::MEASURE_NOTE))
+                    .child(said(format!("{id}-note"), note)),
             )
         })
 }
@@ -292,7 +374,7 @@ pub fn error_state(
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Stateful<Div> {
-    error_state_with(id, title, error, on_retry, None, ButtonKind::Primary)
+    error_state_with(id, title, error, on_retry, Vec::new(), ButtonKind::Primary)
 }
 
 pub fn error_state_with(
@@ -300,14 +382,27 @@ pub fn error_state_with(
     title: impl Into<SharedString>,
     error: &str,
     on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
-    extra: Option<Stateful<Div>>,
+    extra: Vec<Stateful<Div>>,
+    retry: ButtonKind,
+) -> Stateful<Div> {
+    let cause = plain_error(error).to_string();
+    error_state_told(id, title, cause, error, on_retry, extra, retry)
+}
+
+pub fn error_state_told(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    cause: impl Into<SharedString>,
+    error: &str,
+    on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    extra: Vec<Stateful<Div>>,
     retry: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
     let glyph = tile(TILE_LG).child(icon("alert-circle", IconSize::Px24, danger()));
     let retry = button(
         format!("{id}-retry"),
-        None,
+        Some("refresh"),
         crate::tr("Try again"),
         retry,
         ButtonSize::Md,
@@ -315,7 +410,7 @@ pub fn error_state_with(
     .on_press(on_retry);
     let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
     actions(
-        state(id, glyph, title.into(), plain_error(error).into()),
+        state(id, glyph, title.into(), cause.into()),
         std::iter::once(retry).chain(extra).chain([copy]).collect(),
     )
 }
@@ -325,13 +420,11 @@ pub fn plain_error(error: &str) -> &str {
 }
 
 pub fn error_card(said: impl Into<SharedString>) -> Div {
-    card(radius::PANEL)
-        .p(px(PANEL_INSET))
-        .child(super::error_note(said))
+    card().p(px(PANEL_INSET)).child(super::error_note(said))
 }
 
 pub fn empty_card(state: Stateful<Div>) -> Div {
-    card(radius::PANEL).p(px(PANEL_INSET)).child(state)
+    card().p(px(PANEL_INSET)).child(state)
 }
 
 /// An empty state inside an area that is already a card; the message goes in as a child.
@@ -345,6 +438,7 @@ fn empty_style() -> Div {
 
 /// A group of fields: its heading, anything `aside` at its right, then `body`.
 pub fn field_group(
+    id: impl Into<SharedString>,
     title: impl Into<SharedString>,
     aside: Option<AnyElement>,
     body: impl IntoElement,
@@ -362,7 +456,7 @@ pub fn field_group(
                 .gap(px(space::LG))
                 .h(px(ButtonSize::Md.height()))
                 .mb(px(space::MD))
-                .child(section_title(title))
+                .child(section_title(id, title))
                 .children(aside),
         )
         .child(div().relative().child(body))
@@ -384,13 +478,14 @@ pub fn section_card(
     aside: Option<AnyElement>,
     body: impl IntoElement,
 ) -> Stateful<Div> {
-    card(radius::PANEL)
-        .id(id.into())
+    let id: SharedString = id.into();
+    card()
+        .id(id.clone())
         .flex()
         .flex_col()
         .flex_none()
         .p(px(super::CARD_PADDING))
-        .child(field_group(title, aside, body))
+        .child(field_group(format!("{id}-title"), title, aside, body))
 }
 
 pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
@@ -399,9 +494,37 @@ pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {
         .flex_col()
         .max_h(px(max))
         .p(px(POPOVER_PAD))
+        .pr(px(Scrollbar::ROOM))
         .rounded(px(radius::POPOVER))
         .border_1()
         .border_color(edge())
+}
+
+pub fn more_above_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
+    (pane.offset().y < px(-1.)).then(|| {
+        div()
+            .absolute()
+            .left_0()
+            .right_0()
+            .top_0()
+            .h(px(MORE_BELOW_FADE))
+            .bg(gpui::linear_gradient(
+                180.,
+                gpui::linear_color_stop(under, 0.),
+                gpui::linear_color_stop(under.opacity(0.), 1.),
+            ))
+    })
+}
+
+pub fn page_pane(pane: Stateful<Div>, bar: &Scrollbar, reach: f32) -> Div {
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .h_full()
+        .min_h_0()
+        .mr(px(-reach))
+        .child(bar.wrap(pane.pr(px(reach))).size_full())
 }
 
 pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
@@ -502,4 +625,16 @@ pub fn log_well(id: impl Into<SharedString>, handle: &ScrollHandle) -> Stateful<
         .font_family(crate::theme::MONO)
         .text_size(px(step::CAPTION.size))
         .line_height(px(step::BODY.line))
+}
+
+pub fn well() -> Div {
+    div()
+        .relative()
+        .p(px(PANEL_INSET))
+        .rounded(px(radius::ROW))
+        .bg(inset())
+}
+
+pub fn code_well(code: impl Into<SharedString>) -> Div {
+    well().child(super::mono(step::CAPTION, ink::BODY).child(code.into()))
 }

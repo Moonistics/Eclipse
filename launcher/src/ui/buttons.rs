@@ -1,6 +1,7 @@
 use super::{
-    color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected,
-    setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, LIST_INSET, PANEL_INSET,
+    chosen, color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text,
+    selected, setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, LIST_INSET,
+    PANEL_INSET,
 };
 use eclipse_theme::glass::{
     fill, ink,
@@ -186,7 +187,7 @@ fn button_face(
         })
 }
 
-fn secondary_fill() -> Hsla {
+pub(super) fn secondary_fill() -> Hsla {
     white(if super::light() {
         fill::BUTTON_LIGHT
     } else {
@@ -220,10 +221,9 @@ pub fn icon_button(
     let look = look();
     let tone = match kind {
         ButtonKind::Primary => color(look.on_accent),
-        ButtonKind::Secondary => white(ink::FULL),
         ButtonKind::Ghost if active => super::icon_tone(true),
-        ButtonKind::Ghost if hover_is(&id) => white(ink::FULL),
-        ButtonKind::Ghost => white(ink::MUTED),
+        _ if hover_is(&id) => white(ink::FULL),
+        _ => white(ink::BODY),
     };
     let hover = match kind {
         ButtonKind::Primary => Hover::Primary,
@@ -244,7 +244,7 @@ pub fn icon_button(
         .when(active && kind != ButtonKind::Ghost, |d| {
             d.child(div().absolute().size_full().bg(white(fill::ACTIVE)))
         })
-        .child(icon(name, IconSize::Px16, tone).relative())
+        .child(icon(name, size.icon(), tone).relative())
         .tooltip(tip(label.clone()));
     let d = match kind {
         ButtonKind::Primary => bevel(d.bg(color(look.accent))),
@@ -302,14 +302,45 @@ pub fn split(main: Stateful<Div>, more: Stateful<Div>, kind: ButtonKind) -> Div 
         )
 }
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Confirm<'a> {
+    Delete(&'a str),
+    Remove(&'a str),
+    Restore(&'a str),
+    DeleteEverything,
+    DiscardChanges,
+}
+
+impl Confirm<'_> {
+    pub fn question(self) -> String {
+        match self {
+            Confirm::Delete(name) => crate::trf("Delete {name}?", &[("name", name)]),
+            Confirm::Remove(name) => crate::trf("Remove {name}?", &[("name", name)]),
+            Confirm::Restore(name) => crate::trf("Restore {name}?", &[("name", name)]),
+            Confirm::DeleteEverything => crate::tr("Delete everything?").into(),
+            Confirm::DiscardChanges => crate::tr("Discard your changes?").into(),
+        }
+    }
+
+    pub fn verb(self) -> SharedString {
+        crate::tr(match self {
+            Confirm::Delete(_) | Confirm::DeleteEverything => "Delete",
+            Confirm::Remove(_) => "Remove",
+            Confirm::Restore(_) => "Restore",
+            Confirm::DiscardChanges => "Discard",
+        })
+        .into()
+    }
+}
+
 pub fn confirm(
     id: impl Into<SharedString>,
-    question: impl Into<SharedString>,
-    verb: impl Into<SharedString>,
+    asked: Confirm,
     cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
     let id: SharedString = id.into();
+    let (question, verb) = (asked.question(), asked.verb());
     div()
         .flex()
         .flex_wrap()
@@ -320,7 +351,7 @@ pub fn confirm(
             super::text(step::NOTE, FontWeight::MEDIUM, ink::FULL)
                 .flex_grow_1()
                 .text_color(super::danger())
-                .child(question.into()),
+                .child(question),
         )
         .child(
             div()
@@ -352,12 +383,11 @@ pub fn confirm(
 
 pub fn menu_confirm(
     id: impl Into<SharedString>,
-    question: impl Into<SharedString>,
-    verb: impl Into<SharedString>,
+    asked: Confirm,
     cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    confirm(id, question, verb, cancel, sure)
+    confirm(id, asked, cancel, sure)
         .mt(px(space::XS))
         .px(px(PANEL_INSET))
         .py(px(LIST_INSET))
@@ -499,7 +529,11 @@ fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
             .size(px(SWITCH_KNOB))
             .rounded(px(radius::BLOCK / 2.))
             .overflow_hidden()
-            .bg(color(PAPER))
+            .bg(if on || super::light() {
+                color(PAPER)
+            } else {
+                white(ink::MUTED)
+            })
             .when(super::light(), |d| {
                 d.border_1()
                     .border_color(color(ON_LIGHT).opacity(KNOB_EDGE))
@@ -585,35 +619,41 @@ pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     on_pick: impl Fn(T, &mut Window, &mut App) + Clone + 'static,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    div()
-        .id(id.clone())
+    let values: Vec<T> = options.iter().map(|(value, _)| *value).collect();
+    let rows = options
+        .iter()
+        .map(|(value, label)| {
+            let active = current == *value;
+            let segment = chosen(
+                hoverable(format!("{id}-{value:?}"), radius::CONTROL, Hover::Row)
+                    .role(Role::RadioButton)
+                    .aria_toggled(Toggled::from(active))
+                    .flex()
+                    .items_center()
+                    .h(px(ButtonSize::Sm.height()))
+                    .px(px(ButtonSize::Sm.pad()))
+                    .text_color(white(if active { ink::FULL } else { ink::MUTED }))
+                    .child(press_text().relative().child(label.to_uppercase())),
+                active,
+            )
+            .rounded(px(radius::CONTROL));
+            (segment, label.clone(), active)
+        })
+        .collect();
+    let group = div()
+        .id(id)
         .role(Role::RadioGroup)
         .flex()
         .flex_none()
         .gap(px(space::XS))
         .p(px(space::XS))
         .rounded(px(radius::ROW))
-        .bg(inset())
-        .children(options.iter().map(|(value, label)| {
-            let (value, active) = (*value, current == *value);
-            let pick = on_pick.clone();
-            let segment = selected(
-                hoverable(format!("{id}-{value:?}"), radius::CONTROL, Hover::Row)
-                    .role(Role::RadioButton)
-                    .aria_toggled(Toggled::from(active))
-                    .aria_label(label.clone())
-                    .flex()
-                    .items_center()
-                    .h(px(ButtonSize::Sm.height()))
-                    .px(px(ButtonSize::Sm.pad()))
-                    .cursor_pointer()
-                    .text_color(white(if active { ink::FULL } else { ink::MUTED }))
-                    .child(press_text().relative().child(label.to_uppercase())),
-                active,
-            )
-            .rounded(px(radius::CONTROL));
-            segment.on_press(move |_: &ClickEvent, window, cx| pick(value, window, cx))
-        }))
+        .bg(inset());
+    super::options(group, rows, true, move |i, window, cx| {
+        if let Some(&value) = values.get(i) {
+            on_pick(value, window, cx)
+        }
+    })
 }
 
 fn padded_tab(
@@ -651,7 +691,11 @@ fn padded_tab(
                     .right(px(pad))
                     .bottom_0()
                     .h(px(TAB_UNDERLINE))
-                    .bg(color(look().accent)),
+                    .bg(color(if super::light() {
+                        look().mark
+                    } else {
+                        look().accent
+                    })),
             )
         });
     d.when(!text.is_empty(), |d| {
@@ -768,6 +812,10 @@ pub fn nav_row(
     }
 }
 
+pub fn nav_text_room(row_width: f32, pad: f32, density: NavDensity) -> f32 {
+    row_width - 2. * (pad + super::ROW_EDGE) - IconSize::Px16.px() - density.gap()
+}
+
 pub fn shown_on_focus(el: Stateful<Div>, shown: bool) -> Stateful<Div> {
     if shown {
         return el;
@@ -826,7 +874,57 @@ pub fn dropdown(
     id: impl Into<SharedString>,
     name: impl Into<SharedString>,
     leading: Option<AnyElement>,
-    label: impl IntoElement,
+    value: impl Into<SharedString>,
+    open: bool,
+    size: ButtonSize,
+) -> Stateful<Div> {
+    let value: SharedString = value.into();
+    dropdown_face(id, name.into(), leading, value.clone(), open, size)
+        .child(div().relative().flex_1().min_w_0().truncate().child(value))
+        .child(chevron(open).relative())
+}
+
+pub fn labelled_dropdown(
+    id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
+    leading: Option<AnyElement>,
+    value: impl Into<SharedString>,
+    open: bool,
+    size: ButtonSize,
+) -> Stateful<Div> {
+    let (name, value): (SharedString, SharedString) = (name.into(), value.into());
+    let shown = div()
+        .relative()
+        .flex_1()
+        .min_w_0()
+        .flex()
+        .when(size == ButtonSize::Hero, |d| d.flex_col())
+        .when(size != ButtonSize::Hero, |d| {
+            d.items_center().gap(px(space::SM))
+        })
+        .child(super::label(name.clone()).flex_none())
+        .children(leading.map(|l| div().flex_none().child(l)))
+        .child(
+            div()
+                .min_w_0()
+                .truncate()
+                .when(size == ButtonSize::Hero, |d| {
+                    d.text_size(px(step::LEAD.size))
+                        .line_height(px(step::LEAD.line))
+                        .font_weight(FontWeight::MEDIUM)
+                })
+                .child(value.clone()),
+        );
+    dropdown_face(id, name, None, value, open, size)
+        .child(shown)
+        .child(chevron(open).relative())
+}
+
+fn dropdown_face(
+    id: impl Into<SharedString>,
+    name: SharedString,
+    leading: Option<AnyElement>,
+    value: SharedString,
     open: bool,
     size: ButtonSize,
 ) -> Stateful<Div> {
@@ -837,7 +935,8 @@ pub fn dropdown(
     };
     hoverable(id, radius::CONTROL, Hover::Row)
         .role(Role::ComboBox)
-        .aria_label(name.into())
+        .aria_label(name)
+        .aria_value(value)
         .aria_expanded(open)
         .flex()
         .flex_none()
@@ -855,8 +954,6 @@ pub fn dropdown(
         .text_size(px(step::BODY.size))
         .text_color(white(ink::FULL))
         .children(leading.map(|l| div().relative().child(l)))
-        .child(div().relative().flex_1().min_w_0().truncate().child(label))
-        .child(chevron(open).relative())
 }
 
 pub fn translated<T: Copy>(options: &[(T, &str)]) -> Vec<(T, SharedString)> {

@@ -5,7 +5,7 @@
 use super::*;
 use crate::tab_strip::StripTab;
 use crate::ui;
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum HomeTab {
@@ -57,14 +57,14 @@ impl Launcher {
         tabs.push((HomeTab::Multiplayer, Some(self.servers_count())));
         tabs.push((HomeTab::Packs, Some(self.packs_count())));
         tabs.push((HomeTab::Screenshots, Some(self.screenshots_count())));
-        if !self.prepare_log.is_empty() || self.client.is_some() {
+        if self.console_log().is_some() {
             tabs.push((HomeTab::Console, None));
         }
         tabs
     }
 }
 
-const NOTES_WIDTH: f32 = 720.;
+const NOTES_WIDTH: f32 = layout::MEASURE_TEXT;
 
 impl Launcher {
     pub(super) fn home_tab_card(&mut self, cx: &mut Context<Self>) -> Div {
@@ -111,7 +111,7 @@ impl Launcher {
             HomeTab::Console => self.console_tab(cx).map(IntoElement::into_any_element),
         };
         div().flex().flex_col().child(strip).child(
-            ui::card(radius::PANEL)
+            ui::card()
                 .flex()
                 .flex_col()
                 .p(px(ui::PANEL_INSET))
@@ -139,7 +139,7 @@ impl Launcher {
                         this.fetch_releases();
                         cx.notify();
                     }),
-                    Some(Self::proxy_settings_button("patch-notes-failed", cx)),
+                    vec![Self::proxy_settings_button("patch-notes-failed", cx)],
                     ButtonKind::Secondary,
                 ));
             }

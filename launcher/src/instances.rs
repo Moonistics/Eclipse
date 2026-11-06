@@ -194,6 +194,16 @@ impl Instance {
 }
 
 impl JavaGame {
+    pub fn line(&self) -> String {
+        match &self.loader {
+            Some(l) => crate::i18n::trf(
+                "{loader} {version}",
+                &[("loader", l.kind.name()), ("version", &self.minecraft)],
+            ),
+            None => crate::i18n::trf("Vanilla {version}", &[("version", &self.minecraft)]),
+        }
+    }
+
     /// What the mod browser installs for: its Minecraft version and its loader.
     pub fn target(&self) -> crate::browser::java_instance::Target {
         crate::browser::java_instance::Target {

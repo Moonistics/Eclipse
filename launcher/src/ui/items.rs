@@ -1,18 +1,19 @@
 use super::{
-    color, danger, disabled, dot, edge, hoverable, icon, light, look, row_fill, starts_menu, text,
-    warn, white, ButtonSize, Hover, IconSize, Tone, PANEL_INSET, SETTING_ROW_GAP, TILE_MD, TILE_SM,
+    color, copy_details, danger, disabled, dot, edge, hoverable, icon, light, look, row_fill,
+    starts_menu, text, warn, white, ButtonSize, Hover, IconSize, Tone, SETTING_ROW_GAP, TILE_MD,
+    TILE_SM,
 };
 use eclipse_theme::glass::{
     fill, ink, radius, space, step, ON_LIGHT, PAPER, SELECTED_EDGE, SELECTED_EDGE_LIGHT,
 };
 use gpui::{
-    div, point, prelude::*, px, AnyElement, BoxShadow, Div, ExternalPaths, FontWeight, Hsla,
-    ImageSource, Role, SharedString, Stateful, Toggled,
+    div, point, prelude::*, px, AnyElement, BoxShadow, Div, ExternalPaths, FontWeight, ImageSource,
+    Role, SharedString, Stateful, Toggled,
 };
 
-const SETTING_NOTE_WIDTH: f32 = 560.;
-
 const NOTE_LINE_HEIGHT: f32 = 44.;
+
+const NOTICE_PAD: (f32, f32) = (space::LG, space::MD);
 
 const TICK_SLOT: f32 = 20.;
 
@@ -53,16 +54,30 @@ pub fn chosen(d: Stateful<Div>, on: bool) -> Stateful<Div> {
     selected(d, on).when(on, |d| d.border_color(edge))
 }
 
-pub fn row(id: impl Into<SharedString>, current: bool) -> Stateful<Div> {
-    selected(row_body(id), current)
+pub fn row(
+    id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
+    current: bool,
+) -> Stateful<Div> {
+    selected(row_body(id, name.into(), current), current)
 }
 
-pub fn side_row(id: impl Into<SharedString>, current: bool) -> Stateful<Div> {
-    side_selected(row_body(id), current)
+pub fn side_row(
+    id: impl Into<SharedString>,
+    name: impl Into<SharedString>,
+    current: bool,
+) -> Stateful<Div> {
+    side_selected(row_body(id, name.into(), current), current)
 }
 
-fn row_body(id: impl Into<SharedString>) -> Stateful<Div> {
+pub fn side_row_text_room(row_width: f32, pad_start: f32, pad_end: f32) -> f32 {
+    row_width - 2. * ROW_EDGE - pad_start - pad_end - TILE_MD - space::MD
+}
+
+fn row_body(id: impl Into<SharedString>, name: SharedString, current: bool) -> Stateful<Div> {
     hoverable(id, radius::ROW, Hover::Row)
+        .aria_label(name)
+        .aria_selected(current)
         .flex()
         .items_center()
         .gap(px(space::MD))
@@ -78,6 +93,18 @@ pub fn choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
             .cursor_pointer(),
         on,
     )
+}
+
+pub fn choice_card(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
+    choice(id, on).when(on, |d| {
+        d.child(
+            div()
+                .absolute()
+                .top(px(space::MD))
+                .right(px(space::MD))
+                .child(tick()),
+        )
+    })
 }
 
 pub fn list_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
@@ -109,6 +136,25 @@ pub fn item_text_by(
                 .child(by.into()),
         );
     item_lines(line, note)
+}
+
+pub fn item_text_wrapped(
+    name: impl Into<SharedString>,
+    note: impl Into<SharedString>,
+    lines: usize,
+) -> Div {
+    div()
+        .relative()
+        .flex()
+        .flex_col()
+        .flex_1()
+        .min_w_0()
+        .child(name_line(name.into()))
+        .child(
+            text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
+                .line_clamp(lines)
+                .child(note.into()),
+        )
 }
 
 fn name_line(name: SharedString) -> Div {
@@ -219,13 +265,14 @@ pub fn filter_chip(
             .gap(px(space::XS))
             .h(px(ButtonSize::Sm.height()))
             .px(px(space::MD))
-            .bg(white(fill::BUTTON))
+            .bg(super::secondary_fill())
             .cursor_pointer()
             .text_color(white(tone))
             .children(on.then(tick))
             .child(super::press_text().relative().child(label.to_uppercase())),
         on,
     )
+    .when(light() && !on, |d| d.border_color(edge()))
     .rounded(px(radius::CONTROL))
 }
 
@@ -408,7 +455,7 @@ pub fn setting_text(title: impl IntoElement, note: Option<AnyElement>) -> Div {
         .child(text(step::BODY, FontWeight::SEMIBOLD, ink::FULL).child(title))
         .children(note.map(|n| {
             text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                .max_w(px(SETTING_NOTE_WIDTH))
+                .max_w(px(crate::layout::MEASURE_NOTE))
                 .child(n)
         }))
 }
@@ -482,24 +529,18 @@ pub fn list_head(note: impl Into<SharedString>) -> Div {
         )
 }
 
-pub fn notice_line(dot: Hsla, text: impl Into<SharedString>) -> Div {
+pub fn notice_line(tone: Tone, text: impl Into<SharedString>) -> Div {
     div()
         .relative()
         .flex()
         .items_center()
         .gap(px(space::MD))
         .min_h(px(NOTE_LINE_HEIGHT))
-        .px(px(space::LG))
-        .py(px(space::SM))
+        .px(px(NOTICE_PAD.0))
+        .py(px(NOTICE_PAD.1))
         .rounded(px(radius::ROW))
         .bg(white(fill::HOVER))
-        .child(
-            div()
-                .flex_none()
-                .size(px(super::DOT))
-                .rounded_full()
-                .bg(dot),
-        )
+        .child(dot(tone))
         .child(
             self::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                 .flex_1()
@@ -512,6 +553,7 @@ pub fn notice_line(dot: Hsla, text: impl Into<SharedString>) -> Div {
 pub enum Notice {
     Info,
     Warn,
+    InCard,
 }
 
 pub fn notice(
@@ -523,13 +565,16 @@ pub fn notice(
     let (plate, mark) = match kind {
         Notice::Warn => (warn().opacity(fill::DANGER), warn()),
         Notice::Info => (white(fill::HOVER), white(ink::BODY)),
+        Notice::InCard => (gpui::transparent_black(), white(ink::BODY)),
     };
     div()
         .relative()
         .flex()
         .flex_col()
         .gap(px(space::MD))
-        .p(px(PANEL_INSET))
+        .when(kind != Notice::InCard, |d| {
+            d.px(px(NOTICE_PAD.0)).py(px(NOTICE_PAD.1))
+        })
         .rounded(px(radius::ROW))
         .bg(plate)
         .child(
@@ -579,8 +624,18 @@ pub fn error_note(said: impl Into<SharedString>) -> Div {
             text(step::BODY, FontWeight::NORMAL, ink::FULL)
                 .flex_1()
                 .min_w_0()
-                .child(said.into()),
+                .child(said_once(said.into())),
         )
+}
+
+fn said_once(text: SharedString) -> Stateful<Div> {
+    use std::hash::{Hash, Hasher};
+    let mut hash = std::collections::hash_map::DefaultHasher::new();
+    text.hash(&mut hash);
+    super::said(
+        gpui::ElementId::NamedInteger("said".into(), hash.finish()),
+        text,
+    )
 }
 
 pub fn error_line(said: impl Into<SharedString>, actions: Vec<AnyElement>) -> Div {
@@ -591,8 +646,8 @@ pub fn error_line(said: impl Into<SharedString>, actions: Vec<AnyElement>) -> Di
         .items_center()
         .gap(px(space::MD))
         .min_h(px(NOTE_LINE_HEIGHT))
-        .px(px(space::LG))
-        .py(px(space::SM))
+        .px(px(NOTICE_PAD.0))
+        .py(px(NOTICE_PAD.1))
         .rounded(px(radius::ROW))
         .bg(white(fill::HOVER))
         .child(error_note(said).flex_1().min_w_0())
@@ -605,4 +660,94 @@ pub fn error_line(said: impl Into<SharedString>, actions: Vec<AnyElement>) -> Di
                     .children(actions),
             )
         })
+}
+
+pub fn error_line_for(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    error: &str,
+    retry: Option<Stateful<Div>>,
+    extra: Vec<Stateful<Div>>,
+) -> Stateful<Div> {
+    let id: SharedString = id.into();
+    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
+    let actions = retry.into_iter().chain(extra).chain([copy]);
+    div()
+        .id(id.clone())
+        .relative()
+        .flex()
+        .flex_col()
+        .gap(px(space::MD))
+        .px(px(NOTICE_PAD.0))
+        .py(px(NOTICE_PAD.1))
+        .rounded(px(radius::ROW))
+        .bg(white(fill::HOVER))
+        .child(
+            div()
+                .flex()
+                .items_start()
+                .gap(px(space::MD))
+                .child(
+                    div()
+                        .flex()
+                        .items_center()
+                        .h(px(step::BODY.line))
+                        .child(icon("alert-circle", IconSize::Px16, danger())),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .flex_1()
+                        .min_w_0()
+                        .child(
+                            text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                                .child(super::said(format!("{id}-title"), title.into())),
+                        )
+                        .child(
+                            text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(super::said(
+                                format!("{id}-cause"),
+                                super::plain_error(error).to_string(),
+                            )),
+                        ),
+                ),
+        )
+        .child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(space::SM))
+                .children(actions),
+        )
+}
+
+pub fn pick_item(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    note: impl Into<SharedString>,
+    picked: bool,
+) -> Stateful<Div> {
+    let (label, note): (SharedString, SharedString) = (label.into(), note.into());
+    let row = hoverable(id, radius::CONTROL, Hover::Row)
+        .role(Role::MenuItemRadio)
+        .aria_toggled(Toggled::from(picked))
+        .aria_label(label.clone())
+        .when(!note.is_empty(), |d| d.aria_description(note.clone()))
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(space::MD))
+        .w_full()
+        .px(px(space::MD))
+        .py(px(space::SM))
+        .rounded(px(radius::CONTROL))
+        .cursor_pointer()
+        .child(item_text(label, note))
+        .child(tick_slot(picked).relative());
+    if picked {
+        starts_menu(row)
+    } else {
+        row
+    }
 }

@@ -2,7 +2,7 @@
 //! uninstall` removes. The launcher's own scene and cards; the work is
 //! `eclipse_launcher::installer`, on a thread, reported over a channel.
 use crate::scene;
-use crate::theme::{self, Theme};
+use crate::theme::Theme;
 use crate::titlebar;
 use crate::ui::{self, ButtonKind, Press};
 use eclipse_launcher::backend::Settings;
@@ -233,9 +233,7 @@ impl Setup {
                     .flex_col()
                     .min_w_0()
                     .child(ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(words))
-                    .children(
-                        hint.map(|h| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(h)),
-                    ),
+                    .children(hint.map(ui::card_note)),
             )
     }
 
@@ -250,13 +248,9 @@ impl Setup {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
+                    .child(ui::card_note(tr("Install to").to_string()))
                     .child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                            .child(tr("Install to").to_string()),
-                    )
-                    .child(
-                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
-                            .font_family(theme::MONO)
+                        ui::mono(step::CAPTION, ink::BODY)
                             .truncate()
                             .child(self.options.dir.display().to_string()),
                     ),
@@ -363,11 +357,7 @@ impl Setup {
                             .child(tr("These could not be removed:").to_string()),
                     );
                     for item in left {
-                        body = body.child(
-                            ui::text(step::CAPTION, FontWeight::NORMAL, ink::MUTED)
-                                .font_family(theme::MONO)
-                                .child(item.clone()),
-                        );
+                        body = body.child(ui::mono(step::CAPTION, ink::MUTED).child(item.clone()));
                     }
                 }
                 // The window's own close control is in the title bar, so the last screen has only
@@ -405,7 +395,7 @@ impl Setup {
                     );
             }
         }
-        ui::dialog_plate(eclipse_theme::glass::radius::MODAL)
+        ui::dialog_plate()
             .w(px(560.))
             .p(px(space::XXL))
             .flex()

@@ -4,7 +4,7 @@
 use super::*;
 use crate::tab_strip::StripTab;
 use crate::ui::{self, white, Tone};
-use eclipse_theme::glass::{ink, pixel_text, radius, space, step, TextStep};
+use eclipse_theme::glass::{ink, pixel_text, space, step, TextStep};
 
 /// The right column's width.
 const SIDE: f32 = 320.;
@@ -32,7 +32,7 @@ fn tone(status: &Status) -> Tone {
 
 impl Launcher {
     pub(super) fn servers_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let head = ui::page_head(tr("Servers"), "");
+        let head = ui::page_head(Page::Servers.title(), "");
         // A server is always shown: the open one, else the first.
         let listed = |d: &PathBuf| self.servers.list.iter().any(|e| &e.dir == d);
         if !self.servers.open.as_ref().is_some_and(listed) {
@@ -242,7 +242,7 @@ impl Launcher {
             });
         }
 
-        let mut card = ui::card(radius::PANEL)
+        let mut card = ui::card()
             .flex()
             .flex_col()
             .p(px(ui::CARD_PADDING))
@@ -370,7 +370,7 @@ impl Launcher {
             out.push(ui::error_line(p.message.clone(), actions).mt(px(space::LG)));
         }
         if let Some(n) = self.servers.note.clone() {
-            out.push(ui::notice_line(ui::live(), n).mt(px(space::LG)));
+            out.push(ui::notice_line(ui::Tone::Live, n).mt(px(space::LG)));
         }
         if running && !self.servers.restart_needed.is_empty() {
             let names: Vec<String> = self
@@ -388,7 +388,7 @@ impl Launcher {
             );
             out.push(
                 ui::notice_line(
-                    ui::color(ui::look().accent_soft),
+                    ui::Tone::Accent(ui::look().accent_soft),
                     trf(
                         "Saved. Restart to apply: {settings}.",
                         &[("settings", &names.join(", "))],
@@ -414,13 +414,10 @@ impl Launcher {
         let console = div().relative().mt(px(space::XL)).flex().flex_col();
         if !running {
             return console.child(
-                div()
+                ui::well()
                     .flex()
                     .items_center()
                     .gap(px(space::MD))
-                    .p(px(ui::CARD_PADDING))
-                    .rounded(px(radius::ROW))
-                    .bg(ui::inset())
                     .child(ui::icon(
                         "computer-terminal-01",
                         ui::IconSize::Px16,
@@ -531,10 +528,7 @@ impl Launcher {
 
     /// The servers, the open one lit, then Create a server and adding a server folder.
     fn server_list(&mut self, cx: &mut Context<Self>) -> Div {
-        let mut list = ui::card(radius::PANEL)
-            .flex()
-            .flex_col()
-            .p(px(ui::LIST_INSET));
+        let mut list = ui::card().flex().flex_col().p(px(ui::LIST_INSET));
         for e in self.servers.list.clone() {
             let status = self
                 .servers
@@ -556,23 +550,27 @@ impl Launcher {
             };
             let dir = e.dir.clone();
             list = list.child(
-                ui::row(format!("server-row-{}", e.dir.display()), current)
-                    .pr(px(space::MD))
-                    .child(ui::item_text(
-                        e.name.clone(),
-                        ui::state_line(tone(&status), line),
-                    ))
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.servers.polled = None;
-                        this.servers.problem = None;
-                        this.servers.note = None;
-                        this.open_server(dir.clone());
-                        cx.notify();
-                    })),
+                ui::row(
+                    format!("server-row-{}", e.dir.display()),
+                    e.name.clone(),
+                    current,
+                )
+                .pr(px(space::MD))
+                .child(ui::item_text(
+                    e.name.clone(),
+                    ui::state_line(tone(&status), line),
+                ))
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.servers.polled = None;
+                    this.servers.problem = None;
+                    this.servers.note = None;
+                    this.open_server(dir.clone());
+                    cx.notify();
+                })),
             );
         }
         let action = |id: &'static str, icon: &'static str, label: SharedString| {
-            ui::row(id, false)
+            ui::row(id, label.clone(), false)
                 .pr(px(space::MD))
                 .child(ui::icon(icon, ui::IconSize::Px16, white(ink::BODY)).relative())
                 .child(
@@ -651,7 +649,7 @@ impl Launcher {
                     .mt(px(space::XS)),
             );
         let internet = self.internet_card(port, cx);
-        let mut card = ui::card(radius::PANEL)
+        let mut card = ui::card()
             .flex()
             .flex_col()
             .gap(px(space::XL))
@@ -728,7 +726,7 @@ impl Launcher {
             Tab::Backups => self.backups_tab(status, cx),
             Tab::Players => self.players_tab(dir, status, cx),
         };
-        ui::card(radius::PANEL)
+        ui::card()
             .mt(px(layout::CARD_GAP))
             .flex()
             .flex_col()

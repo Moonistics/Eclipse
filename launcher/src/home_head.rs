@@ -10,7 +10,7 @@ const PLAY: f32 = 240.;
 const PLAY_WIDE: f32 = 280.;
 const PICKER: f32 = 170.;
 const PICKER_WIDE: f32 = 220.;
-const INVITE_MIN: f32 = 200.;
+const INVITE_MIN: f32 = 360.;
 const INVITE_MAX: f32 = 420.;
 const ICON: f32 = ui::TILE_LG;
 
@@ -25,9 +25,9 @@ impl Launcher {
     pub(super) fn home_head(&mut self, tag: &str, prepared: bool, cx: &mut Context<Self>) -> Div {
         let java = self.selected_instance().and_then(|i| i.java.clone());
         // How long this game has run, for "Playing for 5 min now".
-        match (&self.client, self.client_since) {
-            (Some(_), None) => self.client_since = Some(Instant::now()),
-            (None, Some(_)) => self.client_since = None,
+        match (&self.game.client, self.game.since) {
+            (Some(_), None) => self.game.since = Some(Instant::now()),
+            (None, Some(_)) => self.game.since = None,
             _ => {}
         }
         let play = self.play_group(tag, cx);
@@ -72,17 +72,13 @@ impl Launcher {
             .gap(px(space::LG))
             .min_w_0()
             .child(icon)
-            .child(
-                ui::entity_title(instance.name, eclipse_theme::glass::pixel_text::PAGE_TITLE)
-                    .min_w_0()
-                    .truncate(),
-            )
+            .child(ui::page_title(instance.name.into()))
     }
 
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
     fn played_text(&self, tag: &str, prepared: bool) -> Div {
-        let line = match (self.client_since, self.selected_instance()) {
+        let line = match (self.game.since, self.selected_instance()) {
             (Some(since), _) => trf(
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
@@ -96,14 +92,14 @@ impl Launcher {
                     Some(when) => trf(
                         "{time} played · last played {when}",
                         &[
-                            ("time", &played_for(i.played)),
-                            ("when", &last_played(when)),
+                            ("time", &dates::duration(i.played)),
+                            ("when", &dates::ago(when)),
                         ],
                     ),
                     None => tr("Not played yet").into(),
                 };
                 match &i.java {
-                    Some(java) => format!("{played} · {}", game_line(java)),
+                    Some(java) => format!("{played} · {}", java.line()),
                     None => played,
                 }
             }
@@ -115,13 +111,14 @@ impl Launcher {
             ink::STRONG,
         )
         .mt(px(ui::TITLE_NOTE_GAP))
-        .child(line)
+        .child(ui::said("home-played", line))
     }
 
     /// Play and its ⋯ menu: Stop while the game runs, Update when the launcher's version has a
     /// newer one, the progress while preparing, updating or starting.
     fn play_group(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
-        let running = self.client.is_some();
+        let state = self.selected_play_state();
+        let running = state == PlayState::Running;
         let follows = self
             .selected_instance()
             .is_some_and(|i| i.version.is_none());
@@ -131,29 +128,7 @@ impl Launcher {
             .as_ref()
             .filter(|_| follows && !tag.is_empty())
             .map(|r| r.tag.clone());
-        let installing = update
-            .as_ref()
-            .and_then(|u| self.installing.as_ref().filter(|(t, _)| t == u))
-            .map(|(_, p)| *p);
-        // The version this instance keeps, downloading since it was made or edited to play it.
-        let own = self
-            .selected_instance()
-            .and_then(|i| i.version.as_ref())
-            .and_then(|v| {
-                let queued = self.install_next.as_ref().is_some_and(|r| r.tag == *v);
-                let running = self.installing.as_ref().filter(|(t, _)| t == v);
-                running.map(|(_, p)| Some(*p)).or(queued.then_some(None))
-            });
-        let busy = match (installing, self.preparing, &self.starting_client) {
-            (Some(p), _, _) => Some((tr("Updating"), Some(p))),
-            (_, _, _) if own.is_some() => Some((tr("Installing"), own.flatten())),
-            (_, true, _) => Some((
-                tr("Preparing"),
-                eclipse_launcher::mojang::progress().map(|(d, n)| d as f32 / n.max(1) as f32),
-            )),
-            (_, _, Some(_)) => Some((tr("Starting"), None)),
-            _ => None,
-        };
+        let busy = state.busy();
         let open = self.menu_is(&Menu::Play) && !tag.is_empty();
         let kind = if running && busy.is_none() {
             ButtonKind::Secondary
@@ -174,7 +149,7 @@ impl Launcher {
             )
             .track_focus(&focus)
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                if let Some(client) = &this.client {
+                if let Some(client) = &this.game.client {
                     client.kill();
                 }
                 cx.notify();
@@ -284,12 +259,20 @@ impl Launcher {
     pub(super) fn press_play(&mut self) {
         let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
             || self.selected().is_some_and(|tag| backend::is_prepared(tag));
-        let busy = self.preparing || self.client.is_some() || self.starting_client.is_some();
+        let busy =
+            self.game.preparing || self.game.client.is_some() || self.game.starting.is_some();
         match play_press(ready, busy) {
             PlayPress::Play => self.play(),
             PlayPress::PrepareThenPlay => {
-                self.play_when_prepared = self.selected().cloned();
+                self.game.play_when_prepared = self.selected().cloned();
                 self.prepare(backend::MinecraftFrom::Install);
+            }
+            PlayPress::Nothing if self.selected_play_state() == PlayState::Idle => {
+                crate::toast::say(tr(if self.game.client.is_some() {
+                    "Close the game first"
+                } else {
+                    "Wait for the current operation to finish."
+                }));
             }
             PlayPress::Nothing => {}
         }
@@ -300,37 +283,14 @@ impl Launcher {
     fn version_picker(&self, cx: &mut Context<Self>) -> Div {
         let label = self.selected().map_or_else(
             || tr("No version").into(),
-            |tag| {
-                eclipse_launcher::nightly::label(tag)
-                    .or_else(|| build_import::label(tag))
-                    .unwrap_or_else(|| tag.clone())
-            },
+            |tag| eclipse_launcher::nightly::display_name(tag),
         );
         let open = self.menu_is(&Menu::Version);
-        let value = div()
-            .flex()
-            .flex_col()
-            .child(
-                ui::text(
-                    eclipse_theme::glass::step::CAPTION,
-                    FontWeight::NORMAL,
-                    ink::MUTED,
-                )
-                .child(tr("Version")),
-            )
-            .child(
-                ui::text(
-                    eclipse_theme::glass::step::LEAD,
-                    FontWeight::MEDIUM,
-                    ink::FULL,
-                )
-                .child(label),
-            );
-        let button = ui::dropdown(
-            "picker",
+        let button = ui::labelled_dropdown(
+            "version-picker",
             tr("Version"),
             None,
-            value,
+            label,
             open,
             ui::ButtonSize::Hero,
         )
@@ -343,36 +303,38 @@ impl Launcher {
         let mut wrap = div().relative().child(button);
         if open {
             let follows = self.launcher_version().cloned();
-            let mut menu = self.menu_popover("picker-menu", cx);
+            let mut menu = self.menu_popover("version-picker-menu", cx);
             for tag in &self.installed {
                 let chosen = self.selected() == Some(tag);
                 let latest = follows.as_ref() == Some(tag);
-                let name = eclipse_launcher::nightly::label(tag)
-                    .or_else(|| build_import::label(tag))
-                    .unwrap_or_else(|| tag.clone());
+                let name = eclipse_launcher::nightly::display_name(tag);
                 let note = if latest {
                     tr("Always the newest").to_string()
                 } else {
                     tag.clone()
                 };
                 let pick = tag.clone();
-                let row = ui::menu_item(format!("pick-{tag}"), name.into(), note, false)
-                    .when(chosen, |d| d.child(ui::tick()));
-                menu = menu.child(if chosen { ui::starts_menu(row) } else { row }.on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                let row = ui::pick_item(format!("version-pick-{tag}"), name, note, chosen);
+                menu = menu.child(
+                    row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.pin_version((!latest).then(|| pick.clone()));
                         this.close_menu();
                         cx.notify();
-                    }),
-                ));
+                    })),
+                );
             }
             menu = menu.child(
-                ui::menu_item("manage", tr("Manage versions").into(), String::new(), false)
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.go(Page::Versions);
-                        this.close_menu();
-                        cx.notify();
-                    })),
+                ui::menu_item(
+                    "version-manage",
+                    tr("Manage versions").into(),
+                    String::new(),
+                    false,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.go(Page::Versions);
+                    this.close_menu();
+                    cx.notify();
+                })),
             );
             wrap = wrap.child(ui::menu_under(tall(), ui::Align::Start, menu));
         }
@@ -450,80 +412,10 @@ impl Launcher {
     }
 }
 
-/// How long an instance was played: "41 hours", "1 hour", "25 min".
-fn played_for(played: Duration) -> String {
-    match played.as_secs() / 60 {
-        0 => tr("under a minute").into(),
-        m @ 1..=59 => trf("{count} min", &[("count", &m.to_string())]),
-        60..=119 => tr("1 hour").into(),
-        m => trf("{count} hours", &[("count", &(m / 60).to_string())]),
-    }
-}
-
-pub(super) fn game_line(java: &instances::JavaGame) -> String {
-    match &java.loader {
-        Some(l) => trf(
-            "{loader} {version}",
-            &[("loader", l.kind.name()), ("version", &java.minecraft)],
-        ),
-        None => trf("Vanilla {version}", &[("version", &java.minecraft)]),
-    }
-}
-
-/// When something was last played: "just now", "25 min ago", "2 hours ago" within a day, then
-/// "yesterday", then the day ("Oct 31").
-pub(super) fn last_played(when: std::time::SystemTime) -> String {
-    let local: chrono::DateTime<chrono::Local> = when.into();
-    since(
-        std::time::SystemTime::now()
-            .duration_since(when)
-            .unwrap_or_default(),
-        (chrono::Local::now().date_naive() - local.date_naive()).num_days(),
-        &local.format("%Y-%m-%d").to_string(),
-    )
-}
-
-/// [`last_played`] from how long ago it was, how many calendar days back, and its date.
-fn since(ago: Duration, days: i64, date: &str) -> String {
-    match ago.as_secs() / 60 {
-        0 => tr("just now").into(),
-        m @ 1..=59 => trf("{count} min ago", &[("count", &m.to_string())]),
-        60..=119 => tr("1 hour ago").into(),
-        m if m < 24 * 60 => trf("{count} hours ago", &[("count", &(m / 60).to_string())]),
-        _ if days <= 1 => tr("yesterday").into(),
-        _ => dates::published(date, ""),
-    }
-}
-
 /// What a Play menu row does.
 #[derive(Clone, Copy)]
 enum PlayItem {
     Prepare,
     Play,
     MinecraftFolder,
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn played_time_reads_in_hours_or_minutes() {
-        let h = |s: u64| played_for(Duration::from_secs(s));
-        assert_eq!(h(148_000), "41 hours");
-        assert_eq!(h(5_400), "1 hour");
-        assert_eq!(h(1_500), "25 min");
-    }
-
-    #[test]
-    fn last_played_counts_hours_within_a_day_then_days() {
-        let m = |min: u64| Duration::from_secs(min * 60);
-        assert_eq!(since(m(0), 0, "2026-11-03"), "just now");
-        assert_eq!(since(m(25), 0, "2026-11-03"), "25 min ago");
-        assert_eq!(since(m(130), 0, "2026-11-03"), "2 hours ago");
-        // Under 24 hours, even across midnight.
-        assert_eq!(since(m(20 * 60), 1, "2026-11-02"), "20 hours ago");
-        assert_eq!(since(m(30 * 60), 1, "2026-11-02"), "yesterday");
-        assert_eq!(since(m(3 * 24 * 60), 3, "2026-10-31"), "Oct 31");
-    }
 }

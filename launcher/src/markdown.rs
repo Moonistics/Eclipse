@@ -1,6 +1,6 @@
 //! Release notes: pulldown-cmark events into gpui elements.
 use crate::ui::{self, white};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use gpui::{
     div, prelude::*, px, AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString,
     StyledText,
@@ -199,13 +199,7 @@ pub fn render(source: &str) -> AnyElement {
                 })
                 .child(div().flex_1().min_w_0().child(styled(text, spans)))
                 .into_any_element(),
-            Block::Code(code) => ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
-                .p(px(ui::PANEL_INSET))
-                .rounded(px(radius::ROW))
-                .bg(ui::inset())
-                .font_family(crate::theme::MONO)
-                .child(code.trim_end().to_string())
-                .into_any_element(),
+            Block::Code(code) => ui::code_well(code.trim_end().to_string()).into_any_element(),
             Block::Rule => div()
                 .h(px(1.))
                 .bg(ui::edge())

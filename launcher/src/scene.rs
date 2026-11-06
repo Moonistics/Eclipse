@@ -17,7 +17,7 @@ const HORIZON: f32 = 0.8;
 const THEME_SKY_WASH: f32 = 0.75;
 
 const SUN_SIZE: f32 = 0.055;
-const SUN_HIGH: f32 = 0.38;
+const SUN_HIGH: f32 = 0.48;
 const SUN_REACH: f32 = 2.4;
 const GUTTER_MARGIN: f32 = 48.;
 const SMALLEST_HIGH_SUN: f32 = 0.6;
@@ -34,7 +34,7 @@ const DIP_CALM_REACH: f32 = 2.;
 const CORONA_ALPHAS: [f32; 4] = [0.14, 0.09, 0.06, 0.035];
 const CORONA_RING: f32 = 0.26;
 const STREAMERS: usize = 12;
-const STREAMER_ALPHA: f32 = 0.45;
+const STREAMER_ALPHA: f32 = 0.32;
 const SHORT_STREAMER: f32 = 0.55;
 const STREAMER_TWIST: f32 = 0.3;
 const STREAMER_LENGTH: (f32, f32) = (0.9, 1.1);
@@ -68,6 +68,10 @@ const SNOW_WAVE: f32 = 5.;
 const SNOW_RAGGED: f32 = 8.;
 const SNOW_SEED: u32 = 17;
 const LIT_FACE: i32 = 2;
+const SUNLIT_FACE: i32 = 1;
+const SUNLIT_WARMTH: f32 = 0.35;
+const SHELF_WAVE: f32 = 3.;
+const SHELF_RAGGED: f32 = 2.;
 
 const RIDGED: f32 = 0.62;
 const PEAK_DETAIL: [(f32, f32); 2] = [(2.6, 0.26), (7., 0.12)];
@@ -84,7 +88,8 @@ const BURIED_STONE: f32 = 0.05;
 const TREE_EVERY: f32 = 22.;
 const LIT_LEAVES: f32 = 0.12;
 const TORCHES: [f32; 2] = [0.34, 0.63];
-const TORCH_GLOW: f32 = 0.1;
+const TORCH_FLAME_GLOW: (f32, f32) = (1.5, 0.32);
+const TORCH_HALO: (f32, f32) = (2.5, 0.12);
 
 struct Ridge {
     seed: u32,
@@ -133,7 +138,7 @@ struct Palette {
     leaves_lit: Rgb,
     stick: Rgb,
     flame: Rgb,
-    glow: Rgb,
+    glow: Option<Rgb>,
 }
 
 const AT_NIGHT: Palette = Palette {
@@ -164,7 +169,7 @@ const AT_NIGHT: Palette = Palette {
     leaves_lit: [22., 44., 30.],
     stick: [60., 44., 30.],
     flame: [255., 200., 90.],
-    glow: [255., 179., 71.],
+    glow: Some([255., 179., 71.]),
 };
 
 const BY_DAY: Palette = Palette {
@@ -198,7 +203,7 @@ const BY_DAY: Palette = Palette {
     leaves_lit: [114., 138., 110.],
     stick: [120., 94., 68.],
     flame: [255., 200., 90.],
-    glow: [255., 179., 71.],
+    glow: None,
 };
 
 const TICK: Duration = Duration::from_millis(250);
@@ -391,12 +396,22 @@ impl Dip {
         even(line + (top as f32 - line) * (1. - self.near(x, DIP_CALM_REACH)))
     }
 
-    fn under(&self, top: i32, x: i32) -> i32 {
-        top.max(self.flatten(top, x, self.line + LIT_FACE as f32))
+    fn shelf(&self, x: i32) -> f32 {
+        let beside = (((x - self.x).abs() as f32 - self.radius) / self.radius).clamp(0., 1.);
+        let ragged = smooth(FAR_RIDGE.seed, x as f32 / SHELF_WAVE) * 2. - 1.;
+        self.line + even(ragged * SHELF_RAGGED * beside) as f32
     }
 
-    fn lit(&self, x: i32) -> bool {
-        self.near(x, DIP_CALM_REACH) > 0.
+    fn below_shelf(&self, x: i32) -> f32 {
+        self.shelf(x) + (SUNLIT_FACE + 1) as f32
+    }
+
+    fn under(&self, top: i32, x: i32) -> i32 {
+        top.max(self.flatten(top, x, self.below_shelf(x)))
+    }
+
+    fn sunlight(&self, x: i32) -> f32 {
+        self.near(x, DIP_CALM_REACH)
     }
 }
 
@@ -443,10 +458,25 @@ impl Canvas {
             }
         }
     }
+
+    fn halo(&mut self, x: i32, y: i32, (r, a): (f32, f32), c: Rgb) {
+        let reach = r as i32;
+        for dy in -reach..=reach {
+            for dx in -reach..=reach {
+                if ((dx * dx + dy * dy) as f32) <= r * r {
+                    self.blend(x + dx, y + dy, c, a);
+                }
+            }
+        }
+    }
 }
 
 fn inside(r: f32, dx: i32, dy: i32) -> bool {
     (dx as f32 + 0.5).powi(2) + (dy as f32 + 0.5).powi(2) <= r * r
+}
+
+fn mix(from: Rgb, to: Rgb, t: f32) -> Rgb {
+    [0, 1, 2].map(|i| from[i] + (to[i] - from[i]) * t)
 }
 
 fn rgb(c: u32) -> Rgb {
@@ -461,9 +491,8 @@ fn sky(stops: &[u32; 6], position: f32) -> Rgb {
     if next == 0 {
         return rgb(stops[0]);
     }
-    let (from, to) = (rgb(stops[next - 1]), rgb(stops[next]));
     let t = (position - SKY_AT[next - 1]) / (SKY_AT[next] - SKY_AT[next - 1]);
-    [0, 1, 2].map(|i| from[i] + (to[i] - from[i]) * t)
+    mix(rgb(stops[next - 1]), rgb(stops[next]), t)
 }
 
 struct Star {
@@ -702,14 +731,10 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         (&far as &dyn Fn(i32) -> i32, &palette.far, true),
         (&mid, &palette.mid, false),
     ] {
-        let depth = match dip {
-            Some(dip) if farthest => dip.line - dip.mean(top),
-            Some(dip) => (dip.line - dip.mean(top)).max(0.),
-            None => 0.,
-        };
+        let depth = dip.map_or(0., |dip| dip.line - dip.mean(top));
         let top = |x: i32| match dip {
-            Some(dip) if farthest => dip.flatten(dip.lower(top(x), x, depth), x, dip.line),
-            Some(dip) => dip.under(dip.lower(top(x), x, depth), x),
+            Some(dip) if farthest => dip.flatten(dip.lower(top(x), x, depth), x, dip.shelf(x)),
+            Some(dip) => dip.flatten(top(x), x, dip.below_shelf(x)),
             None => top(x),
         };
         for x in (0..cols as i32).step_by(2) {
@@ -721,9 +746,13 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
             } else {
                 0
             };
-            let lit = farthest && dip.is_some_and(|dip| dip.lit(x));
-            let face = if before > here || lit { LIT_FACE } else { 0 };
+            let face = if before > here { LIT_FACE } else { 0 };
             c.rect(x, here, 2, snow.max(face), shape.edge);
+            let sunlight = dip.filter(|_| farthest).map_or(0., |dip| dip.sunlight(x));
+            if sunlight > 0. {
+                let warmed = mix(shape.edge, palette.corona, SUNLIT_WARMTH * sunlight);
+                c.rect(x, here, 2, SUNLIT_FACE, warmed);
+            }
         }
     }
 
@@ -780,12 +809,7 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
     }
 
     for x in torches {
-        let foot = ground(x);
-        for ring in (1..=2).rev() {
-            c.disc(x, foot - 4, 1.5 + ring as f32, palette.glow, TORCH_GLOW);
-        }
-        c.rect(x, foot - 3, 1, 3, palette.stick);
-        c.set(x, foot - 4, palette.flame);
+        torch(&mut c, x, ground(x), palette);
     }
 
     let texels =
@@ -801,6 +825,15 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         texels,
         stars,
     }
+}
+
+fn torch(c: &mut Canvas, x: i32, foot: i32, palette: &Palette) {
+    if let Some(glow) = palette.glow {
+        c.halo(x, foot - 4, TORCH_HALO, glow);
+        c.halo(x, foot - 4, TORCH_FLAME_GLOW, palette.flame);
+    }
+    c.rect(x, foot - 3, 1, 3, palette.stick);
+    c.set(x, foot - 4, palette.flame);
 }
 
 type Key = (u32, u32, u32, Look, Sun);
@@ -1297,15 +1330,91 @@ mod tests {
                 for x in [cx - r - 1, cx + r] {
                     assert_eq!(shade(x, horizon - 1), rim, "{size}: the rim's foot at {x}");
                 }
+                let sunlit = mix(palette.far.edge, palette.corona, SUNLIT_WARMTH);
                 for x in cx - r - 1..=cx + r {
-                    assert_eq!(
-                        shade(x, horizon),
-                        colour(palette.far.edge),
-                        "{size}: the ridge's lit edge under the sun at {x}"
+                    let edge = shade(x, horizon);
+                    assert!(
+                        (0..3).all(|i| (sunlit[i] - edge[i] as f32).abs() <= 2.),
+                        "{size}: the ridge's edge under the sun at {x} is {edge:?}, not sunlit"
+                    );
+                    let far_below = (horizon + 1..p.rows as i32)
+                        .take_while(|&y| shade(x, y) == colour(palette.far.body))
+                        .count();
+                    assert!(
+                        far_below <= SUNLIT_FACE as usize,
+                        "{size}: {far_below} rows of the far ridge under the sun at {x}"
                     );
                 }
             }
         }
+    }
+
+    #[test]
+    fn the_shelf_under_the_sun_is_level_and_the_ridge_beside_it_is_not() {
+        let dip = Dip {
+            x: 200,
+            line: 150.,
+            radius: SETTING_RADIUS + 1.,
+        };
+        let r = dip.radius as i32;
+        assert!((dip.x - r..=dip.x + r).all(|x| dip.shelf(x) == dip.line));
+        let beside: Vec<f32> = (dip.x + 2 * r..dip.x + 6 * r)
+            .map(|x| dip.shelf(x))
+            .collect();
+        assert!(beside.iter().any(|&y| y != dip.line));
+        assert!(beside
+            .iter()
+            .all(|&y| (y - dip.line).abs() <= SHELF_RAGGED && y as i32 % 2 == 0));
+    }
+
+    fn torch_on_page(palette: &Palette) -> Canvas {
+        let mut c = Canvas {
+            w: 11,
+            h: 11,
+            px: vec![rgb(palette.page); 121],
+        };
+        torch(&mut c, 5, 9, palette);
+        c
+    }
+
+    #[test]
+    fn a_torch_glows_around_its_flame_at_night_only() {
+        let night = torch_on_page(&AT_NIGHT);
+        let shade = |c: &Canvas, x: usize, y: usize| c.px[y * c.w + x];
+        let page = rgb(AT_NIGHT.page);
+        assert_eq!(shade(&night, 5, 5), AT_NIGHT.flame);
+        for (x, y) in [
+            (4, 5),
+            (6, 5),
+            (5, 4),
+            (4, 4),
+            (6, 4),
+            (3, 4),
+            (7, 4),
+            (4, 3),
+            (5, 3),
+        ] {
+            let warm = shade(&night, x, y);
+            assert!(
+                warm[0] > page[0] && warm[0] - warm[2] > page[0] - page[2],
+                "({x}, {y}) is {warm:?}"
+            );
+        }
+        for (left, right) in [((4, 5), (6, 5)), ((4, 4), (6, 4)), ((3, 6), (7, 6))] {
+            assert_eq!(
+                shade(&night, left.0, left.1),
+                shade(&night, right.0, right.1)
+            );
+        }
+        for (x, y) in [(2, 5), (8, 5), (3, 3), (7, 3), (5, 2)] {
+            assert_eq!(shade(&night, x, y), page, "({x}, {y})");
+        }
+        let day = torch_on_page(&BY_DAY);
+        let lit: Vec<(usize, usize)> = (0..121)
+            .map(|i| (i % 11, i / 11))
+            .filter(|&(x, y)| shade(&day, x, y) != rgb(BY_DAY.page))
+            .collect();
+        assert_eq!(lit, [(5, 5), (5, 6), (5, 7), (5, 8)]);
     }
 
     #[test]

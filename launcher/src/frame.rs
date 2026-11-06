@@ -1,5 +1,4 @@
 use super::*;
-use crate::home_head::game_line;
 use crate::menus::{Asking, Menu};
 use crate::ui::{self, Tone};
 use eclipse_launcher::account::Player;
@@ -29,23 +28,11 @@ const MORE_INSET: f32 = space::XXS;
 const LONE_LABEL_PEEK: f32 = 20.;
 const NAV_INSET: f32 = ui::SIDEBAR_INSET - ui::SIDEBAR_PAD - 1.;
 
-fn name_room(window: f32, row_end: f32) -> f32 {
-    layout::sidebar(window)
-        - 2. * (ui::SIDEBAR_PAD + ui::ROW_EDGE)
-        - NAV_INSET
-        - row_end
-        - ROW_TILE
-        - space::MD
+fn row_width(window: f32) -> f32 {
+    layout::sidebar(window) - 2. * ui::SIDEBAR_PAD
 }
 
-fn nav_room(window: f32) -> f32 {
-    layout::sidebar(window)
-        - 2. * (ui::SIDEBAR_PAD + ui::ROW_EDGE + NAV_INSET)
-        - NAV_ICON
-        - space::MD
-}
-
-const NAV_ICON: f32 = 16.;
+const SIDE_REVEAL_MARGIN: f32 = ui::SCROLL_FADE;
 
 fn account_chip(compact: bool) -> f32 {
     if compact {
@@ -69,7 +56,7 @@ pub struct RowMenu {
     /// Where each row was drawn last, by instance id: the menu opens beside its row.
     pub rows: Rc<RefCell<HashMap<String, Bounds<Pixels>>>>,
     list: ScrollHandle,
-    shown: Rc<RefCell<Option<(String, Pixels)>>>,
+    shown: Rc<RefCell<Option<(String, Pixels, Pixels)>>>,
     labels: Rc<RefCell<Vec<Bounds<Pixels>>>>,
     lone_label: Rc<Cell<f32>>,
 }
@@ -137,22 +124,22 @@ impl Launcher {
 
     /// A sidebar row's state line and its dot, from what the launcher knows of the instance.
     fn row_state(&self, i: &Instance) -> (Tone, String) {
-        let running =
-            self.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id);
-        if running {
+        let state = self.play_state(i);
+        if state == PlayState::Running {
             return (Tone::Live, tr("Running").into());
         }
-        let starting = self.starting_client.is_some()
-            && self.selected_instance().is_some_and(|s| s.id == i.id);
-        if starting {
-            return (Tone::Busy, tr("Starting").into());
+        if let Some((label, progress)) = state.busy() {
+            return match progress {
+                Some(p) => (Tone::Busy, format!("{label} {:.0}%", p * 100.)),
+                None => (Tone::Busy, label.into()),
+            };
         }
         match i.kind {
             InstanceKind::Default | InstanceKind::Own => {
                 let tag = self.version_of(i).cloned();
                 let prepared = tag.as_deref().is_some_and(backend::is_prepared);
                 match (&i.java, &tag, &i.version) {
-                    (Some(java), _, _) => (Tone::Live, game_line(java)),
+                    (Some(java), _, _) => (Tone::Live, java.line()),
                     (None, None, Some(own)) => (
                         Tone::Warn,
                         trf("{version} is not installed", &[("version", own)]),
@@ -224,7 +211,7 @@ impl Launcher {
             let current = match i.kind {
                 InstanceKind::Default | InstanceKind::Own => selected.as_ref() == Some(&i.id),
                 InstanceKind::Port => {
-                    on_packs && self.pack_open.as_deref() == Some(&i.id["port:".len()..])
+                    on_packs && self.modpacks.open.as_deref() == Some(&i.id["port:".len()..])
                 }
                 InstanceKind::Pack => false,
             };
@@ -233,7 +220,7 @@ impl Launcher {
             let clicked = i.clone();
             let open = self.menu_is(&Menu::InstanceRow(i.id.clone()));
             // A right click on the row opens the same menu the ⋯ does.
-            let right_id = i.id.clone();
+            let (right_id, key_id) = (i.id.clone(), i.id.clone());
             let (row_id, more_id): (SharedString, SharedString) = (
                 format!("side-instance-{}", i.id).into(),
                 format!("side-more-{}", i.id).into(),
@@ -260,7 +247,8 @@ impl Launcher {
                     ),
                     lit,
                 ));
-            let room = name_room(self.window_width, row_end);
+            let end = if lit { row_end } else { space::SM };
+            let room = ui::side_row_text_room(row_width(self.window_width), NAV_INSET, end);
             let clipped = ui::text_width(&i.name, step::BODY)
                 .max(ui::DOT_ROOM + ui::text_width(&state.1, step::NOTE));
             let full = format!("{} · {}", i.name, state.1);
@@ -269,45 +257,61 @@ impl Launcher {
                     .relative()
                     .child(measure(&self.row_menu.rows, i.id.clone()))
                     .child(
-                        ui::tip_when_clipped(ui::side_row(row_id, current), full, clipped, room)
-                            .pr(px(row_end))
-                            .pl(px(NAV_INSET))
-                            .child(div().relative().flex_none().child(icon))
-                            .child(ui::item_text(
-                                i.name.clone(),
-                                ui::state_line(state.0, state.1),
-                            ))
-                            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                                match clicked.kind {
-                                    InstanceKind::Default | InstanceKind::Own => {
-                                        this.select_instance(&clicked);
-                                        this.go(Page::Home);
-                                    }
-                                    InstanceKind::Port => {
-                                        this.show_modpack(Some(clicked.id["port:".len()..].into()))
-                                    }
-                                    InstanceKind::Pack => this.show_modpack(None),
+                        ui::tip_when_clipped(
+                            ui::side_row(row_id, i.name.clone(), current)
+                                .aria_description(state.1.clone()),
+                            full,
+                            clipped,
+                            room,
+                        )
+                        .pr(px(end))
+                        .pl(px(NAV_INSET))
+                        .child(div().relative().flex_none().child(icon))
+                        .child(ui::item_text(
+                            i.name.clone(),
+                            ui::state_line(state.0, state.1),
+                        ))
+                        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                            match clicked.kind {
+                                InstanceKind::Default | InstanceKind::Own => {
+                                    this.select_instance(&clicked);
+                                    this.go(Page::Home);
                                 }
-                                cx.notify();
-                            }))
-                            // The ⋯ menu, from a right click anywhere on the row.
-                            .on_mouse_down(
-                                gpui::MouseButton::Right,
-                                cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
-                                    // The open menu's mouse-down-out already closed it on this
-                                    // press: reopening here would make the toggle a no-op.
-                                    if this.menu_closed_at.take() == Some(event.position) {
-                                        cx.notify();
-                                        return;
-                                    }
-                                    this.open_menu = menus::menu_after_press(
-                                        this.open_menu.take(),
-                                        Menu::InstanceRow(right_id.clone()),
-                                    );
-                                    this.stop_asking(|a| matches!(a, Asking::InstanceDelete(_)));
+                                InstanceKind::Port => {
+                                    this.show_modpack(Some(clicked.id["port:".len()..].into()))
+                                }
+                                InstanceKind::Pack => this.show_modpack(None),
+                            }
+                            cx.notify();
+                        }))
+                        // The ⋯ menu, from a right click anywhere on the row.
+                        .on_mouse_down(
+                            gpui::MouseButton::Right,
+                            cx.listener(move |this, event: &gpui::MouseDownEvent, _, cx| {
+                                // The open menu's mouse-down-out already closed it on this
+                                // press: reopening here would make the toggle a no-op.
+                                if this.menu_closed_at.take() == Some(event.position) {
                                     cx.notify();
-                                }),
-                            ),
+                                    return;
+                                }
+                                this.open_menu = menus::menu_after_press(
+                                    this.open_menu.take(),
+                                    Menu::InstanceRow(right_id.clone()),
+                                );
+                                this.stop_asking(|a| matches!(a, Asking::InstanceDelete(_)));
+                                cx.notify();
+                            }),
+                        )
+                        .on_key_down(cx.listener(
+                            move |this, ev: &gpui::KeyDownEvent, window, cx| {
+                                if !ui::opens_row_menu(&ev.keystroke) {
+                                    return;
+                                }
+                                this.open_menu_from(Menu::InstanceRow(key_id.clone()), window, cx);
+                                cx.stop_propagation();
+                                cx.notify();
+                            },
+                        )),
                     )
                     .child(more),
             );
@@ -321,12 +325,13 @@ impl Launcher {
         let rows = self.row_menu.rows.clone();
         let list = self.row_menu.list.clone();
         let shown = self.row_menu.shown.clone();
+        let covered = px(self.row_menu.lone_label.get());
         canvas(
             move |view, window, _| {
                 let Some(id) = id else {
                     return;
                 };
-                let key = (id, view.size.height);
+                let key = (id, view.size.height, covered);
                 if shown.borrow().as_ref() == Some(&key) {
                     return;
                 }
@@ -334,11 +339,13 @@ impl Launcher {
                     return;
                 };
                 let mut offset = list.offset();
-                if row.top() < view.top() {
-                    offset.y += view.top() - row.top();
-                } else if row.bottom() > view.bottom() {
-                    offset.y -= row.bottom() - view.bottom();
+                let margin = px(SIDE_REVEAL_MARGIN);
+                if row.top() < view.top() + margin {
+                    offset.y += view.top() + margin - row.top();
+                } else if row.bottom() > view.bottom() - covered - margin {
+                    offset.y -= row.bottom() - (view.bottom() - covered - margin);
                 }
+                offset.y = offset.y.min(px(0.)).max(-list.max_offset().y);
                 if offset != list.offset() {
                     list.set_offset(offset);
                     window.request_animation_frame();
@@ -376,17 +383,11 @@ impl Launcher {
         .absolute()
     }
 
-    fn nav_item(
-        &self,
-        page: Page,
-        label: &'static str,
-        icon: &'static str,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        let label = tr(label);
+    fn nav_item(&self, page: Page, cx: &mut Context<Self>) -> Stateful<Div> {
+        let label = page.label();
         let row = ui::nav_row(
             format!("nav-{page:?}"),
-            icon,
+            page.icon(),
             label,
             self.page == page,
             ui::NavDensity::Sidebar,
@@ -395,7 +396,11 @@ impl Launcher {
             row,
             label,
             ui::press_width(&label.to_uppercase()),
-            nav_room(self.window_width),
+            ui::nav_text_room(
+                row_width(self.window_width),
+                NAV_INSET,
+                ui::NavDensity::Sidebar,
+            ),
         )
         .px(px(NAV_INSET))
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -405,11 +410,8 @@ impl Launcher {
     }
 
     fn account_block(&mut self, compact: bool, cx: &mut Context<Self>) -> Div {
-        let (name, how) = self.who_plays();
-        let face = match self.accounts.player() {
-            Player::Microsoft(_) => self.accounts.selected().map(|a| a.uuid.clone()),
-            _ => Some(profile_heads::offline_key(&name)),
-        };
+        let who = self.who_plays();
+        let (name, how, face) = (who.name, who.how, Some(who.face));
         let open = self.menu_is(&Menu::Account);
         let chip = ui::selected(
             ui::hoverable("account", eclipse_theme::glass::radius::ROW, ui::Hover::Row)
@@ -420,9 +422,9 @@ impl Launcher {
                 .gap(px(space::MD))
                 .h(px(account_chip(compact)))
                 .pl(px(ui::SIDEBAR_INSET - ui::SIDEBAR_PAD))
-                .pr(px(
-                    MORE_INSET + (ui::ButtonSize::Sm.height() - NAV_ICON) / 2.
-                ))
+                .pr(px(MORE_INSET
+                    + (ui::ButtonSize::Sm.height() - ui::IconSize::Px16.px())
+                        / 2.))
                 .cursor_pointer()
                 .child(ui::face(
                     self.profile_heads
@@ -459,9 +461,9 @@ impl Launcher {
             .when(!compact, |d| d.gap(px(NAV_GAP)))
             .px(px(ui::SIDEBAR_PAD))
             .pt(px(if compact { NAV_TOP_SHORT } else { NAV_TOP }));
-        for (page, label, icon) in Page::NAV {
+        for page in Page::NAV {
             if page != Page::Settings {
-                nav = nav.child(self.nav_item(page, label, icon, cx));
+                nav = nav.child(self.nav_item(page, cx));
             }
         }
         let adding = self.page == Page::InstanceEditor
@@ -515,27 +517,32 @@ impl Launcher {
             let open = self.page == Page::Servers && self.servers.open.as_ref() == Some(&e.dir);
             let dir = e.dir.clone();
             server_rows = server_rows.child(
-                ui::side_row(format!("side-server-{}", e.dir.display()), open)
-                    .pr(px(space::SM))
-                    .pl(px(NAV_INSET))
-                    .child(ui::tile(ROW_TILE).relative().child(ui::icon(
-                        "computer-terminal-01",
-                        ui::IconSize::Px16,
-                        ui::icon_tone(open),
-                    )))
-                    .child(ui::item_text(
-                        e.name.clone(),
-                        if up {
-                            ui::state_line(Tone::Live, tr("Running"))
-                        } else {
-                            ui::state_line(Tone::Off, tr("Stopped"))
-                        },
-                    ))
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.open_server(dir.clone());
-                        this.go(Page::Servers);
-                        cx.notify();
-                    })),
+                ui::side_row(
+                    format!("side-server-{}", e.dir.display()),
+                    e.name.clone(),
+                    open,
+                )
+                .aria_description(if up { tr("Running") } else { tr("Stopped") })
+                .pr(px(space::SM))
+                .pl(px(NAV_INSET))
+                .child(ui::tile(ROW_TILE).relative().child(ui::icon(
+                    "computer-terminal-01",
+                    ui::IconSize::Px16,
+                    ui::icon_tone(open),
+                )))
+                .child(ui::item_text(
+                    e.name.clone(),
+                    if up {
+                        ui::state_line(Tone::Live, tr("Running"))
+                    } else {
+                        ui::state_line(Tone::Off, tr("Stopped"))
+                    },
+                ))
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.open_server(dir.clone());
+                    this.go(Page::Servers);
+                    cx.notify();
+                })),
             );
         }
         let side = self.theme.side;
@@ -567,6 +574,7 @@ impl Launcher {
                     .right_0()
                     .top_0()
                     .bottom(px(lone_label))
+                    .children(ui::more_above_fade(&self.row_menu.list, side))
                     .children(ui::more_below_fade(&self.row_menu.list, side)),
             );
 
@@ -693,9 +701,8 @@ impl Launcher {
                 })),
             );
         }
-        let (_, settings, settings_icon) = Page::NAV[Page::NAV.len() - 1];
         foot = foot
-            .child(self.nav_item(Page::Settings, settings, settings_icon, cx))
+            .child(self.nav_item(Page::Settings, cx))
             .when(!compact, |d| {
                 d.child(
                     ui::text(step::CAPTION, FontWeight::NORMAL, ink::DIM)
@@ -918,14 +925,13 @@ impl Launcher {
             );
         // Eclipse's own instance can't be deleted, nor one while a game runs.
         let can_delete = instance.kind != InstanceKind::Default
-            && self.client.is_none()
-            && self.starting_client.is_none();
+            && self.game.client.is_none()
+            && self.game.starting.is_none();
         let gone = instance.id.clone();
         let delete = if confirm {
             ui::menu_confirm(
                 "row-menu-delete",
-                trf("Delete {name}?", &[("name", &instance.name)]),
-                tr("Delete"),
+                ui::Confirm::Delete(&instance.name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.stop_asking(|a| matches!(a, Asking::InstanceDelete(_)));
                     cx.notify();

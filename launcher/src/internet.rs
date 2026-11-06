@@ -6,7 +6,7 @@ use super::fields::Field;
 use super::*;
 use crate::ui;
 use eclipse_launcher::tailscale::{self, Api, Invite, Reach, State};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use serde_json::Value;
 
 /// How often Tailscale's state is read while the panel shows.
@@ -377,7 +377,7 @@ impl Launcher {
     }
 
     fn invite_section(&mut self, ip: &str, port: u16, cx: &mut Context<Self>) -> Div {
-        let line = |s: String| ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(s);
+        let line = |s: String| ui::card_note(s);
         let link = |id: &'static str, label: &'static str, url: &'static str| {
             ui::button(
                 id,
@@ -489,7 +489,7 @@ impl Launcher {
                     .child(self.field(
                         Field::FriendEmail,
                         tr("Their email (optional)"),
-                        260.,
+                        layout::FIELD_MD,
                         ui::ButtonSize::Md,
                         cx,
                     ))
@@ -505,8 +505,7 @@ impl Launcher {
                     .items_center()
                     .gap(px(space::MD))
                     .child(
-                        ui::text(step::CAPTION, FontWeight::NORMAL, ink::FULL)
-                            .font_family(theme::MONO)
+                        ui::mono(step::CAPTION, ink::FULL)
                             .flex_1()
                             .min_w_0()
                             .truncate()
@@ -686,14 +685,7 @@ impl Launcher {
                             "Your access controls are your own, so Eclipse leaves them alone. To \
                              keep shared friends to Minecraft, add this rule in the admin console:",
                         ))
-                        .child(
-                            ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
-                                .p(px(ui::PANEL_INSET))
-                                .rounded(px(radius::ROW))
-                                .bg(ui::inset())
-                                .font_family(theme::MONO)
-                                .child(snippet.clone()),
-                        )
+                        .child(ui::code_well(snippet.clone()))
                         .child(
                             div()
                                 .flex()

@@ -4,21 +4,42 @@ use super::fields::Field;
 use super::*;
 use eclipse_launcher::account::Player;
 
+pub(super) struct WhoPlays {
+    pub(super) name: String,
+    pub(super) face: String,
+    pub(super) tone: ui::Tone,
+    pub(super) how: &'static str,
+    pub(super) means: &'static str,
+}
+
 impl Launcher {
-    /// The chip's two lines: the name that plays, and how.
-    pub(super) fn who_plays(&self) -> (String, &'static str) {
+    pub(super) fn game_name(&self) -> String {
+        self.offline_name
+            .clone()
+            .unwrap_or_else(|| tr(account::DEFAULT_PLAYER).into())
+    }
+
+    pub(super) fn who_plays(&self) -> WhoPlays {
+        let offline = |name: String| WhoPlays {
+            face: profile_heads::offline_key(&name),
+            name,
+            tone: ui::Tone::Off,
+            how: tr("Offline account"),
+            means: tr("Offline account · can't join online-mode servers"),
+        };
         match self.accounts.player() {
-            Player::Microsoft(_) => (
-                self.accounts
-                    .selected()
+            Player::Microsoft(uuid) => WhoPlays {
+                name: self
+                    .accounts
+                    .find(&uuid)
                     .map_or_else(String::new, |a| a.name.clone()),
-                tr("Microsoft account"),
-            ),
-            Player::Offline(name) => (name, tr("Offline account")),
-            Player::GameName => (
-                self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-                tr("Offline account"),
-            ),
+                face: uuid,
+                tone: ui::Tone::Live,
+                how: tr("Microsoft account"),
+                means: tr("Microsoft account · online play"),
+            },
+            Player::Offline(name) => offline(name),
+            Player::GameName => offline(self.game_name()),
         }
     }
 
@@ -54,11 +75,7 @@ impl Launcher {
                 .iter()
                 .map(|n| (Player::Offline(n.clone()), n.clone(), tr("Offline account"))),
         );
-        out.push((
-            Player::GameName,
-            self.offline_name.clone().unwrap_or_else(|| "Player".into()),
-            tr("Offline account"),
-        ));
+        out.push((Player::GameName, self.game_name(), tr("Offline account")));
         out
     }
 

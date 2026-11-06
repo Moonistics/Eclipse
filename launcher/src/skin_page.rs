@@ -3,7 +3,7 @@
 use super::*;
 use crate::ui::{self};
 use eclipse_launcher::skins::{self, Model};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{radius, space};
 use gpui::RenderImage;
 use std::path::PathBuf;
 use std::sync::Arc;
@@ -153,9 +153,7 @@ impl Launcher {
                 .bg(ui::inset())
                 .child(match image {
                     Some(i) => gpui::img(i).w(px(w)).h(px(h)).into_any_element(),
-                    None => ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                        .child(tr(empty))
-                        .into_any_element(),
+                    None => ui::card_note(tr(empty)).into_any_element(),
                 })
         };
         let weak = cx.entity().downgrade();
@@ -217,13 +215,10 @@ impl Launcher {
         }
         let note = self.skin.as_ref().and_then(|p| p.note.clone());
         Some(
-            div()
+            ui::well()
                 .flex()
                 .flex_wrap()
                 .gap(px(space::XL))
-                .p(px(ui::PANEL_INSET))
-                .rounded(px(radius::ROW))
-                .bg(ui::inset())
                 .child(frame(16. * TEXEL, 32. * TEXEL, skin, "Default"))
                 .child(frame(10. * TEXEL, 16. * TEXEL, cape, "No cape"))
                 .child(
@@ -238,9 +233,7 @@ impl Launcher {
                         .child(model)
                         .child(cape_buttons)
                         .children(note.map(|n| match n {
-                            Ok(said) => {
-                                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(said)
-                            }
+                            Ok(said) => ui::card_note(said),
                             Err(e) => ui::error_note(e),
                         }))
                         .child(ui::card_note(tr(

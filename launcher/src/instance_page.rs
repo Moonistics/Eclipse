@@ -4,7 +4,7 @@ use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{fill, ink, pixel_text, radius, space};
+use eclipse_theme::glass::{fill, ink, pixel_text, space};
 use fields::Field;
 use instance_state::{NewKind, VersionList};
 
@@ -23,7 +23,6 @@ const CHOICE_ICON: f32 = ui::TILE_MD;
 const NAME_FIELD_WIDTH: f32 = 340.;
 const ECLIPSE_LIST: f32 = 248.;
 const ECLIPSE_COLUMN: f32 = 240.;
-const COMPACT_BELOW: f32 = 600.;
 const GAME_NOTE_LINES: usize = 2;
 
 /// The loaders a new modded instance can use now.
@@ -65,7 +64,7 @@ impl Launcher {
             .cloned();
         let kind = d.java.kind;
         let running = editing.as_ref().is_some_and(|i| {
-            self.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id)
+            self.game.client.is_some() && self.selected_instance().is_some_and(|s| s.id == i.id)
         });
         let (title, note): (SharedString, _) = match editing {
             Some(_) if running => (
@@ -107,7 +106,7 @@ impl Launcher {
         // The memory it may use, kept with the instance.
         if editing.is_some() {
             cards.extend(self.memory_setting(cx).map(|row| {
-                ui::card(radius::PANEL)
+                ui::card()
                     .id("instance-memory")
                     .p(px(ui::CARD_PADDING - ui::SETTING_ROW_PADDING))
                     .child(row)
@@ -120,16 +119,17 @@ impl Launcher {
             .flex_col()
             .size_full()
             .gap(px(layout::CARD_GAP))
-            .pr(px(Scrollbar::ROOM))
-            .pb(px(foot_height() / 2. + layout::CARD_GAP))
             .children(cards);
         let pane = div()
             .relative()
             .flex_1()
             .min_h_0()
-            .mr(px(-Scrollbar::ROOM))
-            .pb(px(layout::CONTENT_INSET + foot_height() / 2.))
-            .child(scroll.wrap(pane).size_full())
+            .pb(px(layout::CONTENT_INSET + foot_height() + layout::CARD_GAP))
+            .child(ui::page_pane(
+                pane,
+                &scroll,
+                layout::page_margin(self.window_width),
+            ))
             .child(foot);
         div()
             .flex()
@@ -141,7 +141,7 @@ impl Launcher {
     }
 
     pub(super) fn instance_page_compact(&self) -> bool {
-        layout::content_width(self.window_width) < COMPACT_BELOW
+        layout::content_width(self.window_width) < layout::INSTANCE_COMPACT_BELOW
     }
 
     /// The loader a modded instance plays (or will).
@@ -277,7 +277,10 @@ impl Launcher {
         let version = self.draft_minecraft().unwrap_or_else(|| "…".into());
         let plays = match kind {
             NewKind::Eclipse => match self.draft_eclipse() {
-                Some(tag) => format!("Eclipse · {}", version_label(&tag)),
+                Some(tag) => format!(
+                    "Eclipse · {}",
+                    eclipse_launcher::nightly::display_name(&tag)
+                ),
                 None => "Eclipse".into(),
             },
             NewKind::Vanilla => trf("Vanilla {version}", &[("version", &version)]),
@@ -321,29 +324,13 @@ impl Launcher {
                 NewKind::Modded => self.modded_mark(ui::MARK),
                 _ => self.auto_mark(k, loader, ui::MARK),
             });
-            let card = ui::choice(format!("new-kind-{id}"), k == kind)
+            let card = ui::choice_card(format!("new-kind-{id}"), k == kind)
                 .items_start()
                 .gap(px(space::LG))
                 .p(px(space::MD))
                 .min_w_0()
                 .children(mark.map(ui::mark_tile))
-                .child(
-                    div()
-                        .relative()
-                        .flex()
-                        .flex_col()
-                        .flex_1()
-                        .min_w_0()
-                        .child(
-                            ui::text(
-                                eclipse_theme::glass::step::BODY,
-                                FontWeight::SEMIBOLD,
-                                ink::FULL,
-                            )
-                            .child(title),
-                        )
-                        .child(ui::card_note(note).line_clamp(GAME_NOTE_LINES)),
-                );
+                .child(ui::item_text_wrapped(title, note, GAME_NOTE_LINES));
             cards.push((
                 if switches {
                     card
@@ -354,18 +341,21 @@ impl Launcher {
                 k == kind,
             ));
         }
-        let importing = self.pack_busy;
+        let importing = self.modpacks.busy;
         let import = (!busy && editing.is_none()).then(|| {
             let import = ui::button(
                 "instance-import",
                 None,
-                tr("Import a modpack…"),
+                if importing {
+                    tr("Importing…")
+                } else {
+                    tr("Import a modpack…")
+                },
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
             if importing {
-                return ui::unavailable(import, tr("Wait for the current operation to finish."))
-                    .into_any_element();
+                return ui::disabled(import).into_any_element();
             }
             import
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -422,7 +412,7 @@ impl Launcher {
                 .flex_1()
                 .min_w_0()
         };
-        ui::card(radius::PANEL)
+        ui::card()
             .id("instance-name")
             .flex()
             .flex_col()
@@ -467,13 +457,6 @@ pub(super) fn eclipse_choices(releases: &[Release], installed: &[String]) -> Vec
         }
     }
     out
-}
-
-/// "Nightly 2026-10-30 · c9d474d", "Imported · 2026-10-30", or the tag.
-pub(super) fn version_label(tag: &str) -> String {
-    eclipse_launcher::nightly::label(tag)
-        .or_else(|| build_import::label(tag))
-        .unwrap_or_else(|| tag.to_string())
 }
 
 impl Launcher {
@@ -522,7 +505,21 @@ impl Launcher {
             (false, _) => tr("Create instance"),
         };
         let save = ui::primary("instance-save", label, button);
-        let buttons = if busy {
+        let buttons = if self.is_asking(&menus::Asking::DiscardDraft) {
+            div().child(ui::confirm(
+                "instance-cancel",
+                ui::Confirm::DiscardChanges,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.asking = None;
+                    cx.notify();
+                }),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.asking = None;
+                    this.close_instance_page();
+                    cx.notify();
+                }),
+            ))
+        } else if busy {
             div()
                 .flex()
                 .items_center()
@@ -543,11 +540,11 @@ impl Launcher {
                     cx.notify();
                 })))
         };
-        ui::card(radius::PANEL)
+        ui::card()
             .id("instance-foot")
             .absolute()
             .left_0()
-            .right(px(Scrollbar::ROOM))
+            .right_0()
             .bottom(px(layout::CONTENT_INSET))
             .flex()
             .items_center()
@@ -572,15 +569,7 @@ impl Launcher {
                     // Why Create failed takes the summary's place, by the buttons.
                     .children(match error {
                         Some(e) => Some(ui::error_note(e)),
-                        None => (!summary.is_empty()).then(|| {
-                            ui::text(
-                                eclipse_theme::glass::step::NOTE,
-                                FontWeight::NORMAL,
-                                ink::MUTED,
-                            )
-                            .truncate()
-                            .child(summary)
-                        }),
+                        None => (!summary.is_empty()).then(|| ui::card_note(summary).truncate()),
                     }),
             )
             .child(buttons.relative().flex_none())
@@ -600,7 +589,7 @@ impl Launcher {
                 let newest = i == 0;
                 let on = chosen.as_ref() == Some(tag);
                 let date = eclipse_launcher::nightly::date_of(tag).map(|d| dates::published(d, ""));
-                let label = version_label(tag);
+                let label = eclipse_launcher::nightly::display_name(tag);
                 let row = ui::list_choice(format!("eclipse-version-{tag}"), on)
                     .py(px(space::MD))
                     .child(
@@ -647,7 +636,7 @@ impl Launcher {
                     this.fetch_releases();
                     cx.notify();
                 }),
-                Some(Self::proxy_settings_button("eclipse-versions-failed", cx)),
+                vec![Self::proxy_settings_button("eclipse-versions-failed", cx)],
                 ButtonKind::Secondary,
             )),
             (_, true) => list.child(ui::empty_state(
@@ -677,7 +666,7 @@ impl Launcher {
             None => self.eclipse_mark(ui::MARK),
         };
         let card = |on: bool, id: &'static str| {
-            ui::choice(id, on)
+            ui::choice_card(id, on)
                 .flex_1()
                 .min_w_0()
                 .items_center()
@@ -738,19 +727,7 @@ impl Launcher {
         let pictured = matches!(&d_picture, Some(Some(_))) || own_picture;
         let typed = self.fields.value(Field::InstanceName).trim().to_string();
         let name = if typed.is_empty() { "N".into() } else { typed };
-        let pick = |icon: Option<Icon>| {
-            cx.listener(
-                move |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
-                    if let Some(d) = &mut this.instances.draft {
-                        d.icon = icon.clone();
-                        d.picture = Some(None);
-                        d.logo = None;
-                    }
-                    cx.notify();
-                },
-            )
-        };
-        let mut first: Vec<AnyElement> = Vec::new();
+        let mut first: Vec<(Stateful<Div>, SharedString, bool, IconPick)> = Vec::new();
         if file_picture || has_saved_picture {
             let picture_img = match &d_picture {
                 Some(Some(chosen)) => {
@@ -768,36 +745,30 @@ impl Launcher {
             };
             let picture_active = (file_picture || own_picture) && icon.is_none();
             if let Some(image) = picture_img {
-                first.push(
-                    icon_choice("icon-picture", picture_active)
-                        .child(instance_icons::centred(image, CHOICE_ICON, self.scale))
-                        .on_press(cx.listener(
-                            move |this: &mut Self, _: &ClickEvent, _, cx: &mut Context<Self>| {
-                                if picture_active {
-                                    this.choose_instance_picture(cx);
-                                } else if let Some(d) = &mut this.instances.draft {
-                                    d.icon = None;
-                                    d.logo = None;
-                                    if has_saved_picture {
-                                        d.picture = None;
-                                    }
-                                    d.error = None;
-                                }
-                                cx.notify();
-                            },
-                        ))
-                        .into_any_element(),
-                );
+                first.push((
+                    icon_choice("icon-picture", picture_active).child(instance_icons::centred(
+                        image,
+                        CHOICE_ICON,
+                        self.scale,
+                    )),
+                    tr("Your picture").into(),
+                    picture_active,
+                    IconPick::Picture {
+                        active: picture_active,
+                        saved: has_saved_picture,
+                    },
+                ));
             }
         }
         let loader = self.draft_loader();
         let auto = self.auto_mark(kind, loader, CHOICE_ICON);
-        first.push(
-            icon_choice("icon-auto", !pictured && icon.is_none())
-                .child(auto)
-                .on_press(pick(None))
-                .into_any_element(),
-        );
+        let auto_on = !pictured && icon.is_none();
+        first.push((
+            icon_choice("icon-auto", auto_on).child(auto),
+            tr("Automatic").into(),
+            auto_on,
+            IconPick::Icon(None),
+        ));
         // Our grass block, then the loaders' logos: each becomes the instance's picture.
         let mut logos: Vec<(&'static str, Vec<u8>)> =
             vec![("grass", instance_icons::GRASS.to_vec())];
@@ -821,41 +792,73 @@ impl Launcher {
             let Some(shown) = shown else {
                 continue;
             };
-            first.push(
-                icon_choice(format!("icon-logo-{id}"), logo == Some(id))
-                    .child(shown)
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        let made = instance_icons::chosen(png.clone());
-                        if let (Some(d), Some(made)) = (&mut this.instances.draft, made) {
-                            d.picture = Some(Some(made));
-                            d.icon = None;
-                            d.logo = Some(id);
-                            d.error = None;
-                        }
-                        cx.notify();
-                    }))
-                    .into_any_element(),
-            );
+            let name: SharedString = match id {
+                "grass" => tr("Grass block").into(),
+                _ => Loader::parse(id).map_or(id.into(), |l| l.name().into()),
+            };
+            first.push((
+                icon_choice(format!("icon-logo-{id}"), logo == Some(id)).child(shown),
+                name,
+                logo == Some(id),
+                IconPick::Logo(id, png),
+            ));
         }
         for texture in instance_state::TEXTURES {
             let Some(image) = self.texture_image(texture, CHOICE_ICON) else {
                 continue;
             };
             let on = !pictured && icon == Some(Icon::Texture(texture.into()));
-            first.push(
+            first.push((
                 icon_choice(format!("icon-{texture}"), on)
-                    .child(ui::image_tile(image, ui::TILE_MD))
-                    .on_press(pick(Some(Icon::Texture(texture.into()))))
-                    .into_any_element(),
-            );
+                    .child(ui::image_tile(image, ui::TILE_MD)),
+                texture_name(texture).into(),
+                on,
+                IconPick::Icon(Some(Icon::Texture(texture.into()))),
+            ));
         }
-        let colours = COLOURS.map(|rgb| {
-            let hex = format!("#{rgb:06x}");
-            let on = !pictured && icon == Some(Icon::Colour(hex.clone()));
-            icon_choice(format!("icon-{hex}"), on)
-                .child(ui::letter_tile(ui::color(rgb), &name, CHOICE_ICON))
-                .on_press(pick(Some(Icon::Colour(hex))))
-        });
+        let colours: Vec<_> = COLOURS
+            .iter()
+            .map(|rgb| {
+                let hex = format!("#{rgb:06x}");
+                let on = !pictured && icon == Some(Icon::Colour(hex.clone()));
+                (
+                    icon_choice(format!("icon-{hex}"), on).child(ui::letter_tile(
+                        ui::color(*rgb),
+                        &name,
+                        CHOICE_ICON,
+                    )),
+                    SharedString::from(trf("Colour {hex}", &[("hex", &hex)])),
+                    on,
+                    IconPick::Icon(Some(Icon::Colour(hex))),
+                )
+            })
+            .collect();
+        let picker = |id: &'static str,
+                      choices: Vec<(Stateful<Div>, SharedString, bool, IconPick)>,
+                      cx: &mut Context<Self>| {
+            let (rows, picks): (Vec<_>, Vec<_>) = choices
+                .into_iter()
+                .map(|(row, label, on, pick)| ((row, label, on), pick))
+                .unzip();
+            let pick = cx.listener(move |this, i: &usize, _, cx| {
+                if let Some(pick) = picks.get(*i) {
+                    this.pick_icon(pick, cx);
+                }
+            });
+            ui::options(
+                div()
+                    .id(id)
+                    .aria_label(tr("Icon"))
+                    .flex()
+                    .flex_wrap()
+                    .gap(px(space::SM)),
+                rows,
+                false,
+                move |i, window, cx| pick(&i, window, cx),
+            )
+        };
+        let first = picker("instance-icons", first, cx);
+        let colours = picker("instance-colours", colours, cx);
         let choose = ui::button(
             "instance-picture",
             Some("image-01"),
@@ -867,32 +870,73 @@ impl Launcher {
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.choose_instance_picture(cx);
         }));
-        let mut body = div()
-            .flex()
-            .flex_col()
-            .child(div().flex().flex_wrap().gap(px(space::SM)).children(first))
-            .child(
-                div()
-                    .flex()
-                    .flex_wrap()
-                    .items_center()
-                    .gap(px(space::SM))
-                    .mt(px(space::SM))
-                    .children(colours)
-                    .child(choose),
-            );
+        let mut body = div().flex().flex_col().child(first).child(
+            div()
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(space::SM))
+                .mt(px(space::SM))
+                .child(colours)
+                .child(choose),
+        );
         if self.selected().is_none_or(|t| !backend::is_prepared(t)) {
             body = body.child(
-                ui::text(
-                    eclipse_theme::glass::step::NOTE,
-                    FontWeight::NORMAL,
-                    ink::MUTED,
-                )
-                .mt(px(space::MD))
-                .child(tr("Prepare a version to use block and item icons.")),
+                ui::card_note(tr("Prepare a version to use block and item icons."))
+                    .mt(px(space::MD)),
             );
         }
         ui::section_card("instance-icon", tr("Icon"), None, body)
+    }
+}
+
+enum IconPick {
+    Picture { active: bool, saved: bool },
+    Icon(Option<Icon>),
+    Logo(&'static str, Vec<u8>),
+}
+
+fn texture_name(texture: &str) -> String {
+    let words = texture.replace('_', " ");
+    let mut chars = words.chars();
+    chars
+        .next()
+        .map(|c| c.to_uppercase().chain(chars).collect())
+        .unwrap_or_default()
+}
+
+impl Launcher {
+    fn pick_icon(&mut self, pick: &IconPick, cx: &mut Context<Self>) {
+        match pick {
+            IconPick::Picture { active: true, .. } => self.choose_instance_picture(cx),
+            IconPick::Picture { saved, .. } => {
+                if let Some(d) = &mut self.instances.draft {
+                    d.icon = None;
+                    d.logo = None;
+                    if *saved {
+                        d.picture = None;
+                    }
+                    d.error = None;
+                }
+            }
+            IconPick::Icon(icon) => {
+                if let Some(d) = &mut self.instances.draft {
+                    d.icon = icon.clone();
+                    d.picture = Some(None);
+                    d.logo = None;
+                }
+            }
+            IconPick::Logo(id, png) => {
+                let made = instance_icons::chosen(png.clone());
+                if let (Some(d), Some(made)) = (&mut self.instances.draft, made) {
+                    d.picture = Some(Some(made));
+                    d.icon = None;
+                    d.logo = Some(id);
+                    d.error = None;
+                }
+            }
+        }
+        cx.notify();
     }
 }
 

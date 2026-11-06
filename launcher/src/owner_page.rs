@@ -61,49 +61,21 @@ impl Launcher {
         configured: bool,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        use crate::ui::{self, white};
-        use eclipse_theme::glass::{ink, radius, space};
-        let panel = || {
-            div()
-                .mt(px(space::XL))
-                .p(px(space::XL))
-                .rounded(px(radius::POPOVER))
-                .bg(ui::inset())
-        };
-        let mut card = ui::dialog_plate(radius::MODAL)
-            .id("owner-card")
-            .occlude()
-            .flex()
-            .flex_col()
-            // A set width: text measured at it wraps where it is drawn.
-            .w(px(520.))
-            .max_w_full()
-            .p(px(space::XXL))
-            .child(ui::label(tr("Microsoft account")))
-            .child(
-                ui::entity_title(
-                    tr("Sign in to play"),
-                    eclipse_theme::glass::pixel_text::CARD_TITLE,
+        use crate::ui::{self};
+        use eclipse_theme::glass::{ink, space};
+        let panel = || ui::well().mt(px(space::XL));
+        let mut card = div().flex().flex_col().child(
+            div().flex().flex_col().gap(px(space::SM)).child(
+                ui::text(
+                    eclipse_theme::glass::step::BODY,
+                    FontWeight::NORMAL,
+                    ink::BODY,
                 )
-                .mt(px(space::SM)),
-            )
-            .child(
-                div()
-                    .mt(px(space::MD))
-                    .flex()
-                    .flex_col()
-                    .gap(px(space::SM))
-                    .child(
-                        ui::text(
-                            eclipse_theme::glass::step::BODY,
-                            FontWeight::NORMAL,
-                            ink::BODY,
-                        )
-                        .child(tr(
-                            "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
-                        )),
-                    ),
-            );
+                .child(tr(
+                    "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
+                )),
+            ),
+        );
         card = match state {
             Shown::Code(uri, user_code) => {
                 let copy = user_code.to_string();
@@ -120,26 +92,11 @@ impl Launcher {
                                 .flex()
                                 .flex_col()
                                 .gap(px(space::XS))
-                                .child(
-                                    ui::text(
-                                        eclipse_theme::glass::step::NOTE,
-                                        FontWeight::NORMAL,
-                                        ink::MUTED,
-                                    )
-                                    .child(trf(
-                                        "Open {link} in your browser and enter this code:",
-                                        &[("link", short_link(uri))],
-                                    )),
-                                )
-                                .child(
-                                    div()
-                                        .font_family(theme::MONO)
-                                        .font_weight(FontWeight::BOLD)
-                                        .text_size(px(30.))
-                                        .line_height(px(38.))
-                                        .text_color(white(ink::FULL))
-                                        .child(user_code.to_string()),
-                                ),
+                                .child(ui::card_note(trf(
+                                    "Open {link} in your browser and enter this code:",
+                                    &[("link", short_link(uri))],
+                                )))
+                                .child(ui::sign_in_code(user_code.to_string())),
                         )
                         .child(
                             ui::button(
@@ -210,32 +167,23 @@ impl Launcher {
             this.close_owner_screen();
             cx.notify();
         }));
-        card = card.child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(space::SM))
-                .mt(px(space::XL))
-                .children(main)
-                .child(later),
-        );
         if matches!(state, Shown::Code(..)) {
-            card = card.child(
-                ui::text(
-                    eclipse_theme::glass::step::NOTE,
-                    FontWeight::NORMAL,
-                    ink::MUTED,
-                )
-                .mt(px(space::MD))
-                .child(tr("Waiting for Microsoft…")),
-            );
+            card = card.child(ui::card_note(tr("Waiting for Microsoft…")).mt(px(space::MD)));
         }
+        let foot = main.into_iter().chain([later.into_any_element()]).collect();
         ui::modal("owner-gate", tr("Sign in to play"), None)
             .flex()
             .items_center()
             .justify_center()
             .p(px(space::XL))
-            .child(card)
+            .child(ui::dialog(
+                "owner-card",
+                Some(tr("Microsoft account").into()),
+                tr("Sign in to play"),
+                ui::DialogWidth::Narrow,
+                card,
+                foot,
+            ))
     }
 }
 

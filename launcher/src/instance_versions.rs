@@ -16,7 +16,6 @@ const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 180.;
 const SEARCH_FIELD_WIDTH: f32 = 600.;
 const VERSION_COLUMN: f32 = 160.;
-const DATE_COLUMN: f32 = 220.;
 
 fn released(time: &str) -> String {
     dates::published(time.get(..10).unwrap_or_default(), "")
@@ -83,7 +82,7 @@ impl Launcher {
                         this.load_versions(cx);
                         cx.notify();
                     }),
-                    Some(Self::proxy_settings_button("mc-versions-failed", cx)),
+                    vec![Self::proxy_settings_button("mc-versions-failed", cx)],
                     ButtonKind::Secondary,
                 ))
             }
@@ -118,19 +117,10 @@ impl Launcher {
                                 .child(v.id.clone()),
                             )
                             .child(
-                                ui::text(
-                                    eclipse_theme::glass::step::NOTE,
-                                    FontWeight::NORMAL,
-                                    ink::MUTED,
-                                )
-                                .w(px(DATE_COLUMN))
-                                .flex_none()
-                                .truncate()
-                                .child(format!(
-                                    "{} · {}",
-                                    tr(kind),
-                                    released(&v.released)
-                                )),
+                                ui::card_note(format!("{} · {}", tr(kind), released(&v.released)))
+                                    .flex_1()
+                                    .min_w_0()
+                                    .truncate(),
                             )
                             .child(ui::tick_slot(on));
                         (row, SharedString::from(v.id.clone()), on)
@@ -210,7 +200,7 @@ impl Launcher {
                 "forge" => tr("Mods and packs for older versions"),
                 _ => "",
             };
-            let card = ui::choice(format!("loader-{}", loader.id()), loader == now)
+            let card = ui::choice_card(format!("loader-{}", loader.id()), loader == now)
                 .items_center()
                 .gap(px(space::LG))
                 .p(px(space::MD))

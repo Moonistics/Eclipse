@@ -10,9 +10,8 @@ use gpui::{
 };
 use std::path::PathBuf;
 
-/// Each accent's swatch, in points.
-const SWATCH: f32 = 36.;
-const CHIP: f32 = 24.;
+const SWATCH: f32 = ui::TILE_MD;
+const SWATCH_FILL: f32 = ui::TILE_SM;
 /// The hue strip under the swatches, in points: 0 to 360 degrees across it.
 const STRIP: f32 = 212.;
 const HUE_MARK: f32 = 3.;
@@ -68,67 +67,91 @@ impl Launcher {
         let current = self.settings.accent;
         let custom = !Accent::ALL.contains(&current);
         let swatch = |id: SharedString, on: bool| {
-            ui::selected(
+            ui::chosen(
                 ui::hoverable(id, eclipse_theme::glass::radius::ROW, ui::Hover::Row)
                     .flex()
                     .flex_none()
                     .items_center()
                     .justify_center()
-                    .size(px(SWATCH))
-                    .cursor_pointer(),
+                    .size(px(SWATCH)),
                 on,
             )
         };
-        let chip = |rgb: u32| {
+        let chip = |rgb: u32, on: bool| {
+            let tick = eclipse_theme::glass::Glass::new(rgb).on_accent;
             div()
-                .size(px(CHIP))
+                .flex()
+                .items_center()
+                .justify_center()
+                .size(px(SWATCH_FILL))
                 .rounded(px(eclipse_theme::glass::radius::ROW))
                 .bg(gpui::rgb(rgb))
+                .when(on, |d| {
+                    d.child(ui::icon("tick-02", ui::IconSize::Px16, ui::color(tick)))
+                })
         };
-        let mut row = div().flex().flex_wrap().items_center().gap(px(space::XS));
+        let mut swatches: Vec<(Stateful<Div>, SharedString, bool)> = Vec::new();
+        let mut picks: Vec<Option<Accent>> = Vec::new();
         for (accent, rgb) in Accent::ALL.into_iter().zip(themes::SWATCHES) {
-            row = row.child(
-                swatch(
-                    SharedString::from(format!("accent-{}", accent.name())),
-                    current == accent,
+            let on = current == accent;
+            swatches.push((
+                swatch(SharedString::from(format!("accent-{}", accent.name())), on)
+                    .child(chip(rgb, on)),
+                accent_label(&accent.name()).into(),
+                on,
+            ));
+            picks.push(Some(accent));
+        }
+        swatches.push((
+            swatch("accent-any".into(), custom).child(if custom {
+                chip(current.rgb(), true).into_any_element()
+            } else {
+                ui::icon(
+                    "color-picker",
+                    ui::IconSize::Px16,
+                    ui::white(eclipse_theme::glass::ink::BODY),
                 )
-                .child(chip(rgb))
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.settings.accent = accent;
+                .into_any_element()
+            }),
+            tr("Any colour").into(),
+            custom,
+        ));
+        picks.push(None);
+        let pick = cx.listener(move |this, i: &usize, _, cx| {
+            match picks.get(*i) {
+                Some(Some(accent)) => {
+                    this.settings.accent = *accent;
                     this.save_settings();
                     this.restyle = true;
-                    cx.notify();
-                })),
-            );
-        }
-        row = row
-            .child(
-                swatch("accent-any".into(), custom)
-                    .child(if custom {
-                        chip(current.rgb()).into_any_element()
-                    } else {
-                        ui::icon(
-                            "color-picker",
-                            ui::IconSize::Px16,
-                            ui::white(eclipse_theme::glass::ink::BODY),
-                        )
-                        .into_any_element()
-                    })
-                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.accent_strip = !this.accent_strip;
-                        cx.notify();
-                    })),
+                }
+                Some(None) => this.accent_strip = !this.accent_strip,
+                None => {}
+            }
+            cx.notify();
+        });
+        let swatches = ui::options(
+            div()
+                .id("accent-swatches")
+                .aria_label(tr("Accent colour"))
+                .flex()
+                .flex_wrap()
+                .items_center()
+                .gap(px(space::XS)),
+            swatches,
+            false,
+            move |i, window, cx| pick(&i, window, cx),
+        );
+        let mut row = div().flex().flex_wrap().items_center().gap(px(space::XS));
+        row = row.child(swatches).child(
+            self.field(
+                Field::AccentHex,
+                format!("#{:06x}", eclipse_theme::glass::ACCENT),
+                layout::FIELD_XS,
+                ui::ButtonSize::Md,
+                cx,
             )
-            .child(
-                self.field(
-                    Field::AccentHex,
-                    format!("#{:06x}", eclipse_theme::glass::ACCENT),
-                    96.,
-                    ui::ButtonSize::Md,
-                    cx,
-                )
-                .ml(px(space::XS)),
-            );
+            .ml(px(space::XS)),
+        );
         let control = div()
             .flex()
             .flex_col()
@@ -232,7 +255,7 @@ impl Launcher {
             .relative()
             .flex_none()
             .w(px(STRIP))
-            .h(px(CHIP))
+            .h(px(SWATCH_FILL))
             .rounded(px(eclipse_theme::glass::radius::CONTROL))
             .overflow_hidden()
             .cursor_pointer()
@@ -410,5 +433,17 @@ impl Launcher {
             detail,
             Some(actions.into_any_element()),
         )
+    }
+}
+
+fn accent_label(name: &str) -> &'static str {
+    match name {
+        "blue" => tr("Blue"),
+        "teal" => tr("Teal"),
+        "green" => tr("Green"),
+        "violet" => tr("Violet"),
+        "red" => tr("Red"),
+        "pink" => tr("Pink"),
+        _ => tr("Amber"),
     }
 }

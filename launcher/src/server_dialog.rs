@@ -25,6 +25,12 @@ const DIALOG_MAX: (f32, f32) = (1180., 840.);
 
 const ASIDE_WIDTH: f32 = 360.;
 
+const COVER: (f32, f32) = (304., 190.);
+
+const WORLD_LIST: f32 = 232.;
+
+const WORLD_THUMB: (f32, f32) = (64., 40.);
+
 /// Each game mode's line under its name.
 const MODE_NOTES: [(&str, &str); 3] = [
     ("survival", "Gather, build and stay alive"),
@@ -73,7 +79,7 @@ impl Launcher {
             }
             cx.notify();
         });
-        let card = ui::dialog_plate(radius::MODAL)
+        let card = ui::dialog_plate()
             .id("create-card")
             .occlude()
             .flex()
@@ -172,11 +178,11 @@ impl Launcher {
             .bg(ui::inset())
             .child(
                 div()
-                    .w(px(304.))
-                    .h(px(190.))
+                    .w(px(COVER.0))
+                    .h(px(COVER.1))
                     .flex_none()
                     .overflow_hidden()
-                    .rounded(px(radius::MODAL))
+                    .rounded(px(radius::ROW))
                     .child(div().size_full().child(cover)),
             )
             .child(
@@ -229,6 +235,7 @@ impl Launcher {
                     ui::ButtonSize::Md,
                     false,
                 )
+                .when(creating, ui::disabled)
                 .when(!creating, |b| {
                     b.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.servers.create = None;
@@ -240,7 +247,7 @@ impl Launcher {
 
         // The world: new (with a seed) or a copy of one of the player's.
         let card = |id: &'static str, on: bool, title: SharedString, note: String| {
-            ui::choice(id, on)
+            ui::choice_card(id, on)
                 .flex_1()
                 .min_w_0()
                 .p(px(space::LG))
@@ -282,21 +289,21 @@ impl Launcher {
             self.field(
                 Field::NewServerSeed,
                 tr("Seed (optional)"),
-                400.,
+                layout::FIELD_LG,
                 ui::ButtonSize::Lg,
                 cx,
             )
             .w_full()
             .into_any_element()
         } else {
-            let mut list = ui::list_box("create-worlds", 232.);
+            let mut list = ui::list_box("create-worlds", WORLD_LIST);
             for (name, path) in worlds {
                 let on = copy.as_ref() == Some(&path);
                 let icon = path.join("icon.png");
                 let thumb = div()
                     .flex_none()
-                    .w(px(64.))
-                    .h(px(40.))
+                    .w(px(WORLD_THUMB.0))
+                    .h(px(WORLD_THUMB.1))
                     .overflow_hidden()
                     .rounded(px(radius::ROW))
                     .bg(white(fill::BUTTON))
@@ -325,6 +332,7 @@ impl Launcher {
             ui::with_scrollbar(list).into_any_element()
         };
         let world = ui::field_group(
+            "create-world-title",
             tr("World"),
             None,
             div()
@@ -339,11 +347,12 @@ impl Launcher {
         let mode_cards = MODES
             .iter()
             .map(|&(id, label)| {
-                let card = ui::choice(SharedString::from(format!("create-mode-{id}")), mode == id)
-                    .flex_1()
-                    .min_w_0()
-                    .p(px(space::LG))
-                    .child(ui::item_text(tr(label), tr(mode_note(id)).to_string()));
+                let card =
+                    ui::choice_card(SharedString::from(format!("create-mode-{id}")), mode == id)
+                        .flex_1()
+                        .min_w_0()
+                        .p(px(space::LG))
+                        .child(ui::item_text(tr(label), tr(mode_note(id)).to_string()));
                 (card, SharedString::from(tr(label)), mode == id)
             })
             .collect();
@@ -387,11 +396,13 @@ impl Launcher {
             .justify_between()
             .gap(px(space::XXL))
             .child(ui::field_group(
+                "create-difficulty-title",
                 tr("Difficulty"),
                 None,
                 div().flex().child(difficulties),
             ))
             .child(ui::field_group(
+                "create-players-title",
                 tr("Max players"),
                 None,
                 div().flex().child(players),
@@ -462,21 +473,32 @@ impl Launcher {
             .px(px(space::XXL))
             .pb(px(space::XXL))
             .child(ui::field_group(
+                "create-name-title",
                 tr("Name"),
                 None,
                 self.field(
                     Field::NewServerName,
                     tr("My server"),
-                    400.,
+                    layout::FIELD_LG,
                     ui::ButtonSize::Lg,
                     cx,
                 )
                 .w_full(),
             ))
             .child(world)
-            .child(ui::field_group(tr("Game mode"), None, modes))
+            .child(ui::field_group(
+                "create-mode-title",
+                tr("Game mode"),
+                None,
+                modes,
+            ))
             .child(numbers)
-            .child(ui::field_group(tr("Who can join"), None, who))
+            .child(ui::field_group(
+                "create-join-title",
+                tr("Who can join"),
+                None,
+                who,
+            ))
             .child(accounts);
         div()
             .flex()

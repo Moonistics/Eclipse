@@ -111,18 +111,17 @@ pub fn disabled(el: Stateful<Div>) -> Stateful<Div> {
         .opacity(crate::theme::DISABLED)
         .cursor_default()
         .tab_stop(false)
+        .aria_description(crate::tr("Unavailable"))
 }
 
 pub fn unavailable(el: Stateful<Div>, why: impl Into<SharedString>) -> Stateful<Div> {
     let why: SharedString = why.into();
-    let el = super::focus_stop(
-        unhovered(el)
-            .opacity(crate::theme::DISABLED)
-            .cursor_default(),
-    )
-    .aria_description(why.clone())
-    .tooltip(super::tip(why.clone()));
-    super::tip_on_focus(el, why)
+    let el = unhovered(el)
+        .opacity(crate::theme::DISABLED)
+        .cursor_default()
+        .aria_description(why.clone())
+        .tooltip(super::tip(why.clone()));
+    super::held_focus(el, why)
 }
 
 pub(super) fn unhovered(mut el: Stateful<Div>) -> Stateful<Div> {

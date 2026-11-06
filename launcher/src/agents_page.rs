@@ -6,7 +6,7 @@
 use super::*;
 use crate::ui;
 use eclipse_launcher::agents;
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 
 #[derive(Default)]
 pub(crate) struct AgentsUi {
@@ -75,17 +75,7 @@ impl Launcher {
             }))
         };
         let say = |s: String| ui::card_note(s);
-        let code = |s: &str| {
-            div()
-                .p(px(space::MD))
-                .rounded(px(radius::ROW))
-                .bg(ui::inset())
-                .font_family(theme::MONO)
-                .text_size(px(step::CAPTION.size))
-                .line_height(px(step::CAPTION.line))
-                .text_color(ui::white(ink::FULL))
-                .children(s.lines().map(|l| div().child(l.to_owned())))
-        };
+        let code = |s: &str| ui::code_well(s.to_owned());
         let mut steps = div()
             .flex()
             .flex_col()

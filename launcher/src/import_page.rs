@@ -6,7 +6,7 @@
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::import::{self, Dropped};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use gpui::ExternalPaths;
 use std::path::PathBuf;
 
@@ -125,7 +125,7 @@ impl Launcher {
             (None, _) => return None,
         };
         Some(ui::corner_float(
-            ui::float_card(radius::POPOVER)
+            ui::float_card()
                 .w(px(IMPORT_NOTE_WIDTH))
                 .flex()
                 .items_center()

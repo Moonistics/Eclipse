@@ -19,6 +19,7 @@ mod dev_options;
 mod export_page;
 mod fields;
 mod frame;
+mod game_run;
 mod game_tools;
 mod github_mods_page;
 mod home;
@@ -53,6 +54,7 @@ mod modpacks_page;
 mod mods_page;
 mod mods_project;
 mod motion;
+mod native_build;
 mod native_log_page;
 mod notes_page;
 mod owner_page;
@@ -90,6 +92,7 @@ use eclipse_launcher::native_mods;
 use eclipse_launcher::native_status;
 use eclipse_launcher::telemetry;
 use fields::Field;
+use game_run::PlayState;
 use gpui::{
     actions, div, prelude::*, px, size, AnimationExt, AnyElement, App, Bounds, ClickEvent, Context,
     Div, ElementId, FocusHandle, FontWeight, Hsla, KeyBinding, KeyDownEvent, Menu, MenuItem,
@@ -141,15 +144,45 @@ impl Page {
         )
     }
 
-    /// Every page, with its name and icon.
-    const NAV: [(Page, &'static str, &'static str); 6] = [
-        (Page::Home, "Home", "dashboard-square-01"),
-        (Page::Mods, "Mods", "puzzle"),
-        (Page::Servers, "Servers", "computer"),
-        (Page::Versions, "Versions", "package-01"),
-        (Page::Notes, "Patch notes", "information-circle"),
-        (Page::Settings, "Settings", "sliders-horizontal"),
+    const NAV: [Page; 6] = [
+        Page::Home,
+        Page::Mods,
+        Page::Servers,
+        Page::Versions,
+        Page::Notes,
+        Page::Settings,
     ];
+
+    fn label(self) -> &'static str {
+        match self {
+            Page::Home => tr("Home"),
+            Page::Mods => tr("Mods"),
+            Page::Servers => tr("Servers"),
+            Page::Versions => tr("Versions"),
+            Page::Notes => tr("Patch notes"),
+            Page::Settings => tr("Settings"),
+            Page::InstanceEditor => tr("New instance"),
+        }
+    }
+
+    fn title(self) -> &'static str {
+        match self {
+            Page::Versions => tr("Eclipse versions"),
+            page => page.label(),
+        }
+    }
+
+    fn icon(self) -> &'static str {
+        match self {
+            Page::Home => "dashboard-square-01",
+            Page::Mods => "puzzle",
+            Page::Servers => "computer",
+            Page::Versions => "package-01",
+            Page::Notes => "information-circle",
+            Page::Settings => "sliders-horizontal",
+            Page::InstanceEditor => "plus-sign",
+        }
+    }
 }
 
 /// The launcher's own update, as the footer and Settings show it.
@@ -231,31 +264,7 @@ struct Launcher {
     /// and why the last one failed.
     importing_build: bool,
     import_error: Option<String>,
-    /// Native mods (`native_mods`, on the Mods page): the build's step while it runs, why it
-    /// failed, and the warning before a build while it is open, with the mods it names.
-    native_step: Option<String>,
-    /// When the running native build started, and the whole seconds last drawn (the status shows
-    /// the time it has taken).
-    native_started: Option<(Instant, u64)>,
-    /// How the last native build ended ("Built in 42 s (fast, incremental)", or "Up to date").
-    native_done: Option<String>,
-    native_error: Option<String>,
-    native_confirm: Option<Result<Vec<native_mods::Bundle>, String>>,
-    /// The instance (id) the build under way, or the last one's error, is for.
-    native_for: Option<String>,
-    /// The newer Eclipse the open warning's build moves to (Update), else None: a build stays
-    /// on the Eclipse the instance plays.
-    native_update: Option<String>,
-    /// The build waiting for the trust warning builds every mod on its Eclipse's own commit,
-    /// pinned or not (`native_mods::build`'s `on_base`): Rebuild on Eclipse's.
-    native_on_base: bool,
-    /// What each installed native build was made from, by version. A build's version names its
-    /// contents, so an entry never goes stale.
-    native_builds:
-        std::cell::RefCell<std::collections::HashMap<String, Option<native_status::Build>>>,
-    /// The mods of a build made for other Eclipse versions (`native_mods::MISMATCH`): the build
-    /// waits for "Build anyway".
-    native_mismatch: Option<String>,
+    native: native_build::NativeBuild,
     /// The Mod build log panel, opened from the sidebar's foot (`native_log_page.rs`).
     native_log: native_log_page::NativeLog,
     /// Settings' any-colour swatch shows the hue strip.
@@ -287,16 +296,7 @@ struct Launcher {
     settings_save_error: Option<String>,
     /// The Discord, sponsor and website links: built in until links.json on main has been read.
     links: backend::Links,
-    preparing: bool,
-    prepare_log: VecDeque<String>,
-    prepare_error: Option<String>,
-    client: Option<Running>,
-    client_error: Option<String>,
-    /// When the running client started, to tell its crash report from older ones.
-    client_started: Option<std::time::SystemTime>,
-    /// The folder the running game keeps its settings in: the game home, or a modpack's.
-    client_home: Option<std::path::PathBuf>,
-    crash: Option<Crash>,
+    game: game_run::GameRun,
     fields: fields::Fields,
     /// The Servers page (`servers_page.rs`).
     servers: servers_page::Servers,
@@ -312,6 +312,8 @@ struct Launcher {
     content_focus: FocusHandle,
     play_focus: FocusHandle,
     focus_play: bool,
+    focus_page: bool,
+    ring_pending: Option<FocusHandle>,
     /// Microsoft accounts (accounts.json), the sign-in under way and what it last showed.
     accounts: Accounts,
     auth_status: HashMap<String, account::session::Status>,
@@ -335,11 +337,6 @@ struct Launcher {
     /// (`dev_options`) for this run.
     dev_clicks: u8,
     dev_options: bool,
-    /// The game is waiting for its session (a token renewal), or a Java instance for its files
-    /// and Java (`start_java`), before it starts.
-    starting_client: Option<String>,
-    /// Play was pressed on a version not prepared yet: it starts once this preparation ends well.
-    play_when_prepared: Option<String>,
     /// The window's width at the last frame: the sidebar and Home's head lay out by it.
     window_width: f32,
     /// The window's longer side in points, and the screen's pixels per point: the size pictures
@@ -349,10 +346,6 @@ struct Launcher {
     joining: Option<String>,
     /// Where the next start goes at once: `--world <folder>` or `--server <address>`.
     quick_play: Option<(&'static str, String)>,
-    /// The instance the running game plays and when it started: its play time grows on exit.
-    client_run: Option<(String, Instant)>,
-    /// The running game's instance variables, for its post-exit command.
-    client_vars: eclipse_launcher::launch::Vars,
     /// Opt-in data collection: the player's answer and Settings' section (`collection`).
     collection: collection::Collection,
     /// Settings' "Connect an AI agent" (`agents_page`).
@@ -365,33 +358,18 @@ struct Launcher {
     /// The session's measurements (`perf.rs`), and when the steps they time began.
     perf: perf::Perf,
     install_started: Option<Instant>,
-    prepare_started: Option<Instant>,
     /// The download under way as first seen (when, files done), for the time left.
     download_seen: Option<(Instant, usize)>,
     /// The tab open under Home's head (`home_tabs.rs`).
     home_tab: home_tabs::HomeTab,
-    /// When the running game was first seen running, for Home's "Playing for…".
-    client_since: Option<Instant>,
     /// The selected instance's mods, for Home's Mods tab (`instance_mods.rs`).
     instance_mods: instance_mods::InstanceMods,
     /// Modrinth projects' icon URLs (`instance_mods.rs`).
     project_icons: instance_mods::ProjectIcons,
-    play_pressed: Option<Instant>,
     /// `eclipse-launcher benchmark` started this window to measure it.
     bench: Option<perf::Bench>,
-    /// The Modpacks page: the imported packs (read when the page first opens), the one shown,
-    /// the report's filter, and the pipeline step running now with its log.
     packs: Vec<eclipse_launcher::modpacks::Imported>,
-    /// Modpacks installed from Eclipse's registry, each its own profile.
-    registry_packs: Vec<eclipse_launcher::browser::eclipse::pack::Installed>,
-    packs_loaded: Option<Instant>,
-    pack_open: Option<String>,
-    pack_filter: Option<eclipse_port_pack::report::Status>,
-    pack_busy: bool,
-    pack_log: VecDeque<String>,
-    pack_error: Option<String>,
-    /// The game starting now plays this pack's profile (its work folder).
-    starting_pack: Option<std::path::PathBuf>,
+    modpacks: modpacks_page::Modpacks,
     /// The Mods page: the browser's search, installs and updates (`mods_page.rs`).
     mods: mods_page::Mods,
     github: github_mods_page::Github,
@@ -504,16 +482,7 @@ impl Launcher {
             install_error: None,
             importing_build: false,
             import_error: None,
-            native_step: None,
-            native_started: None,
-            native_done: None,
-            native_error: None,
-            native_confirm: None,
-            native_for: None,
-            native_update: None,
-            native_on_base: false,
-            native_builds: Default::default(),
-            native_mismatch: None,
+            native: Default::default(),
             native_log: Default::default(),
             accent_strip: false,
             hue_area: std::rc::Rc::new(std::cell::Cell::new(None)),
@@ -532,14 +501,7 @@ impl Launcher {
             settings,
             settings_save_error: None,
             links: backend::Links::default(),
-            preparing: false,
-            prepare_log: VecDeque::new(),
-            prepare_error: None,
-            client: None,
-            client_error: None,
-            client_started: None,
-            client_home: None,
-            crash: None,
+            game: Default::default(),
             fields: Default::default(),
             servers: servers_page::Servers::new(),
             internet: internet::Internet::new(),
@@ -548,6 +510,8 @@ impl Launcher {
             content_focus: cx.focus_handle().tab_index(0).tab_stop(false),
             play_focus: cx.focus_handle().tab_index(0).tab_stop(true),
             focus_play: true,
+            focus_page: false,
+            ring_pending: None,
             palette: None,
             toast_seen: None,
             accounts: Accounts::load(),
@@ -565,15 +529,11 @@ impl Launcher {
             owner_screen_open: false,
             dev_clicks: 0,
             dev_options: false,
-            starting_client: None,
-            play_when_prepared: None,
             window_width: 0.,
             window_long_side: 0.,
             scale_factor: 1.,
             joining: None,
             quick_play: None,
-            client_run: None,
-            client_vars: Vec::new(),
             collection: collection::Collection::load(),
             agents: agents_page::AgentsUi::default(),
             tx,
@@ -582,23 +542,13 @@ impl Launcher {
             _activation: cx.observe_window_activation(window, |_, _, cx| cx.notify()),
             perf: perf::Perf::new("session"),
             install_started: None,
-            prepare_started: None,
             download_seen: None,
             home_tab: home_tabs::HomeTab::from_env(),
-            client_since: None,
             instance_mods: Default::default(),
             project_icons: Default::default(),
-            play_pressed: None,
             bench: perf::Bench::from_env(),
             packs: Vec::new(),
-            registry_packs: Vec::new(),
-            packs_loaded: None,
-            pack_open: None,
-            pack_filter: None,
-            pack_busy: false,
-            pack_log: VecDeque::new(),
-            pack_error: None,
-            starting_pack: None,
+            modpacks: Default::default(),
             mods: mods_page::Mods::new(),
             github: github_mods_page::Github::new(),
             instances: instance_state::Instances::default(),
@@ -655,8 +605,8 @@ impl Launcher {
         this.mods_auto_update();
         this.fetch_links();
         if home::getting_ready_preview() {
-            this.preparing = true;
-            this.play_when_prepared = this.selected().cloned();
+            this.game.preparing = true;
+            this.game.play_when_prepared = this.selected().cloned();
         }
         // `ECLIPSE_LAUNCHER_PAGE=new-instance`: the New instance page on Modded, for screenshots
         // (`new-instance-eclipse`, `new-instance-vanilla`: on those).
@@ -685,7 +635,7 @@ impl Launcher {
     }
 
     fn settings_save_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
-        use eclipse_theme::glass::{ink, radius, space, step};
+        use eclipse_theme::glass::{ink, space, step};
         let error = self.settings_save_error.as_ref()?;
         Some(
             div()
@@ -693,7 +643,7 @@ impl Launcher {
                 .px(px(layout::gutter(self.window_width)))
                 .py(px(space::MD))
                 .child(
-                    ui::card(radius::PANEL)
+                    ui::card()
                         .flex()
                         .items_center()
                         .gap(px(space::LG))
@@ -747,6 +697,7 @@ impl Launcher {
         if page != self.page {
             self.page = page;
             self.focus_play = page == Page::Home;
+            self.focus_page = page != Page::Home;
             self.switches += 1;
             self.content_scroll = Scrollbar::default();
             self.long_list = cull::Cull::default();
@@ -859,7 +810,8 @@ impl Launcher {
         if !native_mods::is_native(version) {
             return None;
         }
-        self.native_builds
+        self.native
+            .builds
             .borrow_mut()
             .entry(version.to_owned())
             .or_insert_with(|| native_status::Build::read(version))
@@ -871,40 +823,40 @@ impl Launcher {
     /// warning was Update's: then it moves to that newer Eclipse.
     /// `anyway`: the player agreed to build mods made for other Eclipse versions together.
     fn build_native(&mut self, anyway: bool) {
-        if self.native_step.is_some() {
+        if self.native.step.is_some() {
             return;
         }
-        self.native_confirm = None;
-        self.native_error = None;
-        self.native_mismatch = None;
+        self.native.confirm = None;
+        self.native.error = None;
+        self.native.mismatch = None;
         // This attempt's own log, starting empty: an open panel shows it rather than the last
         // attempt's (`native_log_page`).
         self.native_log_reset();
         let instance = instances::selected();
-        self.native_for = Some(instance.id.clone());
+        self.native.for_instance = Some(instance.id.clone());
         let plays = self.version_of(&instance).cloned();
-        let on_base = std::mem::take(&mut self.native_on_base);
-        let base = match self.native_update.take() {
+        let on_base = std::mem::take(&mut self.native.on_base);
+        let base = match self.native.update.take() {
             Some(newer) => Some(newer),
             None => native_mods::base_for(plays.as_deref(), &self.installed, false),
         };
         let Some(base) = base else {
             let error = tr("Install Eclipse first.").to_string();
             self.native_log_preflight(&error);
-            self.native_error = Some(error);
+            self.native.error = Some(error);
             return;
         };
         let folder = match self.native_mods_to_build() {
             Ok((folder, _)) => folder,
             Err(e) => {
                 self.native_log_preflight(&e);
-                self.native_error = Some(e);
+                self.native.error = Some(e);
                 return;
             }
         };
-        self.native_step = Some(tr("Starting the build").into());
-        self.native_started = Some((Instant::now(), 0));
-        self.native_done = None;
+        self.native.step = Some(tr("Starting the build").into());
+        self.native.started = Some((Instant::now(), 0));
+        self.native.done = None;
         let profile = native_mods::Profile::chosen(&self.settings);
         let tx = self.tx.clone();
         std::thread::spawn(move || {
@@ -956,13 +908,13 @@ impl Launcher {
     /// player left the graphics API on Auto). The API's label when it did.
     fn switched_from_vulkan(&self) -> Option<&'static str> {
         let (api, label) = backend::vulkan_crash_fallback(std::env::consts::OS)?;
-        if !backend::vulkan_start_crashed(&self.prepare_log) {
+        if !backend::vulkan_start_crashed(&self.game.log) {
             return None;
         }
         // The GPU is the same for every profile: the game home's setting and the crashed run's.
         let home = backend::game_home();
         let mut homes = vec![home.clone()];
-        homes.extend(self.client_home.clone().filter(|h| *h != home));
+        homes.extend(self.game.home.clone().filter(|h| *h != home));
         let mut switched = false;
         for home in homes {
             match backend::switch_from_auto(&home, api) {
@@ -1100,9 +1052,11 @@ impl Launcher {
             .minecraft_dir
             .clone()
             .unwrap_or_else(|| eclipse_prepare::artifacts::minecraft_dir(None));
-        self.prepare_log.clear();
-        self.prepare_error = None;
-        self.prepare_log
+        let selected = self.selected_instance().cloned();
+        self.game.begin(selected.as_ref());
+        self.game.prepare_error = None;
+        self.game
+            .log
             .push_back("Checking Java and your Minecraft install".into());
         let tx = self.tx.clone();
         // The checks may download the server jar, so they run on the thread too.
@@ -1135,8 +1089,8 @@ impl Launcher {
                 }
             }
         });
-        self.preparing = true;
-        self.prepare_started = Some(Instant::now());
+        self.game.preparing = true;
+        self.game.prepare_started = Some(Instant::now());
         self.download_seen = None;
     }
 
@@ -1154,10 +1108,10 @@ impl Launcher {
                 .take()
                 .filter(|(flag, _)| *flag == "--server")
                 .map(|(_, ip)| ip);
-            if self.client.is_some() || self.starting_client.is_some() {
+            if self.game.client.is_some() || self.game.starting.is_some() {
                 return;
             }
-            self.starting_pack = None;
+            self.game.pack = None;
             self.start_java(instance, server);
             return;
         }
@@ -1173,7 +1127,7 @@ impl Launcher {
             .selected_instance()
             .map(|i| i.id.clone())
             .filter(|id| self.mods.rebuild.contains(id));
-        if let Some(id) = rebuild.filter(|_| self.native_step.is_none()) {
+        if let Some(id) = rebuild.filter(|_| self.native.step.is_none()) {
             self.mods.rebuild.retain(|r| *r != id);
             if native_mods::is_native(&tag) {
                 self.mods.play_after_build = true;
@@ -1181,7 +1135,7 @@ impl Launcher {
                 return;
             }
         }
-        self.starting_pack = None;
+        self.game.pack = None;
         self.start_client(tag);
     }
 
@@ -1189,12 +1143,11 @@ impl Launcher {
     /// (downloaded the first time, their lines in the log), then `drain` starts the game when
     /// the command arrives.
     fn start_java(&mut self, instance: instances::Instance, server: Option<String>) {
-        self.client_error = None;
-        self.crash = None;
-        self.prepare_log.clear();
-        self.client_started =
-            Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
-        self.starting_client = Some(instance.id.clone());
+        self.game.error = None;
+        self.game.crash = None;
+        self.game.begin(Some(&instance));
+        self.game.started = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
+        self.game.starting = Some(instance.id.clone());
         let tx = self.tx.clone();
         std::thread::spawn(move || {
             let log = |line: String| {
@@ -1212,8 +1165,8 @@ impl Launcher {
     /// Whether `tag` can start now ([`starts_now`]): prepared, no preparation under way, no game
     /// running or starting.
     pub(crate) fn can_start(&self, tag: &str) -> bool {
-        let running = self.client.is_some() || self.starting_client.is_some();
-        starts_now(backend::is_prepared(tag), self.preparing, running)
+        let running = self.game.client.is_some() || self.game.starting.is_some();
+        starts_now(backend::is_prepared(tag), self.game.preparing, running)
     }
 
     /// Whether the selected instance's version can start now, from a shortcut (a server's Join,
@@ -1227,7 +1180,9 @@ impl Launcher {
     /// would (no game running or starting).
     pub(crate) fn can_join_selected(&self) -> bool {
         match self.selected_instance() {
-            Some(i) if i.java.is_some() => self.client.is_none() && self.starting_client.is_none(),
+            Some(i) if i.java.is_some() => {
+                self.game.client.is_none() && self.game.starting.is_none()
+            }
             _ => self.can_start_selected(),
         }
     }
@@ -1235,24 +1190,24 @@ impl Launcher {
     /// Starts the game: the session first (a network round trip when the token needs
     /// renewing), then `drain` starts the process when it arrives.
     fn start_client(&mut self, tag: String) {
-        self.client_error = None;
-        self.crash = None;
-        self.prepare_log.clear();
+        self.game.error = None;
+        self.game.crash = None;
+        let selected = self.selected_instance().cloned();
+        self.game.begin(selected.as_ref());
         // A little earlier than the spawn: file times can be coarse.
-        self.client_started =
-            Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
+        self.game.started = Some(std::time::SystemTime::now() - std::time::Duration::from_secs(2));
         // What the resources lack (built-in packs, panorama, sounds) and the session (a network
         // round trip when the token needs renewing) come first; `drain` starts the game when the
         // session arrives.
-        self.starting_client = Some(tag.clone());
-        self.play_pressed = Some(Instant::now());
+        self.game.starting = Some(tag.clone());
+        self.game.pressed = Some(Instant::now());
         let tx = self.tx.clone();
         let offline_without_owner = self.settings.dev_offline;
         // Registry mods update before the game reads them (`eclipse::auto`); native mods only
         // at start, where a build can follow.
         let auto = self
             .selected_instance()
-            .filter(|_| self.settings.auto_updates_mods() && self.starting_pack.is_none())
+            .filter(|_| self.settings.auto_updates_mods() && self.game.pack.is_none())
             .map(|i| mods_page::AutoTarget {
                 instance: i.clone(),
                 level: Some(backend::mod_api_level(&tag)),
@@ -1411,7 +1366,7 @@ impl Launcher {
     pub(crate) fn quick_play(&mut self, flag: &'static str, value: String) {
         self.quick_play = Some((flag, value));
         self.play();
-        if self.starting_client.is_none() {
+        if self.game.starting.is_none() {
             self.quick_play = None;
         }
     }
@@ -1425,7 +1380,7 @@ impl Launcher {
         }
         self.joining = Some(code);
         self.play();
-        if self.starting_client.is_none() {
+        if self.game.starting.is_none() {
             self.joining = None;
         }
     }
@@ -1552,6 +1507,17 @@ impl Render for Launcher {
         self.return_focus_from_menu(window, cx);
         if self.page == Page::Home && std::mem::take(&mut self.focus_play) {
             window.focus(&self.play_focus, cx);
+            self.ring_pending =
+                (!window.last_input_was_keyboard()).then(|| self.play_focus.clone());
+        }
+        if std::mem::take(&mut self.focus_page) && self.fields.focus_soon.is_none() {
+            cx.on_next_frame(window, |this, window, cx| {
+                window.focus(&this.content_focus, cx);
+                window.focus_next(cx);
+                this.ring_pending = window
+                    .focused(cx)
+                    .filter(|_| !window.last_input_was_keyboard());
+            });
         }
         self.window_width = f32::from(size.width);
         self.window_long_side = f32::from(size.width).max(f32::from(size.height));

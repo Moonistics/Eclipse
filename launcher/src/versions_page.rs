@@ -6,22 +6,9 @@
 use super::*;
 use crate::menus::Asking;
 use crate::ui::{self, Tone};
-use eclipse_theme::glass::{radius, space};
+use eclipse_theme::glass::space;
 
 const PROGRESS_WIDTH: f32 = 180.;
-
-fn problem_line(id: String, error: &str) -> Div {
-    let copy = error
-        .trim_end()
-        .contains('\n')
-        .then(|| ui::copy_details(format!("{id}-copy"), error.to_owned(), ui::ButtonSize::Md));
-    ui::error_line(
-        ui::plain_error(error).to_string(),
-        copy.into_iter()
-            .map(IntoElement::into_any_element)
-            .collect(),
-    )
-}
 
 impl Launcher {
     /// The Versions page; `on_disk` and `used` as `versions_page` measured them.
@@ -45,15 +32,7 @@ impl Launcher {
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
             .into_any_element()
         };
-        let head = div()
-            .flex()
-            .flex_wrap()
-            .items_end()
-            .justify_between()
-            .gap(px(space::LG))
-            .mb(px(ui::page_gap()))
-            .child(ui::page_head(tr("Eclipse versions"), "").mb_0())
-            .child(import);
+        let head = ui::page_head_with(Page::Versions.title(), "", Some(import));
         let mut page = div().flex().flex_col().child(head).when(used > 0, |d| {
             d.child(
                 ui::card_note(trf(
@@ -64,11 +43,16 @@ impl Launcher {
             )
         });
         page = page
-            .children(
-                self.import_error
-                    .clone()
-                    .map(|e| problem_line("import-error".into(), &e).mb(px(space::MD))),
-            )
+            .children(self.import_error.clone().map(|e| {
+                ui::error_line_for(
+                    "import-error",
+                    tr("Couldn't import the version"),
+                    &e,
+                    None,
+                    Vec::new(),
+                )
+                .mb(px(space::MD))
+            }))
             .children(self.local_builds(
                 "Native mod builds",
                 native_mods::is_native,
@@ -108,7 +92,7 @@ impl Launcher {
                             this.fetch_releases();
                             cx.notify();
                         }),
-                        Some(Self::proxy_settings_button("releases-failed", cx)),
+                        vec![Self::proxy_settings_button("releases-failed", cx)],
                         ButtonKind::Primary,
                     )));
             }
@@ -186,7 +170,7 @@ impl Launcher {
             .as_ref()
             .filter(|(e, _)| e == tag)
             .map(|(_, e)| e.clone());
-        ui::card(radius::PANEL)
+        ui::card()
             .flex()
             .flex_col()
             .gap(px(space::MD))
@@ -224,7 +208,15 @@ impl Launcher {
                     )
                     .child(div().relative().flex().flex_none().child(right)),
             )
-            .children(error.map(|e| problem_line(format!("install-error-{tag}"), &e)))
+            .children(error.map(|e| {
+                ui::error_line_for(
+                    format!("install-error-{tag}"),
+                    tr("Couldn't install this version"),
+                    &e,
+                    None,
+                    Vec::new(),
+                )
+            }))
     }
 
     /// What a release's card offers on its right: its install's progress, Install, or Use and
@@ -313,8 +305,7 @@ impl Launcher {
         if confirming {
             return d.child(ui::confirm(
                 bin,
-                trf("Remove {name}?", &[("name", name)]),
-                tr("Remove"),
+                ui::Confirm::Remove(name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();
@@ -375,7 +366,7 @@ impl Launcher {
                 .gap(px(space::MD))
                 .mb(px(space::XL))
                 .child(ui::label(tr(title).to_string()))
-                .children(notice_.map(|n| ui::notice_line(ui::warn(), n.to_string())));
+                .children(notice_.map(|n| ui::notice_line(Tone::Warn, n.to_string())));
             for tag in tags {
                 let mut line = Vec::new();
                 if let Some(about) = native_mods::about(&tag) {
@@ -387,9 +378,7 @@ impl Launcher {
                     line.push(about.file);
                 }
                 let mut line = line.join(" · ");
-                let title = eclipse_launcher::nightly::label(&tag)
-                    .or_else(|| build_import::label(&tag))
-                    .unwrap_or_else(|| tag.trim_start_matches('v').to_string());
+                let title = eclipse_launcher::nightly::display_name(&tag);
                 let right = if self.removing.contains(&tag) {
                     self.install_progress(None, tr("Removing…"))
                         .into_any_element()

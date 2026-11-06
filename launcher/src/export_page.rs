@@ -4,7 +4,7 @@
 use super::*;
 use crate::ui;
 use eclipse_launcher::export::{self, Format};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use std::path::PathBuf;
 
 pub(super) struct ExportPanel {
@@ -125,10 +125,7 @@ impl Launcher {
         );
         let mut worlds = div().flex().flex_col().gap(px(space::MD));
         if panel.worlds.is_empty() {
-            worlds = worlds.child(
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                    .child(tr("No worlds to put in.")),
-            );
+            worlds = worlds.child(ui::card_note(tr("No worlds to put in.")));
         }
         for (folder, name, on) in &panel.worlds {
             let key = folder.clone();
@@ -208,7 +205,7 @@ impl Launcher {
             cx.notify();
         }));
         Some(
-            ui::card(radius::PANEL)
+            ui::card()
                 .flex()
                 .flex_col()
                 .gap(px(space::LG))
@@ -218,7 +215,7 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(ui::section_title(tr("Export to share")))
+                        .child(ui::section_title("export-title", tr("Export to share")))
                         .child(close),
                 )
                 .child(ui::labelled_field(

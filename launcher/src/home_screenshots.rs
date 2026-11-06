@@ -71,10 +71,8 @@ impl Launcher {
             .children(list.into_iter().take(shown).map(|shot| {
                 let picture = pictures.next();
                 let path = shot.path.clone();
-                div()
-                    .id(SharedString::from(format!("screenshot-{}", shot.name)))
+                let tile = div()
                     .min_w_0()
-                    .cursor_pointer()
                     .child(
                         div()
                             .w_full()
@@ -93,13 +91,19 @@ impl Launcher {
                         .pt(px(space::SM))
                         .truncate()
                         .child(shot.name.clone()),
-                    )
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.screenshots.viewing = Some(path.clone());
-                        this.stop_asking(|a| *a == Asking::Screenshot);
-                        this.screenshots.note = None;
-                        cx.notify();
-                    }))
+                    );
+                ui::picture_button(
+                    SharedString::from(format!("screenshot-{}", shot.name)),
+                    tile,
+                    shot.name.clone(),
+                )
+                .min_w_0()
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.screenshots.viewing = Some(path.clone());
+                    this.stop_asking(|a| *a == Asking::Screenshot);
+                    this.screenshots.note = None;
+                    cx.notify();
+                }))
             }));
         let toggle_all = more.then(|| {
             let label = match self.screenshots.all {

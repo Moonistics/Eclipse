@@ -6,7 +6,7 @@ use crate::menus::Asking;
 use crate::ui::{self, white};
 use eclipse_launcher::datapacks::{self, DataPack};
 use eclipse_launcher::worlds::World;
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space};
 use std::path::PathBuf;
 
 const WORLD_PACKS_INDENT: f32 = space::MD + ui::TILE_MD + space::MD;
@@ -93,15 +93,12 @@ impl Launcher {
         }
         let path = world.path.clone();
         let empty = self.world_packs.list.is_empty();
-        let mut panel = div()
+        let mut panel = ui::well()
             .flex()
             .flex_col()
             .gap(px(space::SM))
             .ml(px(WORLD_PACKS_INDENT))
-            .mb(px(space::SM))
-            .p(px(ui::PANEL_INSET))
-            .rounded(px(radius::ROW))
-            .bg(ui::inset());
+            .mb(px(space::SM));
         let add = ui::button(
             "world-packs-add",
             None,
@@ -145,10 +142,7 @@ impl Launcher {
         );
         let mut failed = None;
         match &self.world_packs.note {
-            Some(Ok(m)) => {
-                head = head
-                    .child(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(m.clone()))
-            }
+            Some(Ok(m)) => head = head.child(ui::card_note(m.clone())),
             Some(Err(e)) => failed = Some(ui::error_note(e.clone())),
             None => {}
         }
@@ -170,8 +164,7 @@ impl Launcher {
                 let (world, gone) = (world.path.clone(), pack.clone());
                 actions = actions.child(ui::confirm(
                     remove_id,
-                    trf("Delete {name}?", &[("name", &pack.file)]),
-                    tr("Delete"),
+                    ui::Confirm::Delete(&pack.file),
                     cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.asking = None;
                         cx.notify();
@@ -188,10 +181,7 @@ impl Launcher {
             } else {
                 let file = pack.file.clone();
                 if !pack.enabled {
-                    actions = actions.child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                            .child(tr("Off in the game")),
-                    );
+                    actions = actions.child(ui::card_note(tr("Off in the game")));
                 }
                 actions = actions.child(
                     ui::remove_button(remove_id, tr("Delete…"), ui::ButtonSize::Md).on_press(

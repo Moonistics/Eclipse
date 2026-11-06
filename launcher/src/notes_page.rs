@@ -1,13 +1,13 @@
 use super::*;
 use crate::ui;
-use eclipse_theme::glass::{ink, radius, space};
+use eclipse_theme::glass::{ink, space};
 
 impl Launcher {
     pub(super) fn notes_page(&mut self, cx: &mut Context<Self>) -> Div {
         let page = div()
             .flex()
             .flex_col()
-            .child(ui::page_head(tr("Patch notes"), ""));
+            .child(ui::page_head(Page::Notes.title(), ""));
         let releases = match &self.releases {
             Load::Loading => {
                 return page.child(ui::empty_card(ui::loading_state(
@@ -24,7 +24,7 @@ impl Launcher {
                         this.fetch_releases();
                         cx.notify();
                     }),
-                    Some(Self::proxy_settings_button("notes-failed", cx)),
+                    vec![Self::proxy_settings_button("notes-failed", cx)],
                     ButtonKind::Primary,
                 )));
             }
@@ -57,7 +57,7 @@ impl Launcher {
                     title
                 };
                 let day = dates::published(&release.date, "");
-                ui::card(radius::PANEL)
+                ui::card()
                     .flex()
                     .flex_col()
                     .gap(px(space::MD))

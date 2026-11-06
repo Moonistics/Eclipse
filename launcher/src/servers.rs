@@ -191,9 +191,11 @@ pub fn game_files(root: &Path, game_version: &str) -> PathBuf {
     root.join("game-files/eclipse-client").join(game_version)
 }
 
+pub const GAME_VERSION: &str = "26.3";
+
 /// Whether the servers' game files are there.
 pub fn game_files_ready() -> bool {
-    game_files(&runtime_root(), "26.3")
+    game_files(&runtime_root(), GAME_VERSION)
         .join("eclipse-resources.json")
         .is_file()
 }

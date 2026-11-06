@@ -7,7 +7,7 @@ use crate::menus::Asking;
 use crate::picture_cache::Look;
 use crate::ui;
 use eclipse_launcher::screenshots::{self, Shot};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{radius, space};
 use gpui::{ClipboardItem, Image, ImageFormat};
 use std::path::PathBuf;
 
@@ -156,8 +156,7 @@ impl Launcher {
             let gone = shot.clone();
             actions = actions.child(ui::confirm(
                 "screenshot-delete",
-                trf("Delete {name}?", &[("name", &shot.name)]),
-                tr("Delete"),
+                ui::Confirm::Delete(&shot.name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();
@@ -220,9 +219,7 @@ impl Launcher {
                 );
         }
         let note = match &self.screenshots.note {
-            Some(Ok(m)) => {
-                Some(ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(m.clone()))
-            }
+            Some(Ok(m)) => Some(ui::card_note(m.clone())),
             Some(Err(e)) => Some(ui::error_note(e.clone())),
             None => None,
         };
@@ -240,16 +237,15 @@ impl Launcher {
                         taken.format("%Y-%m-%d %H:%M:%S").to_string(),
                     ))
                     .child(
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-                            .truncate()
-                            .child(trf(
-                                "{name} · {index} of {count}",
-                                &[
-                                    ("name", &shot.name),
-                                    ("index", &(i + 1).to_string()),
-                                    ("count", &count.to_string()),
-                                ],
-                            )),
+                        ui::card_note(trf(
+                            "{name} · {index} of {count}",
+                            &[
+                                ("name", &shot.name),
+                                ("index", &(i + 1).to_string()),
+                                ("count", &count.to_string()),
+                            ],
+                        ))
+                        .truncate(),
                     ),
             )
             .child(step("screenshot-newer", "← Newer", false, i > 0))

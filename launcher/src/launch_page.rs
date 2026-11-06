@@ -4,7 +4,7 @@ use super::fields::Field;
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::launch;
-use eclipse_theme::glass::{fill, ink, radius, space, step};
+use eclipse_theme::glass::{fill, ink, space, step};
 use gpui::{
     canvas, relative, Bounds, FontWeight, MouseButton, MouseDownEvent, MouseMoveEvent,
     MouseUpEvent, Pixels, Point,
@@ -320,8 +320,14 @@ impl Launcher {
                 MouseButton::Left,
                 cx.listener(|this, _: &MouseUpEvent, _, cx| this.finish_memory(cx)),
             );
-        let unit = ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child("MB");
-        let input = self.field(Field::MemoryLimit, "4096", 96., ui::ButtonSize::Md, cx);
+        let unit = ui::card_note("MB");
+        let input = self.field(
+            Field::MemoryLimit,
+            "4096",
+            layout::FIELD_XS,
+            ui::ButtonSize::Md,
+            cx,
+        );
         let result = self.memory_slider.saved.as_ref().map(|s| match s {
             MemorySaved::Ok(mb) => div().child(trf(
                 "Saved: the next Play uses at most {mb} MB.",
@@ -402,9 +408,7 @@ impl Launcher {
                             },
                         )),
                     )
-                    .children(about.map(|about| {
-                        ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr(about))
-                    })),
+                    .children(about.map(|about| ui::card_note(tr(about)))),
             );
         }
         found.any().then(|| {
@@ -436,9 +440,7 @@ impl Launcher {
                 .gap(px(space::SM))
                 .child(ui::label(tr(label)))
                 .child(this.field(field, tr(placeholder), FIELD_WIDTH, ui::ButtonSize::Md, cx))
-                .children(about.map(|about| {
-                    ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(tr(about))
-                }))
+                .children(about.map(|about| ui::card_note(tr(about))))
         };
         let pre = row(
             self,
@@ -503,7 +505,7 @@ impl Launcher {
             cx.notify();
         }));
         Some(
-            ui::card(radius::PANEL)
+            ui::card()
                 .flex()
                 .flex_col()
                 .gap(px(space::LG))
@@ -513,7 +515,7 @@ impl Launcher {
                         .flex()
                         .items_center()
                         .justify_between()
-                        .child(ui::section_title(tr("Launch options")))
+                        .child(ui::section_title("launch-title", tr("Launch options")))
                         .child(close),
                 )
                 .child(pre)

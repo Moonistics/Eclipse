@@ -18,7 +18,7 @@ const RING_GAP: f32 = 1.5;
 
 const INSET_RING: f32 = 2.;
 
-const TIP_GAP: f32 = 6.;
+const TIP_GAP: f32 = eclipse_theme::glass::space::SM;
 
 const SPARE_HANDLES: usize = 32;
 
@@ -29,17 +29,25 @@ const TYPE_AHEAD: std::time::Duration = std::time::Duration::from_millis(900);
 thread_local! {
     static SPOTS: RefCell<Vec<Rc<RefCell<Spot>>>> = const { RefCell::new(Vec::new()) };
     static LISTS: RefCell<HashMap<SharedString, Scrollbar>> = RefCell::default();
-    static FOCUS_TIP: RefCell<Option<(SharedString, Bounds<Pixels>, FocusHandle)>> =
-        const { RefCell::new(None) };
+    static FOCUS_TIP: RefCell<Option<FocusTip>> = const { RefCell::new(None) };
     static MENU_OPENING: Cell<bool> = const { Cell::new(false) };
     static HANDLES: RefCell<HashMap<SharedString, FocusHandle>> = RefCell::default();
     static SPARE: RefCell<Vec<FocusHandle>> = const { RefCell::new(Vec::new()) };
+    static SHORT_OF: Cell<usize> = const { Cell::new(0) };
     static FOCUSED: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
     static KEYBOARD: Cell<bool> = const { Cell::new(false) };
     static MODALS: RefCell<Modals> = RefCell::default();
     static CURSORS: RefCell<HashMap<SharedString, usize>> = RefCell::default();
     static REVEAL_SOON: RefCell<HashSet<SharedString>> = RefCell::default();
     static TYPED: RefCell<(String, Option<std::time::Instant>)> = RefCell::default();
+}
+
+#[derive(Clone, PartialEq)]
+struct FocusTip {
+    label: SharedString,
+    bounds: Bounds<Pixels>,
+    handle: FocusHandle,
+    beside: bool,
 }
 
 #[derive(Default)]
@@ -69,15 +77,18 @@ impl Press for Stateful<Div> {
     }
 }
 
-pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
-    let filled = el
-        .interactivity()
+fn solid(el: &mut Stateful<Div>) -> bool {
+    el.interactivity()
         .base_style
         .background
         .as_ref()
         .and_then(gpui::Fill::color)
         .and_then(|fill| fill.as_solid())
-        .is_some_and(|c| c.a >= 1.);
+        .is_some_and(|c| c.a >= 1.)
+}
+
+pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
+    let filled = solid(&mut el);
     let el = if el.a11y_role().is_none() {
         el.role(Role::Button)
     } else {
@@ -95,8 +106,9 @@ pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
 pub(super) fn note_focus(window: &Window, cx: &mut App) {
     FOCUSED.set(window.focused(cx));
     KEYBOARD.set(window.last_input_was_keyboard());
+    let wanted = SPARE_HANDLES + SHORT_OF.take();
     SPARE.with_borrow_mut(|spare| {
-        while spare.len() < SPARE_HANDLES {
+        while spare.len() < wanted {
             spare.push(cx.focus_handle().tab_index(0).tab_stop(true));
         }
     });
@@ -104,16 +116,21 @@ pub(super) fn note_focus(window: &Window, cx: &mut App) {
 }
 
 pub fn focus_for(key: impl Into<SharedString>) -> FocusHandle {
+    try_focus_for(key).expect("a spare focus handle each frame")
+}
+
+pub fn try_focus_for(key: impl Into<SharedString>) -> Option<FocusHandle> {
     let key = key.into();
     HANDLES.with_borrow_mut(|handles| {
-        handles
-            .entry(key)
-            .or_insert_with(|| {
-                SPARE
-                    .with_borrow_mut(Vec::pop)
-                    .expect("a spare focus handle each frame")
-            })
-            .clone()
+        if let Some(handle) = handles.get(&key) {
+            return Some(handle.clone());
+        }
+        let Some(handle) = SPARE.with_borrow_mut(Vec::pop) else {
+            SHORT_OF.set(SHORT_OF.get() + 1);
+            return None;
+        };
+        handles.insert(key, handle.clone());
+        Some(handle)
     })
 }
 
@@ -169,7 +186,7 @@ pub fn options(
         Some(gpui::ElementId::Name(id)) => id,
         _ => SharedString::from("options"),
     };
-    let handle = focus_for(format!("options-{id}"));
+    let handle = try_focus_for(format!("options-{id}"));
     let count = rows.len();
     let labels: Vec<SharedString> = rows.iter().map(|r| r.1.clone()).collect();
     let first = rows.iter().position(|r| r.2);
@@ -182,12 +199,16 @@ pub fn options(
     .unwrap_or(0)
     .min(count.saturating_sub(1));
     CURSORS.with_borrow_mut(|c| c.insert(id.clone(), cursor));
-    let ringed = keyboard_focus(&handle);
+    let ringed = handle.as_ref().is_some_and(keyboard_focus);
     let on_pick = Rc::new(on_pick);
     let rows = rows.into_iter().enumerate().map(|(i, (row, label, on))| {
         let (pick, key) = (on_pick.clone(), id.clone());
+        let row = if row.a11y_role().is_none() {
+            row.role(Role::ListBoxOption)
+        } else {
+            row
+        };
         let row = row
-            .role(Role::ListBoxOption)
             .aria_label(label)
             .aria_selected(on)
             .aria_position_in_set(i + 1)
@@ -218,12 +239,21 @@ pub fn options(
     });
     let key = id.clone();
     let focus = handle.clone();
+    let list = if list.a11y_role().is_none() {
+        list.role(Role::ListBox)
+    } else {
+        list
+    };
+    let list = match &handle {
+        Some(handle) => list.track_focus(handle),
+        None => list,
+    };
     reveal_on_tab(
-        list.track_focus(&handle)
-            .role(Role::ListBox)
-            .children(rows)
+        list.children(rows)
             .on_mouse_down(gpui::MouseButton::Left, move |_, window, cx| {
-                window.focus(&focus, cx)
+                if let Some(focus) = &focus {
+                    window.focus(focus, cx)
+                }
             })
             .on_key_down(move |ev: &KeyDownEvent, window, cx| {
                 if count == 0 {
@@ -261,6 +291,10 @@ pub fn options(
                 cx.stop_propagation();
             }),
     )
+}
+
+pub fn options_cursor(id: &str) -> usize {
+    CURSORS.with_borrow(|c| c.get(id).copied().unwrap_or(0))
 }
 
 fn typed_match(k: &gpui::Keystroke, labels: &[SharedString], cursor: usize) -> Option<usize> {
@@ -407,6 +441,14 @@ fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
 }
 
 pub fn tip_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
+    tip_when_focused(el, label, false)
+}
+
+pub fn tip_beside_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
+    tip_when_focused(el, label, true)
+}
+
+fn tip_when_focused(el: Stateful<Div>, label: SharedString, beside: bool) -> Stateful<Div> {
     let spot = Rc::new(Cell::new(None));
     let seen = spot.clone();
     el.child(measure(move |bounds| seen.set(Some(bounds))))
@@ -414,25 +456,99 @@ pub fn tip_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
             if ev.keystroke.key != "tab" {
                 return;
             }
-            if let (Some(bounds), Some(focused)) = (spot.get(), window.focused(cx)) {
-                FOCUS_TIP.set(Some((label.clone(), bounds, focused)));
+            if let (Some(bounds), Some(handle)) = (spot.get(), window.focused(cx)) {
+                FOCUS_TIP.set(Some(FocusTip {
+                    label: label.clone(),
+                    bounds,
+                    handle,
+                    beside,
+                }));
                 window.refresh();
             }
         })
 }
 
+pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
+    let mut el = el;
+    let key = match el.interactivity().element_id.clone() {
+        Some(gpui::ElementId::Name(id)) => id,
+        _ => SharedString::from("unavailable"),
+    };
+    let filled = solid(&mut el);
+    let el = if el.a11y_role().is_none() {
+        el.role(Role::Button)
+    } else {
+        el
+    };
+    let Some(handle) = try_focus_for(format!("held-{key}")) else {
+        return reveal_on_tab(el.tab_index(0));
+    };
+    let ringed = keyboard_focus(&handle);
+    let el = reveal_on_tab(el.track_focus(&handle));
+    if !ringed {
+        return el;
+    }
+    let ring = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .rounded(px(eclipse_theme::glass::radius::CONTROL))
+        .shadow(if filled {
+            vec![
+                shadow(gap_colour(), INSET_RING + RING_GAP, true),
+                shadow(color(look().accent_soft), INSET_RING, true),
+            ]
+        } else {
+            inset_shadow()
+        });
+    let tip = canvas(
+        move |bounds, window, _| {
+            let tip = Some(FocusTip {
+                label: label.clone(),
+                bounds,
+                handle: handle.clone(),
+                beside: false,
+            });
+            if FOCUS_TIP.with_borrow(|t| *t != tip) {
+                FOCUS_TIP.set(tip);
+                window.refresh();
+            }
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full();
+    el.child(deferred(ring)).child(tip)
+}
+
 pub fn focus_tip(window: &Window) -> Option<AnyElement> {
-    let (label, bounds, handle) = FOCUS_TIP.with_borrow(|t| t.clone())?;
+    let FocusTip {
+        label,
+        bounds,
+        handle,
+        beside,
+    } = FOCUS_TIP.with_borrow(|t| t.clone())?;
     if !handle.is_focused(window) || !window.last_input_was_keyboard() {
         FOCUS_TIP.set(None);
         return None;
     }
-    let at = point(bounds.left(), bounds.bottom() + px(TIP_GAP));
+    let at = if beside {
+        point(bounds.right() + px(TIP_GAP), bounds.top())
+    } else {
+        point(bounds.left(), bounds.bottom() + px(TIP_GAP))
+    };
     Some(
         deferred(gpui::anchored().position(at).child(tip_body(label)))
             .with_priority(2)
             .into_any_element(),
     )
+}
+
+pub fn opens_row_menu(k: &gpui::Keystroke) -> bool {
+    (k.key == "f10" && k.modifiers.shift) || k.key == "menu"
 }
 
 pub fn menu_focus() -> FocusHandle {

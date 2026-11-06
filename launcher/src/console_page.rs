@@ -5,7 +5,7 @@ use super::fields::Field;
 use super::*;
 use crate::ui::{self, white};
 use eclipse_launcher::game_log::{self, Shared};
-use eclipse_theme::glass::{ink, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 use gpui::{ClipboardItem, ScrollHandle};
 
 pub(super) struct Console {
@@ -35,20 +35,14 @@ impl Launcher {
     /// What Share log sends: this run's lines, else the selected instance's latest.log.
     fn log_to_share(&self) -> Result<(String, Vec<std::path::PathBuf>), String> {
         let home = self
-            .client_home
+            .game
+            .home
             .clone()
             .or_else(|| self.selected_instance().map(|i| i.home.clone()))
             .unwrap_or_else(backend::game_home);
-        let text = match self.prepare_log.is_empty() {
-            false => {
-                self.prepare_log
-                    .iter()
-                    .cloned()
-                    .collect::<Vec<_>>()
-                    .join("\n")
-                    + "\n"
-            }
-            true => {
+        let text = match self.console_log().filter(|log| !log.is_empty()) {
+            Some(log) => log.iter().cloned().collect::<Vec<_>>().join("\n") + "\n",
+            None => {
                 let path = home.join("logs/latest.log");
                 std::fs::read_to_string(&path)
                     .map_err(|_| tr("There is no log to share yet.").to_string())?
@@ -114,23 +108,20 @@ impl Launcher {
 impl Launcher {
     /// Home's Console tab: the count and the tools over the log.
     pub(super) fn console_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        if self.prepare_log.is_empty() && self.client.is_none() {
-            return None;
-        }
-        let count = self.prepare_log.len();
-        let note = match self.client {
-            Some(_) => trf(
+        let log = self.console_log()?;
+        let count = log.len();
+        let note = match self.game.client {
+            Some(_) if self.selected_play_state() == PlayState::Running => trf(
                 "{count} lines, the game is running",
                 &[("count", &count.to_string())],
             ),
-            None => trf(
+            _ => trf(
                 "{count} lines from the last run",
                 &[("count", &count.to_string())],
             ),
         };
         let search = self.fields.value(Field::ConsoleSearch).trim().to_string();
-        let lines: Vec<String> = self
-            .prepare_log
+        let lines: Vec<String> = log
             .iter()
             .filter(|l| game_log::matches(l, &search))
             .cloned()
@@ -148,7 +139,8 @@ impl Launcher {
             }));
         let copied = lines.join("\n");
         let logs = self
-            .client_home
+            .game
+            .home
             .clone()
             .or_else(|| self.selected_instance().map(|i| i.home.clone()))
             .unwrap_or_else(backend::game_home)
@@ -177,7 +169,7 @@ impl Launcher {
             .child(self.field(
                 Field::ConsoleSearch,
                 tr("Search the log"),
-                240.,
+                layout::FIELD_MD,
                 ui::ButtonSize::Md,
                 cx,
             ))
@@ -220,15 +212,12 @@ impl Launcher {
         // Share log asks first.
         if self.console.confirm_share {
             body = body.child(
-                div()
+                ui::well()
                     .flex()
                     .items_center()
                     .gap(px(space::MD))
                     .mx(px(space::MD))
                     .mb(px(space::MD))
-                    .p(px(space::LG))
-                    .rounded(px(radius::ROW))
-                    .bg(ui::inset())
                     .child(div().flex_1().min_w_0().child(
                         ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(tr(
                             "Upload this log to mclo.gs? Anyone with the link can read it.",

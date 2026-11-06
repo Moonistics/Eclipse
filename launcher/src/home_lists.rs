@@ -102,10 +102,27 @@ impl Launcher {
         let can_play = self.can_start_selected() && !busy;
         let mut facts = vec![tr(w.mode).to_string()];
         facts.extend(w.version.clone());
-        facts.push(home_head::last_played(w.last_played));
-        let mut row = ui::list_row(key.clone(), hovered || menu_open);
+        facts.push(dates::ago(w.last_played));
+        let focus = ui::try_focus_for(key.clone());
+        let focused = focus.as_ref().is_some_and(ui::keyboard_focus);
+        let menu_key = key.clone();
+        let mut row = ui::list_row(key.clone(), hovered || menu_open)
+            .aria_label(w.name.clone())
+            .aria_description(facts.join(" · "))
+            .on_key_down(
+                cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
+                    if ui::opens_row_menu(&ev.keystroke) {
+                        this.open_menu_from(Menu::ListRow(menu_key.clone()), window, cx);
+                        cx.stop_propagation();
+                        cx.notify();
+                    }
+                }),
+            );
         if can_play {
             let folder = w.folder.clone();
+            if let Some(focus) = &focus {
+                row = row.track_focus(focus);
+            }
             row = row
                 .cursor_pointer()
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -126,13 +143,8 @@ impl Launcher {
             "earth",
         ));
         let size = if this_busy {
-            ui::text(
-                eclipse_theme::glass::step::NOTE,
-                FontWeight::NORMAL,
-                ink::MUTED,
-            )
-            .child(tr("Working…"))
-        } else if hovered && can_play {
+            ui::card_note(tr("Working…"))
+        } else if (hovered || focused) && can_play {
             div()
                 .flex()
                 .items_center()
@@ -151,12 +163,7 @@ impl Launcher {
                     white(ink::FULL),
                 ))
         } else {
-            ui::text(
-                eclipse_theme::glass::step::NOTE,
-                FontWeight::NORMAL,
-                ink::MUTED,
-            )
-            .child(megabytes(w.size))
+            ui::card_note(megabytes(w.size))
         };
         let more = ui::more_button(
             SharedString::from(format!("{key}-more")),
@@ -201,8 +208,7 @@ impl Launcher {
         let delete = if confirming {
             ui::menu_confirm(
                 "world-menu-delete",
-                trf("Delete {name}?", &[("name", &w.name)]),
-                tr("Delete"),
+                ui::Confirm::Delete(&w.name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.stop_asking(|a| matches!(a, Asking::WorldDelete(_)));
                     cx.notify();
@@ -428,8 +434,7 @@ impl Launcher {
         let end = if confirming {
             ui::confirm(
                 remove,
-                trf("Remove {name}?", &[("name", &server.name)]),
-                tr("Remove"),
+                ui::Confirm::Remove(&server.name),
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();

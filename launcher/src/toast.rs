@@ -114,7 +114,7 @@ impl Launcher {
             said
         };
         Some(ui::corner_float(
-            ui::float_card(eclipse_theme::glass::radius::POPOVER)
+            ui::float_card()
                 .id("toast")
                 .role(if error {
                     gpui::Role::Alert

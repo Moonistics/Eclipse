@@ -64,6 +64,20 @@ pub(super) struct InstanceDraft {
     /// The loader logo `picture` was made from, when it was one.
     pub(super) logo: Option<&'static str>,
     pub(super) reveal_version: bool,
+    pub(super) opened: String,
+}
+
+impl InstanceDraft {
+    pub(super) fn shape(&self, name: &str, group: &str) -> String {
+        format!(
+            "{name}|{group}|{:?}|{:?}|{:?}|{}|{}",
+            self.icon,
+            self.pin,
+            self.java,
+            self.picture.is_some(),
+            self.copy
+        )
+    }
 }
 
 /// The instances and their icons as images, kept between frames.
@@ -112,14 +126,14 @@ impl Launcher {
         };
         match instances::edit(&id, |m| m.version = tag) {
             Ok(_) => self.reload_instances(),
-            Err(e) => self.client_error = Some(e),
+            Err(e) => self.game.error = Some(e),
         }
     }
 
     pub(super) fn select_instance(&mut self, instance: &Instance) {
         // A native build's warning names the mods of the instance it was opened for.
-        self.native_confirm = None;
-        self.native_update = None;
+        self.native.confirm = None;
+        self.native.update = None;
         self.settings.instance =
             (instance.kind != InstanceKind::Default).then(|| instance.id.clone());
         self.save_settings();
@@ -180,11 +194,19 @@ impl Launcher {
             busy: false,
             reveal_version: java.version.is_some(),
             java,
+            opened: String::new(),
         });
         self.fields.text(Field::VersionSearch).set(String::new());
         // A new one starts with the name it would get ("My Eclipse"), until the player types one.
         if !editing_one {
             self.change(|_| {});
+        }
+        let (name, group) = (
+            self.fields.value(Field::InstanceName).to_string(),
+            self.fields.value(Field::InstanceGroup).to_string(),
+        );
+        if let Some(d) = &mut self.instances.draft {
+            d.opened = d.shape(&name, &group);
         }
         if self.page == Page::InstanceEditor {
             self.switches += 1;
@@ -225,10 +247,23 @@ impl Launcher {
     pub(super) fn instance_escape(&mut self) -> bool {
         let open = self.page == Page::InstanceEditor
             && self.instances.draft.as_ref().is_some_and(|d| !d.busy);
-        if open {
+        if open && self.draft_changed() {
+            self.asking = Some(menus::Asking::DiscardDraft);
+        } else if open {
             self.close_instance_page();
         }
         open
+    }
+
+    pub(super) fn draft_changed(&self) -> bool {
+        let (name, group) = (
+            self.fields.value(Field::InstanceName),
+            self.fields.value(Field::InstanceGroup),
+        );
+        self.instances
+            .draft
+            .as_ref()
+            .is_some_and(|d| d.shape(name, group) != d.opened)
     }
 
     /// Creates or changes the instance as the page says. A copy can be gigabytes of worlds, so
@@ -389,7 +424,7 @@ impl Launcher {
 
 impl Launcher {
     pub(super) fn delete_instance(&mut self, id: &str) {
-        if self.client.is_some() || self.starting_client.is_some() {
+        if self.game.client.is_some() || self.game.starting.is_some() {
             return;
         }
         let name = self
@@ -433,14 +468,6 @@ fn java_choice_of(instance: &Instance) -> JavaChoice {
 }
 
 /// The first letter or digit of a name, for an icon without a picture.
-pub(super) fn initial(name: &str) -> String {
-    name.chars()
-        .find(|c| c.is_alphanumeric())
-        .unwrap_or('?')
-        .to_uppercase()
-        .to_string()
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum NewKind {
     Eclipse,

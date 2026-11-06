@@ -33,6 +33,8 @@ const SMALL_MARK: [&str; 12] = [
     "....oooo....",
 ];
 const MODDED_GAP: f32 = 2.;
+const PIXEL_ART_MAX: u32 = 256;
+const SHARP_FILL: f32 = 0.75;
 
 impl Launcher {
     /// The instance's own picture, `size` points square. Whether there is one is asked once:
@@ -140,7 +142,8 @@ impl Launcher {
         if let Some(image) = self.instances.icons.get(&key) {
             return image.clone();
         }
-        let image = bytes().and_then(|b| fitted(b, size, self.scale));
+        let scale = self.scale;
+        let image = bytes().and_then(|b| sharp(&b, size, scale).or_else(|| fitted(b, size, scale)));
         if image.is_some() || remember_missing {
             self.instances.icons.insert(key, image.clone());
         }
@@ -158,6 +161,39 @@ fn fitted(bytes: Vec<u8>, size: f32, scale: f32) -> Option<Arc<RenderImage>> {
     let texels: Vec<[u8; 4]> = image.pixels().map(|p| p.0).collect();
     let whole = (side as usize / w.max(h)).max(1) as f32;
     Some(art::bake(&texels, w, h, whole / scale, scale))
+}
+
+fn sharp(bytes: &[u8], size: f32, scale: f32) -> Option<Arc<RenderImage>> {
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let (w, h) = reader.into_dimensions().ok()?;
+    if w.max(h) > PIXEL_ART_MAX {
+        return None;
+    }
+    let image = image::load_from_memory(bytes).ok()?.to_rgba8();
+    let block = (2..=w.min(h)).rev().find(|&block| {
+        w % block == 0
+            && h % block == 0
+            && image
+                .enumerate_pixels()
+                .all(|(x, y, p)| p == image.get_pixel(x / block * block, y / block * block))
+    })?;
+    let (cols, rows) = ((w / block) as usize, (h / block) as usize);
+    let side = (size * scale).round() as usize;
+    let whole = side / cols.max(rows);
+    if whole == 0 || ((whole * cols.max(rows)) as f32) < side as f32 * SHARP_FILL {
+        return None;
+    }
+    let (left, top) = ((side - whole * cols) / 2, (side - whole * rows) / 2);
+    let mut pixels = vec![[0; 4]; side * side];
+    for y in 0..whole * rows {
+        for x in 0..whole * cols {
+            let texel = image.get_pixel((x / whole) as u32 * block, (y / whole) as u32 * block);
+            pixels[(top + y) * side + left + x] = texel.0;
+        }
+    }
+    Some(art::bake(&pixels, side, side, 1. / scale, scale))
 }
 
 fn pixel_mark(size: f32, scale: f32) -> Arc<RenderImage> {
@@ -268,5 +304,60 @@ impl Launcher {
             });
         })
         .detach();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn side(image: &RenderImage) -> (i32, i32) {
+        let size = image.size(0);
+        (size.width.0, size.height.0)
+    }
+
+    #[test]
+    fn a_pixel_art_logo_fills_its_slot_in_whole_texels() {
+        for (size, scale, texel, margin) in [
+            (32., 1., 2, 0),
+            (32., 1.5, 3, 0),
+            (36., 1., 2, 2),
+            (36., 1.5, 3, 3),
+            (48., 1., 3, 0),
+            (16., 2., 2, 0),
+        ] {
+            let image = sharp(FABRIC, size, scale).expect("Fabric's logo is pixel art");
+            let edge = (size * scale) as usize;
+            assert_eq!(
+                side(&image),
+                (edge as i32, edge as i32),
+                "{size} at {scale}x"
+            );
+            let bytes = image.as_bytes(0).expect("one frame");
+            let at = |x: usize, y: usize| &bytes[(y * edge + x) * 4..][..4];
+            let block = |v: usize| margin + (v - margin) / texel * texel;
+            for y in margin..edge - margin {
+                for x in margin..edge - margin {
+                    assert_eq!(
+                        at(x, y),
+                        at(block(x), block(y)),
+                        "{size} at {scale}x: ({x}, {y})"
+                    );
+                }
+            }
+            let middle = edge / 2;
+            assert!((0..margin).all(|v| at(v, middle)[3] == 0 && at(middle, v)[3] == 0));
+        }
+    }
+
+    #[test]
+    fn a_logo_too_small_for_whole_texels_or_not_pixel_art_is_scaled_smoothly() {
+        assert!(sharp(FABRIC, 24., 1.).is_none());
+        assert!(sharp(FABRIC, 12., 1.).is_none());
+        for logo in [GRASS, FORGE, QUILT, NEOFORGE] {
+            assert!(sharp(logo, 32., 1.).is_none());
+        }
+        let smooth = fitted(GRASS.to_vec(), 32., 1.).expect("the grass block decodes");
+        assert_eq!(side(&smooth), (32, 32));
     }
 }

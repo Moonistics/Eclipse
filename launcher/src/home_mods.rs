@@ -59,7 +59,7 @@ impl Launcher {
         let field = self.field(
             Field::InstanceModsFilter,
             tr("Filter installed"),
-            220.,
+            layout::FIELD_MD,
             ui::ButtonSize::Md,
             cx,
         );

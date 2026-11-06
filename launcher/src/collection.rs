@@ -5,7 +5,7 @@ use crate::menus::Asking;
 use crate::ui;
 use eclipse_launcher::telemetry;
 use eclipse_telemetry::{Choices, Consent, Kind as DataKind};
-use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
+use eclipse_theme::glass::{ink, space, step};
 
 /// What the window keeps about data collection.
 pub(crate) struct Collection {
@@ -48,8 +48,6 @@ fn kind_id(prefix: &str, kind: DataKind) -> &'static str {
 
 const JSON_HEIGHT: f32 = 260.;
 
-const CONSENT_WIDTH: f32 = 680.;
-
 /// The exact JSON, in mono, scrolling inside a well.
 fn json_view(view: &(String, String), scroll: &Scrollbar) -> Div {
     div()
@@ -59,14 +57,13 @@ fn json_view(view: &(String, String), scroll: &Scrollbar) -> Div {
         .child(ui::card_note(view.0.clone()))
         .child(
             scroll.wrap(
-                ui::text(step::CAPTION, FontWeight::NORMAL, ink::BODY)
+                ui::well()
                     .id("data-json")
                     .max_h(px(JSON_HEIGHT))
                     .overflow_y_scroll()
-                    .p(px(ui::PANEL_INSET))
-                    .rounded(px(radius::ROW))
-                    .bg(ui::inset())
                     .font_family(theme::MONO)
+                    .text_size(px(step::CAPTION.size))
+                    .text_color(ui::white(ink::BODY))
                     .children(view.1.lines().map(|l| div().child(l.to_string()))),
             ),
         )
@@ -127,14 +124,6 @@ impl Launcher {
             .flex_col()
             .min_h_0()
             .gap(px(space::MD))
-            .px(px(ui::CARD_PADDING))
-            .pt(px(ui::CARD_PADDING))
-            .pb(px(ui::PANEL_INSET))
-            .child(ui::label(tr("Data collection")))
-            .child(ui::entity_title(
-                tr("Help make Eclipse faster and steadier?"),
-                pixel_text::CARD_TITLE,
-            ))
             .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(tr(
                 "Eclipse can send a few things to its developers. Each switch is off until you turn it on, and Settings can change it any time.",
             )))
@@ -162,47 +151,40 @@ impl Launcher {
                     .as_ref()
                     .map(|v| json_view(v, &self.collection.json_scroll)),
             );
-        let answers = div()
-            .flex()
-            .flex_none()
-            .justify_end()
-            .gap(px(space::MD))
-            .px(px(ui::CARD_PADDING))
-            .pb(px(ui::CARD_PADDING))
-            .child(
-                ui::button(
-                    "ask-none",
-                    None,
-                    tr("Send nothing"),
-                    ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.answer_consent(Choices::NONE);
-                    cx.notify();
-                })),
+        let answers = vec![
+            ui::button(
+                "ask-none",
+                None,
+                tr("Send nothing"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
             )
-            .child(
-                ui::button(
-                    "ask-save",
-                    None,
-                    tr("Save choices"),
-                    ButtonKind::Primary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.answer_consent(this.collection.draft);
-                    cx.notify();
-                })),
-            );
-        let card = ui::dialog_plate(radius::MODAL)
-            .flex()
-            .flex_col()
-            .w_full()
-            .max_w(px(CONSENT_WIDTH))
-            .max_h_full()
-            .child(self.collection.body_scroll.wrap(body))
-            .child(answers);
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.answer_consent(Choices::NONE);
+                cx.notify();
+            }))
+            .into_any_element(),
+            ui::button(
+                "ask-save",
+                None,
+                tr("Save choices"),
+                ButtonKind::Primary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.answer_consent(this.collection.draft);
+                cx.notify();
+            }))
+            .into_any_element(),
+        ];
+        let card = ui::dialog(
+            "consent-card",
+            Some(tr("Data collection").into()),
+            tr("Help make Eclipse faster and steadier?"),
+            ui::DialogWidth::Wide,
+            self.collection.body_scroll.wrap(body),
+            answers,
+        );
         ui::modal(
             "consent",
             tr("Help make Eclipse faster and steadier?"),
@@ -260,8 +242,7 @@ impl Launcher {
         let actions = if self.is_asking(&Asking::Collection) {
             ui::confirm(
                 "data-delete",
-                tr("Delete everything?").to_string(),
-                tr("Delete"),
+                ui::Confirm::DeleteEverything,
                 cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = None;
                     cx.notify();
@@ -315,8 +296,7 @@ impl Launcher {
         list = list.child(ui::setting_row(
             tr("Your data"),
             Some(
-                div()
-                    .font_family(theme::MONO)
+                ui::mono(step::NOTE, ink::MUTED)
                     .child(format!("{id}  ·  {server}"))
                     .into_any_element(),
             ),
