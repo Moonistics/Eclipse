@@ -45,11 +45,45 @@ pub(super) enum Tab {
     Backups,
 }
 
-const MODES: [(&str, &str); 3] = [
-    ("survival", "Survival"),
-    ("creative", "Creative"),
-    ("adventure", "Adventure"),
-];
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum GameMode {
+    Survival,
+    Creative,
+    Adventure,
+}
+
+impl GameMode {
+    const ALL: [GameMode; 3] = [GameMode::Survival, GameMode::Creative, GameMode::Adventure];
+
+    fn id(self) -> &'static str {
+        match self {
+            GameMode::Survival => "survival",
+            GameMode::Creative => "creative",
+            GameMode::Adventure => "adventure",
+        }
+    }
+
+    fn label(self) -> &'static str {
+        match self {
+            GameMode::Survival => tr("Survival"),
+            GameMode::Creative => tr("Creative"),
+            GameMode::Adventure => tr("Adventure"),
+        }
+    }
+
+    fn options() -> Vec<(&'static str, SharedString)> {
+        GameMode::ALL
+            .map(|m| (m.id(), SharedString::from(m.label())))
+            .to_vec()
+    }
+
+    fn label_of(id: &str) -> String {
+        GameMode::ALL
+            .into_iter()
+            .find(|m| m.id() == id)
+            .map_or_else(|| id.to_string(), |m| m.label().to_string())
+    }
+}
 
 const DIFFICULTIES: [(&str, &str); 4] = [
     ("peaceful", "Peaceful"),
@@ -121,17 +155,95 @@ impl ServerJob {
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq)]
 pub(super) enum Needs {
     Eclipse,
-    GameFiles,
+    GameFiles { minecraft: String },
+    ServerProgram { version: String },
 }
 
 impl Needs {
-    pub(super) fn line(self) -> &'static str {
+    pub(super) fn line(&self) -> String {
         match self {
-            Needs::Eclipse => tr("Servers run Eclipse, which isn't installed yet."),
-            Needs::GameFiles => tr("Servers need game files prepared from your own Minecraft."),
+            Needs::Eclipse => tr("Servers run Eclipse, which isn't installed yet.").into(),
+            Needs::GameFiles { minecraft } => trf(
+                "Servers need Minecraft {version} from your Minecraft launcher.",
+                &[("version", minecraft)],
+            ),
+            Needs::ServerProgram { version } => trf(
+                "{version} can't host servers. Install a newer version.",
+                &[("version", version)],
+            ),
+        }
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub(super) enum ServerKey {
+    Motd,
+    Port,
+    MaxPlayers,
+    ViewDistance,
+    SimulationDistance,
+    Whitelist,
+    OnlineMode,
+    WorldName,
+    GameMode,
+    Difficulty,
+    BackupsEvery,
+    BackupsKeep,
+    UpdatesKeep,
+}
+
+impl ServerKey {
+    const ALL: [ServerKey; 13] = [
+        ServerKey::Motd,
+        ServerKey::Port,
+        ServerKey::MaxPlayers,
+        ServerKey::ViewDistance,
+        ServerKey::SimulationDistance,
+        ServerKey::Whitelist,
+        ServerKey::OnlineMode,
+        ServerKey::WorldName,
+        ServerKey::GameMode,
+        ServerKey::Difficulty,
+        ServerKey::BackupsEvery,
+        ServerKey::BackupsKeep,
+        ServerKey::UpdatesKeep,
+    ];
+
+    fn path(self) -> (&'static str, &'static str) {
+        match self {
+            ServerKey::Motd => ("server", "motd"),
+            ServerKey::Port => ("server", "port"),
+            ServerKey::MaxPlayers => ("server", "max_players"),
+            ServerKey::ViewDistance => ("server", "view_distance"),
+            ServerKey::SimulationDistance => ("server", "simulation_distance"),
+            ServerKey::Whitelist => ("server", "whitelist"),
+            ServerKey::OnlineMode => ("server", "online_mode"),
+            ServerKey::WorldName => ("world", "name"),
+            ServerKey::GameMode => ("world", "game_mode"),
+            ServerKey::Difficulty => ("world", "difficulty"),
+            ServerKey::BackupsEvery => ("backups", "every"),
+            ServerKey::BackupsKeep => ("backups", "keep"),
+            ServerKey::UpdatesKeep => ("updates", "keep"),
+        }
+    }
+
+    fn dotted(self) -> String {
+        let (section, name) = self.path();
+        format!("{section}.{name}")
+    }
+
+    fn label(self) -> Option<&'static str> {
+        match self {
+            ServerKey::Motd => Some(tr("the message in the server list")),
+            ServerKey::Port => Some(tr("the port")),
+            ServerKey::MaxPlayers => Some(tr("max players")),
+            ServerKey::ViewDistance => Some(tr("view distance")),
+            ServerKey::SimulationDistance => Some(tr("simulation distance")),
+            ServerKey::OnlineMode => Some(tr("Microsoft sign-in")),
+            _ => None,
         }
     }
 }
@@ -144,7 +256,7 @@ pub(super) struct Create {
     /// The dialog's line under each world: its name and "Eclipse · mode · size", read
     /// once when the dialog opens.
     details: HashMap<PathBuf, (String, String)>,
-    mode: &'static str,
+    mode: GameMode,
     difficulty: &'static str,
     max_players: u32,
     friends_only: bool,
@@ -163,7 +275,7 @@ impl Servers {
     /// server's mode is the one its settings show now, once read; the others' (and the open one's
     /// until then) come from their files.
     pub(super) fn stopped_line(&mut self, dir: &std::path::Path) -> String {
-        let open = Some(self.shown("world", "game_mode"))
+        let open = Some(self.shown(ServerKey::GameMode))
             .filter(|m| !m.is_empty() && self.open.as_deref() == Some(dir));
         let mode = open.or_else(|| {
             self.modes
@@ -172,13 +284,7 @@ impl Servers {
                 .clone()
         });
         match mode {
-            Some(mode) => {
-                let label = MODES
-                    .iter()
-                    .find(|(id, _)| *id == mode)
-                    .map_or(mode.clone(), |(_, label)| tr(label).to_string());
-                trf("{mode} · stopped", &[("mode", &label)])
-            }
+            Some(mode) => trf("{mode} · stopped", &[("mode", &GameMode::label_of(&mode))]),
             None => tr("Stopped").to_string(),
         }
     }
@@ -216,7 +322,7 @@ pub(super) struct Servers {
     pub(super) creating: bool,
     config: Option<Value>,
     /// Settings waiting for `config set`, and whether one runs.
-    queued: Vec<(String, String)>,
+    queued: Vec<(ServerKey, String)>,
     applying: bool,
     /// Settings saved while the server ran that wait for its next start.
     restart_needed: BTreeSet<String>,
@@ -275,20 +381,20 @@ impl Servers {
     }
 
     /// A setting from server.toml (as `config --json` gave it).
-    fn setting(&self, section: &str, key: &str) -> Option<&Value> {
+    fn setting(&self, key: ServerKey) -> Option<&Value> {
+        let (section, name) = key.path();
         self.config
             .as_ref()
-            .map(|c| &c[section][key])
+            .map(|c| &c[section][name])
             .filter(|v| !v.is_null())
     }
 
     /// A setting as shown: what was just asked for, else what server.toml holds.
-    fn shown(&self, section: &str, key: &str) -> String {
-        let full = format!("{section}.{key}");
-        if let Some((_, v)) = self.queued.iter().rev().find(|(k, _)| *k == full) {
+    fn shown(&self, key: ServerKey) -> String {
+        if let Some((_, v)) = self.queued.iter().rev().find(|(k, _)| *k == key) {
             return v.clone();
         }
-        match self.setting(section, key) {
+        match self.setting(key) {
             Some(Value::String(s)) => s.clone(),
             None => String::new(),
             Some(v) => v.to_string(),
@@ -391,11 +497,17 @@ impl Launcher {
         if servers::program().is_some() && servers::game_files_ready() {
             return None;
         }
-        match self.selected_version() {
-            None => Some(Needs::Eclipse),
-            Some(tag) if !backend::is_prepared(tag) => Some(Needs::GameFiles),
-            Some(_) => None,
+        let Some(tag) = self.selected_version() else {
+            return Some(Needs::Eclipse);
+        };
+        if !backend::is_prepared(tag) {
+            return Some(Needs::GameFiles {
+                minecraft: backend::game_version(tag),
+            });
         }
+        servers::can_host(tag).err().map(|_| Needs::ServerProgram {
+            version: eclipse_launcher::nightly::display_name(tag),
+        })
     }
 
     fn add_server_folder(&mut self, cx: &mut Context<Self>) {
@@ -465,16 +577,13 @@ fn phase_label(status: &Status) -> String {
 }
 
 /// A setting's name for people.
-fn setting_name(key: &str) -> &str {
-    match key {
-        "server.motd" => "the message in the server list",
-        "server.port" => "the port",
-        "server.max_players" => "max players",
-        "server.view_distance" => "view distance",
-        "server.simulation_distance" => "simulation distance",
-        "server.online_mode" => "Microsoft sign-in",
-        other => other,
-    }
+fn setting_name(dotted: &str) -> String {
+    ServerKey::ALL
+        .into_iter()
+        .find(|k| k.dotted() == dotted)
+        .and_then(ServerKey::label)
+        .unwrap_or(dotted)
+        .to_string()
 }
 
 #[cfg(test)]
@@ -511,5 +620,13 @@ mod tests {
         assert_eq!(backup_label(&b("odd.zip")), ("odd".into(), String::new()));
         assert_eq!(bytes(5_292_542), "5.3 MB");
         assert_eq!(uptime(3725), "1 h 02 min");
+    }
+
+    #[test]
+    fn settings_and_modes_read_for_people() {
+        assert_eq!(setting_name("server.port"), "the port");
+        assert_eq!(setting_name("world.seed"), "world.seed");
+        assert_eq!(GameMode::label_of("creative"), "Creative");
+        assert_eq!(GameMode::label_of("hardcore"), "hardcore");
     }
 }

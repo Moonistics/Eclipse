@@ -1,8 +1,9 @@
 //! Home's Mods tab: one row per mod, its icon, name and "version · source". The filter, Update
-//! all and Find mods sit in the head, a mod's update and its on/off switch at the row's end.
+//! all and Find mods sit in the head, a mod's update, its on/off switch and Remove… at the row's end.
 use super::*;
+use crate::menus::Asking;
 use crate::ui::{self, white};
-use eclipse_launcher::browser::Kind as PackKind;
+use eclipse_launcher::browser::{self, java_instance, Kind as PackKind};
 use eclipse_theme::glass::{ink, space};
 use fields::Field;
 use instance_mods::ModRow;
@@ -75,9 +76,18 @@ impl Launcher {
             ui::list_head(SharedString::default()).child(
                 div()
                     .flex()
+                    .flex_1()
+                    .flex_wrap()
+                    .justify_end()
                     .items_center()
                     .gap(px(space::SM))
-                    .child(field)
+                    .child(
+                        div()
+                            .flex_1()
+                            .min_w(px(layout::FIELD_SM))
+                            .max_w(px(layout::FIELD_MD))
+                            .child(field.w_full()),
+                    )
                     .children(update_all)
                     .child(
                         ui::button(
@@ -168,10 +178,59 @@ impl Launcher {
                 ),
             }
         };
-        let note = match row.version.is_empty() {
-            true => source,
-            false => format!("{} · {source}", row.version),
+        let update = row
+            .entry
+            .as_ref()
+            .and_then(|e| self.mods.updates.get(&(e.source, e.project.clone())))
+            .map(|number| trf("{version} available", &[("version", number)]));
+        let note = [row.version.clone(), source]
+            .into_iter()
+            .chain(update)
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ");
+        let asked = self.mod_asked(&row);
+        let confirming = self.is_asking(&asked);
+        let controls = match &row.native {
+            Some(native) => self.native_mod_actions(native, busy, cx),
+            None => self.mod_actions(row.clone(), asked, cx),
         };
+        ui::list_row(key, hovered || confirming)
+            .child(icon)
+            .child(ui::item_text(row.name.clone(), note))
+            .child(controls.relative().flex().flex_none().items_center())
+            .text_color(white(ink::FULL))
+    }
+
+    fn mod_asked(&self, row: &ModRow) -> Asking {
+        match &row.entry {
+            Some(e) => Asking::Mod(e.project.clone()),
+            None => Asking::ModFile(self.mods.home().join(&row.file).display().to_string()),
+        }
+    }
+
+    fn mod_actions(&self, row: ModRow, asked: Asking, cx: &mut Context<Self>) -> Div {
+        let remove = SharedString::from(format!("mod-remove-{}", row.file));
+        if self.is_asking(&asked) {
+            let gone = row.clone();
+            return div().child(ui::confirm(
+                remove,
+                ui::Confirm::Remove(&row.name),
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.asking = None;
+                    cx.notify();
+                }),
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    match &gone.entry {
+                        Some(e) => {
+                            let _ = this.mods_remove(&e.project);
+                        }
+                        None => this.remove_mod_file(&gone),
+                    }
+                    cx.notify();
+                }),
+            ));
+        }
         let wait = self.mods_wait();
         let update = row.entry.as_ref().and_then(|e| {
             let key = (e.source, e.project.clone());
@@ -180,10 +239,11 @@ impl Launcher {
             let chip = ui::button(
                 SharedString::from(format!("mod-update-{id}")),
                 None,
-                trf("Update {version}", &[("version", &number)]),
+                tr("Update"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Sm,
-            );
+            )
+            .aria_label(trf("Update to {version}", &[("version", &number)]));
             Some(match wait {
                 Some(why) => ui::unavailable(chip, why),
                 None => chip.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -192,30 +252,43 @@ impl Launcher {
                 })),
             })
         });
-        let controls = match &row.native {
-            Some(native) => self.native_mod_actions(native, busy, cx),
-            None => {
-                let switch_row = row.clone();
-                div().child(
-                    ui::toggle(
-                        SharedString::from(format!("mod-switch-{}", row.file)),
-                        row.on,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            this.switch_mod(&switch_row);
-                            cx.notify();
-                        },
-                    )),
-                )
-            }
+        let switch_row = row.clone();
+        let switch = ui::toggle_label(
+            SharedString::from(format!("mod-switch-{}", row.file)),
+            if row.on { tr("On") } else { tr("Off") },
+            row.on,
+        )
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.switch_mod(&switch_row);
+            cx.notify();
+        }));
+        let ask = ui::remove_button(remove, tr("Remove…"), ui::ButtonSize::Md).on_press(
+            cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.asking = Some(asked.clone());
+                cx.notify();
+            }),
+        );
+        div()
+            .gap(px(space::SM))
+            .children(update)
+            .child(switch)
+            .child(ask)
+    }
+
+    fn remove_mod_file(&mut self, row: &ModRow) {
+        let home = self.mods.home();
+        let jar = java_instance::jars(&home)
+            .into_iter()
+            .find(|j| j.file == row.file);
+        let said = match (browser::try_lock_home(&home), jar) {
+            (None, _) => Err(tr("Wait for the current operation to finish.").into()),
+            (Some(_lock), Some(jar)) => eclipse_launcher::desktop_seams::to_trash(&jar.path)
+                .map(|()| trf("{name} moved to the trash.", &[("name", &row.name)])),
+            (Some(_), None) => Ok(trf("Removed {name}.", &[("name", &row.name)])),
         };
-        ui::list_row(key, hovered)
-            .child(icon)
-            .child(ui::item_text(row.name.clone(), note))
-            .children(update.map(|u| u.relative()))
-            .child(controls.relative().flex().items_center())
-            .text_color(white(ink::FULL))
+        self.mods_said(said);
+        self.stop_asking(|a| matches!(a, Asking::ModFile(_)));
+        self.instance_mods_changed();
     }
 }
 

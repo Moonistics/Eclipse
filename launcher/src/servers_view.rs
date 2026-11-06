@@ -135,15 +135,11 @@ impl Launcher {
             }
             parts.join(" · ")
         } else {
-            let mode = self.servers.shown("world", "game_mode");
-            let mode = MODES
-                .iter()
-                .find(|(id, _)| *id == mode)
-                .map_or(mode.clone(), |(_, label)| tr(label).to_string());
-            let max = self.servers.shown("server", "max_players");
+            let mode = GameMode::label_of(&self.servers.shown(ServerKey::GameMode));
+            let max = self.servers.shown(ServerKey::MaxPlayers);
             [
                 mode,
-                self.servers.shown("world", "name"),
+                self.servers.shown(ServerKey::WorldName),
                 if max.is_empty() {
                     max
                 } else {
@@ -320,6 +316,9 @@ impl Launcher {
                 last,
             )));
         }
+        if let Some(bar) = self.servers_preparing() {
+            out.push(div().relative().mt(px(space::LG)).child(bar));
+        }
         if let Some(p) = self.servers.problem.clone() {
             let mut actions = Vec::new();
             if let Some(fix) = p.fix {
@@ -368,7 +367,7 @@ impl Launcher {
                 .servers
                 .restart_needed
                 .iter()
-                .map(|k| tr(setting_name(k)).to_string())
+                .map(|k| setting_name(k))
                 .collect();
             let restart = ui::button(
                 "restart-apply",
@@ -481,7 +480,20 @@ impl Launcher {
         {
             return ui::empty_card(state);
         }
-        let first = match needs {
+        let game_files = matches!(needs, Some(Needs::GameFiles { .. }));
+        if let Some(bar) = self.servers_preparing().filter(|_| game_files) {
+            return ui::empty_card(
+                ui::loading_state(
+                    "servers-preparing",
+                    ui::page_only(tr("Preparing game files")),
+                )
+                .child(bar.mt(px(space::LG))),
+            );
+        }
+        if let Some(e) = self.shown_prepare_error().cloned().filter(|_| game_files) {
+            return ui::empty_card(self.servers_prepare_failed(&e, cx));
+        }
+        let first = match needs.clone() {
             Some(need) => self.server_need_button("servers-empty", need, ButtonKind::Primary, cx),
             None => ui::primary(
                 "server-create-empty",
@@ -503,7 +515,7 @@ impl Launcher {
         );
         let add = if self.servers.creating {
             ui::disabled(add)
-        } else if let Some(need) = needs.filter(|_| servers::program().is_none()) {
+        } else if let Some(need) = needs.as_ref().filter(|_| servers::program().is_none()) {
             ui::unavailable(add, need.line())
         } else {
             add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -516,7 +528,10 @@ impl Launcher {
             .problem
             .clone()
             .map(|p| ui::error_note(p.message).mt(px(space::LG)));
-        let note = needs.map_or(tr("Host a world your friends can join."), Needs::line);
+        let note = needs.map_or_else(
+            || tr("Host a world your friends can join.").to_string(),
+            |need| need.line(),
+        );
         ui::empty_card(
             ui::empty_state(
                 "servers-empty",
@@ -562,7 +577,7 @@ impl Launcher {
                 this.go(Page::Versions);
                 cx.notify();
             })),
-            Needs::GameFiles => ui::button(
+            Needs::GameFiles { .. } => ui::button(
                 format!("{prefix}-prepare"),
                 None,
                 tr("Prepare game files"),
@@ -573,7 +588,83 @@ impl Launcher {
                 this.fix(Fix::Prepare, cx);
                 cx.notify();
             })),
+            Needs::ServerProgram { .. } => ui::button(
+                format!("{prefix}-versions"),
+                None,
+                tr("Manage versions"),
+                kind,
+                size,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.servers.create = None;
+                this.servers.problem = None;
+                this.go(Page::Versions);
+                cx.notify();
+            })),
         }
+    }
+
+    pub(super) fn servers_preparing(&self) -> Option<Div> {
+        let PlayState::Preparing(done) = self.selected_play_state() else {
+            return None;
+        };
+        let last = self.game.log.back().cloned().unwrap_or_default();
+        Some(
+            div()
+                .w_full()
+                .max_w(px(layout::FIELD_MD))
+                .child(ui::progress_line(
+                    tr("Preparing"),
+                    done.map(|d| (d, d)),
+                    last,
+                )),
+        )
+    }
+
+    fn servers_prepare_failed(&self, error: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let minecraft = self
+            .selected_version()
+            .map(|tag| backend::game_version(tag))
+            .unwrap_or_default();
+        let again = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.fix(Fix::Prepare, cx);
+            cx.notify();
+        });
+        let args = [("version", minecraft.as_str())];
+        if error.starts_with(&eclipse_launcher::sources::not_found_line(&minecraft)) {
+            return ui::error_state_told(
+                "servers-prepare-failed",
+                ui::page_only(trf("Minecraft {version} not found", &args)),
+                trf(
+                    "Play {version} once in your Minecraft launcher, then try again.",
+                    &args,
+                ),
+                error,
+                again,
+                Vec::new(),
+                ButtonKind::Primary,
+            );
+        }
+        let versions = ui::button(
+            "servers-prepare-failed-versions",
+            None,
+            tr("Manage versions"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.go(Page::Versions);
+            cx.notify();
+        }));
+        ui::error_state_told(
+            "servers-prepare-failed",
+            ui::page_only(tr("Couldn't set up the game")),
+            ui::told_cause(error),
+            error,
+            again,
+            vec![versions],
+            ButtonKind::Primary,
+        )
     }
 
     /// The servers, the open one lit, then Create a server and adding a server folder.
@@ -630,32 +721,31 @@ impl Launcher {
                 });
             },
         );
-        let mut list = ui::card()
+        let list = ui::card()
             .flex()
             .flex_col()
             .p(px(ui::LIST_INSET))
             .child(servers);
-        let action = |id: &'static str, icon: &'static str, label: SharedString| {
-            ui::row(id, label.clone(), false)
-                .pr(px(space::MD))
-                .child(ui::icon(icon, ui::IconSize::Px16, white(ink::BODY)).relative())
-                .child(
-                    ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
-                        .relative()
-                        .child(label),
-                )
-        };
-        list = list.child(
-            action("server-create", "plus-sign", tr("Create a server").into()).on_press(
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.open_create(cx);
-                    cx.notify();
-                }),
-            ),
+        let create = ui::button(
+            "server-create",
+            Some("plus-sign"),
+            tr("Create a server"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.open_create(cx);
+            cx.notify();
+        }));
+        let add = ui::button(
+            "server-import",
+            Some("folder-01"),
+            tr("Import a server…"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
         );
-        let add = action("server-import", "folder-01", tr("Import a server…").into());
         let needs = self.server_needs().filter(|_| servers::program().is_none());
-        list.child(if self.servers.creating {
+        let add = if self.servers.creating {
             ui::disabled(add)
         } else if let Some(need) = needs {
             ui::unavailable(add, need.line())
@@ -664,7 +754,16 @@ impl Launcher {
                 this.add_server_folder(cx);
                 cx.notify();
             }))
-        })
+        };
+        list.child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(space::SM))
+                .p(px(space::SM))
+                .child(create)
+                .child(add),
+        )
     }
 
     /// How friends reach the open server: on this network and over the internet (Tailscale).
@@ -837,7 +936,7 @@ impl Launcher {
 /// The open server's port.
 fn port_of(this: &Launcher) -> u16 {
     this.servers
-        .setting("server", "port")
+        .setting(ServerKey::Port)
         .and_then(Value::as_u64)
         .unwrap_or(25565) as u16
 }

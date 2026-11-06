@@ -62,19 +62,47 @@ pub(super) struct InstanceDraft {
     /// The loader logo `picture` was made from, when it was one.
     pub(super) logo: Option<&'static str>,
     pub(super) reveal_version: bool,
-    pub(super) opened: String,
+    pub(super) opened: Option<DraftShape>,
+}
+
+#[derive(PartialEq)]
+pub(super) struct DraftShape {
+    name: String,
+    group: String,
+    icon: Option<Icon>,
+    picture: Option<Option<u64>>,
+    pin: Option<String>,
+    kind: NewKind,
+    loader: Loader,
+    version: Option<String>,
+    loader_version: Option<String>,
 }
 
 impl InstanceDraft {
-    pub(super) fn shape(&self, name: &str, group: &str) -> String {
-        format!(
-            "{name}|{group}|{:?}|{:?}|{:?}|{}",
-            self.icon,
-            self.pin,
-            self.java,
-            self.picture.is_some()
-        )
+    fn shape(&self, name: &str, group: &str) -> DraftShape {
+        let j = &self.java;
+        DraftShape {
+            name: name.to_string(),
+            group: group.to_string(),
+            icon: self.icon.clone(),
+            picture: self
+                .picture
+                .as_ref()
+                .map(|p| p.as_ref().map(|c| picture_key(&c.png))),
+            pin: self.pin.clone(),
+            kind: j.kind,
+            loader: j.loader,
+            version: j.version.clone(),
+            loader_version: j.loader_version.clone(),
+        }
     }
+}
+
+pub(super) fn picture_key(png: &[u8]) -> u64 {
+    use std::hash::{Hash, Hasher};
+    let mut h = std::collections::hash_map::DefaultHasher::new();
+    png.hash(&mut h);
+    h.finish()
 }
 
 /// The instances and their icons as images, kept between frames.
@@ -192,7 +220,7 @@ impl Launcher {
             busy: false,
             reveal_version: java.version.is_some(),
             java,
-            opened: String::new(),
+            opened: None,
         });
         self.fields.text(Field::VersionSearch).set(String::new());
         self.stop_asking(|a| *a == menus::Asking::DiscardDraft);
@@ -250,7 +278,7 @@ impl Launcher {
         self.instances
             .draft
             .as_ref()
-            .is_some_and(|d| Some(&d.opened) != self.draft_shape().as_ref())
+            .is_some_and(|d| d.opened.is_some() && d.opened != self.draft_shape())
     }
 
     pub(super) fn remember_draft(&mut self) {
@@ -258,16 +286,16 @@ impl Launcher {
             .instances
             .draft
             .as_ref()
-            .is_some_and(|d| d.opened.is_empty())
+            .is_some_and(|d| d.opened.is_none())
         {
-            let shape = self.draft_shape().unwrap_or_default();
+            let shape = self.draft_shape();
             if let Some(d) = &mut self.instances.draft {
                 d.opened = shape;
             }
         }
     }
 
-    fn draft_shape(&self) -> Option<String> {
+    fn draft_shape(&self) -> Option<DraftShape> {
         let d = self.instances.draft.as_ref()?;
         let typed = self.fields.value(Field::InstanceName).trim();
         let name = if self.default_name().as_deref() == Some(typed) {

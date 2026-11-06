@@ -341,11 +341,7 @@ impl Launcher {
                                         })
                                     })
                                     .unwrap_or_default();
-                                self.game.crash = Some(Crash {
-                                    report,
-                                    summary,
-                                    copied: false,
-                                });
+                                self.game.crash = Some(Crash { report, summary });
                             }
                         }
                         Job::Server => {}

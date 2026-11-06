@@ -27,9 +27,9 @@ impl Launcher {
                 .child(self.player_action(
                     format!("online-op-{}", p.name),
                     if op {
-                        "Remove operator"
+                        tr("Remove operator")
                     } else {
-                        "Make operator"
+                        tr("Make operator")
                     },
                     idle,
                     cx,
@@ -43,14 +43,14 @@ impl Launcher {
                 ))
                 .child(self.player_action(
                     format!("online-kick-{}", p.name),
-                    "Kick",
+                    tr("Kick"),
                     running,
                     cx,
                     move |this| this.api_command(format!("kick {n2}")),
                 ))
                 .child(self.player_action(
                     format!("online-ban-{}", p.name),
-                    "Ban",
+                    tr("Ban"),
                     running,
                     cx,
                     move |this| this.api_command(format!("ban {n3}")),
@@ -96,7 +96,7 @@ impl Launcher {
         // Who can join.
         let friends_only = self
             .servers
-            .setting("server", "whitelist")
+            .setting(ServerKey::Whitelist)
             .and_then(Value::as_bool)
             .unwrap_or(true);
         let friends = ui::toggle_row(
@@ -114,7 +114,7 @@ impl Launcher {
         )
         .mx(px(-ui::SETTING_ROW_PADDING))
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.set_setting("server.whitelist", (!friends_only).to_string());
+            this.set_setting(ServerKey::Whitelist, (!friends_only).to_string());
             cx.notify();
         }));
         let add = self.name_adder(Field::ServerPlayer, "player", layout::FIELD_MD, idle, cx);
@@ -137,9 +137,9 @@ impl Launcher {
                     .child(self.player_action(
                         format!("allowed-op-{name}"),
                         if op {
-                            "Remove operator"
+                            tr("Remove operator")
                         } else {
-                            "Make operator"
+                            tr("Make operator")
                         },
                         idle,
                         cx,
@@ -224,7 +224,7 @@ impl Launcher {
                 let n = name.clone();
                 let unban = self.player_action(
                     format!("unban-{name}"),
-                    "Unban",
+                    tr("Unban"),
                     running,
                     cx,
                     move |this| this.api_command(format!("pardon {n}")),
@@ -259,33 +259,35 @@ impl Launcher {
     }
 
     /// A row of the settings form: a name, one line on it, and its control.
-    pub(super) fn server_setting_row(&self, name: &str, about: String, control: AnyElement) -> Div {
+    pub(super) fn server_setting_row(
+        &self,
+        name: impl Into<SharedString>,
+        about: String,
+        control: AnyElement,
+    ) -> Div {
         self.setting_row_checked(name, about, None, control)
     }
 
     /// A setting row whose text gives way to `error` when the value was refused.
     pub(super) fn setting_row_checked(
         &self,
-        name: &str,
+        name: impl Into<SharedString>,
         about: String,
-        error: Option<&'static str>,
+        error: Option<SharedString>,
         control: AnyElement,
     ) -> Div {
         let note = match error {
-            Some(e) => ui::error_note(tr(e)),
+            Some(e) => ui::error_note(e),
             None => div().child(about),
         };
-        ui::setting_row(
-            SharedString::from(tr(name).to_string()),
-            Some(note.into_any_element()),
-            Some(control),
-        )
+        let name: SharedString = name.into();
+        ui::setting_row(name, Some(note.into_any_element()), Some(control))
     }
 
     pub(super) fn server_switch_row(
         &self,
         id: &'static str,
-        name: &'static str,
+        name: impl Into<SharedString>,
         about: String,
         on: bool,
         press: Option<impl Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
@@ -296,7 +298,7 @@ impl Launcher {
                 .server_setting_row(name, about, switch.into_any_element())
                 .into_any_element();
         };
-        ui::toggle_row(id, tr(name), Some(about.into()), on)
+        ui::toggle_row(id, name, Some(about.into()), on)
             .on_press(press)
             .into_any_element()
     }
@@ -304,13 +306,12 @@ impl Launcher {
     /// − value + for a number setting within `range`.
     pub(super) fn server_stepper(
         &self,
-        key: &'static str,
+        key: ServerKey,
         range: std::ops::RangeInclusive<i64>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let (section, field) = key.split_once('.').unwrap_or_default();
-        let value: i64 = self.servers.shown(section, field).parse().unwrap_or(0);
-        self.number_stepper(key, value, range, cx, move |this, to| {
+        let value: i64 = self.servers.shown(key).parse().unwrap_or(0);
+        self.number_stepper(&key.dotted(), value, range, cx, move |this, to| {
             this.set_setting(key, to.to_string())
         })
     }
@@ -319,12 +320,11 @@ impl Launcher {
         &self,
         id: &'static str,
         name: &str,
-        key: &'static str,
-        options: &[(&'static str, &'static str)],
+        key: ServerKey,
+        options: Vec<(&'static str, SharedString)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
-        let (section, field) = key.split_once('.').unwrap_or_default();
-        let current = self.servers.shown(section, field);
+        let current = self.servers.shown(key);
         let current: &'static str = options
             .iter()
             .find(|(v, _)| *v == current)
@@ -333,7 +333,7 @@ impl Launcher {
         ui::segments(
             id,
             name.to_string(),
-            &ui::translated(options),
+            &options,
             current,
             move |value, _, cx| {
                 let _ = this.update(cx, |this, cx| {
@@ -363,11 +363,11 @@ impl Launcher {
             });
         }
         if !self.fields.has_focus(Field::ServerMotd) && !self.fields.holds(Field::ServerMotd) {
-            let motd = self.servers.shown("server", "motd");
+            let motd = self.servers.shown(ServerKey::Motd);
             self.fields.text(Field::ServerMotd).set(motd);
         }
         if !self.fields.has_focus(Field::ServerPort) && !self.fields.holds(Field::ServerPort) {
-            let port = self.servers.shown("server", "port");
+            let port = self.servers.shown(ServerKey::Port);
             self.fields.text(Field::ServerPort).set(port);
         }
         let save = |id: &'static str, f: Field, cx: &mut Context<Self>| {
@@ -412,7 +412,7 @@ impl Launcher {
         let pvp_known = self.servers.pvp.filter(|_| running);
         let pvp = self.server_switch_row(
             "pvp",
-            "Players can hurt each other (PvP)",
+            tr("Players can hurt each other (PvP)"),
             if running {
                 tr("Applies at once.").into()
             } else {
@@ -429,7 +429,7 @@ impl Launcher {
         );
         let accounts = self
             .servers
-            .setting("server", "online_mode")
+            .setting(ServerKey::OnlineMode)
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let live = if running {
@@ -444,7 +444,7 @@ impl Launcher {
         };
         let accounts = self.server_switch_row(
             "online-mode",
-            "Require Microsoft sign-in",
+            tr("Require Microsoft sign-in"),
             if accounts && plays_offline(&self.accounts) {
                 format!(
                     "{} {later} {}",
@@ -464,7 +464,7 @@ impl Launcher {
             },
             accounts,
             Some(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.set_setting("server.online_mode", (!accounts).to_string());
+                this.set_setting(ServerKey::OnlineMode, (!accounts).to_string());
                 cx.notify();
             })),
         );
@@ -472,52 +472,58 @@ impl Launcher {
             .flex()
             .flex_col()
             .mx(px(-ui::SETTING_ROW_PADDING))
-            .child(self.server_setting_row("Message in the server list", later.into(), motd))
+            .child(self.server_setting_row(tr("Message in the server list"), later.into(), motd))
             .child(self.server_setting_row(
-                "Game mode",
+                tr("Game mode"),
                 format!("{} {live}", tr("For players who join for the first time.")),
-                self.server_segments("set-mode", tr("Game mode"), "world.game_mode", &MODES, cx),
+                self.server_segments(
+                    "set-mode",
+                    tr("Game mode"),
+                    ServerKey::GameMode,
+                    GameMode::options(),
+                    cx,
+                ),
             ))
             .child(self.server_setting_row(
-                "Difficulty",
+                tr("Difficulty"),
                 live.into(),
                 self.server_segments(
                     "set-difficulty",
                     tr("Difficulty"),
-                    "world.difficulty",
-                    &DIFFICULTIES,
+                    ServerKey::Difficulty,
+                    ui::translated(&DIFFICULTIES),
                     cx,
                 ),
             ))
             .child(pvp)
             .child(self.server_setting_row(
-                "Max players",
+                tr("Max players"),
                 format!("{} {later}", tr("Operators can always join.")),
-                self.server_stepper("server.max_players", 1..=100, cx),
+                self.server_stepper(ServerKey::MaxPlayers, 1..=100, cx),
             ))
             .child(self.server_setting_row(
-                "View distance",
+                tr("View distance"),
                 format!("{} {later}", tr("In chunks, 2 to 32. Lower runs lighter.")),
-                self.server_stepper("server.view_distance", 2..=32, cx),
+                self.server_stepper(ServerKey::ViewDistance, 2..=32, cx),
             ))
             .child(self.server_setting_row(
-                "Simulation distance",
+                tr("Simulation distance"),
                 format!(
                     "{} {later}",
                     tr("How far from players crops grow and mobs move, in chunks.")
                 ),
-                self.server_stepper("server.simulation_distance", 2..=32, cx),
+                self.server_stepper(ServerKey::SimulationDistance, 2..=32, cx),
             ))
             .child(
                 self.setting_row_checked(
-                    "Port",
+                    tr("Port"),
                     format!(
                         "{} {later}",
                         tr("1024 to 65535. Friends type it after the address unless it's 25565.")
                     ),
                     self.fields
                         .invalid
-                        .and_then(|(f, e)| (f == Field::ServerPort).then_some(e)),
+                        .and_then(|(f, e)| (f == Field::ServerPort).then(|| tr(e).into())),
                     port,
                 ),
             )
@@ -602,7 +608,7 @@ impl Launcher {
             );
         }
         self.server_setting_row(
-            "Delete server",
+            tr("Delete server"),
             tr("Remove this server from Eclipse and move its worlds, settings and backups to the trash.").into(),
             controls.into_any_element(),
         )
@@ -614,7 +620,7 @@ impl Launcher {
         let idle = self.servers.busy.is_none() && self.servers.service.is_some();
         self.server_switch_row(
             "background",
-            "Run in the background and at login",
+            tr("Run in the background and at login"),
             if on {
                 tr("On: starts at login and keeps running when the launcher closes.").into()
             } else {
@@ -731,14 +737,18 @@ impl Launcher {
             .flex()
             .flex_col()
             .mx(px(-ui::SETTING_ROW_PADDING))
-            .child(self.server_setting_row("Eclipse version", about, control.into_any_element()));
-        if self.servers.setting("updates", "keep").is_some() {
+            .child(self.server_setting_row(
+                tr("Eclipse version"),
+                about,
+                control.into_any_element(),
+            ));
+        if self.servers.setting(ServerKey::UpdatesKeep).is_some() {
             rows = rows.child(self.server_setting_row(
-                "Older versions kept",
+                tr("Older versions kept"),
                 tr("Downloaded versions kept besides the one in use and the one an update can go back \
                  to.")
                     .into(),
-                self.server_stepper("updates.keep", 0..=5, cx),
+                self.server_stepper(ServerKey::UpdatesKeep, 0..=5, cx),
             ));
         }
         ui::field_group("server-updates-title", tr("Updates"), None, rows)
@@ -752,9 +762,9 @@ impl Launcher {
 
     pub(super) fn backups_tab(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
         let idle = self.servers.busy.is_none();
-        let every = self.servers.shown("backups", "every");
+        let every = self.servers.shown(ServerKey::BackupsEvery);
         let auto = !every.is_empty() && every != "0";
-        let keep = self.servers.shown("backups", "keep");
+        let keep = self.servers.shown(ServerKey::BackupsKeep);
         let now = {
             let b = ui::button(
                 "backup-now",
@@ -867,7 +877,10 @@ impl Launcher {
             )
             .mx(px(-ui::SETTING_ROW_PADDING))
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.set_setting("backups.every", if auto { "0".into() } else { "6h".into() });
+                this.set_setting(
+                    ServerKey::BackupsEvery,
+                    if auto { "0".into() } else { "6h".into() },
+                );
                 cx.notify();
             })),
         );

@@ -119,8 +119,11 @@ impl Launcher {
 
     /// Enter in the address field, or Save server.
     pub(super) fn add_server(&mut self) {
-        let name = self.fields.value(Field::MultiplayerName).to_string();
         let address = self.fields.value(Field::MultiplayerAddress).to_string();
+        let name = match self.fields.value(Field::MultiplayerName).trim() {
+            "" => address.clone(),
+            name => name.to_string(),
+        };
         self.edit_servers(|list| list.add(&name, &address));
         if self.multiplayer.error.is_none() {
             self.fields.text(Field::MultiplayerName).set(String::new());

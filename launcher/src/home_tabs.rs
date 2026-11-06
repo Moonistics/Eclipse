@@ -5,7 +5,7 @@
 use super::*;
 use crate::tab_strip::StripTab;
 use crate::ui;
-use eclipse_theme::glass::{ink, space, step};
+use eclipse_theme::glass::space;
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub(super) enum HomeTab {
@@ -147,16 +147,16 @@ impl Launcher {
 
     fn has_patch_notes(&self) -> bool {
         match &self.versions.releases {
-            Load::Ready(list) => patch_source(list, self.selected_version().map(String::as_str))
-                .is_some_and(|(_, sections)| !sections.is_empty()),
+            Load::Ready(list) => {
+                patch_source(list, self.selected_version().map(String::as_str)).is_some()
+            }
             Load::Loading => true,
             Load::Failed(_) => false,
         }
     }
 
-    /// Patch notes: the changes in the Eclipse version played, by section (the newest Nightly's
-    /// when that version lists none), else the newest launcher release's; All patch notes opens
-    /// Patch notes.
+    /// Patch notes: the notes of the Eclipse version played (the newest release's with notes
+    /// when that version has none); All patch notes opens Patch notes.
     fn patch_notes(&self, cx: &mut Context<Self>) -> Option<Div> {
         let source = match &self.versions.releases {
             Load::Loading => {
@@ -168,142 +168,53 @@ impl Launcher {
             Load::Failed(_) => return None,
             Load::Ready(list) => patch_source(list, self.selected_version().map(String::as_str)),
         };
-        let (note, sections) = source.filter(|(_, sections)| !sections.is_empty())?;
-        let many = sections.len() > 1;
-        let bullet = |item: String| {
-            div().flex().gap(px(space::MD)).child(ui::bullet()).child(
-                ui::text(step::BODY, FontWeight::NORMAL, ink::STRONG)
-                    .min_w_0()
-                    .child(item),
-            )
-        };
-        let list = div()
+        let (release, notes) = source?;
+        let head = div()
             .flex()
-            .flex_col()
+            .items_center()
             .gap(px(space::LG))
-            .px(px(space::MD))
-            .max_w(px(NOTES_WIDTH))
-            .children(sections.into_iter().map(|(section, items)| {
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(space::SM))
-                    .children(many.then(|| ui::label(section)))
-                    .children(items.into_iter().map(bullet))
-            }));
+            .child(ui::release_head(
+                eclipse_launcher::nightly::display_name(&release.tag),
+                dates::published(&release.date, ""),
+                Vec::new(),
+            ))
+            .child(
+                ui::link("patch-notes-all", tr("All patch notes")).on_press(cx.listener(
+                    |this, _: &ClickEvent, _, cx| {
+                        this.go(Page::Notes);
+                        cx.notify();
+                    },
+                )),
+            );
         Some(
             div()
                 .flex()
                 .flex_col()
-                .child(ui::list_head(note).child(
-                    ui::link("patch-notes-all", tr("All patch notes")).on_press(cx.listener(
-                        |this, _: &ClickEvent, _, cx| {
-                            this.go(Page::Notes);
-                            cx.notify();
-                        },
-                    )),
-                ))
-                .child(list.pb(px(space::MD))),
+                .gap(px(space::LG))
+                .p(px(space::MD))
+                .child(head)
+                .child(div().max_w(px(NOTES_WIDTH)).child(markdown::render(&notes))),
         )
     }
 }
 
-/// A release's changes: each section's name and its lines.
-type Sections = Vec<(String, Vec<String>)>;
-
-/// The patch notes from `releases` and the line over it: the release `played` installs as when it
-/// lists changes, else the newest Nightly that does ("Nightly 2026-11-01 · 4aa6854");
-/// without a version played, the newest launcher release ("Launcher 0.2.37 · Nov 2").
-fn patch_source(releases: &[Release], played: Option<&str>) -> Option<(String, Sections)> {
-    let day = |r: &Release| dates::published(&r.date, "");
-    if let Some(played) = played {
-        let nightly = releases
-            .iter()
-            .filter(|r| r.tag == played)
-            .chain(releases.iter().filter(|r| r.nightly.is_some()))
-            .map(|r| (r, patch_sections(&r.body)))
-            .find(|(_, sections)| !sections.is_empty());
-        if let Some((r, sections)) = nightly {
-            return Some((r.name.clone(), sections));
-        }
-    }
-    let r = releases
+/// The release whose notes Home shows and those notes: the one `played` installs as when it has
+/// notes, else the newest that does.
+fn patch_source<'a>(
+    releases: &'a [Release],
+    played: Option<&str>,
+) -> Option<(&'a Release, String)> {
+    releases
         .iter()
-        .find(|r| r.nightly.is_none() && !r.prerelease)?;
-    let version = r
-        .tag
-        .rsplit('@')
-        .next()
-        .unwrap_or(&r.tag)
-        .trim_start_matches('v');
-    let note = format!(
-        "{} · {}",
-        trf("Launcher {version}", &[("version", version)]),
-        day(r)
-    );
-    Some((note, patch_sections(&r.body)))
-}
-
-/// A release's changes by section ("### New", "### Fixed"), each line without its pull request
-/// numbers; the contributors' thanks and what follows the notes are left out.
-fn patch_sections(body: &str) -> Sections {
-    let mut out: Sections = Vec::new();
-    for line in body.lines() {
-        let line = line.trim();
-        if let Some(name) = line.strip_prefix("### ") {
-            out.push((name.trim().to_string(), Vec::new()));
-        } else if line == "---" || line.starts_with("Your launcher updates itself") {
-            break;
-        } else if let (Some(item), Some((section, items))) =
-            (line.strip_prefix("- "), out.last_mut())
-        {
-            if section.as_str() != "Contributors" {
-                items.push(strip_refs(item));
-            }
-        }
-    }
-    out.retain(|(name, items)| name != "Contributors" && !items.is_empty());
-    out
-}
-
-/// "Fix the picker (#6389, fixes #6342)" → "Fix the picker".
-fn strip_refs(item: &str) -> String {
-    let mut s = item.trim();
-    while let Some(open) = s.rfind(" (") {
-        let tail = &s[open..];
-        if tail.ends_with(')') && tail.contains('#') {
-            s = s[..open].trim_end();
-        } else {
-            break;
-        }
-    }
-    s.to_string()
+        .filter(|r| Some(r.tag.as_str()) == played)
+        .chain(releases)
+        .map(|r| (r, notes_page::release_notes(&r.body)))
+        .find(|(_, notes)| !notes.is_empty())
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    #[test]
-    fn a_release_body_becomes_its_sections_without_refs_or_thanks() {
-        let body = "### New\n- Native mods: export a headless engine (#6462)\n\n### Fixed\n- Play with friends: any port (#6363, fixes #6342)\n- Keep (this) aside\n\n### Contributors\nThanks to @a.\n\nYour launcher updates itself. New here?\n\n---\nNot an official Minecraft product.";
-        assert_eq!(
-            patch_sections(body),
-            vec![
-                (
-                    "New".to_string(),
-                    vec!["Native mods: export a headless engine".to_string()]
-                ),
-                (
-                    "Fixed".to_string(),
-                    vec![
-                        "Play with friends: any port".to_string(),
-                        "Keep (this) aside".to_string()
-                    ]
-                ),
-            ]
-        );
-    }
 
     fn release(tag: &str, name: &str, date: &str, nightly: bool, body: &str) -> Release {
         Release {
@@ -319,7 +230,7 @@ mod tests {
     }
 
     #[test]
-    fn the_patch_log_shows_the_played_nightly_else_the_newest_else_the_launcher() {
+    fn the_patch_log_shows_the_played_version_else_the_newest_with_notes() {
         let releases = [
             release(
                 "nightly-2026-11-03-2944480",
@@ -340,31 +251,29 @@ mod tests {
                 "Nightly 2026-10-30 · 0c02067",
                 "2026-10-30",
                 true,
-                "No list.",
-            ),
-            release(
-                "launcher@0.2.37",
-                "Eclipse launcher 0.2.37",
-                "2026-11-02",
-                false,
-                "### Fixed\n- Launcher fix",
+                "### Contributors\n- Thanks to @a.",
             ),
         ];
-        let (note, sections) = patch_source(&releases, Some("nightly-2026-11-01-4aa6854")).unwrap();
-        assert_eq!(note, "Nightly 2026-11-01 · 4aa6854");
+        let shown =
+            |played| patch_source(&releases, played).map(|(r, notes)| (r.tag.as_str(), notes));
         assert_eq!(
-            sections,
-            vec![("New".to_string(), vec!["Older change".to_string()])]
+            shown(Some("nightly-2026-11-01-4aa6854")),
+            Some((
+                "nightly-2026-11-01-4aa6854",
+                "### New\n- Older change".to_string()
+            ))
         );
-        // A version that lists no changes: the newest Nightly's.
-        let (note, _) = patch_source(&releases, Some("nightly-2026-10-30-0c02067")).unwrap();
-        assert_eq!(note, "Nightly 2026-11-03 · 2944480");
-        // No version played: the launcher's.
-        let (note, sections) = patch_source(&releases, None).unwrap();
-        assert_eq!(note, "Launcher 0.2.37 · Nov 2");
         assert_eq!(
-            sections,
-            vec![("Fixed".to_string(), vec!["Launcher fix".to_string()])]
+            shown(Some("nightly-2026-10-30-0c02067")),
+            Some((
+                "nightly-2026-11-03-2944480",
+                "### Fixed\n- Newest fix".to_string()
+            )),
+            "a version without notes shows the newest notes"
+        );
+        assert_eq!(
+            shown(None).map(|(tag, _)| tag),
+            Some("nightly-2026-11-03-2944480")
         );
     }
 }

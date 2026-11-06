@@ -315,7 +315,7 @@ impl Launcher {
                     ))
             };
             let detail = trf(
-                "{version} from Eclipse's registry, its own profile: {mods}",
+                "{version} from Eclipse · {mods}",
                 &[("version", &p.version), ("mods", &p.mods.join(", "))],
             );
             list = list.child(

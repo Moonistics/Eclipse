@@ -1,18 +1,16 @@
 //! Settings' AI rows: the Show AI features switch (`eclipse_core::no_ai`, shared with the game)
 //! and "Connect an AI agent": a one-click add where the client has a CLI (run only on that click),
-//! else its ready-made MCP config with a Copy button, and a test that starts the MCP server and
-//! lists its tools. With AI features hidden, only the switch shows.
+//! else its ready-made MCP config with a Copy button, and a test that starts the MCP server. With
+//! AI features hidden, only the switch shows.
 use super::*;
 use crate::menus::Menu;
 use crate::ui;
 use eclipse_launcher::agents;
-use eclipse_theme::glass::{ink, space, step};
+use eclipse_theme::glass::space;
 
 #[derive(Default)]
 pub(crate) struct AgentsUi {
     client: Option<&'static str>,
-    /// Which Copy button just copied.
-    copied: Option<&'static str>,
     /// The add or test under way, by its button.
     running: Option<&'static str>,
     /// What the last add or test said, and whether it went well.
@@ -64,7 +62,6 @@ impl Launcher {
                     ui::pick_row(format!("agent-client-{id}"), tr(c.name), id == client.id)
                         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.agents.client = Some(id);
-                            this.agents.copied = None;
                             this.agents.status = None;
                             this.agents.add_failed = false;
                             this.close_menu();
@@ -78,21 +75,6 @@ impl Launcher {
                 menu,
             ));
         }
-        let copy = |id: &'static str, label: &'static str, text: String, cx: &mut Context<Self>| {
-            let copied = self.agents.copied == Some(id);
-            ui::button(
-                id,
-                Some("copy-01"),
-                tr(if copied { "Copied" } else { label }),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()));
-                this.agents.copied = Some(id);
-                cx.notify();
-            }))
-        };
         let mut steps = div()
             .flex()
             .flex_col()
@@ -145,11 +127,11 @@ impl Launcher {
                     &[("file", tr(client.file))],
                 )))
                 .child(ui::code_well(client.config.clone()).w_full());
-            actions = actions.child(copy(
+            actions = actions.child(ui::copy_button(
                 "agent-copy-config",
-                "Copy config",
+                tr("Copy config"),
                 client.config.clone(),
-                cx,
+                ui::ButtonSize::Md,
             ));
         }
         let test = ui::button(
@@ -172,8 +154,15 @@ impl Launcher {
                 let exe = backend::update_target();
                 let task = cx.background_executor().spawn(async move {
                     match agents::self_test(&exe) {
-                        Ok(n) => (true, trf("The MCP server answered with {count} tools. Now ask your agent: \"Say hello from Eclipse\".", &[("count", &n.to_string())])),
-                        Err(e) => (false, trf("The MCP server did not answer: {error}", &[("error", &e)])),
+                        Ok(_) => (
+                            true,
+                            tr("Connected. Ask your agent: \"Say hello from Eclipse\".")
+                                .to_string(),
+                        ),
+                        Err(e) => (
+                            false,
+                            trf("Your agent couldn't connect: {error}", &[("error", &e)]),
+                        ),
                     }
                 });
                 cx.spawn(async move |this, cx| {
@@ -191,7 +180,7 @@ impl Launcher {
         steps = steps.child(actions.child(test));
         if let Some((ok, message)) = &self.agents.status {
             steps = steps.child(if *ok {
-                ui::text(step::NOTE, FontWeight::NORMAL, ink::FULL).child(message.clone())
+                ui::state_note(ui::Tone::Live, message.clone())
             } else {
                 ui::error_note(message.clone())
             });

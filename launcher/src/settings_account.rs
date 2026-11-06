@@ -11,7 +11,7 @@ use crate::ui;
 use account::Player;
 use eclipse_theme::glass::{ink, space, step};
 
-const HEAD: f32 = ui::FACE_XL;
+const HEAD: f32 = ui::TILE_LG;
 const MICROSOFT_MIN: f32 = 280.;
 const MICROSOFT_LOGO: f32 = 36.;
 
@@ -49,7 +49,7 @@ impl Launcher {
         let header = div()
             .flex()
             .items_center()
-            .gap(px(space::XL))
+            .gap(px(space::LG))
             .child(head)
             .child(
                 div()
@@ -57,15 +57,11 @@ impl Launcher {
                     .flex_col()
                     .flex_1()
                     .min_w_0()
-                    .gap(px(space::MD))
+                    .gap(px(space::XS))
                     .child(
-                        ui::entity_title(name, eclipse_theme::glass::pixel_text::CARD_TITLE)
-                            .truncate(),
+                        ui::entity_title(name, eclipse_theme::glass::pixel_text::PRESS).truncate(),
                     )
-                    .child(
-                        ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                            .child(ui::state_line(status.0, status.1)),
-                    ),
+                    .child(ui::state_title(status.0, status.1)),
             );
 
         // The chips: each offline name, the game's own name, then the field.
@@ -241,7 +237,11 @@ impl Launcher {
     /// copy of the launcher can't sign in.
     fn microsoft_card(&mut self, cx: &mut Context<Self>) -> Div {
         let has_accounts = !self.accounts.accounts.is_empty();
-        let rows = has_accounts.then(|| self.microsoft_rows(cx).0);
+        let rows = has_accounts.then(|| {
+            self.microsoft_rows(cx)
+                .0
+                .p(px(ui::SETTING_ROW_PADDING - space::MD))
+        });
         let configured = account::client_id().is_some();
         if !configured {
             return div()
@@ -285,20 +285,20 @@ impl Launcher {
         } else {
             action.map(|a| div().mt(px(space::XL)).child(a).into_any_element())
         };
-        let pad = ui::SETTING_ROW_PADDING;
-        div()
-            .flex()
-            .flex_col()
-            .p(px(pad))
-            .children(rows.map(|r| r.mx(px(-pad)).mt(px(-pad)).mb(px(pad))))
-            .child(microsoft::logo(MICROSOFT_LOGO))
-            .child(ui::card_title(heading).mt(px(space::XL)))
-            .child(
-                ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
-                    .mt(px(space::SM))
-                    .child(detail),
-            )
-            .children(button)
+        div().flex().flex_col().children(rows).child(
+            div()
+                .flex()
+                .flex_col()
+                .p(px(ui::SETTING_ROW_PADDING))
+                .child(microsoft::logo(MICROSOFT_LOGO))
+                .child(ui::card_title(heading).mt(px(space::XL)))
+                .child(
+                    ui::text(step::BODY, FontWeight::NORMAL, ink::MUTED)
+                        .mt(px(space::SM))
+                        .child(detail),
+                )
+                .children(button),
+        )
     }
 }
 
@@ -355,16 +355,16 @@ impl Launcher {
                 .as_ref()
                 .filter(|a| a.uuid == uuid)
                 .and_then(|_| match self.accounts_ui.sign_in_state.as_ref() {
-                    Some(SignInState::Starting) => Some("Asking Microsoft…"),
-                    Some(SignInState::Code(_)) => Some("Waiting for browser sign-in…"),
-                    Some(SignInState::Working(phase)) => Some(phase.label()),
+                    Some(SignInState::Starting) => Some(tr("Asking Microsoft…")),
+                    Some(SignInState::Code(_)) => Some(tr("Waiting for browser sign-in…")),
+                    Some(SignInState::Working(phase)) => Some(tr(phase.label())),
                     _ => None,
                 });
             let progress = sign_in_progress.or_else(|| {
                 self.accounts_ui
                     .auth_progress
                     .get(&uuid)
-                    .map(|phase| phase.label())
+                    .map(|phase| tr(phase.label()))
             });
             let busy = self.accounts_ui.auth_busy.contains_key(&uuid) || sign_in_progress.is_some();
             let status = self.accounts_ui.auth_status.get(&uuid);
@@ -430,27 +430,29 @@ impl Launcher {
                 }))
             });
             n += 1;
-            rows = rows.child(account_row(
-                self.profile_heads
-                    .draw(Some(&a.uuid), ui::TILE_MD, self.scale),
-                a.name.clone(),
-                Some(
-                    div()
-                        .child(tr(if plays {
-                            "Microsoft account · in use"
-                        } else {
-                            "Microsoft account"
-                        }))
-                        .child(account_status_line(status, progress))
-                        .when(!busy, |row| {
-                            row.when_some(status.filter(|s| s.message != s.label()), |row, s| {
-                                row.child(div().child(tr(&s.message).to_string()))
-                            })
-                        })
-                        .into_any_element(),
-                ),
-                actions,
-            ));
+            let said = status.filter(|_| !busy).and_then(status_note);
+            let detail = div()
+                .child(tr(if plays {
+                    "Microsoft account · in use"
+                } else {
+                    "Microsoft account"
+                }))
+                .child(account_status_line(status, progress))
+                .children(said.map(|note| div().child(note)));
+            rows = rows.child(
+                ui::list_row(format!("microsoft-account-{}", a.uuid), false)
+                    .flex_wrap()
+                    .child(ui::face(
+                        self.profile_heads
+                            .draw(Some(&a.uuid), ui::TILE_MD, self.scale),
+                        ui::TILE_MD,
+                    ))
+                    .child(
+                        ui::setting_text(a.name.clone(), Some(detail.into_any_element()))
+                            .min_w(px(layout::FIELD_SM)),
+                    )
+                    .child(actions.flex_wrap()),
+            );
         }
         (rows, n)
     }
@@ -627,10 +629,7 @@ impl Launcher {
 
 /// Account state uses the same semantic colors as the launcher's other notices. Keep the full
 /// label so color is never the only way to recognize a state.
-pub(super) fn account_status_line(
-    status: Option<&account::session::Status>,
-    progress: Option<&str>,
-) -> Div {
+fn account_status_line(status: Option<&account::session::Status>, progress: Option<&str>) -> Div {
     use account::session::State;
     let (tone, label) = match (progress, status) {
         (Some(progress), _) => (ui::Tone::Busy, progress),
@@ -642,36 +641,20 @@ pub(super) fn account_status_line(
                 | State::SignInRequired
                 | State::OwnershipRequired => ui::Tone::Warn,
             },
-            status.label(),
+            tr(status.label()),
         ),
         (None, None) => (ui::Tone::Off, tr("Sign-in not checked")),
     };
-    ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(ui::state_line(tone, tr(label)))
+    ui::state_note(tone, label.to_string())
 }
 
-/// Microsoft account actions go below the profile in the fixed-width card.
-pub(super) fn account_row(
-    slot: Div,
-    name: impl IntoElement,
-    detail: Option<AnyElement>,
-    actions: Div,
-) -> Div {
-    div()
-        .flex()
-        .flex_col()
-        .min_w_0()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .gap(px(space::LG))
-                .px(px(space::LG))
-                .py(px(space::MD))
-                .child(
-                    slot.rounded(px(eclipse_theme::glass::radius::ROW))
-                        .overflow_hidden(),
-                )
-                .child(ui::setting_text(name, detail)),
-        )
-        .child(actions.flex_wrap().px(px(space::LG)).pb(px(space::MD)))
+fn status_note(status: &account::session::Status) -> Option<String> {
+    use account::session::State;
+    match status.state {
+        State::OwnershipRequired => Some(
+            tr("Check Minecraft: Java Edition ownership and your profile at minecraft.net.").into(),
+        ),
+        State::Retry => Some(tr(&status.message).into()),
+        State::Ready | State::NeedsRefresh | State::SignInRequired => None,
+    }
 }

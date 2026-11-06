@@ -46,38 +46,35 @@ impl Launcher {
         // The screenshot preview shows a code without asking Microsoft for one.
         let state = match &self.accounts_ui.sign_in_state {
             _ if sign_in_preview() => Shown::Code("https://www.microsoft.com/link", "K7Q-4MXR"),
-            _ if !configured => Shown::Error(tr(account::NOT_CONFIGURED)),
-            Some(SignInState::Starting) => Shown::Starting("Asking Microsoft…"),
-            Some(SignInState::Working(phase)) => Shown::Starting(phase.label()),
+            _ if !configured => Shown::Unavailable,
+            Some(SignInState::Starting) => Shown::Starting(tr("Asking Microsoft…")),
+            Some(SignInState::Working(phase)) => Shown::Starting(tr(phase.label())),
             Some(SignInState::Code(code)) => Shown::Code(&code.verification_uri, &code.user_code),
             Some(SignInState::Done(Err(e))) => Shown::Error(e),
             Some(SignInState::Done(Ok(_))) | None => Shown::Idle,
         };
-        self.owner_dialog(state, configured, cx)
+        self.owner_dialog(state, cx)
     }
 
     /// A dialog plate over the dimmed launcher, its Sign in the Account card's white Microsoft
     /// button, its code in the card's inner panel.
-    fn owner_dialog(
-        &self,
-        state: Shown,
-        configured: bool,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    fn owner_dialog(&self, state: Shown, cx: &mut Context<Self>) -> Stateful<Div> {
         use crate::ui::{self};
         use eclipse_theme::glass::{ink, space};
         let panel = || ui::well().mt(px(space::XL));
-        let mut card = div().flex().flex_col().child(
-            div().flex().flex_col().gap(px(space::SM)).child(
-                ui::text(
-                    eclipse_theme::glass::step::BODY,
-                    FontWeight::NORMAL,
-                    ink::BODY,
-                )
-                .child(tr(
-                    "Sign in with the Microsoft account that owns Minecraft: Java Edition.",
-                )),
+        let ask = match state {
+            Shown::Unavailable => tr(
+                "Vanilla and modded instances need Microsoft sign-in, which this copy of the launcher doesn't have yet.",
             ),
+            _ => tr("Sign in with the Microsoft account that owns Minecraft: Java Edition."),
+        };
+        let mut card = div().flex().flex_col().child(
+            ui::text(
+                eclipse_theme::glass::step::BODY,
+                FontWeight::NORMAL,
+                ink::BODY,
+            )
+            .child(ask),
         );
         card = match state {
             Shown::Code(uri, user_code) => {
@@ -116,11 +113,11 @@ impl Launcher {
                         FontWeight::NORMAL,
                         ink::BODY,
                     )
-                    .child(tr(what)),
+                    .child(what.to_string()),
                 ),
             ),
             Shown::Error(e) => card.child(panel().child(ui::error_note(e.to_string()))),
-            Shown::Idle => card,
+            Shown::Idle | Shown::Unavailable => card,
         };
         let main: Option<AnyElement> = match state {
             Shown::Code(uri, _) => {
@@ -138,8 +135,7 @@ impl Launcher {
                     .into_any_element(),
                 )
             }
-            Shown::Starting(_) => None,
-            Shown::Error(_) if !configured => None,
+            Shown::Starting(_) | Shown::Unavailable => None,
             _ => Some(
                 microsoft::white_button("owner-sign-in")
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -149,18 +145,16 @@ impl Launcher {
                     .into_any_element(),
             ),
         };
-        let later = ui::button(
-            "owner-later",
-            None,
-            tr("Not now"),
-            ButtonKind::Ghost,
-            ui::ButtonSize::Lg,
-        )
-        .px(px(space::XL))
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.close_owner_screen();
-            cx.notify();
-        }));
+        let (close, kind) = match state {
+            Shown::Unavailable => (tr("Close"), ButtonKind::Secondary),
+            _ => (tr("Not now"), ButtonKind::Ghost),
+        };
+        let later = ui::button("owner-later", None, close, kind, ui::ButtonSize::Lg)
+            .px(px(space::XL))
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.close_owner_screen();
+                cx.notify();
+            }));
         if matches!(state, Shown::Code(..)) {
             card = card.child(ui::card_note(tr("Waiting for Microsoft…")).mt(px(space::MD)));
         }
@@ -185,8 +179,9 @@ impl Launcher {
 #[derive(Clone, Copy)]
 enum Shown<'a> {
     Idle,
+    Unavailable,
     /// What the sign-in is doing.
-    Starting(&'static str),
+    Starting(&'a str),
     /// The page and the code to enter there.
     Code(&'a str, &'a str),
     Error(&'a str),

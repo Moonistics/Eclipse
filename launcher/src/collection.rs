@@ -300,7 +300,7 @@ impl Launcher {
                 inset(
                     ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                         .pt(px(space::MD))
-                        .child(n),
+                        .child(ui::said("data-note", n)),
                 )
             }))
             .children(

@@ -100,6 +100,13 @@ impl ButtonSize {
         }
     }
 
+    fn label_size(self) -> f32 {
+        match self {
+            ButtonSize::Hero => PAGE_TITLE,
+            _ => PRESS,
+        }
+    }
+
     fn icon(self) -> IconSize {
         match self {
             ButtonSize::Hero => IconSize::Px24,
@@ -152,7 +159,7 @@ pub fn button_width(label: &str, icon: bool, kind: ButtonKind, size: ButtonSize)
     } else {
         0.
     };
-    press_width(&shown) + icon + 2. * size.pad()
+    pixel_width(&shown, size.label_size()) + icon + 2. * size.pad()
 }
 
 fn hover_of(kind: ButtonKind) -> Hover {
@@ -164,7 +171,11 @@ fn hover_of(kind: ButtonKind) -> Hover {
 }
 
 pub fn press_width(label: &str) -> f32 {
-    let advance = eclipse_theme::glass::MONOCRAFT_ADVANCE * super::on_pixel_grid(PRESS)
+    pixel_width(label, PRESS)
+}
+
+fn pixel_width(label: &str, size: f32) -> f32 {
+    let advance = eclipse_theme::glass::MONOCRAFT_ADVANCE * super::on_pixel_grid(size)
         / eclipse_theme::glass::MONOCRAFT_PIXEL;
     label.chars().count() as f32 * advance
 }
@@ -764,7 +775,7 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
                 .h(px(height))
                 .px(px(ButtonSize::Sm.pad()))
                 .text_color(white(if active { ink::FULL } else { ink::MUTED }))
-                .child(press_text().relative().child(label.to_uppercase())),
+                .child(press_text().relative().child(label.clone())),
                 active,
             )
             .rounded(px(radius::CONTROL));

@@ -112,6 +112,7 @@ pub(super) struct Mods {
     results: Vec<Project>,
     results_list: cull::Cull,
     installed_list: cull::Cull,
+    installed_open: bool,
     pub(super) report_list: cull::Cull,
     more: bool,
     error: Option<String>,
@@ -131,7 +132,7 @@ pub(super) struct Mods {
     worlds: Vec<(PathBuf, String)>,
     world: Option<PathBuf>,
     pub(super) busy: Option<ModsBusy>,
-    pub(super) message: Option<Result<String, String>>,
+    pub(super) failed: Option<String>,
     pub(super) updates: HashMap<(SourceId, String), String>,
     /// Instances (ids) whose native mods the automatic update moved on: Play builds their game
     /// first (`build_native`), then plays it when `play_after_build` is set.
@@ -224,6 +225,7 @@ impl Mods {
             results: Vec::new(),
             results_list: cull::Cull::default(),
             installed_list: cull::Cull::default(),
+            installed_open: false,
             report_list: cull::Cull::default(),
             more: false,
             error: None,
@@ -238,7 +240,7 @@ impl Mods {
             worlds: Vec::new(),
             world: None,
             busy: None,
-            message: None,
+            failed: None,
             native_notice: None,
             native_state: Default::default(),
             native_files: Default::default(),
@@ -300,7 +302,9 @@ impl Mods {
     }
 
     fn listed(&self, p: &Project) -> bool {
-        self.show_unrunnable || !self.may_hide_unrunnable() || self.support(p).installable()
+        self.show_unrunnable
+            || !self.may_hide_unrunnable()
+            || !self.checking(p) && self.support(p).installable()
     }
 
     fn runnable_first(&mut self) {
@@ -468,7 +472,7 @@ impl Launcher {
                     if let Ok(said) = &result {
                         crate::toast::say(said.clone());
                     }
-                    m.message = Some(result);
+                    m.failed = result.err();
                     m.read_installed();
                     if pack.is_some() {
                         // The Modpacks page reads its list again.
@@ -493,12 +497,12 @@ impl Launcher {
                 Event::AutoUpdated(lines, rebuild) => {
                     m.rebuild.extend(rebuild);
                     if !lines.is_empty() {
-                        m.message = Some(Ok(lines.join("\n")));
+                        crate::toast::say(lines.join(" "));
                         m.read_installed();
                     }
                 }
                 Event::TakenDown(lines) => {
-                    m.message = Some(Ok(lines.join("\n")));
+                    crate::toast::say_error(lines.join(" "));
                     m.read_installed();
                 }
             }
@@ -659,13 +663,14 @@ impl Launcher {
         let home = self.mods.home();
         // An update holds the folder: the window doesn't wait for it.
         let Some(_lock) = browser::try_lock_home(&home) else {
-            self.mods.message = Some(Err(tr("Wait for the current operation to finish.").into()));
+            self.mods.failed = Some(tr("Wait for the current operation to finish.").into());
             return;
         };
         if self.mods.java.is_some() {
             let on = !java_instance::is_on(&home, e);
-            self.mods.message =
-                Some(java_instance::set_on(&home, e, on).map(|()| switched_line(&e.title, on)));
+            self.mods_said(
+                java_instance::set_on(&home, e, on).map(|()| switched_line(&e.title, on)),
+            );
             self.mods.read_installed();
             return;
         }
@@ -677,7 +682,7 @@ impl Launcher {
             let hash = e.checksum.trim_start_matches("SHA-256:");
             index.revoked(&e.project, hash).map(|r| r.reason.clone())
         });
-        self.mods.message = Some(match revoked.filter(|_| on) {
+        self.mods_said(match revoked.filter(|_| on) {
             Some(reason) => Err(trf(
                 "{name} was taken down: {reason}",
                 &[("name", &e.title), ("reason", &reason)],
@@ -782,7 +787,7 @@ impl Launcher {
             .map(|e| (e.source, e.project.clone(), e.title.clone()))
             .collect();
         todo.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
-        self.mods.message = None;
+        self.mods.failed = None;
         self.mods.busy = Some(ModsBusy::UpdateAll {
             line: tr("Updating…").into(),
             bar: (0., 0.),
@@ -853,7 +858,7 @@ impl Launcher {
             return;
         }
         self.mods.native_notice = None;
-        self.mods.message = None;
+        self.mods.failed = None;
         let name = known
             .as_ref()
             .map(|p| p.title.clone())
@@ -1057,7 +1062,7 @@ impl Launcher {
         let Some(_lock) = browser::try_lock_home(&home) else {
             let busy: Result<String, String> =
                 Err(tr("Wait for the current operation to finish.").into());
-            self.mods.message = Some(busy.clone());
+            self.mods.failed = busy.clone().err();
             return busy;
         };
         let trashed = self
@@ -1080,7 +1085,7 @@ impl Launcher {
         if let Ok(said) = &removed {
             crate::toast::say(said.clone());
         }
-        self.mods.message = removed.clone().err().map(Err);
+        self.mods.failed = removed.clone().err();
         self.mods.read_installed();
         self.stop_asking(|a| matches!(a, Asking::Mod(_)));
         removed
@@ -1253,7 +1258,7 @@ impl Launcher {
         )))
     }
 
-    /// The install under way and the last install's answer.
+    /// The install under way and the last change that failed.
     pub(super) fn mods_busy_plate(&self) -> Vec<Div> {
         let mut out = Vec::new();
         match &self.mods.busy {
@@ -1267,25 +1272,26 @@ impl Launcher {
             }
             None => {}
         }
-        match &self.mods.message {
-            Some(Ok(done)) => {
-                out.push(ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(done.clone()))
-            }
-            Some(Err(e)) => {
-                let instance = self
-                    .selected_instance()
-                    .map_or_else(|| "Eclipse".to_string(), |i| i.name.clone());
-                out.push(div().child(ui::error_line_for(
-                    "mods-failed-step",
-                    trf("Couldn't change {instance}", &[("instance", &instance)]),
-                    e,
-                    None,
-                    Vec::new(),
-                )))
-            }
-            None => {}
+        if let Some(e) = &self.mods.failed {
+            let instance = self
+                .selected_instance()
+                .map_or_else(|| "Eclipse".to_string(), |i| i.name.clone());
+            out.push(div().child(ui::error_line_for(
+                "mods-failed-step",
+                trf("Couldn't change {instance}", &[("instance", &instance)]),
+                e,
+                None,
+                Vec::new(),
+            )))
         }
         out
+    }
+
+    pub(super) fn mods_said(&mut self, said: Result<String, String>) {
+        if let Ok(line) = &said {
+            crate::toast::say(line.clone());
+        }
+        self.mods.failed = said.err();
     }
 
     /// Re-read local/GitHub files when the folder changes, not on every frame.

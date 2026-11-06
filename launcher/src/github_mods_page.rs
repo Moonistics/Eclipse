@@ -224,7 +224,7 @@ impl Launcher {
             .gap(px(space::MD))
             .child(ui::section_title(
                 "github-add-title",
-                tr("Add a native mod from GitHub"),
+                tr("Add an Eclipse mod from GitHub"),
             ))
             .child(
                 div()
@@ -293,11 +293,11 @@ impl Launcher {
             .gap(px(space::XS))
             .child(
                 ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
-                    .child(tr("Not reviewed by the Eclipse registry")),
+                    .child(tr("Not reviewed by Eclipse")),
             )
             .child(what)
             .child(tr(
-                "Native mods run with full access to this computer. Read the source before you install it.",
+                "Eclipse mods run with full access to this computer. Read the source before you install it.",
             ))
             .child(ui::mono(step::NOTE, ink::MUTED).child(url));
         let actions = vec![
@@ -468,14 +468,12 @@ impl Launcher {
                 let home = this.mods.home();
                 // An update holds the folder: the window doesn't wait for it.
                 let Some(_lock) = eclipse_launcher::browser::try_lock_home(&home) else {
-                    this.mods.message =
-                        Some(Err(tr("Wait for the current operation to finish.").into()));
+                    this.mods.failed = Some(tr("Wait for the current operation to finish.").into());
                     cx.notify();
                     return;
                 };
-                this.mods.message = eclipse_launcher::browser::java::set_enabled(&home, &id, !on)
-                    .err()
-                    .map(Err);
+                this.mods.failed =
+                    eclipse_launcher::browser::java::set_enabled(&home, &id, !on).err();
                 this.instance_mods_changed();
                 cx.notify();
             })),
@@ -498,8 +496,7 @@ impl Launcher {
                     } else {
                         std::fs::remove_file(home.join(&row.file)).map_err(|e| e.to_string())
                     };
-                    this.mods.message =
-                        Some(result.map(|_| trf("Removed {name}.", &[("name", &row.id)])));
+                    this.mods_said(result.map(|_| trf("Removed {name}.", &[("name", &row.id)])));
                     this.github.reread(&home);
                     this.asking = None;
                     this.instance_mods_changed();

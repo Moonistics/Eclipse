@@ -294,9 +294,9 @@ impl Launcher {
     }
 
     /// Queues a setting for `eclipse-server config set`; they go one batch at a time.
-    pub(crate) fn set_setting(&mut self, key: &str, value: String) {
-        self.servers.queued.retain(|(k, _)| k != key);
-        self.servers.queued.push((key.to_string(), value));
+    pub(crate) fn set_setting(&mut self, key: ServerKey, value: String) {
+        self.servers.queued.retain(|(k, _)| *k != key);
+        self.servers.queued.push((key, value));
         self.servers.note = None;
         if !self.servers.applying {
             self.apply_settings();
@@ -315,16 +315,17 @@ impl Launcher {
         // Shown as asked until the file is read back.
         if let Some(config) = &mut self.servers.config {
             for (key, value) in &batch {
-                if let Some((section, field)) = key.split_once('.') {
-                    let new = match &config[section][field] {
-                        Value::Bool(_) => Value::Bool(value == "true"),
-                        Value::Number(_) => value.parse::<i64>().map_or(Value::Null, Value::from),
-                        _ => Value::String(value.clone()),
-                    };
-                    config[section][field] = new;
-                }
+                let (section, field) = key.path();
+                let new = match &config[section][field] {
+                    Value::Bool(_) => Value::Bool(value == "true"),
+                    Value::Number(_) => value.parse::<i64>().map_or(Value::Null, Value::from),
+                    _ => Value::String(value.clone()),
+                };
+                config[section][field] = new;
             }
         }
+        let batch: Vec<(String, String)> =
+            batch.into_iter().map(|(k, v)| (k.dotted(), v)).collect();
         let tx = self.servers.tx.clone();
         std::thread::spawn(move || {
             let pairs: Vec<(&str, String)> =
@@ -367,7 +368,7 @@ impl Launcher {
         self.servers.problem = None;
         match fix {
             Fix::UsePort(port) => {
-                self.set_setting("server.port", port.to_string());
+                self.set_setting(ServerKey::Port, port.to_string());
                 self.fields.clear(Field::ServerPort);
                 self.servers.note = Some(trf(
                     "The server now uses port {port}. Press Start again.",
@@ -384,7 +385,6 @@ impl Launcher {
                     });
                 }
                 _ => {
-                    self.servers.create = None;
                     let eclipse = self
                         .instances
                         .list
@@ -395,7 +395,6 @@ impl Launcher {
                     if let Some(eclipse) = eclipse {
                         self.select_instance(&eclipse);
                     }
-                    self.go(Page::Home);
                     if !self.game.preparing {
                         self.prepare(backend::MinecraftFrom::Install);
                     }
@@ -453,7 +452,7 @@ impl Launcher {
             new_world: true,
             copy: worlds.first().map(|w| w.1.clone()),
             worlds,
-            mode: "survival",
+            mode: GameMode::Survival,
             difficulty: "normal",
             max_players: start.max_players,
             friends_only: start.friends_only,
@@ -502,7 +501,7 @@ impl Launcher {
                 format!("Server {}", self.servers.list.len() + 1)
             },
             world,
-            game_mode: c.mode.into(),
+            game_mode: c.mode.id().into(),
             difficulty: c.difficulty.into(),
             max_players: c.max_players,
             friends_only: c.friends_only,
@@ -555,7 +554,7 @@ impl Launcher {
                     self.servers.problem =
                         Some(Problem::plain("Type the line players see under the name."));
                 } else {
-                    self.set_setting("server.motd", motd);
+                    self.set_setting(ServerKey::Motd, motd);
                 }
             }
             Field::ServerPort => self.save_port(),
@@ -565,7 +564,7 @@ impl Launcher {
 
     pub(super) fn save_port(&mut self) {
         match self.fields.value(Field::ServerPort).trim().parse::<u16>() {
-            Ok(port) if port >= 1024 => self.set_setting("server.port", port.to_string()),
+            Ok(port) if port >= 1024 => self.set_setting(ServerKey::Port, port.to_string()),
             _ => {
                 self.fields.invalid = Some((
                     Field::ServerPort,
@@ -606,18 +605,12 @@ impl Launcher {
     pub(super) fn player_action(
         &self,
         id: impl Into<SharedString>,
-        label: &'static str,
+        label: impl Into<SharedString>,
         enabled: bool,
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self) + 'static,
     ) -> Stateful<Div> {
-        let b = ui::button(
-            id,
-            None,
-            tr(label),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Sm,
-        );
+        let b = ui::button(id, None, label, ButtonKind::Secondary, ui::ButtonSize::Sm);
         if enabled {
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 action(this);

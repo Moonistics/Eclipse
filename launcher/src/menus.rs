@@ -22,6 +22,7 @@ pub(super) enum Asking {
     RegistryPack(String),
     PortedPack(String),
     Mod(String),
+    ModFile(String),
     GamePack(PackKind, String),
     SavedServer(String),
     WorldPack(String),

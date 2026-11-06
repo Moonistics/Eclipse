@@ -12,6 +12,11 @@ const KEY_COLUMN: f32 = 180.;
 
 const NARROW_COLUMN: f32 = 56.;
 
+const HEADING_ABOVE: f32 = space::MD;
+const SUBHEADING_ABOVE: f32 = space::XS + space::XXS;
+const ITEM_INDENT: f32 = space::LG;
+const NUMBER_COLUMN: f32 = space::LG;
+
 /// A run of text's styled ranges.
 type Spans = Vec<(Range<usize>, Span)>;
 /// A table row: each cell's text and its spans.
@@ -181,30 +186,30 @@ pub fn render(source: &str) -> AnyElement {
                 FontWeight::SEMIBOLD,
                 ink::FULL,
             )
-            .pt(px(if level <= 2 { 12. } else { 6. }))
+            .pt(px(if level <= 2 {
+                HEADING_ABOVE
+            } else {
+                SUBHEADING_ABOVE
+            }))
             .child(styled(text, spans))
             .into_any_element(),
             Block::Paragraph(text, spans) => div().child(styled(text, spans)).into_any_element(),
             Block::Item(depth, number, text, spans) => div()
                 .flex()
                 .gap(px(space::MD))
-                .pl(px(depth as f32 * 16.))
+                .pl(px(depth as f32 * ITEM_INDENT))
                 .child(match number {
                     None => ui::bullet(),
                     Some(n) => div()
                         .flex_none()
-                        .w(px(16.))
+                        .w(px(NUMBER_COLUMN))
                         .text_color(white(ink::MUTED))
                         .child(format!("{n}.")),
                 })
                 .child(div().flex_1().min_w_0().child(styled(text, spans)))
                 .into_any_element(),
             Block::Code(code) => ui::code_well(code.trim_end().to_string()).into_any_element(),
-            Block::Rule => div()
-                .h(px(1.))
-                .bg(ui::edge())
-                .my(px(space::SM))
-                .into_any_element(),
+            Block::Rule => ui::rule().my(px(space::SM)).into_any_element(),
             Block::Table(rows) => {
                 let mut grid = div()
                     .flex()

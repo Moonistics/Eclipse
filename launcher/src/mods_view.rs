@@ -5,9 +5,9 @@
 //! A kind's sources lead the search: Eclipse's registry or Modrinth, on the kinds both
 //! serve (`switches`); shader packs are Eclipse's registry's only, and a Java instance's files
 //! always Modrinth's. Modrinth's Java mods are offered to an Eclipse instance too, each marked
-//! Works or Partly in Eclipse; those that don't run show only when asked. Under the two cards:
-//! adding a native mod from GitHub, the instance's installed list and its native build, and the
-//! install's progress.
+//! Works or Partly in Eclipse; those that don't run show only when asked. Above the two cards:
+//! the install's progress, the instance's installed list (folded when long) and its native
+//! build; under them, adding an Eclipse mod from GitHub.
 
 use super::*;
 use crate::menus::Asking;
@@ -23,6 +23,13 @@ const VANILLA_ACTION: ui::ButtonSize = ui::ButtonSize::Md;
 const DETAIL_CLOSE: &str = "mods-detail-close";
 const FLOAT_MIN_HEIGHT: f32 = 240.;
 const SEARCH_FIELD_MIN: f32 = 200.;
+
+const RESULTS: &str = "mods-results";
+const TOOLBAR_INSET: f32 = ui::CARD_PADDING - ui::LIST_INSET;
+const ROW_PLATE_INSET: f32 = space::MD - ui::LIST_INSET;
+const ROW_CONTENT_INSET: f32 = ui::CARD_PADDING - space::MD - ui::ROW_EDGE;
+const FOLD_INSTALLED_PAST: usize = 5;
+const INSTALLED_ROW_BLEED: f32 = ui::CARD_PADDING - space::MD;
 
 impl Launcher {
     /// The search's placeholder: the registry's count when it is listed whole.
@@ -151,14 +158,15 @@ impl Launcher {
             .flex()
             .flex_col()
             .gap(px(space::MD))
-            .px(px(space::XS))
+            .px(px(TOOLBAR_INSET))
             .pb(px(space::SM))
             .children(toggles)
             .children(self.mods_filters(cx))
             .children(self.mods_target_line(cx));
         let source = (switches(self.mods.kind) && !java).then(|| self.source_switch(cx));
         let search = div()
-            .m(px(space::XS))
+            .mx(px(TOOLBAR_INSET))
+            .mt(px(TOOLBAR_INSET))
             .mb(px(space::SM))
             .flex()
             .flex_wrap()
@@ -272,22 +280,31 @@ impl Launcher {
         };
 
         let card = |inner: Div| ui::card().p(px(ui::CARD_PADDING)).child(inner);
-        let mut more: Vec<Div> = Vec::new();
-        more.extend(self.mods_busy_plate().into_iter().map(card));
         let packs = (self.mods.kind == PackKind::Modpack).then(|| {
             card(self.imported_packs(cx))
                 .id("mods-imported-packs")
                 .mb(px(layout::CARD_GAP))
         });
-        if self.mods.kind == PackKind::Mod && self.mods.java.is_none() {
-            more.push(card(self.github_panel(cx)));
-        }
-        more.extend(self.mods_installed_list(cx).map(card));
+        let plate = self.mods_busy_plate();
+        let installed = self.mods_installed_list(cx);
+        let installed = (installed.is_some() || !plate.is_empty()).then(|| {
+            card(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::LG))
+                    .children(plate)
+                    .children(installed),
+            )
+            .id("mods-installed")
+            .mb(px(layout::CARD_GAP))
+        });
+        let github = (self.mods.kind == PackKind::Mod && self.mods.java.is_none())
+            .then(|| card(self.github_panel(cx)).mt(px(layout::CARD_GAP)));
         let advice = self
             .mods_vanilla_notice(cx)
             .or_else(|| self.mods_shader_notice(cx))
             .or_else(|| self.mods_world_notice(cx))
-            .or_else(|| self.mods_modrinth_notice(cx))
             .map(|advice| {
                 ui::card()
                     .p(px(ui::CARD_PADDING))
@@ -301,15 +318,9 @@ impl Launcher {
             .children(notice)
             .children(advice)
             .children(packs)
+            .children(installed)
             .child(cards)
-            .child(
-                div()
-                    .flex()
-                    .flex_col()
-                    .gap(px(layout::CARD_GAP))
-                    .mt(px(layout::CARD_GAP))
-                    .children(more),
-            )
+            .children(github)
     }
 
     fn mods_float_room(&self) -> f32 {
@@ -347,19 +358,18 @@ impl Launcher {
             .gap(px(space::MD))
             .h(px(ui::ButtonSize::Md.height()));
         if self.mods.kind == PackKind::Modpack {
-            return Some(
-                row.gap(px(space::SM))
-                    .px(px(space::MD))
-                    .child(ui::label(tr("Install to")))
-                    .child(
-                        ui::text(
-                            eclipse_theme::glass::step::BODY,
-                            FontWeight::NORMAL,
-                            ink::FULL,
-                        )
-                        .child(tr("New instance")),
-                    ),
+            let fixed = ui::labelled_dropdown(
+                "mods-target",
+                tr("Install to"),
+                None,
+                tr("New instance"),
+                false,
+                ui::ButtonSize::Md,
             );
+            return Some(row.child(ui::unavailable(
+                fixed,
+                tr("Modpacks install as a new instance"),
+            )));
         }
         let current = self.selected_instance()?.clone();
         let choices = self.mods_targets(&current);
@@ -382,10 +392,16 @@ impl Launcher {
             let mut menu = self.menu_popover("mods-target-menu", tr("Install to"), cx);
             for i in choices {
                 let picked = i.id == current.id;
+                let game = match (&i.java, self.version_of(&i)) {
+                    (Some(java), _) => java.line(),
+                    (None, Some(tag)) => eclipse_launcher::nightly::display_name(tag),
+                    (None, None) => tr("Eclipse").to_string(),
+                };
                 menu = menu.child(
-                    ui::pick_row(
+                    ui::pick_item(
                         SharedString::from(format!("mods-target-pick-{}", i.id)),
                         i.name.clone(),
+                        game,
                         picked,
                     )
                     .on_press(cx.listener(
@@ -401,7 +417,7 @@ impl Launcher {
             }
             wrap = wrap.child(ui::menu_under(
                 ui::ButtonSize::Md.height(),
-                ui::Align::Start,
+                ui::Align::End,
                 menu,
             ));
         }
@@ -427,18 +443,12 @@ impl Launcher {
     fn mods_vanilla_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let minecraft = self.mods_vanilla_target()?;
         let current = self.selected_instance()?.clone();
-        let narrow = self.window_width < crate::layout::NARROW_WINDOW;
-        let others = self.mods_targets(&current).len() > 1 && !narrow;
-        let size = if narrow {
-            ui::ButtonSize::Sm
-        } else {
-            VANILLA_ACTION
-        };
+        let others = self.mods_targets(&current).len() > 1;
         let create = ui::primary(
             "mods-new-fabric",
             Some("plus-sign"),
             tr("Create a Fabric instance…"),
-            size,
+            VANILLA_ACTION,
         )
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.mods_new_fabric(minecraft.clone(), cx);
@@ -517,8 +527,7 @@ impl Launcher {
             return None;
         }
         let current = self.selected_instance()?.clone();
-        let narrow = self.window_width < crate::layout::NARROW_WINDOW;
-        let others = self.mods_targets(&current).len() > 1 && !narrow;
+        let others = self.mods_targets(&current).len() > 1;
         let choose = others.then(|| {
             ui::button(
                 "mods-world-choose-instance",
@@ -541,30 +550,6 @@ impl Launcher {
                 &[("instance", &current.name)],
             ),
             choose.into_iter().collect(),
-        )))
-    }
-
-    fn mods_modrinth_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
-        let m = &self.mods;
-        if m.kind != PackKind::Mod || m.java.is_some() || m.source != SourceId::Modrinth {
-            return None;
-        }
-        let show = ui::button(
-            "mods-show-eclipse",
-            None,
-            tr("Show Eclipse mods"),
-            ButtonKind::Secondary,
-            VANILLA_ACTION,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.mods_set_source(SourceId::Eclipse);
-            cx.notify();
-        }));
-        Some(div().id("mods-modrinth-eclipse").child(ui::notice(
-            ui::Notice::InCard,
-            crate::icons::INFO,
-            tr("Most Modrinth mods are made for Fabric or Forge and don't run in Eclipse."),
-            vec![show.into_any_element()],
         )))
     }
 
@@ -754,18 +739,33 @@ impl Launcher {
             ));
         }
         let shown: Vec<Project> = m.results.iter().filter(|p| m.listed(p)).cloned().collect();
+        let checking = m.may_hide_unrunnable()
+            && !m.show_unrunnable
+            && m.results.iter().any(|p| m.checking(p));
+        if shown.is_empty() && checking {
+            return div().child(ui::loading_state(
+                "mods-checking",
+                tr("Checking which mods run in Eclipse…"),
+            ));
+        }
         if shown.is_empty() {
+            let show = ui::primary(
+                "mods-show-eclipse",
+                None,
+                tr("Show Eclipse mods"),
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods_set_source(SourceId::Eclipse);
+                cx.notify();
+            }));
             let more = m.more.then(|| self.mods_more_button(cx));
-            let note = match more {
-                Some(_) => tr("Try other words or load more."),
-                None => tr("Try other words."),
-            };
             return div().child(ui::empty_state(
                 "mods-none-run",
                 "search-01",
                 tr("Nothing found that runs in Eclipse"),
-                note,
-                more.into_iter().collect(),
+                tr("Most Modrinth mods are made for Fabric or Forge."),
+                std::iter::once(show).chain(more).collect(),
             ));
         }
         let picked = if self.window_width >= crate::layout::MODS_DETAIL_BESIDE
@@ -777,7 +777,8 @@ impl Launcher {
         };
         let advised =
             self.mods_vanilla_target().is_some() || self.mods_missing_shader_mod().is_some();
-        let cursor = ui::options_cursor("mods-results");
+        let cursor = ui::options_cursor(RESULTS);
+        let keyboard = ui::options_has_keyboard(RESULTS);
         let wait = self.mods_wait();
         let mut rows = Vec::new();
         let mut ids = Vec::new();
@@ -820,7 +821,7 @@ impl Launcher {
                     ButtonKind::Secondary,
                     ui::ButtonSize::Sm,
                 );
-                let shown = current || i == cursor || ui::hover_within(&row_id);
+                let shown = current || (keyboard && i == cursor) || ui::hover_within(&row_id);
                 let why = match &wait {
                     Some(wait) => Some(wait.clone()),
                     None if m.needs_world(&p) => {
@@ -884,6 +885,7 @@ impl Launcher {
             let summary = p.summary.split_whitespace().collect::<Vec<_>>().join(" ");
             rows.push((
                 ui::row(row_id, p.title.clone(), current)
+                    .px(px(ROW_CONTENT_INSET))
                     .aria_description(summary.clone())
                     .child(div().relative().child(icon))
                     .child(ui::item_text_by(p.title.clone(), by, summary))
@@ -911,19 +913,31 @@ impl Launcher {
         let more = self.mods.more.then(|| {
             div()
                 .flex()
-                .p(px(space::SM))
+                .px(px(TOOLBAR_INSET))
+                .py(px(space::SM))
                 .child(self.mods_more_button(cx))
+        });
+        let still = checking.then(|| {
+            div()
+                .px(px(TOOLBAR_INSET))
+                .py(px(space::SM))
+                .child(ui::progress_line(
+                    "",
+                    None,
+                    tr("Checking which mods run in Eclipse…"),
+                ))
         });
         div()
             .flex()
             .flex_col()
             .child(ui::options(
-                div().id("mods-results").flex().flex_col(),
+                div().id(RESULTS).flex().flex_col().px(px(ROW_PLATE_INSET)),
                 tr("Results"),
                 rows,
                 false,
                 move |i, window, cx| open(&i, window, cx),
             ))
+            .children(still)
             .children(more)
     }
 
@@ -1045,6 +1059,12 @@ impl Launcher {
                     true => trf("Delete from {instance}…", &[("instance", instance)]),
                     false => trf("Remove from {instance}…", &[("instance", instance)]),
                 };
+                let short = if trash {
+                    tr("Delete…")
+                } else {
+                    tr("Remove…")
+                };
+                let ask = fitted(ask, short, false, ButtonKind::Secondary);
                 ui::button(
                     remove_id,
                     None,
@@ -1061,20 +1081,19 @@ impl Launcher {
                 .into()
             }
         } else if busy.as_ref().is_some_and(|b| b.installs(&p.id)) || checking {
-            ui::text(
-                eclipse_theme::glass::step::BODY,
-                FontWeight::MEDIUM,
-                ink::BODY,
+            ui::disabled(
+                ui::primary(
+                    SharedString::from(format!("mods-detail-install-{}", p.id)),
+                    Some("download-04"),
+                    if checking {
+                        tr("Checking…")
+                    } else {
+                        tr("Installing…")
+                    },
+                    ui::ButtonSize::Lg,
+                )
+                .w_full(),
             )
-            .id("mods-detail-wait")
-            .child(ui::state_line(
-                ui::Tone::Busy,
-                if checking {
-                    tr("Checking…")
-                } else {
-                    tr("Installing…")
-                },
-            ))
             .into_any_element()
             .into()
         } else if support.installable() {
@@ -1083,6 +1102,7 @@ impl Launcher {
             } else {
                 trf("Install in {instance}", &[("instance", instance)])
             };
+            let label = fitted(label, tr("Install"), true, ButtonKind::Primary);
             let known = p.clone();
             let why = match self.mods_wait() {
                 Some(wait) => Some(wait),
@@ -1198,6 +1218,14 @@ impl Launcher {
     }
 }
 
+fn fitted(label: String, short: &str, icon: bool, kind: ButtonKind) -> String {
+    let room = DETAIL - 2. * ui::CARD_PADDING;
+    match ui::button_width(&label, icon, kind, ui::ButtonSize::Lg) <= room {
+        true => label,
+        false => short.to_string(),
+    }
+}
+
 fn page_label(kind: PackKind) -> &'static str {
     match kind {
         PackKind::Mod => "Open mod page",
@@ -1249,6 +1277,7 @@ impl Launcher {
                 && entries
                     .iter()
                     .any(|e| native_status::is_native_file(&e.file));
+        let build = native.then(|| self.native_build(cx)).flatten();
         let row = |i: usize| {
             if i >= entries.len() {
                 return self.native_mod_row(&native_entries[i - entries.len()], busy, cx);
@@ -1321,7 +1350,7 @@ impl Launcher {
                     ui::icon_button(
                         SharedString::from(format!("mods-folder-{}", e.project)),
                         "folder-01",
-                        tr("Open native mods folder"),
+                        tr("Open Eclipse mods folder"),
                         ButtonKind::Ghost,
                         ui::ButtonSize::Md,
                         false,
@@ -1402,27 +1431,68 @@ impl Launcher {
                 }))
             }
         });
-        let list = self.mods.installed_list.column(
-            &self.content_scroll.handle,
-            entries.len() + native_entries.len(),
-            0.,
-            |index| {
-                entries
-                    .get(index)
-                    .is_some_and(|e| self.is_asking(&Asking::Mod(e.project.clone())))
-            },
-            row,
-        );
+        let count = entries.len() + native_entries.len();
+        let long = count > FOLD_INSTALLED_PAST;
+        let open = !long || self.mods.installed_open;
+        let fold = long.then(|| {
+            ui::icon_button(
+                "mods-installed-fold",
+                if open {
+                    "arrow-down-01"
+                } else {
+                    "arrow-right-01"
+                },
+                if open {
+                    tr("Hide list")
+                } else {
+                    tr("Show list")
+                },
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+                false,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods.installed_open = !this.mods.installed_open;
+                cx.notify();
+            }))
+        });
+        let aside = div()
+            .flex()
+            .items_center()
+            .gap(px(space::SM))
+            .children(update_all)
+            .children(fold);
+        let title = trf("Installed ({count})", &[("count", &count.to_string())]);
+        if !open && build.is_none() {
+            return Some(ui::group_head(
+                "mods-installed-title",
+                title,
+                Some(aside.into_any_element()),
+            ));
+        }
+        let list = open.then(|| {
+            self.mods.installed_list.column(
+                &self.content_scroll.handle,
+                count,
+                0.,
+                |index| {
+                    entries
+                        .get(index)
+                        .is_some_and(|e| self.is_asking(&Asking::Mod(e.project.clone())))
+                },
+                row,
+            )
+        });
         Some(ui::field_group(
             "mods-installed-title",
-            tr("Installed"),
-            update_all.map(IntoElement::into_any_element),
+            title,
+            Some(aside.into_any_element()),
             div()
                 .flex()
                 .flex_col()
                 .gap(px(space::MD))
-                .children(native.then(|| self.native_build(cx)).flatten())
-                .child(list),
+                .children(build)
+                .children(list.map(|l| l.mx(px(-INSTALLED_ROW_BLEED)))),
         ))
     }
 }

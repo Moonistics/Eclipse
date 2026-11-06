@@ -59,17 +59,17 @@ impl Launcher {
                 Some((ui::Tone::Busy, tr("Building"))),
             ),
             (None, Some(e), _) => (ui::error_note(e.clone()), None),
-            (None, None, State::NoMods) => (line(tr("No native mod is turned on.").into()), None),
+            (None, None, State::NoMods) => (line(tr("No Eclipse mod is turned on.").into()), None),
             (None, None, State::NotBuilt) => (
                 line(trf(
-                    "{instance} doesn't play its native mods yet: build the game with them.",
+                    "{instance} doesn't play its Eclipse mods yet: build the game with them.",
                     &name,
                 )),
                 Some((ui::Tone::Warn, tr("Not built"))),
             ),
             (None, None, State::Outdated) => (
                 line(trf(
-                    "The native mods turned on changed since {instance} was built: build again to play them.",
+                    "The Eclipse mods turned on changed since {instance} was built: build again to play them.",
                     &name,
                 )),
                 Some((ui::Tone::Warn, tr("Needs rebuild"))),
@@ -207,7 +207,7 @@ impl Launcher {
                         .gap(px(space::XS))
                         .child(
                             ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
-                                .child(trf("Native build of {instance}", &name)),
+                                .child(trf("{instance} with Eclipse mods", &name)),
                         )
                         .child(detail),
                 )

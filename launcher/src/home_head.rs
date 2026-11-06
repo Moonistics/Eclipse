@@ -30,7 +30,7 @@ impl Launcher {
         }
         let play = self.play_group(tag, cx);
         let invite = java.is_none().then(|| {
-            let width = self.invite_width();
+            let width = self.invite_width(tag);
             self.invite_field(tag, width, cx)
         });
         let actions = div()
@@ -130,11 +130,7 @@ impl Launcher {
     fn play_group(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
         let state = self.selected_play_state();
         let running = state == PlayState::Running;
-        let update = self
-            .selected_instance()
-            .and_then(|i| self.update_for(i))
-            .filter(|_| !tag.is_empty())
-            .map(|r| r.tag.clone());
+        let update = self.play_update(tag);
         let busy = state.busy();
         let open = self.menu_is(&Menu::Play) && !tag.is_empty();
         let kind = if running && busy.is_none() {
@@ -187,7 +183,7 @@ impl Launcher {
                 }
             }
         };
-        let width = px(self.play_width());
+        let width = px(self.play_width(update.is_some()));
         let play = if tag.is_empty() {
             main.min_w(width).into_any_element()
         } else {
@@ -353,24 +349,44 @@ impl Launcher {
         )
     }
 
-    fn play_width(&self) -> f32 {
-        if self.window_width >= layout::HOME_HEAD_WIDE {
+    fn play_update(&self, tag: &str) -> Option<String> {
+        self.selected_instance()
+            .and_then(|i| self.update_for(i))
+            .filter(|_| !tag.is_empty())
+            .map(|r| r.tag.clone())
+    }
+
+    fn play_width(&self, update: bool) -> f32 {
+        let least = if self.window_width >= layout::HOME_HEAD_WIDE {
             PLAY_WIDE
         } else {
             PLAY
+        };
+        match update {
+            true => least.max(
+                ui::button_width(
+                    tr("Update"),
+                    true,
+                    ButtonKind::Primary,
+                    ui::ButtonSize::Hero,
+                ) + tall(),
+            ),
+            false => least,
         }
     }
 
-    fn invite_width(&self) -> Option<f32> {
+    fn invite_width(&self, tag: &str) -> Option<f32> {
         let room = layout::content_width(self.window_width);
-        let pair = self.play_width() + space::MD + PICKER;
+        let pair = self.play_width(self.play_update(tag).is_some()) + space::MD + PICKER;
         let row = pair + space::MD + tall();
         if row + space::MD + INVITE_MIN <= room {
             None
         } else if row <= room {
-            Some(pair)
-        } else {
+            Some(row)
+        } else if pair <= room {
             Some(pair - tall() - space::MD)
+        } else {
+            Some(PICKER + space::MD + tall())
         }
     }
 

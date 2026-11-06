@@ -30,13 +30,7 @@ impl Launcher {
         crate::ui::toggle_row(
             "dev-offline",
             tr("Offline names without an account"),
-            Some(
-                tr(
-                    "Offline names play without a Microsoft account that owns the game. \
-                     Minecraft still comes from your own install.",
-                )
-                .into(),
-            ),
+            Some(tr("Minecraft still comes from your own install.").into()),
             self.settings.dev_offline,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

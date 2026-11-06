@@ -444,8 +444,7 @@ impl Launcher {
         let result = saved.map(|s| match s {
             Ok(Some(what)) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
                 .child(trf("Saved: the next Play {what}.", &[("what", &what)])),
-            Ok(None) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-                .child(tr("Saved: nothing runs around the game.")),
+            Ok(None) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(tr("Saved.")),
             Err(e) => ui::error_note(e),
         });
         let close = ui::icon_button(

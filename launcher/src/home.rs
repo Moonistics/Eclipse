@@ -1,5 +1,5 @@
-//! Home: the page (its head, the steps under Play while the game files are prepared, its panels
-//! and tabs, the crash notice) and the time a download has left.
+//! Home: the page (its head, the steps under Play while the game files are prepared, the crash
+//! notice, its panels and tabs) and the time a download has left.
 use super::*;
 use crate::game_run::GameProblem;
 use crate::ui::{self, Tone};
@@ -105,6 +105,19 @@ pub(super) fn getting_ready_preview() -> bool {
         .get_or_init(|| std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("getting-ready"))
 }
 
+fn crash_preview() -> Option<Crash> {
+    static PREVIEW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    PREVIEW
+        .get_or_init(|| std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("crash"))
+        .then(|| Crash {
+            report: Some(
+                backend::game_home().join("crash-reports/crash-2026-11-06_20.14.03-client.txt"),
+            ),
+            summary: "java.lang.IllegalStateException: Rendersystem called from wrong thread"
+                .into(),
+        })
+}
+
 /// The download under way, files done of how many.
 fn download_progress() -> Option<(usize, usize)> {
     eclipse_launcher::mojang::progress().or_else(|| getting_ready_preview().then_some((1754, 5160)))
@@ -163,14 +176,12 @@ impl Launcher {
         if let Some(problem) = self.shown_game_problem().cloned() {
             page = page.child(self.game_problem(problem, cx));
         }
-        page = page
-            .children(self.export_panel(cx))
-            .children(self.launch_panel(cx))
-            .child(self.home_tab_card(cx));
-        if let Some(crash) = self.shown_crash().cloned() {
+        if let Some(crash) = self.shown_crash().cloned().or_else(crash_preview) {
             page = page.child(self.crash_notice(crash, cx));
         }
-        page
+        page.children(self.export_panel(cx))
+            .children(self.launch_panel(cx))
+            .child(self.home_tab_card(cx))
     }
 
     fn prepare_failed(&self, error: &str, version: &str, cx: &mut Context<Self>) -> Stateful<Div> {
@@ -308,7 +319,7 @@ impl Launcher {
     fn sign_in_to_play_state(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let cause = match account::client_id() {
             Some(_) => format!("{}.", tr(account::NEEDS_OWNER)),
-            None => tr(account::NOT_CONFIGURED).into(),
+            None => tr("Vanilla and modded instances need Microsoft sign-in, which this copy of the launcher doesn't have yet.").into(),
         };
         let sign_in = self.can_sign_in().then(|| {
             microsoft::white_button("play-sign-in-microsoft").on_press(cx.listener(
@@ -441,113 +452,66 @@ impl Launcher {
         )
     }
 
-    /// "Eclipse crashed": the report and the logs, and where to report it.
+    /// "Eclipse crashed": play again, the report and the logs, and the details to report it.
     pub(super) fn crash_notice(&self, crash: Crash, cx: &mut Context<Self>) -> Div {
-        use eclipse_theme::glass::{ink, pixel_text, step};
-        let mut actions = div()
-            .flex()
-            .flex_wrap()
-            .gap(px(space::SM))
-            .mt(px(space::MD));
-        if let Some(report) = crash.report.clone() {
-            let open = report.clone();
-            actions = actions
-                .child(
-                    ui::button(
-                        "crash-open",
-                        None,
-                        tr("Open report"),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
-                    )
-                    .on_press(move |_, _, cx| crate::toast::open(cx, &open)),
-                )
-                .child(
-                    ui::button(
-                        "crash-copy",
-                        Some("copy-01"),
-                        tr(if crash.copied {
-                            "Copied"
-                        } else {
-                            "Copy report"
-                        }),
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Md,
-                    )
-                    .on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
-                            if let Ok(text) = std::fs::read_to_string(&report) {
-                                clipboard::copy_to_clipboard(
-                                    cx,
-                                    gpui::ClipboardItem::new_string(text),
-                                );
-                                if let Some(c) = &mut this.game.crash {
-                                    c.copied = true;
-                                }
-                            }
-                            cx.notify();
-                        },
-                    )),
-                );
-        }
-        actions = actions.child(ui::open_folder_button(
+        let title = tr(
+            if self.selected_instance().is_some_and(|i| i.java.is_some()) {
+                "Minecraft crashed"
+            } else {
+                "Eclipse crashed"
+            },
+        );
+        let cause = match &crash.report {
+            Some(_) => ui::told_cause(&crash.summary),
+            None => tr("The game ended without a crash report.").to_string(),
+        };
+        let details = [crash.summary.clone()]
+            .into_iter()
+            .chain(crash.report.as_deref().map(short))
+            .filter(|line| !line.is_empty())
+            .collect::<Vec<_>>()
+            .join("\n");
+        let again = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.game.crash = None;
+            this.press_play();
+            cx.notify();
+        });
+        let open = crash.report.clone().map(|report| {
+            ui::button(
+                "crash-open",
+                None,
+                tr("Open report"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(move |_, _, cx| crate::toast::open(cx, &report))
+        });
+        let logs = ui::open_folder_button(
             "crash-logs",
             tr("Open logs folder"),
             backend::logs_dir(),
             ui::ButtonSize::Md,
-        ));
-        actions = actions.child(
-            ui::button(
-                "crash-dismiss",
-                None,
-                tr("Dismiss"),
-                ButtonKind::Ghost,
-                ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.game.crash = None;
-                cx.notify();
-            })),
         );
-        let help = crash
-            .report
-            .is_none()
-            .then(|| tr("The game ended without a crash report."));
-        let mut body = div()
-            .id("crash")
-            .flex()
-            .flex_col()
-            .gap(px(space::XS))
-            .child(
-                div()
-                    .flex()
-                    .items_center()
-                    .gap(px(space::MD))
-                    .child(ui::icon("alert-circle", ui::IconSize::Px16, ui::danger()))
-                    .child(ui::entity_title(
-                        tr(
-                            if self.selected_instance().is_some_and(|i| i.java.is_some()) {
-                                "Minecraft crashed"
-                            } else {
-                                "Eclipse crashed"
-                            },
-                        ),
-                        pixel_text::CARD_TITLE,
-                    )),
-            );
-        if !crash.summary.is_empty() {
-            body = body
-                .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(crash.summary));
-        }
-        if let Some(report) = &crash.report {
-            body = body.child(
-                ui::mono(step::CAPTION, ink::MUTED)
-                    .truncate()
-                    .child(short(report)),
-            );
-        }
-        body = body.child(actions).children(help.map(ui::card_note));
-        ui::card().p(px(ui::CARD_PADDING)).child(body)
+        let dismiss = ui::button(
+            "crash-dismiss",
+            None,
+            tr("Dismiss"),
+            ButtonKind::Ghost,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.game.crash = None;
+            cx.notify();
+        }));
+        ui::empty_card(ui::error_state_told(
+            "crash",
+            title,
+            cause,
+            &details,
+            again,
+            open.into_iter().chain([logs, dismiss]).collect(),
+            ButtonKind::Secondary,
+        ))
     }
 }
 

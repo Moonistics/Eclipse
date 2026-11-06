@@ -210,7 +210,6 @@ struct Crash {
     report: Option<std::path::PathBuf>,
     /// One line on what went wrong: the report's error, else how the process ended.
     summary: String,
-    copied: bool,
 }
 
 enum Load<T> {

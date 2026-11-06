@@ -298,9 +298,7 @@ impl Launcher {
             Some(e) => self.mods_switch(e),
             None => {
                 let home = self.mods.home();
-                self.mods.message = java_instance::set_file_on(&home, &row.file, !row.on)
-                    .err()
-                    .map(Err);
+                self.mods.failed = java_instance::set_file_on(&home, &row.file, !row.on).err();
                 self.instance_mods.invalidate();
             }
         }

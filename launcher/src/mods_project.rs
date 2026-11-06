@@ -418,9 +418,10 @@ impl Launcher {
                     (format!("mods-version-{v}"), v.clone(), on)
                 })
                 .collect();
+            let side = ui::IconSize::Px16.px();
             let grass = self
-                .grass_mark(20.)
-                .map(|grass| img(grass).size(px(20.)).flex_none().into_any_element());
+                .grass_mark(side)
+                .map(|grass| img(grass).size(px(side)).flex_none().into_any_element());
             self.filter_row(
                 "mods-versions",
                 tr("Game version"),
@@ -724,7 +725,12 @@ impl Launcher {
         };
         let mut action = div().flex().flex_none().items_center().gap(px(space::MD));
         if busy.as_ref().is_some_and(|b| b.installs(&p.id)) {
-            action = action.child(state(ui::Tone::Busy, tr("Installing…").to_string()));
+            action = action.child(ui::disabled(ui::primary(
+                "mods-page-install",
+                Some("download-04"),
+                tr("Installing…"),
+                ui::ButtonSize::Md,
+            )));
         } else if installed {
             action = action.child(state(
                 ui::Tone::Live,
@@ -914,7 +920,7 @@ impl Launcher {
         );
         let failed = |e: &str, cx: &mut Context<Self>| {
             let again = p.clone();
-            ui::error_state(
+            ui::error_state_with(
                 "mods-project-failed",
                 tr("Couldn't load the page"),
                 e,
@@ -922,6 +928,8 @@ impl Launcher {
                     this.mods_open(again.clone());
                     cx.notify();
                 }),
+                Vec::new(),
+                ButtonKind::Secondary,
             )
             .into_any_element()
         };

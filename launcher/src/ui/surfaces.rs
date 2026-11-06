@@ -629,18 +629,23 @@ pub fn field_group(
         .flex()
         .flex_col()
         .flex_none()
-        .child(
-            div()
-                .flex()
-                .items_center()
-                .justify_between()
-                .gap(px(space::LG))
-                .h(px(ButtonSize::Md.height()))
-                .mb(px(space::MD))
-                .child(section_title(id, title))
-                .children(aside),
-        )
+        .child(group_head(id, title, aside).mb(px(space::MD)))
         .child(div().relative().child(body))
+}
+
+pub fn group_head(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    aside: Option<AnyElement>,
+) -> Div {
+    div()
+        .flex()
+        .items_center()
+        .justify_between()
+        .gap(px(space::LG))
+        .h(px(ButtonSize::Md.height()))
+        .child(section_title(id, title))
+        .children(aside)
 }
 
 pub fn labelled_field(label: impl Into<SharedString>, field: impl IntoElement) -> Div {
@@ -669,18 +674,14 @@ pub fn section_card(
         .child(field_group(format!("{id}-title"), title, aside, body))
 }
 
-pub fn setting_card(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
-    let id: SharedString = id.into();
+pub fn setting_card(id: impl Into<SharedString>, name: impl Into<SharedString>) -> Stateful<Div> {
     card()
-        .id(id.clone())
+        .id(id.into())
+        .role(Role::Group)
+        .aria_label(name.into())
         .flex()
         .flex_col()
         .p(px(super::LIST_INSET))
-        .child(
-            section_title(format!("{id}-title"), title)
-                .px(px(super::SETTING_ROW_PADDING))
-                .pt(px(super::SETTING_ROW_PADDING)),
-        )
 }
 
 pub fn list_box(id: impl Into<SharedString>, max: f32) -> Stateful<Div> {

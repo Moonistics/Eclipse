@@ -31,7 +31,7 @@ impl Launcher {
         });
         let native = self.local_builds(
             "versions-native",
-            tr("Native mod builds").into(),
+            tr("Builds with mods").into(),
             &native_mods::is_native,
             None,
             on_disk,

@@ -175,7 +175,7 @@ impl Launcher {
         )
     }
 
-    /// A world's ⋯ menu: Back up, Duplicate world, its data packs, Open world folder, then
+    /// A world's ⋯ menu: Back up world, Duplicate world, its data packs, Open world folder, then
     /// Delete… (then asked to confirm).
     fn world_menu(&mut self, w: &World, cx: &mut Context<Self>) -> Stateful<Div> {
         let key = SharedString::from(format!("world-{}", w.folder));
@@ -190,7 +190,7 @@ impl Launcher {
         let packs_label = if self.world_packs_open(w) {
             tr("Hide data packs")
         } else {
-            tr("Data packs")
+            tr("Show data packs")
         };
         let delete = if confirming {
             ui::menu_confirm(
@@ -219,11 +219,15 @@ impl Launcher {
             cx,
         )
         .child(
-            ui::menu_row("world-menu-backup", "download-04", tr("Back up"), false).on_press(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    act(this, Action::Backup, &backup, cx)
-                }),
-            ),
+            ui::menu_row(
+                "world-menu-backup",
+                "download-04",
+                tr("Back up world"),
+                false,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                act(this, Action::Backup, &backup, cx)
+            })),
         )
         .child(
             ui::menu_row(

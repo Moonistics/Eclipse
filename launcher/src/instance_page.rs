@@ -1,4 +1,4 @@
-//! The New instance page: what the instance plays, its name and group, its version and its icon
+//! The New instance page: its name and group, what the instance plays, its version and its icon
 //! in cards; at the foot the instance as it will be, with Cancel and Create.
 use super::*;
 use crate::ui;
@@ -95,6 +95,7 @@ impl Launcher {
             None => None,
         };
         let mut cards: Vec<AnyElement> = Vec::new();
+        cards.push(self.name_and_group(editing.as_ref(), cx).into_any_element());
         cards.push(
             self.kind_choice(editing.as_ref(), kind, cx)
                 .into_any_element(),
@@ -108,7 +109,6 @@ impl Launcher {
             self.load_versions(cx);
             cards.push(self.minecraft_versions(cx).into_any_element());
         }
-        cards.push(self.name_and_group(editing.as_ref(), cx).into_any_element());
         cards.push(
             self.icon_choice(editing.as_ref(), kind, cx)
                 .into_any_element(),
@@ -519,10 +519,10 @@ impl Launcher {
         };
         let compact = self.instance_page_compact();
         let icon = (!compact).then(|| self.draft_icon(editing, kind, &name, size));
-        let (button, title) = if compact {
-            (ui::ButtonSize::Md, pixel_text::PRESS)
+        let button = if compact {
+            ui::ButtonSize::Md
         } else {
-            (ui::ButtonSize::Lg, pixel_text::CARD_TITLE)
+            ui::ButtonSize::Lg
         };
         let cancel = ui::button(
             "instance-cancel",
@@ -538,6 +538,7 @@ impl Launcher {
             (false, _) => tr("Create instance"),
         };
         let creates = editing.is_none() && !duplicate;
+        let unchanged = editing.is_some() && !self.draft_changed();
         let save = ui::primary(
             "instance-save",
             creates.then_some("plus-sign"),
@@ -548,18 +549,26 @@ impl Launcher {
             .relative()
             .flex()
             .flex_col()
-            .flex_1()
+            .flex_auto()
             .min_w_0()
             .gap(px(space::XS))
-            .child(ui::entity_title(name, title).truncate())
+            .child(ui::entity_title(name, pixel_text::PRESS))
             // Why Create failed takes the summary's place, by the buttons.
             .children(match error {
                 Some(e) => Some(ui::error_note(e)),
-                None => (!summary.is_empty()).then(|| ui::card_note(summary).truncate()),
+                None => (!summary.is_empty())
+                    .then(|| ui::card_note(summary).truncate().w_0().min_w_full()),
             });
+        let lead = div()
+            .flex()
+            .flex_auto()
+            .max_w_full()
+            .items_center()
+            .gap(px(space::LG));
         let row = div()
             .relative()
             .flex()
+            .flex_wrap()
             .items_center()
             .gap(px(space::LG))
             .min_h(px(button.height()));
@@ -577,21 +586,21 @@ impl Launcher {
                     cx.notify();
                 }),
             );
-            let same_height = named.invisible();
-            let row = row
+            let same_height = lead
+                .invisible()
                 .children(icon.map(|_| div().flex_none().size(px(size))))
-                .child(same_height)
-                .child(
-                    div()
-                        .absolute()
-                        .top_0()
-                        .bottom_0()
-                        .left_0()
-                        .right_0()
-                        .flex()
-                        .items_center()
-                        .child(asking.flex_1()),
-                );
+                .child(named);
+            let row = row.child(same_height).child(
+                div()
+                    .absolute()
+                    .top_0()
+                    .bottom_0()
+                    .left_0()
+                    .right_0()
+                    .flex()
+                    .items_center()
+                    .child(asking.flex_1()),
+            );
             return foot(switching, row);
         }
         let buttons = if busy {
@@ -610,12 +619,16 @@ impl Launcher {
                     this.close_instance_page();
                     cx.notify();
                 })))
-                .child(save.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.save_instance(cx);
-                    cx.notify();
-                })))
+                .child(if unchanged {
+                    ui::unavailable(save, tr("Nothing changed yet"))
+                } else {
+                    save.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.save_instance(cx);
+                        cx.notify();
+                    }))
+                })
         };
-        let row = row
+        let lead = lead
             .children(icon.map(|icon| {
                 ui::picture_button("instance-preview-icon", icon, tr("Choose image…")).on_press(
                     cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -623,8 +636,10 @@ impl Launcher {
                     }),
                 )
             }))
-            .child(named)
-            .child(buttons.relative().flex_none());
+            .child(named);
+        let row = row
+            .child(lead)
+            .child(buttons.relative().flex_none().ml_auto());
         foot(switching, row)
     }
 
@@ -641,23 +656,32 @@ impl Launcher {
             .map(|(i, tag)| {
                 let newest = i == 0;
                 let on = chosen.as_ref() == Some(tag);
-                let date = eclipse_launcher::nightly::date_of(tag).map(|d| dates::published(d, ""));
                 let label = eclipse_launcher::nightly::display_name(tag);
                 let row = ui::list_choice(format!("eclipse-version-{tag}"), on)
                     .py(px(space::MD))
                     .child(
-                        ui::item_text(label.clone(), date.unwrap_or_default())
-                            .flex_none()
-                            .w(px(layout::FIELD_MD)),
+                        ui::text(
+                            eclipse_theme::glass::step::LEAD,
+                            FontWeight::SEMIBOLD,
+                            ink::FULL,
+                        )
+                        .flex_none()
+                        .w(px(layout::FIELD_MD))
+                        .truncate()
+                        .child(label.clone()),
                     )
-                    .children(newest.then(|| {
+                    .child(
                         ui::text(
                             eclipse_theme::glass::step::NOTE,
                             FontWeight::NORMAL,
                             ink::FULL,
                         )
-                        .child(ui::state_line(ui::Tone::Accent(soft), tr("Newest")))
-                    }))
+                        .flex_1()
+                        .min_w_0()
+                        .children(
+                            newest.then(|| ui::state_line(ui::Tone::Accent(soft), tr("Newest"))),
+                        ),
+                    )
                     .child(ui::tick_slot(on));
                 (row, SharedString::from(label), on)
             })
@@ -739,17 +763,12 @@ impl Launcher {
         let mut first: Vec<(Stateful<Div>, SharedString, bool, IconPick)> = Vec::new();
         if file_picture || has_saved_picture {
             let picture_img = match &d_picture {
-                Some(Some(chosen)) => {
-                    use std::hash::{Hash, Hasher};
-                    let mut h = std::collections::hash_map::DefaultHasher::new();
-                    chosen.png.hash(&mut h);
-                    self.icon_image(
-                        format!("chosen:{:x}", h.finish()),
-                        CHOICE_ICON,
-                        false,
-                        || Some(chosen.png.clone()),
-                    )
-                }
+                Some(Some(chosen)) => self.icon_image(
+                    format!("chosen:{:x}", instance_state::picture_key(&chosen.png)),
+                    CHOICE_ICON,
+                    false,
+                    || Some(chosen.png.clone()),
+                ),
                 _ => editing.and_then(|i| self.instance_picture(i, CHOICE_ICON)),
             };
             let picture_active = (file_picture || own_picture) && icon.is_none();
@@ -770,8 +789,14 @@ impl Launcher {
             }
         }
         let loader = self.draft_loader();
+        let auto_mark = Self::auto_mark(kind, loader);
+        let auto_logo = match &auto_mark {
+            instance_icons::Mark::Grass => Some("grass"),
+            instance_icons::Mark::Loader(id) => Some(id.as_str()),
+            instance_icons::Mark::Eclipse => None,
+        };
         let auto = self
-            .mark(&Self::auto_mark(kind, loader), CHOICE_ICON)
+            .mark(&auto_mark, CHOICE_ICON)
             .unwrap_or_else(|| div().into_any_element());
         let auto_on = !pictured && icon.is_none();
         first.push((
@@ -788,6 +813,7 @@ impl Launcher {
                 logos.push((id, png.to_vec()));
             }
         }
+        logos.retain(|(id, _)| Some(*id) != auto_logo || logo == Some(*id));
         for (id, png) in logos {
             let shown = match id {
                 "grass" => {
@@ -845,11 +871,14 @@ impl Launcher {
             })
             .collect();
         let picker = |id: &'static str,
+                      name: &'static str,
                       choices: Vec<(Stateful<Div>, SharedString, bool, IconPick)>,
                       cx: &mut Context<Self>| {
             let (rows, picks): (Vec<_>, Vec<_>) = choices
                 .into_iter()
-                .map(|(row, label, on, pick)| ((row, label, on), pick))
+                .map(|(row, label, on, pick)| {
+                    ((row.tooltip(ui::tip(label.clone())), label, on), pick)
+                })
                 .unzip();
             let pick = cx.listener(move |this, i: &usize, _, cx| {
                 if let Some(pick) = picks.get(*i) {
@@ -858,14 +887,14 @@ impl Launcher {
             });
             ui::options(
                 div().id(id).flex().flex_wrap().gap(px(space::SM)),
-                tr("Icon"),
+                name,
                 rows,
                 false,
                 move |i, window, cx| pick(&i, window, cx),
             )
         };
-        let first = picker("instance-icons", first, cx);
-        let colours = picker("instance-colours", colours, cx);
+        let first = picker("instance-icons", tr("Icon"), first, cx);
+        let colours = picker("instance-colours", tr("Icon colour"), colours, cx);
         let choose = ui::button(
             "instance-picture",
             Some("folder-01"),

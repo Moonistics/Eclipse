@@ -29,17 +29,22 @@ const WORLD_LIST: f32 = 232.;
 const WORLD_THUMB: (f32, f32) = (64., 40.);
 
 /// Each game mode's line under its name.
-const MODE_NOTES: [(&str, &str); 3] = [
-    ("survival", "Gather, build and stay alive"),
-    ("creative", "Fly and build with every block"),
-    ("adventure", "Play a map the way it was made"),
-];
+fn mode_note(mode: GameMode) -> &'static str {
+    match mode {
+        GameMode::Survival => tr("Gather, build and stay alive"),
+        GameMode::Creative => tr("Fly and build with every block"),
+        GameMode::Adventure => tr("Play a map the way it was made"),
+    }
+}
 
-fn mode_note(mode: &str) -> &'static str {
-    MODE_NOTES
-        .iter()
-        .find(|(id, _)| *id == mode)
-        .map_or("", |(_, note)| note)
+fn mode_cover(mode: GameMode) -> Arc<gpui::Image> {
+    let [village, underwater, nether] = &*COVERS;
+    match mode {
+        GameMode::Survival => village,
+        GameMode::Creative => underwater,
+        GameMode::Adventure => nether,
+    }
+    .clone()
 }
 
 /// A player name Minecraft accepts: 3 to 16 letters, digits or underscores.
@@ -110,7 +115,7 @@ impl Launcher {
                 .map_or(String::new(), |(_, l)| tr(l).to_string())
         };
         let rules = [
-            label(&MODES, c.mode),
+            c.mode.label().to_string(),
             label(&DIFFICULTIES, c.difficulty),
             trf(
                 "up to {max} players",
@@ -147,13 +152,10 @@ impl Launcher {
                 .size_full()
                 .object_fit(gpui::ObjectFit::Cover)
                 .into_any_element(),
-            None => {
-                let i = MODES.iter().position(|(v, _)| *v == c.mode).unwrap_or(0);
-                img(COVERS[i].clone())
-                    .size_full()
-                    .object_fit(gpui::ObjectFit::Cover)
-                    .into_any_element()
-            }
+            None => img(mode_cover(c.mode))
+                .size_full()
+                .object_fit(gpui::ObjectFit::Cover)
+                .into_any_element(),
         };
         div()
             .id("create-aside")
@@ -332,16 +334,18 @@ impl Launcher {
         );
 
         // The game mode, three cards.
-        let mode_cards = MODES
-            .iter()
-            .map(|&(id, label)| {
-                let card =
-                    ui::choice_card(SharedString::from(format!("create-mode-{id}")), mode == id)
-                        .flex_1()
-                        .min_w_0()
-                        .p(px(space::LG))
-                        .child(ui::item_text(tr(label), tr(mode_note(id)).to_string()));
-                (card, SharedString::from(tr(label)), mode == id)
+        let mode_cards = GameMode::ALL
+            .into_iter()
+            .map(|m| {
+                let card = ui::choice_card(
+                    SharedString::from(format!("create-mode-{}", m.id())),
+                    mode == m,
+                )
+                .flex_1()
+                .min_w_0()
+                .p(px(space::LG))
+                .child(ui::item_text(m.label(), mode_note(m).to_string()));
+                (card, SharedString::from(m.label()), mode == m)
             })
             .collect();
         let this = cx.entity().downgrade();
@@ -353,7 +357,7 @@ impl Launcher {
             move |i, _, cx| {
                 let _ = this.update(cx, |this, cx| {
                     if let Some(c) = &mut this.servers.create {
-                        c.mode = MODES[i].0;
+                        c.mode = GameMode::ALL[i];
                     }
                     cx.notify();
                 });
@@ -517,11 +521,16 @@ impl Launcher {
 
     fn create_needs(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let need = self.server_needs()?;
-        let installing = self.install_bar().filter(|_| need == Needs::Eclipse);
-        let action = if let Some(bar) = installing {
+        let game_files = matches!(need, Needs::GameFiles { .. });
+        let busy = match need {
+            Needs::Eclipse => self.install_bar(),
+            Needs::GameFiles { .. } => self.servers_preparing(),
+            Needs::ServerProgram { .. } => None,
+        };
+        let action = if let Some(bar) = busy {
             bar.into_any_element()
         } else {
-            self.server_need_button("create", need, ButtonKind::Secondary, cx)
+            self.server_need_button("create", need.clone(), ButtonKind::Secondary, cx)
                 .into_any_element()
         };
         let failed = self
@@ -538,6 +547,16 @@ impl Launcher {
                     None,
                     Vec::new(),
                 )
+            })
+            .or_else(|| {
+                let e = self.shown_prepare_error().filter(|_| game_files)?;
+                Some(ui::error_line_for(
+                    "create-prepare-failed",
+                    tr("Couldn't set up the game"),
+                    e,
+                    None,
+                    Vec::new(),
+                ))
             });
         Some(
             div()
