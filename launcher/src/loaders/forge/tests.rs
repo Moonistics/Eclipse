@@ -3,9 +3,9 @@
 use super::*;
 use crate::loaders::pick;
 
-const METADATA: &str = include_str!("../../tests/fixtures/loaders/forge-maven-metadata.xml");
-const PROMOTIONS: &str = include_str!("../../tests/fixtures/loaders/forge-promotions_slim.json");
-const NEOFORGE: &str = include_str!("../../tests/fixtures/loaders/neoforge-versions.json");
+const METADATA: &str = include_str!("../../../tests/fixtures/loaders/forge-maven-metadata.xml");
+const PROMOTIONS: &str = include_str!("../../../tests/fixtures/loaders/forge-promotions_slim.json");
+const NEOFORGE: &str = include_str!("../../../tests/fixtures/loaders/neoforge-versions.json");
 
 fn versions_of(listed: &[Listed]) -> Vec<(&str, bool)> {
     listed

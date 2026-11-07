@@ -732,13 +732,16 @@ fn linux_needs(ok: impl Fn(&str, &[&str]) -> bool, os: &str, full: bool) -> Resu
     };
     // NixOS keeps every package in the store, where pkg-config finds them only inside a shell that
     // lists them (`nix-shell`, or `nix develop`); installing them in `environment.systemPackages`
-    // changes nothing for a build started from the desktop (#5248). Its shell is the launcher's
-    // `shell.nix`, so point at that rather than at a package manager that would not help.
+    // changes nothing for a build started from the desktop (#5248).
+    let nix_packages = if full {
+        "gcc pkg-config alsa-lib udev"
+    } else {
+        "gcc"
+    };
     let how = match command {
-        _ if id == "nixos" => {
-            "On NixOS they are only visible inside a shell that provides them: run `nix-shell` in the launcher's folder (its shell.nix has these packages), then build again."
-                .to_owned()
-        }
+        _ if id == "nixos" => format!(
+            "On NixOS they are only visible inside a shell that provides them: start the launcher from `nix-shell -p {nix_packages}`, then build again."
+        ),
         _ if id == "steamos" => "SteamOS ships without them and its system is read-only, so native mods can't be built on it yet.".to_owned(),
         Some(command) => format!("Install them in a terminal, then build again:\n{command}"),
         None => format!("Install them with your distribution's package manager, then build again (on Debian, Ubuntu or Mint: {apt})."),
@@ -1323,7 +1326,10 @@ mod tests {
         );
         // NixOS's packages are in the store: a shell that lists them is the only way in (#5248).
         let nixos = linux_needs(nothing, "NAME=NixOS\nID=nixos\n", true).unwrap_err();
-        assert!(nixos.contains("nix-shell"), "{nixos}");
+        assert!(
+            nixos.contains("nix-shell -p gcc pkg-config alsa-lib udev"),
+            "{nixos}"
+        );
         assert!(
             nixos.contains("lacks them: a C compiler (cc), pkg-config"),
             "{nixos}"

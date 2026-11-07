@@ -25,7 +25,7 @@ const CTL: &str = if cfg!(windows) {
 
 /// The control endpoint of a game started by `play`: a Unix socket, or on Windows the
 /// file naming a localhost port and its token.
-pub fn socket_path() -> PathBuf {
+fn socket_path() -> PathBuf {
     backend::data_dir().join(if cfg!(unix) {
         "game-control.sock"
     } else {

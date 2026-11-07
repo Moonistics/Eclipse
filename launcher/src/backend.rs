@@ -40,7 +40,9 @@ pub use game_output::{
     crash_report_since, crash_summary, latest_log_in, logs_dir, logs_dir_in, read_logs,
     switch_from_auto, vulkan_crash_fallback, vulkan_start_crashed, GAME_FIRST_FRAME,
 };
-pub use jobs::{prepare_command, spawn, Ended, Logged, Output, Running, RuntimeGuard, LOG_KEEP};
+pub use jobs::{
+    prepare_command, spawn, Ended, Logged, Output, Running, RuntimeGuard, Stream, LOG_KEEP,
+};
 pub use links::{links, Links};
 pub use minecraft::{default_minecraft_dir, minecraft_dir};
 pub(crate) use net::{agent, agent_within, get, rate_limited, request};
@@ -51,13 +53,10 @@ pub(crate) use platform::{pe_machine, CLIENT, GAME_APP, PE_ARM64, PE_X64};
 #[cfg(test)]
 use play::client_command;
 pub use play::{
-    agree_eula, game_args, join_friend, launch, need_prepared, no_ai, server, server_command,
-    server_dir, set_no_ai, split_args, Launched, Play, PlayError, SIGN_IN_HINT,
+    agree_eula, join_friend, launch, need_prepared, no_ai, server, server_command, server_dir,
+    set_no_ai, split_args, Launched, Play, PlayError, SIGN_IN_HINT,
 };
-pub use prepare::{
-    prepare_in_process, prepare_step, preparer, set_prepare_step, sounds, MinecraftFrom,
-    PrepareStep, Preparer,
-};
+pub use prepare::{prepare, MinecraftFrom, PrepareStep, Preparing};
 pub use releases::{
     compare_versions, is_game_tag, is_release_or_nightly, latest, launcher_version,
     markdown_to_text, newest_release_or_nightly, release_notes, releases, Release, CHECK_EVERY,
@@ -77,10 +76,9 @@ pub use self_update::{
 pub use settings::{Appearance, NativeProfile, Settings, WhilePlaying};
 pub use updates::{check_updates, releases_and_updates, Updates};
 pub use versions::{
-    after_install, disk_use, followed_version, game_mod_api_level, game_version, install,
-    install_selects, install_tag, installed, mod_api_level, nightly_downgrade,
-    no_version_installed, prune_old_versions, remove, remove_version, resolve_version,
-    select_after_update, update_selects, InstallWhy,
+    after_install, disk_use, followed_version, game_version, install, install_selects, install_tag,
+    installed, mod_api_level, nightly_downgrade, no_version_installed, prune_old_versions, remove,
+    remove_version, resolve_version, select_after_update, update_selects, InstallWhy,
 };
 pub(crate) use versions::{
     copy_version_except, download, installed_at, is_installed, mark_installed, needed_versions,

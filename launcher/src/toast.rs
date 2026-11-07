@@ -4,12 +4,16 @@
 //! Any handler can say something, even one with only `&mut App`: the line waits here and the
 //! launcher's drain (every 80 ms) draws it, then lets it go.
 
-use super::*;
-use crate::ui::{self, ink};
+use crate::ui::{self, ink, ButtonKind, Press};
+use crate::{short, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_theme::glass::{ink, space};
+use gpui::prelude::*;
+use gpui::{px, AnimationExt, App, Div, ElementId, FontWeight};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 /// How long a line stays.
 const SHOWN: Duration = Duration::from_millis(6000);

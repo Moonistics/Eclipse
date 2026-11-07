@@ -122,7 +122,7 @@ pub fn keep_focus_for(id: impl Into<SharedString>, handle: &FocusHandle) {
     KEPT.with_borrow_mut(|kept| kept.insert(id.into(), handle.clone()));
 }
 
-pub(super) fn press_handle(el: &mut Stateful<Div>, again: bool) -> Option<FocusHandle> {
+fn press_handle(el: &mut Stateful<Div>, again: bool) -> Option<FocusHandle> {
     let id = element_name(el)?;
     if let Some(kept) = KEPT.with_borrow(|kept| kept.get(&id).cloned()) {
         return Some(kept);
@@ -145,11 +145,7 @@ pub(super) fn press_handle(el: &mut Stateful<Div>, again: bool) -> Option<FocusH
     })
 }
 
-pub(super) fn ring_while_focused(
-    el: Stateful<Div>,
-    handle: &FocusHandle,
-    filled: bool,
-) -> Stateful<Div> {
+fn ring_while_focused(el: Stateful<Div>, handle: &FocusHandle, filled: bool) -> Stateful<Div> {
     if !keyboard_focus(handle) {
         return el;
     }
@@ -888,7 +884,7 @@ fn first_row(menu: &FocusHandle, window: &mut Window, cx: &mut App) {
     window.focus_next(cx);
 }
 
-pub(super) fn modal_focus(id: &SharedString) -> FocusHandle {
+fn modal_focus(id: &SharedString) -> FocusHandle {
     focus_for(format!("modal-{id}"))
 }
 

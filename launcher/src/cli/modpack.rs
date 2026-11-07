@@ -31,7 +31,11 @@ pub(super) enum ModpackCmd {
     Remove { pack: String },
 }
 
-pub(super) fn modpack(action: ModpackCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn modpack(
+    action: ModpackCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::browser::eclipse;
     use eclipse_launcher::modpacks::{self, Imported};
     use eclipse_port_pack::report::Status;
@@ -101,7 +105,7 @@ pub(super) fn modpack(action: ModpackCmd, as_json: bool) -> Result<(), String> {
             from,
             version,
         } => {
-            let tag = backend::resolve_version(version.as_deref()).ok();
+            let tag = backend::resolve_version(version.as_deref(), settings).ok();
             let resources = tag
                 .filter(|t| backend::is_prepared(t))
                 .map(|t| backend::resources(&t));
@@ -118,10 +122,13 @@ pub(super) fn modpack(action: ModpackCmd, as_json: bool) -> Result<(), String> {
                 .into_iter()
                 .find(|i| i.work == work)
                 .ok_or_else(|| format!("{} is not an installed modpack.", work.display()))?;
-            super::play::launch(backend::Play {
-                version,
-                ..backend::Play::of(instance)
-            })?
+            super::play::launch(
+                backend::Play {
+                    version,
+                    ..backend::Play::of(instance)
+                },
+                settings,
+            )?
         }
         ModpackCmd::Remove { pack } => modpacks::remove(&work(&pack)?)?,
     }

@@ -231,7 +231,7 @@ Modrinth asks.
 CurseForge support is coming soon. Its API (`api.curseforge.com/v1`) needs a paid key, so for now the launcher
 doesn't use it: the Mods page shows **CurseForge (coming soon)** beside the Modrinth switch, disabled, and no search
 or install goes to CurseForge (`browser::sources()` is Modrinth only; `eclipse-launcher mods ... --source curseforge`
-says it is coming soon). The CurseForge source (`browser/curseforge.rs`) is kept for when it comes.
+says it is coming soon).
 
 A CurseForge modpack zip or instance the player already has still imports, since that needs no key: its jars come
 from the player's installed instance or, when Modrinth has the same file, from Modrinth. A jar only CurseForge serves

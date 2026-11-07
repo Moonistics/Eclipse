@@ -165,5 +165,4 @@ pub fn unshare(shared: &Shared) -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "game_log/tests.rs"]
 mod tests;

@@ -26,7 +26,7 @@ impl Source for Fake {
             .cloned()
             .ok_or_else(|| "not found".into())
     }
-    fn versions(&self, p: &Project) -> Result<Vec<Version>, String> {
+    fn versions(&self, p: &Project, _level: Option<u32>) -> Result<Vec<Version>, String> {
         Ok(self.versions.get(&p.id).cloned().unwrap_or_default())
     }
     fn fetch(
@@ -234,7 +234,7 @@ fn installs_jars_with_dependencies_then_updates_and_removes() {
     let entry = Installed::load(&home).lookup("map").cloned().unwrap();
     assert_eq!(
         Game::Java(t.clone())
-            .update_for(&fake, &entry)
+            .update_for(&fake, &entry, None)
             .unwrap()
             .unwrap()
             .number,
@@ -258,7 +258,7 @@ fn installs_jars_with_dependencies_then_updates_and_removes() {
     let entry = Installed::load(&home).lookup("map").cloned().unwrap();
     assert!(!is_on(&home, &entry));
     assert!(Game::Java(t.clone())
-        .update_for(&fake, &entry)
+        .update_for(&fake, &entry, None)
         .unwrap()
         .is_none());
     install(&fake, &t, &map, &home, NONE).unwrap();

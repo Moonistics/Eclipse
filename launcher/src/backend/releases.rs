@@ -8,7 +8,7 @@ use super::REPO;
 /// newer than every one of those ([`release_order`]).
 const LAUNCHER_TAG_PREFIX: &str = "launcher@";
 /// The launcher tags from before 0.2 (`launcher-v0.16.0`).
-pub(crate) const OLD_LAUNCHER_TAG_PREFIX: &str = "launcher-v";
+pub(super) const OLD_LAUNCHER_TAG_PREFIX: &str = "launcher-v";
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Release {
@@ -268,14 +268,14 @@ pub(super) fn is_launcher_tag(tag: &str) -> bool {
 /// Published Eclipse builds, newest first: the current Nightly (the only build Eclipse ships since
 /// 2026-10-28, docs/release-flow.md), the last week's Nightlies, then the releases from before.
 /// Drafts never reach the anonymous API, and launcher releases are left out.
-pub fn releases() -> Result<Vec<Release>, String> {
-    Ok(game_releases(&release_list()?))
+pub fn releases(settings: &Settings) -> Result<Vec<Release>, String> {
+    Ok(game_releases(&release_list()?, settings))
 }
 
 /// The game's builds in `list`, newest first. A Nightly is listed under the version it installs as
 /// (`eclipse_release_sign::nightly_version`); only the current one (`nightly`) is an update.
-pub(crate) fn game_releases(list: &serde_json::Value) -> Vec<Release> {
-    let (asset, fallback) = game_assets(&Settings::load());
+pub(crate) fn game_releases(list: &serde_json::Value, settings: &Settings) -> Vec<Release> {
+    let (asset, fallback) = game_assets(settings);
     game_releases_with(list, asset, fallback)
 }
 
@@ -378,8 +378,8 @@ pub(crate) fn installable_updates(releases: &[Release]) -> Vec<Release> {
 /// How often a launcher left open looks for new releases: they come out several times a day.
 pub const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-pub fn release_notes(tag: Option<&str>) -> Result<Release, String> {
-    let releases = releases()?;
+pub fn release_notes(tag: Option<&str>, settings: &Settings) -> Result<Release, String> {
+    let releases = releases(settings)?;
     match tag {
         Some(tag) => releases
             .into_iter()

@@ -476,5 +476,4 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
 }
 
 #[cfg(test)]
-#[path = "java_launch/tests.rs"]
 mod tests;

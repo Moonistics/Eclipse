@@ -105,7 +105,7 @@ impl NativeProfile {
     }
 }
 
-#[derive(Default, serde::Serialize, serde::Deserialize)]
+#[derive(Clone, Default, serde::Serialize, serde::Deserialize)]
 pub struct Settings {
     #[serde(rename = "selected")]
     pub default_version: Option<String>,

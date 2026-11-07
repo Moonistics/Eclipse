@@ -533,29 +533,6 @@ fn ports_taken() -> Vec<u16> {
     out
 }
 
-/// The player's worlds (the game home's `saves/`), newest first: their name and folder.
-pub fn player_worlds() -> Vec<(String, PathBuf)> {
-    let mut worlds: Vec<(std::time::SystemTime, String, PathBuf)> =
-        game_folder::worlds(&backend::game_home())
-            .into_iter()
-            .map(|path| {
-                let when = path
-                    .join(game_folder::world::LEVEL)
-                    .metadata()
-                    .and_then(|m| m.modified())
-                    .unwrap_or(std::time::UNIX_EPOCH);
-                let name = path
-                    .file_name()
-                    .unwrap_or_default()
-                    .to_string_lossy()
-                    .into_owned();
-                (when, name, path)
-            })
-            .collect();
-    worlds.sort_by_key(|w| std::cmp::Reverse(w.0));
-    worlds.into_iter().map(|(_, n, p)| (n, p)).collect()
-}
-
 /// The `eclipse-server init` arguments for a new server.
 fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
     let mut args: Vec<String> = vec!["init".into(), "--yes".into()];
@@ -764,12 +741,9 @@ pub fn set_config(dir: &Path, changes: &[(&str, String)]) -> Result<Applied, Pro
 
 /// A list file's names (`whitelist.json`, `ops.json`, `banned-players.json`), as vanilla writes them.
 pub fn names(dir: &Path, file: &str) -> Vec<String> {
-    fs::read_to_string(dir.join(file))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Vec<Value>>(&t).ok())
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|e| e["name"].as_str().map(str::to_string))
+    entries(dir, file)
+        .into_iter()
+        .map(|(name, _)| name)
         .collect()
 }
 
@@ -1005,7 +979,7 @@ pub struct Player {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Status {
     /// starting, running, stopping or restarting (stopped when nothing answers).
-    pub phase: String,
+    pub phase: Phase,
     pub uptime: Option<u64>,
     pub crashes: u64,
     pub last_crash: Option<String>,
@@ -1028,17 +1002,14 @@ pub struct Status {
 
 impl Status {
     pub fn stopped() -> Self {
-        Self {
-            phase: "stopped".into(),
-            ..Self::default()
-        }
+        Self::default()
     }
 
     pub fn parse(v: &Value) -> Self {
         let game = &v["sample"]["game"];
         let update = &v["update"];
         Self {
-            phase: v["phase"].as_str().unwrap_or("stopped").to_string(),
+            phase: Phase::parse(v["phase"].as_str().unwrap_or_default()),
             uptime: v["engine_uptime_seconds"].as_u64(),
             crashes: v["crashes"].as_u64().unwrap_or(0),
             last_crash: v["last_crash"].as_str().map(str::to_string),
@@ -1068,32 +1039,47 @@ impl Status {
     }
 
     pub fn running(&self) -> bool {
-        self.phase != "stopped"
-    }
-
-    /// What the supervisor is doing, from its `phase`.
-    pub fn phase(&self) -> Phase {
-        match self.phase.as_str() {
-            "running" => Phase::Running,
-            "starting" => Phase::Starting,
-            "restarting" => Phase::Restarting,
-            "stopping" => Phase::Stopping,
-            _ => Phase::Stopped,
-        }
+        self.phase != Phase::Stopped
     }
 
     pub fn serving(&self) -> bool {
-        self.phase == "running"
+        self.phase == Phase::Running
     }
 }
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub enum Phase {
     Starting,
     Running,
     Restarting,
     Stopping,
+    #[default]
     Stopped,
+}
+
+impl Phase {
+    const NAMES: [(Phase, &'static str); 5] = [
+        (Phase::Starting, "starting"),
+        (Phase::Running, "running"),
+        (Phase::Restarting, "restarting"),
+        (Phase::Stopping, "stopping"),
+        (Phase::Stopped, "stopped"),
+    ];
+
+    /// What the supervisor is doing, from its `phase`.
+    pub fn parse(name: &str) -> Phase {
+        Self::NAMES
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map_or(Phase::Stopped, |(phase, _)| *phase)
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(phase, _)| *phase == self)
+            .map_or("stopped", |(_, n)| n)
+    }
 }
 
 /// The status of the server in `dir`: what its API says, or stopped.
@@ -1104,5 +1090,4 @@ pub fn status(dir: &Path) -> Status {
 }
 
 #[cfg(test)]
-#[path = "servers/tests.rs"]
 mod tests;

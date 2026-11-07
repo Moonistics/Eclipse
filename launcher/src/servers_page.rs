@@ -34,7 +34,8 @@ fn tone(status: &Status) -> Tone {
 }
 
 impl Launcher {
-    pub(super) fn servers_view(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn servers_page(&mut self, cx: &mut Context<Self>) -> Div {
+        self.servers_load();
         let head = ui::page_head(Page::Servers.title(), None);
         // A server is always shown: the open one, else the first.
         let listed = |d: &PathBuf| self.servers.list.iter().any(|e| &e.dir == d);

@@ -9,7 +9,7 @@ use eclipse_launcher::browser::{
     eclipse, installed, java, Kind as PackKind, Project, Query, SourceId,
 };
 use eclipse_launcher::i18n::{tr, trf};
-use eclipse_launcher::{backend, browser, native_status};
+use eclipse_launcher::{backend, browser, instances, native_status};
 use gpui::prelude::*;
 use gpui::px;
 use std::collections::HashMap;
@@ -56,6 +56,7 @@ impl Launcher {
             None => m.source,
         };
         let (tx, search) = (m.tx.clone(), m.search);
+        let settings = self.settings.clone();
         std::thread::spawn(move || {
             let result = browser::source(source)
                 .ok_or_else(|| format!("{} isn't set up.", source.label()))
@@ -64,7 +65,8 @@ impl Launcher {
                 (Ok(found), SourceId::Eclipse) => found
                     .iter()
                     .map(|p| {
-                        let lines = eclipse::trust_and_capabilities(&p.id, instance.as_ref());
+                        let lines =
+                            eclipse::trust_and_capabilities(&p.id, instance.as_ref(), &settings);
                         (p.id.clone(), lines)
                     })
                     .collect(),
@@ -206,13 +208,15 @@ impl Launcher {
         }
         let tx = self.mods.tx.clone();
         let game = installed::Game::of(self.mods.java.clone());
+        let (home, settings) = (self.mods.home(), self.settings.clone());
         std::thread::spawn(move || {
+            let level = instances::mod_api_level_at(&home, &settings);
             let mut found = HashMap::new();
             for e in entries {
                 let Some(source) = browser::source(e.source) else {
                     continue;
                 };
-                let newer = game.update_for(&*source, &e);
+                let newer = game.update_for(&*source, &e, level);
                 if let Ok(Some(v)) = newer {
                     found.insert((e.source, e.project.clone()), v.number);
                 }
@@ -248,7 +252,9 @@ impl Launcher {
         let tx = self.mods.tx.clone();
         let home = self.mods.home();
         let game = installed::Game::of(self.mods.java.clone());
+        let settings = self.settings.clone();
         std::thread::spawn(move || {
+            let level = instances::mod_api_level_at(&home, &settings);
             let count = todo.len();
             let (mut done, mut failed) = (Vec::new(), Vec::new());
             for (i, (source_id, id, title)) in todo.into_iter().enumerate() {
@@ -263,7 +269,7 @@ impl Launcher {
                     .ok_or_else(|| format!("{} isn't set up", source_id.label()))
                     .and_then(|source| {
                         let p = source.project(&id)?;
-                        game.install(&*source, &p, true, &home, &step)
+                        game.install(&*source, &p, true, &home, level, &step)
                     });
                 match updated {
                     Ok(entries) => done.extend(
@@ -327,6 +333,7 @@ impl Launcher {
         let tx = self.mods.tx.clone();
         let home = self.mods.home();
         let java = self.mods.java.clone();
+        let settings = self.settings.clone();
         let instance = self.target_name();
         let world = self
             .datapack_world()
@@ -356,6 +363,7 @@ impl Launcher {
                     };
                     let to = installed::Destination {
                         home: &home,
+                        settings: &settings,
                         java: java.as_ref(),
                         world: world.as_ref().map(|(path, _)| path.as_path()),
                         everything,

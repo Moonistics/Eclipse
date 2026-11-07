@@ -220,7 +220,7 @@ impl Launcher {
         layout::content_width(self.window_width) < layout::INSTANCE_COMPACT_BELOW
     }
 
-    pub(super) fn choices_stacked(&self) -> bool {
+    fn choices_stacked(&self) -> bool {
         let inside = layout::content_width(self.window_width) - 2. * ui::CARD_PADDING;
         let columns = KINDS.len() as f32;
         inside < columns * CHOICE_MIN_WIDTH + (columns - 1.) * space::MD
@@ -300,7 +300,7 @@ impl Launcher {
 
     /// The version an instance that keeps none plays: the launcher's, or with none installed
     /// yet, the newest Nightly, which Create installs.
-    fn followed_version(&self) -> Option<String> {
+    fn unpinned_version(&self) -> Option<String> {
         self.draft_version_for(None)
     }
 
@@ -312,7 +312,7 @@ impl Launcher {
             .or_else(|| self.eclipse_choices().into_iter().next())
     }
 
-    pub(super) fn eclipse_choices(&self) -> Vec<String> {
+    fn eclipse_choices(&self) -> Vec<String> {
         let releases = match &self.versions.releases {
             Load::Ready(r) => r.as_slice(),
             _ => &[],
@@ -537,7 +537,7 @@ impl Launcher {
 /// Every Nightly published with a build for this platform, newest first, then the installed
 /// versions that list lacks (older Nightlies, imported builds). Picking one not installed installs
 /// it on Create.
-pub(super) fn eclipse_choices(releases: &[Release], installed: &[String]) -> Vec<String> {
+fn eclipse_choices(releases: &[Release], installed: &[String]) -> Vec<String> {
     let published = releases
         .iter()
         .filter(|r| r.nightly.is_some() && r.asset.is_some())
@@ -702,7 +702,7 @@ impl Launcher {
     /// instance follow it; any other is kept, and installed on Create when it isn't yet.
     fn eclipse_versions(&mut self, reveal: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let soft = ui::look().accent_soft;
-        let follows = self.followed_version();
+        let follows = self.unpinned_version();
         let chosen = self.draft_eclipse();
         let tags = self.eclipse_choices();
         let rows: Vec<_> = tags

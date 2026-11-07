@@ -25,8 +25,8 @@ pub fn ports_dir() -> PathBuf {
 
 /// The resources a modpack is ported with as it is imported: the selected version's, once it is
 /// prepared.
-pub fn port_resources() -> Option<PathBuf> {
-    backend::resolve_version(None)
+pub fn port_resources(settings: &backend::Settings) -> Option<PathBuf> {
+    backend::resolve_version(None, settings)
         .ok()
         .filter(|tag| backend::is_prepared(tag))
         .map(|tag| backend::resources(&tag))
@@ -277,7 +277,7 @@ pub(crate) fn list_in(ports: &Path) -> Vec<Imported> {
 
 /// The carried-over mods in a work folder (`mods/<id>/carry/` with its manifest).
 pub fn carried(work: &Path) -> Vec<PathBuf> {
-    let mut mods: Vec<PathBuf> = fs::read_dir(work.join("mods"))
+    let mut mods: Vec<PathBuf> = fs::read_dir(work.join(crate::game_folder::JAVA_MODS))
         .into_iter()
         .flatten()
         .flatten()
@@ -395,8 +395,8 @@ pub fn apply_profile(cmd: &mut Command, work: &Path) -> Result<(), String> {
     prepare_resourcepacks(work);
     let home = profile_home(work);
     fs::create_dir_all(&home).map_err(|e| format!("{}: {e}", home.display()))?;
-    let options = home.join("options.txt");
-    let own = backend::game_home().join("options.txt");
+    let options = home.join(crate::game_folder::OPTIONS);
+    let own = backend::game_home().join(crate::game_folder::OPTIONS);
     if !options.exists() && own.is_file() {
         let _ = fs::copy(own, &options);
     }

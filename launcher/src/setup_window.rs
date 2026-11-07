@@ -28,7 +28,7 @@ enum Event {
     Done(Result<Vec<String>, String>),
 }
 
-pub struct Setup {
+struct Setup {
     mode: Mode,
     theme: Theme,
     /// The launcher's scene behind the window.

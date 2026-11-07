@@ -1,12 +1,20 @@
 //! The palette (⌘K, Ctrl+K elsewhere): a search over the launcher's commands and, from two
 //! letters on, the registry's mods.
 
-use super::*;
+use crate::fields::Field;
+use crate::page::Page;
+use crate::scrollbar::Scrollbar;
 use crate::settings_page::SettingsSection;
-use crate::ui;
+use crate::{instance_state, ui, Launcher};
+use eclipse_launcher::backend;
 use eclipse_launcher::browser::Project;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, space, step};
+use gpui::prelude::*;
+use gpui::{
+    div, px, Context, Div, FontWeight, KeyDownEvent, MouseDownEvent, SharedString, Stateful, Window,
+};
 use std::path::PathBuf;
 
 /// Commands listed at most.
@@ -132,7 +140,7 @@ impl Launcher {
         if let Some(i) = selected {
             let id = || i.id.clone();
             all.push(command(trf("Edit {name}", &name), Run::Edit(id())));
-            if instance_state::duplicable(i) {
+            if !i.plays_a_pack() {
                 all.push(command(
                     trf("Duplicate {name}", &name),
                     Run::Duplicate(id()),

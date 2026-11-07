@@ -2,6 +2,7 @@
 //! stay behind SecretStore and the session-file handoff.
 use super::*;
 use std::fs::{File, OpenOptions};
+use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
 use std::time::{Duration, Instant};
 

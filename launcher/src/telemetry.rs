@@ -175,7 +175,7 @@ fn scrubber() -> Scrubber {
     for account in Accounts::load().accounts {
         s = s.term(account.name).term(account.uuid);
     }
-    let saves = std::fs::read_dir(home().join("saves"))
+    let saves = std::fs::read_dir(crate::worlds::saves_dir(&home()))
         .into_iter()
         .flatten()
         .flatten();

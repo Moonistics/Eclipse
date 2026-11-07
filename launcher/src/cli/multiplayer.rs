@@ -1,5 +1,6 @@
 use super::json;
 use clap::Subcommand;
+use eclipse_launcher::backend;
 use eclipse_launcher::instances;
 use eclipse_launcher::server_list;
 use std::path::PathBuf;
@@ -30,11 +31,15 @@ pub(super) enum MultiplayerCmd {
     },
 }
 
-pub(super) fn multiplayer(action: MultiplayerCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn multiplayer(
+    action: MultiplayerCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     let home = |instance: Option<String>| -> Result<PathBuf, String> {
         Ok(match instance {
             Some(name) => instances::find(&name)?.home,
-            None => instances::selected().home,
+            None => instances::selected(settings).home,
         })
     };
     match action {
@@ -49,7 +54,10 @@ pub(super) fn multiplayer(action: MultiplayerCmd, as_json: bool) -> Result<(), S
                         .collect(),
                 );
             } else if servers.is_empty() {
-                println!("No servers in {}", home.join("servers.dat").display());
+                println!(
+                    "No servers in {}",
+                    home.join(eclipse_launcher::game_folder::SERVERS).display()
+                );
             }
             for (i, s) in servers.iter().enumerate().filter(|_| !as_json) {
                 println!("{}. {} ({})", i + 1, s.name, s.ip);

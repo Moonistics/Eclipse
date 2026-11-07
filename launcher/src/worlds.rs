@@ -276,5 +276,4 @@ pub fn delete(world: &World) -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "worlds/tests.rs"]
 mod tests;

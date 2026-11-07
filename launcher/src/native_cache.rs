@@ -193,7 +193,7 @@ pub struct Info {
 
 /// Inspect or clear only Cargo's native outputs, while no build is using them. This does not
 /// remove installed versions, instances, mods, saves, toolchains or downloads.
-pub fn info(clear: bool) -> Result<Info, String> {
+pub fn info(clear: bool, settings: &backend::Settings) -> Result<Info, String> {
     let cache = Cache::acquire(&backend::build_dir())?;
     let bytes = cache.bytes()?;
     let cleared_bytes = if clear { cache.clear()? } else { 0 };
@@ -201,7 +201,7 @@ pub fn info(clear: bool) -> Result<Info, String> {
         path: Dirs::current().target(None),
         bytes,
         cleared_bytes,
-        limit_gib: limit_gib(&backend::Settings::load()),
+        limit_gib: limit_gib(settings),
     })
 }
 
@@ -398,5 +398,4 @@ impl Cache {
 }
 
 #[cfg(test)]
-#[path = "native_cache/tests.rs"]
 mod tests;

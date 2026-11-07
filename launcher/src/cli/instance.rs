@@ -182,7 +182,11 @@ pub(super) enum ExportFormat {
     Zip,
 }
 
-pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn instance(
+    action: InstanceCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use instances::Icon;
     let value = |i: &instances::Instance, selected: bool| {
         serde_json::json!({
@@ -224,7 +228,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
         );
     };
     let changed = |i: instances::Instance| {
-        let selected = i.id == instances::selected().id;
+        let selected = i.id == instances::selected(settings).id;
         match as_json {
             true => json(value(&i, selected)),
             false => line(&i, selected),
@@ -232,7 +236,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
     };
     match action {
         InstanceCmd::List => {
-            let selected = instances::selected().id;
+            let selected = instances::selected(settings).id;
             let all = instances::list();
             if as_json {
                 json(all.iter().map(|i| value(i, i.id == selected)).collect());
@@ -354,7 +358,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
         InstanceCmd::Version { instance, version } => {
             let pin = match version.as_str() {
                 "latest" => None,
-                tag => Some(backend::resolve_version(Some(tag))?),
+                tag => Some(backend::resolve_version(Some(tag), settings)?),
             };
             changed(instances::edit(&instance, |m| m.version = pin)?)
         }
@@ -458,7 +462,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
             use eclipse_launcher::shortcut;
             let i = match instance {
                 Some(name) => instances::find(&name)?,
-                None => instances::selected(),
+                None => instances::selected(settings),
             };
             let paths = match remove {
                 false => shortcut::make(&backend::update_target(), &i.id, &i.name)?,
@@ -577,7 +581,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
                 // rather than touching an instance, and takes a `--version` to
                 // say which release's game files it plays with.
                 Dropped::Build => {
-                    let tag = eclipse_launcher::build_import::import(&file, None)?;
+                    let tag = eclipse_launcher::build_import::import(&file, None, settings)?;
                     if as_json {
                         json(serde_json::json!({ "version": tag }));
                     } else {
@@ -587,7 +591,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
                 Dropped::Pack(_) => {
                     let i = match instance {
                         Some(name) => instances::find(&name)?,
-                        None => instances::selected(),
+                        None => instances::selected(settings),
                     };
                     let p = eclipse_launcher::packs::add(&i.home, &file)?;
                     println!(
@@ -613,7 +617,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
             use eclipse_launcher::export::{self, Format};
             let i = match instance {
                 Some(name) => instances::find(&name)?,
-                None => instances::selected(),
+                None => instances::selected(settings),
             };
             let format = match format {
                 ExportFormat::Mrpack => Format::Mrpack,

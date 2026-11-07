@@ -53,7 +53,7 @@ impl Launcher {
     }
 
     /// Reads the open server's settings, backups and service state again.
-    pub(super) fn load_details(&self) {
+    fn load_details(&self) {
         let Some(dir) = self.servers.open.clone() else {
             return;
         };
@@ -157,13 +157,13 @@ impl Launcher {
         changed
     }
 
-    pub(super) fn servers_event(&mut self, event: Event) {
+    fn servers_event(&mut self, event: Event) {
         let s = &mut self.servers;
         match event {
             Event::Polled { dir, status, logs } => {
                 s.polling = false;
-                let was = s.statuses.get(&dir).map(|st| st.phase.clone());
-                if was.as_deref() != Some("running") && status.phase == "running" {
+                let was = s.statuses.get(&dir).map(|st| st.phase);
+                if was != Some(Phase::Running) && status.phase == Phase::Running {
                     // A fresh start took every saved setting.
                     s.restart_needed.clear();
                     s.pvp = None;
@@ -182,7 +182,7 @@ impl Launcher {
                     }
                     s.log_next = next;
                 }
-                let read_pvp = status.phase() == Phase::Running && s.pvp.is_none();
+                let read_pvp = status.phase == Phase::Running && s.pvp.is_none();
                 s.statuses.insert(dir, *status);
                 if read_pvp {
                     self.read_pvp();
@@ -285,7 +285,7 @@ impl Launcher {
     }
 
     /// The `pvp` game rule, asked of the running game (it's a rule of the world, not a setting).
-    pub(super) fn read_pvp(&self) {
+    fn read_pvp(&self) {
         let Some(dir) = self.servers.open.clone() else {
             return;
         };
@@ -306,7 +306,7 @@ impl Launcher {
         }
     }
 
-    pub(super) fn apply_settings(&mut self) {
+    fn apply_settings(&mut self) {
         let Some(dir) = self.servers.open.clone() else {
             return;
         };
@@ -423,7 +423,7 @@ impl Launcher {
     pub(super) fn open_create(&mut self, cx: &mut Context<Self>) {
         self.fields.handle(Field::NewServerName, cx);
         self.fields.focus_soon = Some(Field::NewServerName);
-        let worlds = servers::player_worlds();
+        let worlds = eclipse_launcher::worlds::list(&backend::game_home());
         // The dialog starts with an empty name (its placeholder says the default) and the player
         // as the first friend.
         let own = self.own_name();
@@ -431,13 +431,14 @@ impl Launcher {
         self.fields.selected = None;
         self.fields.text(Field::NewServerSeed).set(String::new());
         self.fields.text(Field::NewServerFriend).set(String::new());
-        let details = eclipse_launcher::worlds::list(&backend::game_home())
-            .into_iter()
+        let details = worlds
+            .iter()
             .map(|w| {
                 let line = format!("Eclipse · {} · {}", tr(w.mode), bytes(w.size));
-                (w.path, (w.name, line))
+                (w.path.clone(), (w.name.clone(), line))
             })
             .collect();
+        let worlds: Vec<_> = worlds.into_iter().map(|w| (w.folder, w.path)).collect();
         let offline = plays_offline(&self.accounts);
         let start = NewServer::for_owner(offline);
         self.servers.problem = None;
@@ -554,7 +555,7 @@ impl Launcher {
         }
     }
 
-    pub(super) fn save_port(&mut self) {
+    fn save_port(&mut self) {
         match self.fields.value(Field::ServerPort).trim().parse::<u16>() {
             Ok(port) if port >= 1024 => self.set_setting(Key::Port, port.to_string()),
             _ => {
@@ -566,7 +567,7 @@ impl Launcher {
         }
     }
 
-    pub(super) fn add_player(&mut self) {
+    fn add_player(&mut self) {
         let name = self.fields.value(Field::ServerPlayer).trim().to_string();
         if !account::valid_offline_name(&name) {
             self.fields.invalid = Some((

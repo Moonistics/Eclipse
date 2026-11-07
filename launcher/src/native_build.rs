@@ -148,7 +148,7 @@ impl Launcher {
             shown: 0,
         };
         self.native.then_play = then_play;
-        let profile = native_mods::Profile::chosen(&self.settings);
+        let settings = self.settings.clone();
         self.in_background(move |tell| {
             let result = native_mods::build(
                 &base,
@@ -156,7 +156,7 @@ impl Launcher {
                 &instance,
                 anyway,
                 on_base,
-                profile,
+                &settings,
                 |step| tell.send(Msg::NativeProgress(step.label())),
             );
             tell.send(Msg::Native(result));
@@ -179,19 +179,26 @@ impl Launcher {
         self.reload_instances();
         // A build attempt ended: an open panel reads the log it left.
         self.native_log.stale = true;
-        let then_play = self.native.then_play.take();
+        let then_play = resumed(self.native.then_play.take(), &result, |tag| {
+            self.can_start(tag)
+        });
         match result {
             Err(native_mods::BuildError::Mismatch(list)) => {
                 self.native.phase = Phase::Mismatch(list)
             }
             Err(native_mods::BuildError::Failed(e)) => self.native.ended = Some(Err(e)),
-            // Play waited for this build (`NativeBuild::rebuild`).
-            Ok(_) => {
-                self.native.ended = last.map(Ok);
-                if let Some(start) = then_play.filter(|s| self.can_start(&s.tag)) {
-                    self.start_client(start);
-                }
-            }
+            Ok(_) => self.native.ended = last.map(Ok),
+        }
+        if let Some(start) = then_play {
+            self.start_client(start);
         }
     }
+}
+
+pub(super) fn resumed(
+    then_play: Option<game_run::Start>,
+    built: &Result<String, native_mods::BuildError>,
+    can_start: impl Fn(&str) -> bool,
+) -> Option<game_run::Start> {
+    then_play.filter(|start| built.is_ok() && can_start(&start.tag))
 }

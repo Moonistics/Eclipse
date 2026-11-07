@@ -96,7 +96,7 @@ impl ButtonSize {
     }
 }
 
-pub fn bevel<E: ParentElement>(d: E) -> E {
+fn bevel<E: ParentElement>(d: E) -> E {
     shine(d, BEVEL_SHINE)
 }
 
@@ -429,7 +429,7 @@ pub enum Confirm<'a> {
 }
 
 impl Confirm<'_> {
-    pub fn question(self) -> String {
+    fn question(self) -> String {
         match self {
             Confirm::Delete(name) => crate::trf("Delete {name}?", &[("name", name)]),
             Confirm::Remove(name) => crate::trf("Remove {name}?", &[("name", name)]),

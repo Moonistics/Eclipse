@@ -6,13 +6,17 @@
 //! (with Fabric, Quilt, Forge or NeoForge). A Java kind picks its version from Mojang's public
 //! list (`minecraft_versions`), fetched once when the page first needs it; the game itself comes
 //! with the first Play, for an account that owns it.
-use super::*;
 use crate::fields::Field;
 use crate::instance_icons::{IconKey, Mark};
+use crate::page::Page;
+use crate::scrollbar::Scrollbar;
+use crate::{art, game_run, instance_icons, menus, Launcher};
+use eclipse_launcher::backend;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::{self, Icon, Instance, Kind as InstanceKind};
 use eclipse_launcher::loaders::{self, Kind as Loader};
 use eclipse_launcher::minecraft_versions::Versions;
-use gpui::RenderImage;
+use gpui::{App, Context, RenderImage, Window};
 use std::collections::HashMap;
 use std::sync::Arc;
 /// Textures offered as icons, when the player's prepared files hold them: block faces and items
@@ -57,7 +61,7 @@ pub(super) struct InstanceDraft {
     pub(super) error: Option<String>,
     pub(super) busy: bool,
     /// Eclipse, or the Java game it plays.
-    pub(super) java: instance_state::JavaChoice,
+    pub(super) java: JavaChoice,
     /// The Eclipse version it keeps (`Instance::version`); None follows the launcher's.
     pub(super) pin: Option<String>,
     /// The mark `picture` was made from (the grass block or a loader's logo), when it was one.
@@ -113,15 +117,11 @@ pub(super) struct Instances {
     /// Textures, pictures and marks as images, by name and size in device pixels.
     pub(super) icons: HashMap<(IconKey, u32), Option<Arc<RenderImage>>>,
     /// Mojang's versions, for a new Java instance.
-    pub(super) versions: instance_state::VersionList,
+    pub(super) versions: VersionList,
 }
 
 pub(super) fn takes_mods(instance: &Instance) -> bool {
     instance.java.as_ref().is_none_or(|j| j.loader.is_some())
-}
-
-pub(super) fn duplicable(instance: &Instance) -> bool {
-    matches!(instance.kind, InstanceKind::Default | InstanceKind::Own)
 }
 
 impl Launcher {
@@ -135,13 +135,7 @@ impl Launcher {
 
     /// The instance Play starts.
     pub(super) fn selected_instance(&self) -> Option<&Instance> {
-        let id = self
-            .settings
-            .instance
-            .as_deref()
-            .unwrap_or(instances::DEFAULT);
-        let list = &self.instances.list;
-        list.iter().find(|i| i.id == id).or(list.first())
+        instances::selected_in(&self.instances.list, &self.settings)
     }
 
     pub(super) fn plays<'a>(
@@ -380,13 +374,12 @@ impl Launcher {
         let edited = editing.is_some();
         let copy = selected.filter(|_| d.duplicate);
         // The Eclipse version is Eclipse's instances' alone: a Java one plays its own game.
-        let plays_eclipse = d.java.kind == instance_state::NewKind::Eclipse;
+        let plays_eclipse = d.java.kind == NewKind::Eclipse;
         // A new Java instance: what it plays, and its name when none is typed.
-        let java = (editing.is_none() && d.java.kind != instance_state::NewKind::Eclipse)
-            .then(|| d.java.clone());
+        let java = (editing.is_none() && d.java.kind != NewKind::Eclipse).then(|| d.java.clone());
         let minecraft = java.as_ref().map(|j| {
             j.minecraft(match &self.instances.versions {
-                instance_state::VersionList::Ready(v) => Some(v),
+                VersionList::Ready(v) => Some(v),
                 _ => None,
             })
         });
@@ -416,15 +409,13 @@ impl Launcher {
             let id = match (editing, java) {
                 (Some(id), _) => {
                     if let Some(to) = switch_to {
-                        instances::switch(&id, instance_state::with_loader(to)?)?;
+                        instances::switch(&id, with_loader(to)?)?;
                     }
                     id
                 }
-                (None, Some((j, mc))) if copy.is_none() => {
-                    instance_state::create_java(&j, &name, &mc)?.id
-                }
+                (None, Some((j, mc))) if copy.is_none() => create_java(&j, &name, &mc)?.id,
                 (None, _) => {
-                    let to = copy_plays.map(instance_state::with_loader).transpose()?;
+                    let to = copy_plays.map(with_loader).transpose()?;
                     let made = instances::create(&name, copy.as_deref())?.id;
                     if let Some(to) = to {
                         instances::switch(&made, to)?;
@@ -532,7 +523,7 @@ impl Launcher {
         }
     }
 
-    pub(super) fn can_delete_instance(&self, instance: &Instance) -> bool {
+    fn can_delete_instance(&self, instance: &Instance) -> bool {
         self.delete_block(instance).is_none()
     }
 
@@ -631,7 +622,7 @@ impl JavaChoice {
     }
 
     /// The name it gets when none is typed: "Vanilla 1.21.4", "Fabric 1.21.4".
-    pub(super) fn default_name(&self, minecraft: &str) -> String {
+    fn default_name(&self, minecraft: &str) -> String {
         match self.kind {
             NewKind::Modded => format!("{} {minecraft}", self.loader.name()),
             _ => format!("Vanilla {minecraft}"),
@@ -771,7 +762,7 @@ pub(super) fn create_java(
 
 /// `to`, with the newest stable version of a loader it names without one (asked of its service
 /// now, so a Minecraft version the loader doesn't support says so here).
-pub(super) fn with_loader(to: instances::Plays) -> Result<instances::Plays, String> {
+fn with_loader(to: instances::Plays) -> Result<instances::Plays, String> {
     match to {
         instances::Plays::Java {
             minecraft,
@@ -801,17 +792,6 @@ mod tests {
         assert_eq!(choice.minecraft(None), None);
         choice.version = Some("1.20.1".into());
         assert_eq!(choice.minecraft(None).as_deref(), Some("1.20.1"));
-    }
-
-    #[test]
-    fn a_modpack_instance_is_not_offered_for_duplicating() {
-        let of = |kind| crate::game_run::test_instance("pack", kind);
-        assert!(duplicable(&of(InstanceKind::Default)));
-        assert!(duplicable(&of(InstanceKind::Own)));
-        assert!(!duplicable(&of(InstanceKind::Port {
-            slug: "pack".into()
-        })));
-        assert!(!duplicable(&of(InstanceKind::Pack { id: "pack".into() })));
     }
 
     #[test]

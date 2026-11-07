@@ -1,4 +1,6 @@
-use super::*;
+use crate::Launcher;
+use eclipse_launcher::i18n::tr;
+use gpui::{App, Context, Div, Stateful, Window};
 
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum Page {

@@ -3,9 +3,13 @@
 use super::*;
 use crate::secrets::tests::{files_beside, remove_secrets_dir, secrets_file};
 use crate::secrets::*;
+use serde_json::{json, Value};
 use std::io::{BufRead, BufReader, Read, Write};
 use std::net::TcpListener;
+use std::path::PathBuf;
 use std::sync::Arc;
+use std::sync::Mutex;
+use std::time::{Duration, SystemTime};
 
 const UUID: &str = "069a79f444e94726a5befca90e38aaf5";
 
@@ -436,7 +440,7 @@ fn splitscreen_gets_the_other_accounts_that_still_hold() {
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
-        let mode = |p: &Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
+        let mode = |p: &std::path::Path| std::fs::metadata(p).unwrap().permissions().mode() & 0o777;
         assert_eq!(mode(&path), 0o600, "only the player reads it");
         assert_eq!(mode(&dir), 0o700, "nor lists the folder");
     }

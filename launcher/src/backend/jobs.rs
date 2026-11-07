@@ -1,6 +1,6 @@
 use std::fs;
 use std::io::{BufRead, BufReader, Read, Write};
-use std::process::{Child, ChildStdin, Command, Stdio};
+use std::process::{Child, ChildStdin, Command, ExitStatus, Stdio};
 use std::sync::{Arc, Mutex};
 
 /// A process whose output is kept: the last `LOG_KEEP` lines, and its result once it ends.
@@ -89,6 +89,20 @@ pub enum Ended {
     Failed(String),
 }
 
+impl Ended {
+    pub fn of(status: std::io::Result<ExitStatus>) -> Result<(), Ended> {
+        match status {
+            Ok(s) if s.success() => Ok(()),
+            Ok(s) => Err(Ended::Status(s.to_string())),
+            Err(e) => Err(Ended::Failed(e.to_string())),
+        }
+    }
+
+    pub fn not_started(cmd: &Command, e: std::io::Error) -> Ended {
+        Ended::Failed(format!("Could not start {:?}: {e}", cmd.get_program()))
+    }
+}
+
 impl std::fmt::Display for Ended {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -96,6 +110,18 @@ impl std::fmt::Display for Ended {
             Ended::Failed(e) => f.write_str(e),
         }
     }
+}
+
+impl From<Ended> for String {
+    fn from(ended: Ended) -> String {
+        ended.to_string()
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Stream {
+    Stdout,
+    Stderr,
 }
 
 /// A running process; its output arrives as `Output::Line`, its end as `Output::Exit`.
@@ -151,7 +177,7 @@ pub fn spawn(
         .stdout(Stdio::piped())
         .stderr(Stdio::piped())
         .spawn()
-        .map_err(|e| format!("Could not start {:?}: {e}", cmd.get_program()))?;
+        .map_err(|e| Ended::not_started(&cmd, e).to_string())?;
     let stdin = child.stdin.take();
     let report = Arc::new(report);
     let mut readers = Vec::new();
@@ -166,9 +192,7 @@ pub fn spawn(
     for stream in [out, err].into_iter().flatten() {
         let report = report.clone();
         readers.push(std::thread::spawn(move || {
-            for line in BufReader::new(stream).lines().map_while(Result::ok) {
-                report(Output::Line(line));
-            }
+            each_line(stream, |line| report(Output::Line(line)))
         }));
     }
     let child = Arc::new(Mutex::new(child));
@@ -183,13 +207,35 @@ pub fn spawn(
             }
             std::thread::sleep(std::time::Duration::from_millis(100));
         };
-        let result = match status {
-            Ok(s) if s.success() => Ok(()),
-            Ok(s) => Err(Ended::Status(s.to_string())),
-            Err(e) => Err(Ended::Failed(e.to_string())),
-        };
         drop(runtime);
-        report(Output::Exit(result));
+        report(Output::Exit(Ended::of(status)));
     });
     Ok(Running { child, stdin })
+}
+
+pub fn run(cmd: Command, line: &(dyn Fn(Stream, String) + Sync)) -> Result<(), Ended> {
+    let (mut cmd, _runtime) = prepare_command(cmd).map_err(Ended::Failed)?;
+    crate::process::hide_console(&mut cmd);
+    let mut child = cmd
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped())
+        .spawn()
+        .map_err(|e| Ended::not_started(&cmd, e))?;
+    let (out, err) = (child.stdout.take(), child.stderr.take());
+    std::thread::scope(|scope| {
+        if let Some(out) = out {
+            scope.spawn(|| each_line(out, |text| line(Stream::Stdout, text)));
+        }
+        if let Some(err) = err {
+            scope.spawn(|| each_line(err, |text| line(Stream::Stderr, text)));
+        }
+    });
+    Ended::of(child.wait())
+}
+
+fn each_line(stream: impl Read, line: impl Fn(String)) {
+    for text in BufReader::new(stream).lines().map_while(Result::ok) {
+        line(text);
+    }
 }

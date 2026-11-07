@@ -87,7 +87,6 @@ pub mod glass_icons {
         "settings-01",
         "sliders-horizontal",
         "source-code",
-        "star",
         "stop",
         "tick-02",
         "upload-04",

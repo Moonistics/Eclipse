@@ -24,10 +24,7 @@ impl Launcher {
     /// The tabs the selected instance has now, with how many things each holds (None: not known
     /// yet, or nothing to count). Console only once there is something to show, Patch notes last,
     /// only for Eclipse and once there are some.
-    pub(super) fn home_tab_list(
-        &mut self,
-        cx: &mut Context<Self>,
-    ) -> Vec<(HomeTab, Option<usize>)> {
+    fn home_tab_list(&mut self, cx: &mut Context<Self>) -> Vec<(HomeTab, Option<usize>)> {
         let notes = self
             .has_patch_notes()
             .then_some((HomeTab::PatchNotes, None));

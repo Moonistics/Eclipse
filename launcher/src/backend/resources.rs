@@ -1,8 +1,8 @@
 use super::minecraft::{download_for_owner, minecraft_folders};
 use super::net::get_bytes;
 use super::paths::{own_minecraft_dir, version_dir, versions_dir};
-use super::versions::{game_version_at, installed_in, read_json};
-use crate::sources;
+use super::settings::Settings;
+use super::versions::{game_version_at, installed_in, read_json, Lock};
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Mutex;
@@ -45,15 +45,10 @@ pub(super) fn sounds_in(resources: &Path) -> bool {
 /// keeps the resources. Preparers from before the number are known by their sources
 /// (`LEGACY_OUTPUT_VERSIONS`); older ones still are compared file by file (`same_preparer`).
 fn resources_compatible(from: &Path, to: &Path, manifest: &serde_json::Value) -> bool {
-    let pins = |dir: &Path| {
-        read_json(&dir.join("research-lock.json")).map(|lock| {
-            ["version", "client_sha1", "server_sha1"].map(|k| lock["minecraft"][k].clone())
-        })
-    };
-    let (Some(a), Some(b)) = (pins(from), pins(to)) else {
+    let (Some(a), Some(b)) = (Lock::read(from), Lock::read(to)) else {
         return false;
     };
-    if a != b || a.iter().any(|v| !v.is_string()) {
+    if a.jars().is_none() || a.jars() != b.jars() {
         return false;
     }
     match (output_version_at(from), output_version_at(to)) {
@@ -266,9 +261,9 @@ pub(super) fn reuse_prepared(versions: &Path, tag: &str) -> Option<String> {
 
 /// What an install does once its folder is in place (an imported build's too, `build_import`):
 /// another installed version's resources if it has none, and whatever its resources lack.
-pub(crate) fn reuse_prepared_for(tag: &str) {
+pub(crate) fn reuse_prepared_for(tag: &str, settings: &Settings) {
     reuse_prepared(&versions_dir(), tag);
-    complete_assets(tag);
+    complete_assets(tag, settings);
 }
 
 /// `reuse_prepared` for every installed version that is not prepared, oldest first, so a
@@ -276,14 +271,14 @@ pub(crate) fn reuse_prepared_for(tag: &str) {
 /// without it; this catches those up. Returns each (version, where its resources came from).
 /// Prepared versions also get the run-time reports (`complete_reports`) and the built-in packs,
 /// panorama and sounds (`complete_assets`) they lack.
-pub fn reuse_prepared_everywhere() -> Vec<(String, String)> {
+pub fn reuse_prepared_everywhere(settings: &Settings) -> Vec<(String, String)> {
     let versions = versions_dir();
     let reused = reuse_prepared_in(&versions);
     for tag in installed_in(&versions) {
         // Here, on the start-up thread, and not in `complete_assets`, which Play also runs: a
         // download of thousands of files is not for the moment the game is waited for.
         refill_own_store(&tag);
-        complete_assets(&tag);
+        complete_assets(&tag, settings);
     }
     reused
 }
@@ -325,10 +320,7 @@ pub(super) fn complete_reports(versions: &Path, tag: &str) -> bool {
         return true;
     }
     let server = |dir: &Path| {
-        read_json(&dir.join("research-lock.json")).and_then(|lock| {
-            let pins = ["version", "server_sha1"].map(|k| lock["minecraft"][k].clone());
-            pins.iter().all(|v| v.is_string()).then_some(pins)
-        })
+        Lock::read(dir).and_then(|lock| lock.server_jar().map(|pins| pins.map(String::from)))
     };
     let Some(pins) = server(&target) else {
         return false;
@@ -389,17 +381,20 @@ const COMPLETIONS: [Completion; 5] = [
 /// one before (`reuse_prepared`), which may come from a preparer that left them out. Without them
 /// in any Minecraft folder, one line each in the log, once per launcher run, and the version plays
 /// as before. Nothing is prepared again.
-pub(crate) fn complete_assets(tag: &str) {
-    complete_assets_in(&versions_dir(), tag, minecraft_folders, &|line| {
-        eprintln!("{line}")
-    });
+pub(crate) fn complete_assets(tag: &str, settings: &Settings) {
+    complete_assets_in(
+        &versions_dir(),
+        tag,
+        || minecraft_folders(settings.minecraft_dir.clone()),
+        &|line| eprintln!("{line}"),
+    );
 }
 
 /// Eclipse's own download (an owner's) may have stopped before the sounds and the languages,
 /// and the copies of `complete_assets` read them from its store: asked again, once per run, through
 /// the same owner gate as any download from Mojang (`download_for_owner`), which keeps the files
 /// already whole. Called where a download is expected (`reuse_prepared_everywhere`), never on Play.
-pub(super) fn refill_own_store(tag: &str) {
+fn refill_own_store(tag: &str) {
     static ASKED: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
     let own = own_minecraft_dir();
     let resources = resources_at(&versions_dir().join(tag));
@@ -411,12 +406,16 @@ pub(super) fn refill_own_store(tag: &str) {
     {
         return;
     }
-    let Some(pins) = read_json(&version_dir(tag).join("research-lock.json"))
-        .and_then(|l| sources::Pins::read(&l))
-    else {
+    let Some(pins) = Lock::read(&version_dir(tag)).and_then(|lock| lock.pins()) else {
         return;
     };
-    if let Err(e) = download_for_owner(&pins, &own, &get_bytes, &|line| eprintln!("{line}")) {
+    if let Err(e) = download_for_owner(
+        &pins,
+        &own,
+        &get_bytes,
+        &|line| eprintln!("{line}"),
+        &|_| {},
+    ) {
         eprintln!("{tag}: the missing assets were not downloaded: {e}");
     }
 }

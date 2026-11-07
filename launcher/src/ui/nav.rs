@@ -8,9 +8,9 @@ const NAV_ROW_LIST: f32 = 32.;
 
 const NAV_ROW_LIST_SHORT: f32 = 28.;
 
-pub(super) const NAV_ROW: f32 = 40.;
+const NAV_ROW: f32 = 40.;
 
-pub(super) const NAV_ROW_SHORT: f32 = 32.;
+const NAV_ROW_SHORT: f32 = 32.;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub enum NavDensity {

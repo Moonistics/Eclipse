@@ -158,7 +158,11 @@ impl SourceArg {
     }
 }
 
-pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn mods(
+    action: ModsCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::browser::{eclipse, installed, java_instance, Kind, Query, SourceId};
     use eclipse_launcher::modpacks;
     // What the browser installs goes into an instance's game folder; Java mods' checks are kept
@@ -174,7 +178,7 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
         | ModsCmd::Enable { instance, .. }
         | ModsCmd::Disable { instance, .. } => match instance {
             Some(name) => Some(instances::find(name)?),
-            None => Some(instances::selected()),
+            None => Some(instances::selected(settings)),
         },
         ModsCmd::Check { .. } => None,
     };
@@ -282,7 +286,7 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                         "id": p.id, "slug": p.slug, "title": p.title, "summary": p.summary,
                         "author": p.author, "downloads": p.downloads, "page": p.page,
                         "license": p.license, "support": support.label(), "reason": support.reason(),
-                        "about": if p.source == SourceId::Eclipse { eclipse::trust_and_capabilities(&p.id, instance.as_ref()) } else { Vec::new() },
+                        "about": if p.source == SourceId::Eclipse { eclipse::trust_and_capabilities(&p.id, instance.as_ref(), settings) } else { Vec::new() },
                     })
                 }).collect());
             } else {
@@ -293,7 +297,9 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     let support = p.support();
                     if p.source == SourceId::Eclipse {
                         println!("{}  ({})  {}\n  {}", p.title, p.slug, p.author, p.summary);
-                        for line in eclipse::trust_and_capabilities(&p.id, instance.as_ref()) {
+                        for line in
+                            eclipse::trust_and_capabilities(&p.id, instance.as_ref(), settings)
+                        {
                             println!("  {line}");
                         }
                         continue;
@@ -381,6 +387,7 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
             }
             let to = installed::Destination {
                 home: &home,
+                settings,
                 java: java.as_ref(),
                 world: world.as_ref().map(|w| w.path.as_path()),
                 everything,
@@ -432,12 +439,10 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                 }
                 installed::Done::Files(done) => {
                     // The first native mod: the window's trust notice, once.
-                    let mut settings = backend::Settings::load();
                     let native = done.iter().any(|e| native_status::is_native_file(&e.file));
                     if native && !settings.native_mods_noticed {
                         eprintln!("{}", native_status::NOTICE);
-                        settings.native_mods_noticed = true;
-                        settings.save()?;
+                        backend::Settings::update(|s| s.native_mods_noticed = true)?;
                     }
                     if as_json {
                         json(done.iter().map(entry_json).collect());
@@ -467,12 +472,13 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     None => "Nothing installed from the browser yet.".into(),
                 });
             }
+            let level = instances::mod_api_level_at(&home, settings);
             for e in chosen {
                 let Some(source) = eclipse_launcher::browser::source(e.source) else {
                     println!("{}: {} isn't available here.", e.title, e.source.label());
                     continue;
                 };
-                let newer = game.update_for(&*source, e)?;
+                let newer = game.update_for(&*source, e, level)?;
                 match newer {
                     None => println!("{} {}: up to date.", e.title, e.number),
                     Some(v) if check => {
@@ -480,7 +486,7 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     }
                     Some(_) => {
                         let p = source.project(&e.project)?;
-                        let done = game.install(&*source, &p, true, &home, &line)?;
+                        let done = game.install(&*source, &p, true, &home, level, &line)?;
                         for done in done {
                             println!("{} {}: {}", done.title, done.number, done.file);
                         }
@@ -504,6 +510,7 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                 mod_id.as_deref(),
                 all,
                 trust_native_code,
+                settings,
             )?;
         }
         ModsCmd::UpdateGithub {
@@ -536,7 +543,15 @@ pub(super) fn mods(action: ModsCmd, as_json: bool) -> Result<(), String> {
                     o.label()
                 );
                 if !check {
-                    github_native(&home, false, &latest, Some(&o.id), false, trust_native_code)?;
+                    github_native(
+                        &home,
+                        false,
+                        &latest,
+                        Some(&o.id),
+                        false,
+                        trust_native_code,
+                        settings,
+                    )?;
                 }
             }
         }
@@ -574,6 +589,7 @@ fn github_native(
     only: Option<&str>,
     all: bool,
     trust: bool,
+    settings: &backend::Settings,
 ) -> Result<(), String> {
     if java {
         return Err("Native mods from GitHub are for Eclipse instances.".into());
@@ -598,11 +614,9 @@ fn github_native(
     github_mods::discard(found);
     let done = done?;
     // The window's trust notice, once. Nothing is turned on: native mods are always on.
-    let mut settings = backend::Settings::load();
     if !settings.native_mods_noticed {
         eprintln!("{}", native_status::NOTICE);
-        settings.native_mods_noticed = true;
-        settings.save()?;
+        backend::Settings::update(|s| s.native_mods_noticed = true)?;
     }
     for o in done {
         println!(

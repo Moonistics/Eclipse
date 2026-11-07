@@ -730,7 +730,7 @@ impl Launcher {
 
     /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in
     /// `settings.json` and handed to `proxy.rs` whenever the settings are saved.
-    pub(super) fn proxy_row(&mut self, cx: &mut Context<Self>) -> Div {
+    fn proxy_row(&mut self, cx: &mut Context<Self>) -> Div {
         let focused = self.fields.has_focus(Field::Proxy);
         let field = self
             .field(

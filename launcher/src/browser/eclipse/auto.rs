@@ -20,7 +20,7 @@
 use super::{install_version, needs_port, Index};
 use crate::browser::{installed, Kind, SourceId, GAME};
 use crate::i18n::trf;
-use crate::instances::{self, Instance};
+use crate::instances::Instance;
 use eclipse_mods::index;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -74,7 +74,7 @@ impl Report {
 }
 
 /// Whether game folder `home` is a registry modpack's profile (`pack::home`).
-pub fn in_pack(home: &Path) -> bool {
+fn in_pack(home: &Path) -> bool {
     home.ends_with(crate::game_folder::PROFILE) && home.parent().is_some_and(super::pack::is_pack)
 }
 
@@ -249,11 +249,7 @@ pub fn update_all(targets: &[Target]) -> (Vec<String>, Vec<String>) {
     let (mut lines, mut rebuild) = (Vec::new(), Vec::new());
     for t in targets {
         let i = &t.instance;
-        let pack = matches!(
-            i.kind,
-            instances::Kind::Port { .. } | instances::Kind::Pack { .. }
-        );
-        let (false, None, Some(level)) = (pack, &i.java, t.level) else {
+        let (false, None, Some(level)) = (i.plays_a_pack(), &i.java, t.level) else {
             continue;
         };
         let ctx = Context {
@@ -279,7 +275,7 @@ pub fn run(home: &Path, ctx: &Context, progress: &dyn Fn(&str, f32)) -> Option<R
     Some(run_with(&index, super::local(), home, ctx, progress))
 }
 
-pub(super) fn run_with(
+fn run_with(
     index: &Index,
     local: bool,
     home: &Path,
@@ -375,5 +371,4 @@ fn update(
 }
 
 #[cfg(test)]
-#[path = "auto/tests.rs"]
 mod tests;

@@ -19,9 +19,9 @@ type Set = fn(&mut backend::Settings, &str) -> Result<(), String>;
 const KEYS: [Key; 17] = [
     Key {
         name: "selected-version",
-        show: |_| json!(backend::resolve_version(None).ok()),
+        show: |s| json!(backend::resolve_version(None, s).ok()),
         set: Some(|s, value| {
-            s.default_version = Some(backend::resolve_version(Some(value))?);
+            s.default_version = Some(backend::resolve_version(Some(value), s)?);
             Ok(())
         }),
     },
@@ -52,7 +52,7 @@ const KEYS: [Key; 17] = [
     },
     Key {
         name: "server-dir",
-        show: |_| json!(backend::server_dir(None)),
+        show: |s| json!(backend::server_dir(None, s)),
         set: Some(|s, value| {
             s.server_dir = folder(value);
             Ok(())
@@ -268,8 +268,9 @@ pub(super) fn settings(
     key: Option<String>,
     value: Option<String>,
     as_json: bool,
+    settings: &backend::Settings,
 ) -> Result<(), String> {
-    let mut settings = backend::Settings::load();
+    let mut settings = settings.clone();
     if let Some(key) = key {
         let value = value.ok_or("settings KEY VALUE: the value is missing")?;
         set_setting(&mut settings, &key, &value)?;
@@ -286,8 +287,12 @@ pub(super) fn settings(
     Ok(())
 }
 
-pub(super) fn game_args(args: Option<String>, as_json: bool) -> Result<(), String> {
-    let mut settings = backend::Settings::load();
+pub(super) fn game_args(
+    args: Option<String>,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
+    let mut settings = settings.clone();
     if let Some(line) = args {
         settings.game_args = line;
         settings.save()?;
@@ -306,8 +311,8 @@ pub(super) fn game_args(args: Option<String>, as_json: bool) -> Result<(), Strin
     Ok(())
 }
 
-pub(super) fn desktop_entry(remove: bool) -> Result<(), String> {
-    let mut settings = backend::Settings::load();
+pub(super) fn desktop_entry(remove: bool, settings: &backend::Settings) -> Result<(), String> {
+    let mut settings = settings.clone();
     settings.desktop_entry = Some(!remove);
     settings.save()?;
     if remove {

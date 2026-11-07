@@ -86,14 +86,21 @@ fn base_for(
 /// Installs the game program at `path` (or the one inside an archive there) as a new version on
 /// the game files of `requested` (default: [`base_for`]), prepared from another version where it
 /// can be, and selects it. Importing the same program again selects the version it made before.
-pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
+pub fn import(
+    path: &Path,
+    requested: Option<&str>,
+    settings: &backend::Settings,
+) -> Result<String, String> {
     let file = file_name(path);
     let program = read_program(path, &file)?;
     if !is_game(&program) {
         return Err(not_a_game(&file));
     }
-    let selected = backend::Settings::load().default_version;
-    let base = base_for(&backend::installed(), requested, selected.as_deref())?;
+    let base = base_for(
+        &backend::installed(),
+        requested,
+        settings.default_version.as_deref(),
+    )?;
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tag = install_in(&backend::version_dir(""), &base, &program, &file, &date)?;
     if let Some(made) = about(&tag).filter(|a| requested.is_some() && a.base != base) {
@@ -103,7 +110,7 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
             made.base
         ));
     }
-    backend::reuse_prepared_for(&tag);
+    backend::reuse_prepared_for(&tag, settings);
     backend::Settings::update(|settings| settings.default_version = Some(tag.clone()))?;
     Ok(tag)
 }

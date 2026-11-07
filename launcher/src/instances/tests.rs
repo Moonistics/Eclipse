@@ -653,7 +653,9 @@ fn every_reader_of_the_version_an_instance_plays_gets_the_same_answer() {
         Err(backend::no_version_installed())
     );
     assert_eq!(vanilla.eclipse_version(Some(&newer), &both), None);
-    assert!(vanilla.resolve_version(None).is_err());
+    assert!(vanilla
+        .resolve_version(None, &backend::Settings::default())
+        .is_err());
     fs::remove_dir_all(&root).unwrap();
 }
 
@@ -687,6 +689,27 @@ fn an_instance_without_its_own_game_arguments_uses_the_launchers() {
     let back = edit_in(&home, &data, "Survival", |m| m.game_args = None).unwrap();
     assert_eq!(back.game_args_or("--fps 120"), "--fps 120");
     assert_eq!(back.played, Duration::from_secs(60));
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_packs_instance_plays_its_pack_and_is_not_copied() {
+    let root = scratch("plays-a-pack");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    let mut pack = list_in(&home, &data).remove(0);
+    assert!(!pack.plays_a_pack());
+    for kind in [
+        Kind::Port {
+            slug: "pack".into(),
+        },
+        Kind::Pack { id: "pack".into() },
+    ] {
+        pack.kind = kind;
+        assert!(pack.plays_a_pack());
+        let refused = create_in(&home, &data, "Copy", Some(&pack), None).unwrap_err();
+        assert!(refused.contains("import the pack again"), "{refused}");
+    }
     fs::remove_dir_all(&root).unwrap();
 }
 

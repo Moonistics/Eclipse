@@ -11,7 +11,7 @@ use eclipse_launcher::browser::{
     images, java, Kind as PackKind, Project, SourceId, Version,
 };
 use eclipse_launcher::i18n::{tr, trf};
-use eclipse_launcher::{backend, i18n};
+use eclipse_launcher::{backend, i18n, instances};
 use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
 use gpui::prelude::*;
 use gpui::{div, img, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, Stateful};
@@ -207,13 +207,15 @@ impl Launcher {
         let key = (project.source, project.id.clone());
         let tx = self.mods.tx.clone();
         let p = project.clone();
+        let (mods_home, settings) = (self.mods.home(), self.settings.clone());
         std::thread::spawn(move || {
             let Some(source) = browser::source(p.source) else {
                 return;
             };
             let d = source.details(&p).map(Arc::new);
             let _ = tx.send(Event::Loaded(Loaded::Details(key.clone(), d)));
-            let v = source.versions(&p).map(|versions| {
+            let level = instances::mod_api_level_at(&mods_home, &settings);
+            let v = source.versions(&p, level).map(|versions| {
                 let home = backend::game_home();
                 versions
                     .into_iter()

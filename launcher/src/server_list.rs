@@ -254,5 +254,4 @@ pub fn find(list: &List, query: &str) -> Result<(usize, Server), String> {
 }
 
 #[cfg(test)]
-#[path = "server_list/tests.rs"]
 mod tests;

@@ -16,7 +16,7 @@ const INSTALL_BAR: f32 = layout::FIELD_MD;
 
 impl Launcher {
     /// The Versions page; `on_disk` as `versions_page` measured it.
-    pub(super) fn versions_view(
+    fn versions_view(
         &self,
         on_disk: &dyn Fn(&String) -> Option<u64>,
         cx: &mut Context<Self>,
@@ -241,7 +241,7 @@ impl Launcher {
             return self.removing_bar().into_any_element();
         }
         if self.versions.installed.contains(&tag) {
-            if backend::needs_game_architecture_install(&tag, release) {
+            if backend::needs_game_architecture_install(&tag, release, &self.settings) {
                 let b = ui::button(
                     SharedString::from(format!("install-selected-architecture-{tag}")),
                     Some(crate::icons::DOWNLOAD),

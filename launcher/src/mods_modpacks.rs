@@ -104,7 +104,7 @@ impl Launcher {
         let Some(work) = self.open_pack().map(|p| p.work.clone()) else {
             return;
         };
-        let resources = modpacks::port_resources();
+        let resources = modpacks::port_resources(&self.settings);
         if !ask {
             self.pack_job(move |log| modpacks::port(&work, resources.as_deref(), None, log));
             return;

@@ -79,7 +79,7 @@ impl Launcher {
         self.icon_for(spec, size)
     }
 
-    pub(super) fn icon_spec(&self, i: &Instance) -> IconSpec {
+    fn icon_spec(&self, i: &Instance) -> IconSpec {
         let own = i.kind == InstanceKind::Default && i.icon.is_none();
         IconSpec {
             picture: if own {
@@ -159,7 +159,7 @@ impl Launcher {
         self.icon_image(key, size, true, || std::fs::read(file).ok())
     }
 
-    pub(super) fn instance_loader(&self, instance: &Instance) -> Option<String> {
+    fn instance_loader(&self, instance: &Instance) -> Option<String> {
         match &instance.kind {
             InstanceKind::Port { slug } => {
                 let pack = self.modpacks.imported.iter().find(|p| p.slug == *slug);

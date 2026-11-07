@@ -281,5 +281,4 @@ pub fn install(
 }
 
 #[cfg(test)]
-#[path = "loaders/tests.rs"]
 mod tests;

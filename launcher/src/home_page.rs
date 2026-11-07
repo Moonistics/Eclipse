@@ -16,11 +16,11 @@ const STEPS_WIDTH: f32 = 620.;
 impl Launcher {
     /// How long the download under way has left, from its pace since it was first seen: none
     /// for its first seconds, or without one.
-    pub(super) fn download_left(&mut self) -> Option<Duration> {
+    fn download_left(&mut self) -> Option<Duration> {
         if preview::shows(preview::Preview::GettingReady) {
             return Some(Duration::from_secs(70));
         }
-        let Some((done, total)) = eclipse_launcher::mojang::progress() else {
+        let Some((done, total)) = self.game.prepare_step().and_then(|(_, files)| files) else {
             self.download_seen = None;
             return None;
         };
@@ -38,8 +38,12 @@ impl Launcher {
     /// Under Play while it prepares: a bar, what is happening and the time left, and the steps,
     /// the one under way lit, those done ticked. `version`: the Minecraft it downloads.
     pub(super) fn steps(&self, version: &str, left: Option<Duration>) -> Div {
-        let now = backend::prepare_step();
-        let download = download_progress();
+        let (now, files) = self
+            .game
+            .prepare_step()
+            .unwrap_or((backend::PrepareStep::Files, None));
+        let download = files
+            .or_else(|| preview::shows(preview::Preview::GettingReady).then_some((1754, 5160)));
         let doing = match (download, now) {
             (Some((done, total)), backend::PrepareStep::Files) => trf(
                 "Downloading Minecraft {version} from Mojang · {done} of {total} files",
@@ -101,11 +105,6 @@ impl Launcher {
                     .children(play.then(|| step_line(tr("Play"), std::cmp::Ordering::Greater))),
             )
     }
-}
-
-fn download_progress() -> Option<(usize, usize)> {
-    eclipse_launcher::mojang::progress()
-        .or_else(|| preview::shows(preview::Preview::GettingReady).then_some((1754, 5160)))
 }
 
 /// The time `total - done` files take at the pace of `done - from` in `spent`: none for the
@@ -444,7 +443,7 @@ impl Launcher {
     }
 
     /// "Eclipse crashed": play again, the report and the logs, and the details to report it.
-    pub(super) fn crash_notice(&self, crash: Crash, cx: &mut Context<Self>) -> Div {
+    fn crash_notice(&self, crash: Crash, cx: &mut Context<Self>) -> Div {
         let title = tr(
             if self.selected_instance().is_some_and(|i| i.java.is_some()) {
                 "Minecraft crashed"

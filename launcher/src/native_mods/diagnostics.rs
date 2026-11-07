@@ -301,19 +301,22 @@ mod tests {
                 .arg("--manifest-path")
                 .arg(dir.join("Cargo.toml"))
                 .env("CARGO_TARGET_DIR", dir.join("target"));
-            let error = super::super::build::logged(|| {
-                super::super::run::run_checked(
-                    command,
-                    "Compiling the fixture",
-                    |_| {},
-                    Some(Compiler {
-                        stage: &dir,
-                        source: &dir.join("original"),
-                        mods: &mods,
-                    }),
-                )
-                .map_err(|ran| ran.error)
-            })
+            let error = super::super::build::logged(
+                crate::native_cache::limit_bytes(&crate::backend::Settings::default()),
+                || {
+                    super::super::run::run_checked(
+                        command,
+                        "Compiling the fixture",
+                        |_| {},
+                        Some(Compiler {
+                            stage: &dir,
+                            source: &dir.join("original"),
+                            mods: &mods,
+                        }),
+                    )
+                    .map_err(|ran| ran.error)
+                },
+            )
             .unwrap_err();
             assert!(
                 error.contains("fast_mesh 0.1.0") && error.contains("E0063"),

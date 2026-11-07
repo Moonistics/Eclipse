@@ -20,7 +20,7 @@ pub const CONFIG: &str = "config";
 pub const SAVES: &str = "saves";
 pub const SCREENSHOTS: &str = "screenshots";
 pub(crate) const LOGS: &str = "logs";
-pub(crate) const CRASH_REPORTS: &str = "crash-reports";
+pub const CRASH_REPORTS: &str = "crash-reports";
 // Far terrain's copies of what servers sent, rebuilt as the instance plays.
 const SERVER_TERRAIN: &str = "server-terrain";
 pub const SESSIONS: &str = "sessions";

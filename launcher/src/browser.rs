@@ -264,7 +264,7 @@ pub trait Source: Send + Sync {
     fn search(&self, query: &Query) -> Result<Vec<Project>, String>;
     fn project(&self, id: &str) -> Result<Project, String>;
     /// Versions, newest first.
-    fn versions(&self, project: &Project) -> Result<Vec<Version>, String>;
+    fn versions(&self, project: &Project, level: Option<u32>) -> Result<Vec<Version>, String>;
     /// The project's page: description, gallery, links, authors.
     fn details(&self, project: &Project) -> Result<details::Details, String> {
         Ok(details::Details {

@@ -3,7 +3,7 @@
 use crate::menus::Asking;
 use crate::page::Page;
 use crate::ui;
-use crate::{cull, layout, menus, mods_page, preview, Launcher};
+use crate::{cull, layout, menus, mods_results, preview, Launcher};
 use eclipse_launcher::backend;
 use eclipse_launcher::browser::{
     installed, java, java_instance, Kind as PackKind, Project, SourceId, Support,
@@ -380,7 +380,7 @@ impl Launcher {
         self.asking = None;
         let inside =
             ui::try_focus_for(DETAIL_FLOAT).is_some_and(|float| float.contains_focused(window, cx));
-        if let Some(results) = ui::options_focus(mods_page::RESULTS).filter(|_| inside) {
+        if let Some(results) = ui::options_focus(mods_results::RESULTS).filter(|_| inside) {
             window.focus(&results, cx);
         }
     }
@@ -414,6 +414,14 @@ impl Launcher {
     }
 
     /// Called with the launcher's other work: what the background sent.
+    pub(super) fn mods_auto_updated(&mut self, lines: Vec<String>, rebuild: Vec<String>) {
+        self.native.rebuild.extend(rebuild);
+        if !lines.is_empty() {
+            crate::toast::say(lines.join(" "));
+            self.mods.read_installed();
+        }
+    }
+
     pub(super) fn mods_tick(&mut self) -> bool {
         let mut changed = false;
         let mut to_check = Vec::new();
@@ -488,13 +496,7 @@ impl Launcher {
                     m.about.extend(about);
                     m.results_list.reset();
                 }
-                Event::AutoUpdated(lines, rebuild) => {
-                    self.native.rebuild.extend(rebuild);
-                    if !lines.is_empty() {
-                        crate::toast::say(lines.join(" "));
-                        m.read_installed();
-                    }
-                }
+                Event::AutoUpdated(lines, rebuild) => self.mods_auto_updated(lines, rebuild),
                 Event::TakenDown(lines) => {
                     crate::toast::say_error(lines.join(" "));
                     m.read_installed();
@@ -689,7 +691,7 @@ impl Launcher {
         self.mods.entry(p).is_some()
     }
 
-    pub(super) fn needs_world(&self, p: &Project) -> bool {
+    fn needs_world(&self, p: &Project) -> bool {
         p.kind == PackKind::DataPack && self.datapack_world().is_none()
     }
 

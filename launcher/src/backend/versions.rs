@@ -1,6 +1,6 @@
 use super::architecture::{
-    architecture_for_asset, game_assets, selected_game_architecture, GameArchitecture,
-    InstalledGameArchitecture, GAME_BUILD_ARCHITECTURE,
+    architecture_for_asset, game_assets, selected_game_architecture, InstalledGameArchitecture,
+    GAME_BUILD_ARCHITECTURE,
 };
 use super::net::{fetch_small, get};
 use super::paths::{version_dir, versions_dir};
@@ -15,16 +15,6 @@ use std::sync::Mutex;
 use std::time::SystemTime;
 
 pub(crate) const INSTALL_MARK: &str = ".installed";
-
-/// The mod API level of the game players run: the selected version's, else the newest installed
-/// one's. None with no version installed: the launcher doesn't know yet which game will run mods.
-pub fn game_mod_api_level() -> Option<u32> {
-    let (installed, default) = (installed(), Settings::load().default_version);
-    Some(mod_api_level(followed_version(
-        default.as_ref(),
-        &installed,
-    )?))
-}
 
 /// A game version's mod API level, read once from the mark its program carries
 /// (`eclipse_mods::api_level::MARK`). A program from before the mark serves level 0, the
@@ -201,10 +191,13 @@ pub(super) fn unpack(archive: &Path, url: &str, to: &Path) -> Result<(), String>
 
 /// Downloads one release, checks it against its signed checksums and unpacks it; `progress` gets
 /// the fraction done.
-pub fn install(release: &Release, progress: impl Fn(f32)) -> Result<(), String> {
+pub fn install(
+    release: &Release,
+    settings: &Settings,
+    progress: impl Fn(f32),
+) -> Result<(), String> {
     let tag = release.tag.as_str();
-    let settings = Settings::load();
-    let (asset, fallback) = game_assets(&settings);
+    let (asset, fallback) = game_assets(settings);
     let asset = asset_installed(release, asset, fallback).ok_or_else(|| {
         crate::i18n::trf(
             "{tag} has no build for the selected game architecture.",
@@ -237,13 +230,7 @@ pub fn install(release: &Release, progress: impl Fn(f32)) -> Result<(), String> 
         None if is_game_tag(tag) => signed_digest(tag, asset)?,
         None => return Err(format!("{tag} is not an Eclipse release.")),
     };
-    install_as(
-        release,
-        tag,
-        &sha256,
-        selected_game_architecture(&settings),
-        progress,
-    )
+    install_as(release, tag, &sha256, settings, progress)
 }
 
 /// The asset `release` installs from: the fallback when [`game_releases_with`] took it (its file
@@ -268,13 +255,14 @@ pub(super) fn asset_installed<'a>(
 
 /// Downloads `release`'s archive for this platform, checks it against `sha256` (its signed
 /// checksum), and unpacks it as the installed version `tag`.
-pub(crate) fn install_as(
+fn install_as(
     release: &Release,
     tag: &str,
     sha256: &str,
-    requested_architecture: Option<GameArchitecture>,
+    settings: &Settings,
     progress: impl Fn(f32),
 ) -> Result<(), String> {
+    let requested_architecture = selected_game_architecture(settings);
     let (url, size) = release
         .asset
         .clone()
@@ -319,7 +307,7 @@ pub(crate) fn install_as(
     fs::rename(&top, &target).map_err(|e| e.to_string())?;
     mark_installed(&target).map_err(|e| e.to_string())?;
     let _ = fs::remove_dir_all(&partial);
-    reuse_prepared_for(tag);
+    reuse_prepared_for(tag, settings);
     progress(1.0);
     Ok(())
 }
@@ -381,12 +369,48 @@ pub(super) fn read_json(path: &Path) -> Option<serde_json::Value> {
 }
 
 pub(super) fn game_version_at(dir: &Path) -> String {
-    read_json(&dir.join("research-lock.json"))
-        .and_then(|v| v["minecraft"]["version"].as_str().map(String::from))
+    Lock::read(dir)
+        .and_then(|lock| lock.version().map(String::from))
         .unwrap_or_else(|| eclipse_core::VANILLA_VERSION.into())
 }
 
-pub fn resolve_version(requested: Option<&str>) -> Result<String, String> {
+pub(super) struct Lock(serde_json::Value);
+
+impl Lock {
+    pub(super) fn read(dir: &Path) -> Option<Lock> {
+        read_json(&dir.join("research-lock.json")).map(Lock)
+    }
+
+    fn text(&self, key: &str) -> Option<&str> {
+        self.0["minecraft"][key].as_str()
+    }
+
+    pub(super) fn version(&self) -> Option<&str> {
+        self.text("version")
+    }
+
+    pub(super) fn jars(&self) -> Option<[&str; 3]> {
+        Some([
+            self.version()?,
+            self.text("client_sha1")?,
+            self.text("server_sha1")?,
+        ])
+    }
+
+    pub(super) fn server_jar(&self) -> Option<[&str; 2]> {
+        Some([self.version()?, self.text("server_sha1")?])
+    }
+
+    pub(super) fn java_major(&self) -> Option<i64> {
+        self.0["minecraft"]["java_major"].as_i64()
+    }
+
+    pub(super) fn pins(&self) -> Option<crate::sources::Pins> {
+        crate::sources::Pins::read(&self.0)
+    }
+}
+
+pub fn resolve_version(requested: Option<&str>, settings: &Settings) -> Result<String, String> {
     let installed = installed();
     if let Some(tag) = requested {
         return installed
@@ -395,7 +419,7 @@ pub fn resolve_version(requested: Option<&str>) -> Result<String, String> {
             .cloned()
             .ok_or_else(|| format!("{tag} is not installed."));
     }
-    followed_version(Settings::load().default_version.as_ref(), &installed)
+    followed_version(settings.default_version.as_ref(), &installed)
         .cloned()
         .ok_or_else(no_version_installed)
 }
@@ -447,8 +471,8 @@ pub(super) fn stale_versions(installed: &[String], keep: usize) -> Vec<String> {
         .collect()
 }
 
-pub(crate) fn needed_versions() -> Vec<String> {
-    let mut needed: Vec<String> = Settings::load().default_version.into_iter().collect();
+pub(crate) fn needed_versions(settings: &Settings) -> Vec<String> {
+    let mut needed: Vec<String> = settings.default_version.iter().cloned().collect();
     needed.extend(
         crate::instances::list()
             .into_iter()
@@ -459,8 +483,8 @@ pub(crate) fn needed_versions() -> Vec<String> {
 
 /// Removes the `stale` versions, except the ones [`needed_versions`] names and the ones a program
 /// runs from. One that does not delete is logged and the rest still go. Returns the ones removed.
-pub(crate) fn remove_unused(stale: Vec<String>) -> Vec<String> {
-    let needed = needed_versions();
+pub(crate) fn remove_unused(stale: Vec<String>, settings: &Settings) -> Vec<String> {
+    let needed = needed_versions(settings);
     let mut gone = Vec::new();
     for tag in stale.into_iter().filter(|t| !needed.contains(t)) {
         if in_use(&tag) {
@@ -502,20 +526,22 @@ pub(crate) fn in_use(_tag: &str) -> bool {
 /// Deletes the release versions nothing needs after an install or update, unless the player
 /// turned that off: all but the newest few (`Settings::keep_newest`), as [`remove_unused`] does.
 /// Returns the versions deleted. They install again from GitHub.
-pub fn prune_old_versions() -> Vec<String> {
-    let settings = Settings::load();
+pub fn prune_old_versions(settings: &Settings) -> Vec<String> {
     if !settings.auto_prune() {
         return Vec::new();
     }
-    remove_unused(stale_versions(&installed(), settings.keep_newest()))
+    remove_unused(
+        stale_versions(&installed(), settings.keep_newest()),
+        settings,
+    )
 }
 
-pub fn after_install(tag: &str, as_update: bool) -> Vec<String> {
+pub fn after_install(tag: &str, as_update: bool, settings: &Settings) -> Vec<String> {
     let mut gone = Vec::new();
     if as_update && crate::nightly::date_of(tag).is_some() {
-        gone = crate::nightly::after_update(tag);
+        gone = crate::nightly::after_update(tag, settings);
     }
-    gone.extend(prune_old_versions());
+    gone.extend(prune_old_versions(settings));
     gone
 }
 
@@ -560,8 +586,13 @@ pub fn install_selects(tag: &str, why: InstallWhy, selected: Option<&str>) -> bo
 
 /// Installs `tag` (or with "latest" the newest release, pre-releases left out), then updates the selection as
 /// `select_after_update` says when `as_update`, or always selects it otherwise.
-pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result<String, String> {
-    let releases = releases()?;
+pub fn install_tag(
+    tag: &str,
+    as_update: bool,
+    settings: &Settings,
+    progress: impl Fn(f32),
+) -> Result<String, String> {
+    let releases = releases(settings)?;
     let release = if tag == "latest" {
         releases
             .iter()
@@ -581,8 +612,8 @@ pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result
     if let Some(warning) = &downgrade {
         eprintln!("{warning}");
     }
-    install(release, progress)?;
-    Settings::update(|settings| {
+    install(release, settings, progress)?;
+    let settings = Settings::update(|settings| {
         let selected = settings.default_version.as_deref();
         // An older Nightly is a deliberate rollback: installed, but an update never moves the selection back.
         let why = match as_update {
@@ -594,8 +625,9 @@ pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result
         if install_selects(&release.tag, why, selected) {
             settings.default_version = Some(release.tag.clone());
         }
+        settings.clone()
     })?;
-    after_install(&release.tag, as_update);
+    after_install(&release.tag, as_update, &settings);
     Ok(release.tag.clone())
 }
 

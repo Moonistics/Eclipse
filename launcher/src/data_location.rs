@@ -72,16 +72,15 @@ pub fn configured_roots() -> Result<Option<Roots>> {
 }
 
 /// Run before any launcher path is used. A broken location never ends the process: it is
-/// recorded, and the default folders stand in. The returned text is also [`startup_error`].
-pub fn startup() -> Option<String> {
-    let error = configured_roots().err().map(|error| {
+/// recorded ([`startup_error`]), and the default folders stand in.
+pub fn startup() {
+    let error = configured_roots().err();
+    if error.is_some() {
         FORCE_DEFAULT.store(true, Ordering::Release);
-        format!("Cannot open the data folder: {error}")
-    });
+    }
     *STARTUP_ERROR
         .lock()
-        .unwrap_or_else(|poisoned| poisoned.into_inner()) = error.clone();
-    error
+        .unwrap_or_else(|poisoned| poisoned.into_inner()) = error;
 }
 
 pub fn startup_error() -> Option<String> {
@@ -113,10 +112,11 @@ fn resolve_at(bootstrap: &Path) -> Result<Option<Roots>> {
     }
     let canonical = validate_roots(&location.roots)?;
     if cfg!(windows) && !crate::backend::tool_safe(&canonical.build) {
-        return Err(
-            "Choose a destination with only ASCII characters and no spaces for Windows build tools"
-                .into(),
-        );
+        return Err(format!(
+            "Build folder {} has a space or a non-ASCII character, which Windows build tools can't \
+             read; restore location.json",
+            canonical.build.display()
+        ));
     }
     for root in [
         &location.roots.launcher,
@@ -257,5 +257,4 @@ fn problem(path: &Path, error: impl std::fmt::Display) -> String {
 }
 
 #[cfg(test)]
-#[path = "data_location/tests.rs"]
 mod tests;

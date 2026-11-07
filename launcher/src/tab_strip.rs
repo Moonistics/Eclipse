@@ -1,6 +1,9 @@
-use super::*;
 use crate::menus::Menu;
-use crate::ui;
+use crate::ui::{ButtonKind, Press};
+use crate::{ui, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use gpui::prelude::*;
+use gpui::{div, ClickEvent, Context, Div, FocusHandle, KeyDownEvent, SharedString, Stateful};
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 pub(super) enum Strip {

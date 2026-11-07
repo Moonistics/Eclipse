@@ -125,7 +125,7 @@ impl Perf {
         first
     }
 
-    pub fn ui_frame_times(&self) -> &[f32] {
+    fn ui_frame_times(&self) -> &[f32] {
         &self.ui_frames
     }
 
@@ -311,7 +311,7 @@ impl Bench {
 
 /// `eclipse-launcher benchmark`: starts the launcher `repeats` times (the first start is the cold
 /// one), each switching pages then resting, times the release list fetch, and writes one report.
-pub fn benchmark(repeats: usize) -> Result<PathBuf, String> {
+pub fn benchmark(repeats: usize, settings: &crate::backend::Settings) -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| e.to_string())?;
     let mut report = Report::new(Kind::Launcher, app());
     report.conditions.scenario = Some("benchmark".into());
@@ -398,7 +398,7 @@ pub fn benchmark(repeats: usize) -> Result<PathBuf, String> {
     let mut fetches = Vec::new();
     for _ in 0..3 {
         let started = Instant::now();
-        crate::backend::releases()?;
+        crate::backend::releases(settings)?;
         fetches.push(started.elapsed().as_secs_f64() * 1000.0);
     }
     report.metric("launcher.release_list_ms", &fetches);

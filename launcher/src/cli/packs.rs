@@ -1,5 +1,6 @@
 use super::json;
 use clap::Subcommand;
+use eclipse_launcher::backend;
 use eclipse_launcher::instances;
 use std::path::PathBuf;
 
@@ -62,12 +63,16 @@ pub(super) enum PacksCmd {
     },
 }
 
-pub(super) fn packs(action: PacksCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn packs(
+    action: PacksCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::packs::{self, Kind};
     let home = |instance: Option<String>| -> Result<PathBuf, String> {
         Ok(match instance {
             Some(name) => instances::find(&name)?.home,
-            None => instances::selected().home,
+            None => instances::selected(settings).home,
         })
     };
     let value = |p: &packs::Pack| {

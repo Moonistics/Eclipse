@@ -7,9 +7,9 @@ use gpui::{
     div, prelude::*, px, App, Div, FontWeight, Role, SharedString, Stateful, Toggled, Window,
 };
 
-pub(super) const SWITCH_WIDTH: f32 = 40.;
+const SWITCH_WIDTH: f32 = 40.;
 
-pub(super) const SWITCH_HEIGHT: f32 = 24.;
+const SWITCH_HEIGHT: f32 = 24.;
 
 const SWITCH_EDGE: f32 = 1.;
 

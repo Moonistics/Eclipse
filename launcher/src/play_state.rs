@@ -1,6 +1,8 @@
-use super::*;
 use crate::game_run::Phase;
 use crate::ui::Tone;
+use crate::{ui, Launcher};
+use eclipse_launcher::backend::{self, Release};
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::Instance;
 
 pub(super) struct PrepareFailed {
@@ -168,9 +170,9 @@ impl Launcher {
             }
         }
         match self.game.phase {
-            Phase::Preparing { .. } if ours => PlayState::Preparing(
-                eclipse_launcher::mojang::progress().map(|(d, n)| d as f32 / n.max(1) as f32),
-            ),
+            Phase::Preparing { files, .. } if ours => {
+                PlayState::Preparing(files.map(|(d, n)| d as f32 / n.max(1) as f32))
+            }
             Phase::Starting { .. } if ours => PlayState::Starting,
             _ => PlayState::Idle,
         }

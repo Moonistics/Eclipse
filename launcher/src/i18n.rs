@@ -244,5 +244,4 @@ pub fn capitalised(text: &str) -> String {
 }
 
 #[cfg(test)]
-#[path = "i18n/tests.rs"]
 mod tests;

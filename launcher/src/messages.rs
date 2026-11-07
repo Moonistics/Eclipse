@@ -1,11 +1,9 @@
-use super::*;
-use eclipse_launcher::backend::{Links, Output, Staged};
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum Job {
-    Prepare,
-    Client,
-}
+use crate::page::Page;
+use crate::{game_run, perf, Launcher};
+use eclipse_launcher::backend::{self, Links, Output, Release, Staged, Updates};
+use eclipse_launcher::{account, native_mods};
+use gpui::Context;
+use std::sync::mpsc::Sender;
 
 pub(super) enum Msg {
     Releases(Result<Vec<Release>, String>),
@@ -18,8 +16,10 @@ pub(super) enum Msg {
     Pruned(Vec<String>),
     /// What each installed version takes on disk (`disk_use`).
     DiskUse(Vec<(String, u64)>),
-    Line(Job, String),
-    Exit(Job, Result<(), backend::Ended>),
+    Preparing(backend::Preparing),
+    Prepared(Result<(), backend::Ended>),
+    GameLine(String),
+    GameExit(Result<(), backend::Ended>),
     Started(game_run::Started),
     /// Boxed: two releases, the largest message by far.
     Updates(Result<Box<Updates>, String>),
@@ -36,6 +36,7 @@ pub(super) enum Msg {
     AccountProgress(String, u64, account::session::Phase),
     AccountHead(String, Option<String>, Option<Vec<[u8; 4]>>, bool),
     AccountRemoved(String, u64, Result<bool, String>),
+    AutoUpdated(Vec<String>),
     /// A modpack step's line (`modpacks`).
     PackLine(String),
     /// A modpack step ended: the pack as it now is.
@@ -56,11 +57,11 @@ impl Tell {
         let _ = self.0.send(msg);
     }
 
-    pub(super) fn output(self, job: Job) -> impl Fn(Output) + Send + Sync + 'static {
+    pub(super) fn game_output(self) -> impl Fn(Output) + Send + Sync + 'static {
         move |out| {
             self.send(match out {
-                Output::Line(line) => Msg::Line(job, line),
-                Output::Exit(result) => Msg::Exit(job, result),
+                Output::Line(line) => Msg::GameLine(line),
+                Output::Exit(result) => Msg::GameExit(result),
             })
         }
     }
@@ -128,12 +129,15 @@ impl Launcher {
                 Msg::Native(result) => self.native_built(result),
                 Msg::LauncherProgress(p) => self.launcher_update_moved(p),
                 Msg::LauncherUpdated(result) => self.launcher_updated(result),
+                Msg::AutoUpdated(lines) => self.mods_auto_updated(lines, Vec::new()),
                 Msg::PackLine(line) => self.modpacks.log.push(line),
                 Msg::PackDone(result) => self.pack_done(result),
                 // Old versions log their session; it never reaches the window.
-                Msg::Line(_, line) if line.contains("Session ID is") => {}
-                Msg::Line(job, line) => {
-                    if job == Job::Client && line.starts_with(backend::GAME_FIRST_FRAME) {
+                Msg::Preparing(event) => self.game.prepare_moved(event),
+                Msg::Prepared(result) => self.prepare_ended(result.err()),
+                Msg::GameLine(line) if line.contains("Session ID is") => {}
+                Msg::GameLine(line) => {
+                    if line.starts_with(backend::GAME_FIRST_FRAME) {
                         if let Some(pressed) = self.game.take_pressed() {
                             self.perf
                                 .record_since("launcher.play_to_game_frame_ms", pressed);
@@ -141,8 +145,7 @@ impl Launcher {
                     }
                     self.game.log.push(line);
                 }
-                Msg::Exit(Job::Prepare, result) => self.prepare_ended(result.err()),
-                Msg::Exit(Job::Client, result) => self.run_ended(result.err(), cx),
+                Msg::GameExit(result) => self.run_ended(result.err(), cx),
                 Msg::Started(started) => self.game_started(started, cx),
             }
         }

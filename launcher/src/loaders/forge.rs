@@ -49,7 +49,7 @@ fn metadata_versions(xml: &str) -> Vec<&str> {
 /// Forge's versions for `minecraft` in its metadata, as players name them (`47.3.0`; an old one
 /// keeps what follows: `10.13.4.1614-1.7.10`), stable up to the `recommended` build when
 /// Forge names one, all of them when it doesn't.
-pub(super) fn parse_forge(xml: &str, promotions: &str, minecraft: &str) -> Vec<Listed> {
+fn parse_forge(xml: &str, promotions: &str, minecraft: &str) -> Vec<Listed> {
     let prefix = format!("{minecraft}-");
     let promos: Value = serde_json::from_str(promotions).unwrap_or_default();
     let recommended = promos["promos"][format!("{minecraft}-recommended")]
@@ -71,7 +71,7 @@ pub(super) fn parse_forge(xml: &str, promotions: &str, minecraft: &str) -> Vec<L
 
 /// NeoForge's versions for `minecraft` in its version list (`{"versions": [...]}`); a `-beta`
 /// one is not stable.
-pub(super) fn parse_neoforge(text: &str, minecraft: &str) -> Result<Vec<Listed>, String> {
+fn parse_neoforge(text: &str, minecraft: &str) -> Result<Vec<Listed>, String> {
     let list: Value =
         serde_json::from_str(text).map_err(|e| format!("NeoForge's version list: {e}"))?;
     let all = list["versions"]
@@ -125,5 +125,4 @@ pub(super) fn versions(kind: Kind, minecraft: &str, fetch: Fetch) -> Result<Vec<
 }
 
 #[cfg(test)]
-#[path = "forge_tests.rs"]
 mod tests;

@@ -39,7 +39,7 @@ impl Launcher {
     }
 
     /// The picture behind Home, if the player keeps one.
-    pub(super) fn home_background(&self) -> Option<PathBuf> {
+    fn home_background(&self) -> Option<PathBuf> {
         themes::background(&backend::data_dir(), self.settings.background.as_deref())
     }
 

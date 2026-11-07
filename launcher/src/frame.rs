@@ -1,10 +1,20 @@
-use super::*;
+use crate::launcher_update::SelfUpdate;
 use crate::menus::{Asking, Menu};
-use crate::ui::{self, Tone};
+use crate::page::Page;
+use crate::play_state::PlayState;
+use crate::scrollbar::Scrollbar;
+use crate::ui::{self, ButtonKind, Press, Tone};
+use crate::{clipboard, layout, Launcher};
 use eclipse_launcher::account::Player;
+use eclipse_launcher::backend;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, space, step};
-use gpui::{canvas, point};
+use gpui::prelude::*;
+use gpui::{
+    canvas, div, point, px, AnyElement, Bounds, ClickEvent, Context, Div, FontWeight, Pixels,
+    SharedString, Stateful,
+};
 use std::cell::{Cell, RefCell};
 use std::collections::HashMap;
 use std::rc::Rc;
@@ -845,7 +855,7 @@ impl Launcher {
                     },
                 )),
             )
-            .when(instance_state::duplicable(&instance), |menu| {
+            .when(!instance.plays_a_pack(), |menu| {
                 menu.child(
                     item("duplicate", crate::icons::COPY, tr("Duplicate…").into()).on_press(
                         cx.listener(move |this, _: &ClickEvent, _, cx| {

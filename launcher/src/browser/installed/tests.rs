@@ -10,6 +10,7 @@ struct Fake {
     projects: HashMap<String, Project>,
     versions: Mutex<HashMap<String, Vec<Version>>>,
     bytes: Mutex<HashMap<String, Vec<u8>>>,
+    levels: Mutex<HashMap<String, u32>>,
 }
 
 impl Source for Fake {
@@ -25,14 +26,22 @@ impl Source for Fake {
             .cloned()
             .ok_or_else(|| "not a pack".into())
     }
-    fn versions(&self, p: &Project) -> Result<Vec<Version>, String> {
+    fn versions(&self, p: &Project, level: Option<u32>) -> Result<Vec<Version>, String> {
+        let levels = self.levels.lock().unwrap();
+        let too_new = |v: &Version| matches!((levels.get(&v.id), level), (Some(needed), Some(level)) if needed > &level);
         Ok(self
             .versions
             .lock()
             .unwrap()
             .get(&p.id)
             .cloned()
-            .unwrap_or_default())
+            .unwrap_or_default()
+            .into_iter()
+            .map(|v| Version {
+                blocked: too_new(&v).then(|| "needs a newer game".into()),
+                ..v
+            })
+            .collect())
     }
     fn fetch(
         &self,
@@ -108,6 +117,10 @@ impl Fake {
         let mut versions = self.versions.lock().unwrap();
         versions.entry(id.into()).or_default().insert(0, version);
     }
+    fn needs_level(&self, id: &str, number: &str, level: u32) {
+        let mut levels = self.levels.lock().unwrap();
+        levels.insert(format!("{id}@{number}"), level);
+    }
 }
 
 fn home(name: &str) -> PathBuf {
@@ -120,6 +133,24 @@ fn home(name: &str) -> PathBuf {
 const NONE: &dyn Fn(&str, f32) = &|_, _| {};
 
 #[test]
+fn an_update_is_judged_by_the_game_it_is_for() {
+    let home = home("judged-by-game");
+    let mut fake = Fake::default();
+    fake.add(project("hud", Kind::ResourcePack));
+    fake.release("hud", "1", &[], b"hud v1", false);
+    let hud = fake.project("hud").unwrap();
+    install(&fake, &hud, false, &home, Some(1), NONE).unwrap();
+    fake.release("hud", "2", &[], b"hud v2", false);
+    fake.needs_level("hud", "2", 2);
+    let entry = Installed::load(&home).lookup("hud").cloned().unwrap();
+    let older = Game::Eclipse.update_for(&fake, &entry, Some(1)).unwrap();
+    assert!(older.is_none(), "{older:?}");
+    let newer = Game::Eclipse.update_for(&fake, &entry, Some(2)).unwrap();
+    assert_eq!(newer.map(|v| v.number).as_deref(), Some("2"));
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
 fn installs_with_dependencies_then_updates_and_removes() {
     let home = home("cycle");
     let mut fake = Fake::default();
@@ -129,7 +160,7 @@ fn installs_with_dependencies_then_updates_and_removes() {
     fake.release("addon", "1", &["base"], b"addon pack", false);
     let addon = fake.project("addon").unwrap();
 
-    let done = install(&fake, &addon, false, &home, NONE).unwrap();
+    let done = install(&fake, &addon, false, &home, None, NONE).unwrap();
     let files: Vec<&str> = done.iter().map(|e| e.file.as_str()).collect();
     assert_eq!(
         files,
@@ -147,7 +178,7 @@ fn installs_with_dependencies_then_updates_and_removes() {
     // the trash from Home's packs) comes back.
     fs::write(home.join("resourcepacks/base-1.zip"), "kept").unwrap();
     fs::remove_file(home.join("resourcepacks/addon-1.zip")).unwrap();
-    install(&fake, &addon, false, &home, NONE).unwrap();
+    install(&fake, &addon, false, &home, None, NONE).unwrap();
     assert_eq!(
         fs::read(home.join("resourcepacks/base-1.zip")).unwrap(),
         b"kept"
@@ -162,13 +193,13 @@ fn installs_with_dependencies_then_updates_and_removes() {
     let entry = Installed::load(&home).lookup("addon").cloned().unwrap();
     assert_eq!(
         Game::Eclipse
-            .update_for(&fake, &entry)
+            .update_for(&fake, &entry, None)
             .unwrap()
             .unwrap()
             .number,
         "2"
     );
-    install(&fake, &addon, false, &home, NONE).unwrap();
+    install(&fake, &addon, false, &home, None, NONE).unwrap();
     assert!(!home.join("resourcepacks/addon-1.zip").exists());
     assert_eq!(
         fs::read(home.join("resourcepacks/addon-2.zip")).unwrap(),
@@ -179,7 +210,10 @@ fn installs_with_dependencies_then_updates_and_removes() {
         .cloned()
         .unwrap();
     assert_eq!(entry.number, "2");
-    assert!(Game::Eclipse.update_for(&fake, &entry).unwrap().is_none());
+    assert!(Game::Eclipse
+        .update_for(&fake, &entry, None)
+        .unwrap()
+        .is_none());
 
     let removed = remove(&home, "addon").unwrap();
     assert_eq!(removed.project, "addon");
@@ -195,12 +229,28 @@ fn a_list_that_cant_be_read_is_never_saved_over() {
     let mut fake = Fake::default();
     fake.add(project("base", Kind::ResourcePack));
     fake.release("base", "1", &[], b"base pack", false);
-    install(&fake, &fake.project("base").unwrap(), false, &home, NONE).unwrap();
+    install(
+        &fake,
+        &fake.project("base").unwrap(),
+        false,
+        &home,
+        None,
+        NONE,
+    )
+    .unwrap();
     let torn = &fs::read(home.join(MANIFEST)).unwrap()[..30];
     fs::write(home.join(MANIFEST), torn).unwrap();
     fake.add(project("other", Kind::ResourcePack));
     fake.release("other", "1", &[], b"other pack", false);
-    assert!(install(&fake, &fake.project("other").unwrap(), false, &home, NONE).is_err());
+    assert!(install(
+        &fake,
+        &fake.project("other").unwrap(),
+        false,
+        &home,
+        None,
+        NONE
+    )
+    .is_err());
     assert!(remove(&home, "base").is_err());
     assert_eq!(fs::read(home.join(MANIFEST)).unwrap(), torn);
     assert!(!home.join("resourcepacks/other-1.zip").exists());
@@ -219,13 +269,22 @@ fn nothing_is_installed_when_a_check_fails() {
     fake.release("bad", "1", &[], b"tampered", true);
     fake.release("needs-mod", "1", &["sodium"], b"x", false);
 
-    let e = install(&fake, &fake.project("bad").unwrap(), false, &home, NONE).unwrap_err();
+    let e = install(
+        &fake,
+        &fake.project("bad").unwrap(),
+        false,
+        &home,
+        None,
+        NONE,
+    )
+    .unwrap_err();
     assert!(e.contains("checksum doesn't match"), "{e}");
     let e = install(
         &fake,
         &fake.project("needs-mod").unwrap(),
         false,
         &home,
+        None,
         NONE,
     )
     .unwrap_err();
@@ -239,7 +298,15 @@ fn nothing_is_installed_when_a_check_fails() {
     // The player's own file of the same name is never replaced.
     fs::create_dir_all(home.join("resourcepacks")).unwrap();
     fs::write(home.join("resourcepacks/good-1.zip"), b"mine").unwrap();
-    let e = install(&fake, &fake.project("good").unwrap(), false, &home, NONE).unwrap_err();
+    let e = install(
+        &fake,
+        &fake.project("good").unwrap(),
+        false,
+        &home,
+        None,
+        NONE,
+    )
+    .unwrap_err();
     assert!(e.contains("wasn't installed by the browser"), "{e}");
     assert_eq!(
         fs::read(home.join("resourcepacks/good-1.zip")).unwrap(),
@@ -249,7 +316,7 @@ fn nothing_is_installed_when_a_check_fails() {
     assert!(home.join("resourcepacks/good-1.zip").exists());
 
     let pack = project("pack", Kind::Modpack);
-    assert!(plan(&fake, &pack, false)
+    assert!(plan(&fake, &pack, false, None)
         .unwrap_err()
         .contains("imported, not installed"));
     fs::remove_dir_all(&home).unwrap();
@@ -262,10 +329,24 @@ fn modpacks_download_checked() {
     fake.add(project("atm", Kind::Modpack));
     fake.release("atm", "1", &[], b"mrpack", false);
     let downloads = home.join("downloads");
-    let path = fetch_modpack(&fake, &fake.project("atm").unwrap(), &downloads, &|_| {}).unwrap();
+    let path = fetch_modpack(
+        &fake,
+        &fake.project("atm").unwrap(),
+        &downloads,
+        None,
+        &|_| {},
+    )
+    .unwrap();
     assert_eq!(fs::read(path).unwrap(), b"mrpack");
     fake.release("atm", "2", &[], b"mrpack 2", true);
-    assert!(fetch_modpack(&fake, &fake.project("atm").unwrap(), &downloads, &|_| {}).is_err());
+    assert!(fetch_modpack(
+        &fake,
+        &fake.project("atm").unwrap(),
+        &downloads,
+        None,
+        &|_| {}
+    )
+    .is_err());
     assert!(!downloads.join("atm-2.zip").exists());
     fs::remove_dir_all(&home).unwrap();
 }
@@ -314,7 +395,15 @@ fn java_mods_are_ported_turned_on_refused_on_clashes_and_removed() {
     fake.release("lib", "1", &[], &lib, false);
     fake.release("gem", "1", &[], &gem, false);
 
-    let done = install(&fake, &fake.project("ruby").unwrap(), false, &home, NONE).unwrap();
+    let done = install(
+        &fake,
+        &fake.project("ruby").unwrap(),
+        false,
+        &home,
+        None,
+        NONE,
+    )
+    .unwrap();
     assert_eq!(done.len(), 1, "the library isn't installed");
     let entry = &done[0];
     assert_eq!(entry.file, "eclipse-mods/ruby");
@@ -338,7 +427,15 @@ fn java_mods_are_ported_turned_on_refused_on_clashes_and_removed() {
         .join("mod-browser/checks-1/.downloads/ruby-1.zip")
         .exists());
 
-    let clash = install(&fake, &fake.project("gem").unwrap(), false, &home, NONE).unwrap_err();
+    let clash = install(
+        &fake,
+        &fake.project("gem").unwrap(),
+        false,
+        &home,
+        None,
+        NONE,
+    )
+    .unwrap_err();
     assert!(clash.contains("shares its id or namespace"), "{clash}");
     assert!(!home.join("eclipse-mods/gem").exists());
 
@@ -470,8 +567,10 @@ fn installs_where_asked_and_removed_packs_go_to_the_trash() {
     let mut fake = Fake::default();
     fake.add(project("base", Kind::ResourcePack));
     fake.release("base", "1", &[], b"base pack", false);
+    let settings = crate::backend::Settings::default();
     let to = Destination {
         home: &home,
+        settings: &settings,
         java: None,
         world: None,
         everything: false,
@@ -511,8 +610,10 @@ fn a_java_instances_world_takes_data_packs_by_its_own_rules() {
         minecraft: GAME.into(),
         loader: Some("fabric".into()),
     };
+    let settings = crate::backend::Settings::default();
     let to = Destination {
         home: &home,
+        settings: &settings,
         java: Some(&java),
         world: Some(&world),
         everything: false,

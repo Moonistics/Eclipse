@@ -12,11 +12,15 @@ pub(super) fn logs(lines: usize, crash: bool, as_json: bool) -> Result<(), Strin
     Ok(())
 }
 
-pub(super) fn share(instance: Option<String>, as_json: bool) -> Result<(), String> {
+pub(super) fn share(
+    instance: Option<String>,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::game_log;
     let i = match instance {
         Some(name) => instances::find(&name)?,
-        None => instances::selected(),
+        None => instances::selected(settings),
     };
     let path = backend::latest_log_in(&i.home);
     let text = std::fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;

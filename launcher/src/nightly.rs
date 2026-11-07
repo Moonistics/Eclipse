@@ -44,7 +44,7 @@ pub fn display_name(version: &str) -> String {
 /// After `version`, a Nightly, installed as an update: the old Nightly instance follows it, and the
 /// older Nightlies nothing needs go (`backend::remove_unused`). Worlds stay. Returns the versions
 /// removed.
-pub fn after_update(version: &str) -> Vec<String> {
+pub fn after_update(version: &str, settings: &backend::Settings) -> Vec<String> {
     if instances::list()
         .iter()
         .any(|i| i.id == INSTANCE && i.version.as_deref().is_some_and(|v| date_of(v).is_some()))
@@ -56,6 +56,7 @@ pub fn after_update(version: &str) -> Vec<String> {
             .into_iter()
             .filter(|v| date_of(v).is_some() && v != version)
             .collect(),
+        settings,
     )
 }
 
@@ -103,7 +104,7 @@ mod tests {
             .arg(&program)
             .spawn()
             .unwrap();
-        let gone = after_update(current);
+        let gone = after_update(current, &backend::Settings::default());
         let _ = game.kill();
         let _ = game.wait();
         let left = backend::installed();

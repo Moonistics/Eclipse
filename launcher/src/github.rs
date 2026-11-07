@@ -27,7 +27,7 @@ const API: &str = "https://api.github.com";
 const FRESH_SECS: u64 = 5 * 60;
 
 #[derive(Debug)]
-pub(crate) enum Answer {
+enum Answer {
     /// 200, with the ETag GitHub gave (none from the mirror).
     Fresh(serde_json::Value, Option<String>),
     /// 304: the copy on disk is still current.
@@ -154,7 +154,7 @@ fn raw_with(
 
 /// [`json`] with its cache folder, the time (Unix seconds), the mirror and its two sources given
 /// (tests).
-pub(crate) fn json_with(
+fn json_with(
     url: &str,
     cache: &Path,
     now: u64,
@@ -310,5 +310,4 @@ fn write_kept(file: &Path, url: &str, etag: &str, body: &serde_json::Value, save
 }
 
 #[cfg(test)]
-#[path = "github/tests.rs"]
 mod tests;

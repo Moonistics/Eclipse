@@ -68,6 +68,7 @@ fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 
 impl Session {
     fn call(&mut self, name: &str, args: &Value) -> Result<String, String> {
+        let settings = &backend::Settings::load();
         match name {
             "play" => {
                 if self.client.as_ref().is_some_and(|c| c.finished().is_none()) {
@@ -75,9 +76,9 @@ impl Session {
                 }
                 let instance = match arg_str(args, "instance") {
                     Some(name) => instances::find(name)?,
-                    None => instances::selected(),
+                    None => instances::selected(settings),
                 };
-                let tag = instance.resolve_version(arg_str(args, "version"))?;
+                let tag = instance.resolve_version(arg_str(args, "version"), settings)?;
                 let on = |flag| args.get(flag).and_then(Value::as_bool).unwrap_or(false);
                 let mut extra = game_tools::control_args();
                 if on("offscreen") {
@@ -98,6 +99,7 @@ impl Session {
                         args: extra,
                         ..backend::Play::of(instance)
                     },
+                    settings,
                     &|line| eprintln!("{line}"),
                 )
                 .map_err(|e| e.hinted())?;
@@ -106,7 +108,9 @@ impl Session {
                 }
                 let (started, vars) = (std::time::Instant::now(), launched.vars);
                 let client = Logged::start_then(launched.cmd, move |_| {
-                    instances::game_ended(&played, started.elapsed(), &vars);
+                    if let Some(cmd) = instances::game_ended(&played, started.elapsed(), &vars) {
+                        eclipse_launcher::launch::run_after_exit(cmd);
+                    }
                 })?;
                 // Started once its control socket answers, as eclipse-ctl launch waits.
                 let deadline = std::time::Instant::now() + Duration::from_secs(120);
@@ -135,13 +139,13 @@ impl Session {
                 if self.server.as_ref().is_some_and(|s| s.finished().is_none()) {
                     return Err("A server is already running. Stop it first.".into());
                 }
-                let tag = backend::resolve_version(arg_str(args, "version"))?;
-                let dir = backend::server_dir(arg_str(args, "dir").map(PathBuf::from));
+                let tag = backend::resolve_version(arg_str(args, "version"), settings)?;
+                let dir = backend::server_dir(arg_str(args, "dir").map(PathBuf::from), settings);
                 let accept = args
                     .get("accept_eula")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let server = Logged::start(backend::server(&tag, &dir, accept)?)?;
+                let server = Logged::start(backend::server(&tag, &dir, accept, settings)?)?;
                 std::thread::sleep(Duration::from_secs(3));
                 let tail = server.tail(15).join("\n");
                 if let Some(result) = server.finished() {
@@ -244,7 +248,7 @@ impl Session {
     /// The game's tools, starting the selected version's eclipse-ctl the first time.
     fn game(&mut self) -> Option<&mut GameTools> {
         if self.game.is_none() {
-            self.game = backend::resolve_version(None)
+            self.game = backend::resolve_version(None, &backend::Settings::load())
                 .and_then(|tag| GameTools::start(&tag))
                 .ok();
         }

@@ -91,7 +91,7 @@ pub fn check_project(
     everything: bool,
     progress: &dyn Fn(f32),
 ) -> Result<(Version, Check), String> {
-    let versions = source.versions(project)?;
+    let versions = source.versions(project, None)?;
     let version = pick(Kind::Mod, &versions, everything)
         .cloned()
         .ok_or_else(|| match versions.iter().find_map(|v| v.blocked.clone()) {

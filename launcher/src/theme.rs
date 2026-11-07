@@ -56,7 +56,7 @@ pub fn pinned_dark(choice: Appearance) -> Option<bool> {
 
 impl Theme {
     /// This look under another sky (a launcher theme from Settings), top to bottom.
-    pub fn with_sky(mut self, sky: [u32; 6]) -> Self {
+    fn with_sky(mut self, sky: [u32; 6]) -> Self {
         self.night.sky = sky;
         self
     }

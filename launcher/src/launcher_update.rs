@@ -1,5 +1,8 @@
-use super::*;
-use eclipse_launcher::backend::Staged;
+use crate::messages::Msg;
+use crate::{servers_state, shut_down, Launcher};
+use eclipse_launcher::backend::{self, Release, Staged};
+use eclipse_launcher::i18n::{tr, trf};
+use gpui::App;
 
 /// The launcher's own update, as the footer and Settings show it.
 #[derive(Clone, PartialEq)]

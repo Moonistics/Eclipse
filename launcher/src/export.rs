@@ -39,7 +39,7 @@ impl Format {
 
 /// A file of the instance that its source serves, listed in a `.mrpack` rather than copied.
 #[derive(Clone, Debug, PartialEq)]
-pub struct Linked {
+struct Linked {
     /// Relative to the game folder: `resourcepacks/<name>`.
     pub path: String,
     pub file: FileRef,
@@ -230,7 +230,7 @@ fn shareable_level(file: &Path) -> Result<Vec<u8>, String> {
 
 /// The resource packs the browser installed from Modrinth that are still the file it checked:
 /// with `lookup` (the source's file for an entry), what a `.mrpack` can list by download.
-pub fn linkable(home: &Path, lookup: &dyn Fn(&Entry) -> Option<FileRef>) -> Vec<Linked> {
+fn linkable(home: &Path, lookup: &dyn Fn(&Entry) -> Option<FileRef>) -> Vec<Linked> {
     Installed::load(home)
         .entries
         .iter()
@@ -257,7 +257,7 @@ pub fn linkable(home: &Path, lookup: &dyn Fn(&Entry) -> Option<FileRef>) -> Vec<
 }
 
 /// An entry's file as Modrinth serves it (asks Modrinth: for [`linkable`]).
-pub fn from_modrinth(e: &Entry) -> Option<FileRef> {
+fn from_modrinth(e: &Entry) -> Option<FileRef> {
     let sum = e.hash("SHA-512")?;
     crate::browser::modrinth::version_files(&e.version)
         .ok()?
@@ -285,5 +285,4 @@ pub fn free_path(dir: &Path, name: &str, format: Format) -> PathBuf {
 }
 
 #[cfg(test)]
-#[path = "export/tests.rs"]
 mod tests;

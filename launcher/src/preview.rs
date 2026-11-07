@@ -7,9 +7,12 @@
 //! `new-instance` (the New instance page on Modded; `new-instance-eclipse`,
 //! `new-instance-vanilla` on those), `edit-instance`, `duplicate-instance` (the selected one's
 //! Edit or Duplicate page). Nothing runs for a preview.
-use super::*;
+use crate::game_run::Crash;
 use crate::home_tabs::HomeTab;
 use crate::instance_state::NewKind;
+use crate::page::Page;
+use crate::settings_page;
+use eclipse_launcher::backend;
 use eclipse_launcher::browser::Kind as PackKind;
 use std::sync::atomic::{AtomicBool, Ordering::Relaxed};
 
@@ -105,7 +108,9 @@ pub(super) fn project_opened() {
 pub(super) fn crash() -> Option<Crash> {
     shows(Preview::Crash).then(|| Crash {
         report: Some(
-            backend::game_home().join("crash-reports/crash-2026-11-06_20.14.03-client.txt"),
+            backend::game_home()
+                .join(eclipse_launcher::game_folder::CRASH_REPORTS)
+                .join("crash-2026-11-06_20.14.03-client.txt"),
         ),
         summary: "java.lang.IllegalStateException: Rendersystem called from wrong thread".into(),
         home: backend::game_home(),

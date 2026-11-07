@@ -93,7 +93,7 @@ pub fn letter_tile(colour: Hsla, name: &str, size: f32) -> Div {
         .child(initial(name))
 }
 
-pub fn initial(name: &str) -> String {
+fn initial(name: &str) -> String {
     name.chars()
         .find(|c| c.is_alphanumeric())
         .unwrap_or('?')

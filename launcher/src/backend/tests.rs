@@ -154,7 +154,7 @@ fn mojang_downloads_only_for_an_owner() {
         (no_owner(), false),
         (no_owner(), true),
     ] {
-        assert!(download_for(&pins, &dir, pass, signed_in, &fetch, &log).is_err());
+        assert!(download_for(&pins, &dir, pass, signed_in, &fetch, &log, &|_| {}).is_err());
     }
     assert!(asked.lock().unwrap().is_empty());
     assert!(!dir.exists());
@@ -173,7 +173,7 @@ fn mojang_downloads_only_for_an_owner() {
         owner: Some((owner, secrets)),
         ..Default::default()
     });
-    assert!(download_for(&pins, &dir, pass, true, &fetch, &log).is_err());
+    assert!(download_for(&pins, &dir, pass, true, &fetch, &log, &|_| {}).is_err());
     assert!(!asked.lock().unwrap().is_empty());
     let _ = fs::remove_dir_all(&dir);
 
@@ -186,7 +186,7 @@ fn mojang_downloads_only_for_an_owner() {
     .unwrap();
     asked.lock().unwrap().clear();
     for (pass, signed_in) in [(Err(account::NoOwner), true), (no_owner(), true)] {
-        assert!(download_for(&pins, &dir, pass, signed_in, &fetch, &log).is_err());
+        assert!(download_for(&pins, &dir, pass, signed_in, &fetch, &log, &|_| {}).is_err());
     }
     assert!(asked.lock().unwrap().is_empty());
     let _ = fs::remove_dir_all(&dir);
@@ -1524,7 +1524,7 @@ fn every_launcher_updates_to_the_current_nightly() {
         {"tag_name": "nightly-2026-10-27", "name": "Nightly 2026-10-27 · 7954902", "prerelease": true,
          "published_at": "2026-10-28T00:15:40Z", "assets": build("e")},
     ]);
-    let releases = game_releases(&list);
+    let releases = game_releases(&list, &Settings::default());
     let listed: Vec<_> = releases
         .iter()
         .map(|r| (r.tag.as_str(), r.nightly.as_deref(), r.prerelease))
@@ -2363,14 +2363,6 @@ fn old_settings_with_the_native_mods_switch_still_read() {
 }
 
 #[test]
-fn the_step_under_way_reads_back_as_it_was_set() {
-    for step in PrepareStep::ALL {
-        set_prepare_step(step);
-        assert_eq!(prepare_step(), step);
-    }
-}
-
-#[test]
 fn the_setting_picks_the_profile_and_the_old_switch_still_picks_release() {
     let read = |text: &str| Settings::parse(text).unwrap();
     assert_eq!(
@@ -2413,7 +2405,7 @@ fn a_launch_with_no_account_that_owns_the_game_is_refused_as_such() {
     mark_installed(&dir).unwrap();
     let mut eclipse = crate::instances::list().remove(0);
     eclipse.version = Some(tag.clone());
-    let refused = launch(Play::of(eclipse), &|_| {}).err();
+    let refused = launch(Play::of(eclipse), &Settings::default(), &|_| {}).err();
     fs::remove_dir_all(&dir).unwrap();
     assert_eq!(refused, Some(PlayError::NoOwner));
 }
@@ -2483,6 +2475,7 @@ fn play_turns_a_taken_down_mod_off_in_the_instance_it_plays() {
             offline_without_owner: true,
             ..Play::of(instance)
         },
+        &Settings::default(),
         &|_| {},
     );
     let args: Vec<String> = launched.as_ref().map_or_else(
@@ -2520,6 +2513,27 @@ fn a_logged_process_says_how_it_ended_once_it_has() {
     assert!(told.is_err(), "{told:?}");
     assert_eq!(logged.wait(), told);
     assert_eq!(logged.tail(1), ["done"]);
+}
+
+#[cfg(unix)]
+#[test]
+fn a_run_process_keeps_each_line_on_the_stream_it_came_on() {
+    let mut cmd = Command::new("sh");
+    cmd.args(["-c", "echo out; echo err >&2; exit 3"]);
+    let lines = std::sync::Mutex::new(Vec::new());
+    let ended = super::jobs::run(cmd, &|stream, line| {
+        lines.lock().unwrap().push((stream, line))
+    });
+    let mut lines = lines.into_inner().unwrap();
+    lines.sort_by_key(|(stream, _)| *stream == Stream::Stderr);
+    assert_eq!(
+        lines,
+        [
+            (Stream::Stdout, "out".into()),
+            (Stream::Stderr, "err".into())
+        ]
+    );
+    assert_eq!(ended.unwrap_err().to_string(), "Exited with exit status: 3");
 }
 
 #[test]

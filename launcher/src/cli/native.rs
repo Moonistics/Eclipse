@@ -49,15 +49,16 @@ pub(super) struct BuildArgs {
     pub(super) profile: Option<String>,
 }
 
-pub(super) fn cache(clear: bool) -> Result<(), String> {
+pub(super) fn cache(clear: bool, settings: &backend::Settings) -> Result<(), String> {
     println!(
         "{}",
-        serde_json::to_string_pretty(&eclipse_launcher::native_cache::info(clear)?).unwrap()
+        serde_json::to_string_pretty(&eclipse_launcher::native_cache::info(clear, settings)?)
+            .unwrap()
     );
     Ok(())
 }
 
-pub(super) fn build(args: BuildArgs) -> Result<(), String> {
+pub(super) fn build(args: BuildArgs, settings: &backend::Settings) -> Result<(), String> {
     let BuildArgs {
         folder,
         server_output,
@@ -73,10 +74,11 @@ pub(super) fn build(args: BuildArgs) -> Result<(), String> {
         return Err("Native mods run with full access to this computer. Read their source, then pass --trust-native-code.".into());
     }
     let started = std::time::Instant::now();
-    let profile = match profile.as_deref().and_then(native_mods::Profile::parse) {
-        Some(profile) => profile,
-        None => native_mods::Profile::chosen(&backend::Settings::load()),
-    };
+    let mut settings = settings.clone();
+    if let Some(profile) = profile.as_deref().and_then(native_mods::Profile::parse) {
+        settings.set_native_profile(Some(profile));
+    }
+    let settings = &settings;
     let steps = |step: native_mods::Step| {
         let secs = started.elapsed().as_secs();
         eprintln!("[{:>2}:{:02}] {}", secs / 60, secs % 60, step.label())
@@ -86,7 +88,7 @@ pub(super) fn build(args: BuildArgs) -> Result<(), String> {
         // or changed, and no launcher config is written; `folder` is required (clap).
         let folder = folder.unwrap();
         let base = match &version {
-            Some(v) => backend::resolve_version(Some(v))?,
+            Some(v) => backend::resolve_version(Some(v), settings)?,
             // The instance's version is never looked at here: the newest installed
             // release or Nightly, or that one with `--update` (never a native build).
             None => native_mods::base_for(None, &backend::installed(), update)
@@ -98,7 +100,7 @@ pub(super) fn build(args: BuildArgs) -> Result<(), String> {
             &output,
             allow_version_mismatch,
             ignore_pins,
-            profile,
+            settings,
             steps,
         )
         .map_err(|e| match e {
@@ -125,12 +127,12 @@ pub(super) fn build(args: BuildArgs) -> Result<(), String> {
     }
     let target = match &instance {
         Some(name) => instances::find(name)?,
-        None => instances::selected(),
+        None => instances::selected(settings),
     };
     let base = match version {
-        Some(v) => backend::resolve_version(Some(&v))?,
+        Some(v) => backend::resolve_version(Some(&v), settings)?,
         None => {
-            let plays = target.resolve_version(None).ok();
+            let plays = target.resolve_version(None, settings).ok();
             native_mods::base_for(plays.as_deref(), &backend::installed(), update)
                 .ok_or_else(backend::no_version_installed)?
         }
@@ -149,7 +151,7 @@ pub(super) fn build(args: BuildArgs) -> Result<(), String> {
         &target,
         allow_version_mismatch,
         ignore_pins,
-        profile,
+        settings,
         steps,
     )
     .map_err(|e| match e {

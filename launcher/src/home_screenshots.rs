@@ -135,7 +135,7 @@ impl Launcher {
 }
 
 impl Launcher {
-    pub(super) fn shots_privacy(&self, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn shots_privacy(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let hidden = self.shot_blur.hidden;
         ui::icon_button(
             "shots-privacy",
@@ -157,7 +157,7 @@ impl Launcher {
 
     /// Screenshot `path` filling its tile, round at `radius::ROW`, made at the tile's size
     /// (`pictures`): blurred while they are hidden; a plain fill until it is made.
-    pub(super) fn shot_picture(&mut self, path: &Path, cx: &mut Context<Self>) -> AnyElement {
+    fn shot_picture(&mut self, path: &Path, cx: &mut Context<Self>) -> AnyElement {
         let look = match self.shot_blur.hidden {
             true => Look::Blurred,
             false => Look::Fit(self.thumb_side()),

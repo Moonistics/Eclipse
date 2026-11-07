@@ -63,5 +63,4 @@ pub fn import(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Instance, Str
 }
 
 #[cfg(test)]
-#[path = "instances_mrpack/tests.rs"]
 mod tests;

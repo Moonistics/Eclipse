@@ -13,7 +13,7 @@ use gpui::{
     Hsla, MouseDownEvent, Pixels, Point, Role, ScrollHandle, SharedString, Stateful, Window,
 };
 
-pub(super) const POPOVER_WIDTH: f32 = 280.;
+const POPOVER_WIDTH: f32 = 280.;
 
 const POPOVER_MAX_HEIGHT: f32 = 360.;
 
@@ -77,7 +77,7 @@ pub fn surface_colour(kind: Surface) -> Hsla {
     }
 }
 
-pub(super) fn backdrop(kind: Surface, radius: f32) -> AnyElement {
+fn backdrop(kind: Surface, radius: f32) -> AnyElement {
     div()
         .absolute()
         .top_0()
@@ -256,7 +256,7 @@ pub fn corner_float(content: impl IntoElement) -> Div {
 
 /// What a dialog or the palette lays over the launcher: GPUI can't blur what it drew, so a
 /// menu's float covers the page. The scrim goes over it.
-pub(super) fn scrim_backdrop() -> impl IntoElement {
+fn scrim_backdrop() -> impl IntoElement {
     backdrop(Surface::Float, 0.)
 }
 
@@ -798,7 +798,7 @@ pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
 /// The focus ring (2 px of the accent's soft shade) over a focused field, inside its edge with
 /// the field's corners: GPUI has no outline, and a field clips what lies outside it. Put it in a
 /// `relative` field round at `radius`.
-pub(super) fn focus_ring(radius: f32) -> Div {
+fn focus_ring(radius: f32) -> Div {
     div()
         .absolute()
         .top_0()

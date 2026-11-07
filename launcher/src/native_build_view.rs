@@ -222,7 +222,7 @@ impl Launcher {
 
     /// The warning before a native build: what the mods can do and which mods. The build starts
     /// only from its button.
-    pub(super) fn native_warning(
+    fn native_warning(
         &self,
         mods: &Result<Vec<native_mods::Bundle>, String>,
         update: Option<&str>,
@@ -289,7 +289,7 @@ impl Launcher {
 
     /// Mods made for other Eclipse versions: which, and the version the build uses. They often
     /// still work, so the player may build anyway.
-    pub(super) fn native_mismatch_panel(&self, list: &str, cx: &mut Context<Self>) -> Div {
+    fn native_mismatch_panel(&self, list: &str, cx: &mut Context<Self>) -> Div {
         let said = div()
             .flex()
             .flex_col()

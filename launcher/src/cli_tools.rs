@@ -28,7 +28,7 @@ const NOT_TOOLS: &[&str] = &[
 ];
 
 /// Commands that delete the player's things: their tools need `confirm: true`.
-pub const DESTRUCTIVE: &[&str] = &[
+const DESTRUCTIVE: &[&str] = &[
     "remove",
     "modpack remove",
     "mods remove",
@@ -46,7 +46,7 @@ pub const DESTRUCTIVE: &[&str] = &[
 ];
 
 /// Commands that send something or reach other people: only when the player asks.
-pub const OPEN_WORLD: &[&str] = &[
+const OPEN_WORLD: &[&str] = &[
     "data allow",
     "data send",
     "data bug",
@@ -62,7 +62,7 @@ pub struct Tool {
 }
 
 /// The tool name of CLI words: `mods search` gives `mods_search`.
-pub fn tool_name(path: &[String]) -> String {
+fn tool_name(path: &[String]) -> String {
     path.join("_").replace('-', "_")
 }
 
@@ -93,7 +93,7 @@ impl Tool {
     fn words(&self) -> String {
         self.path.join(" ")
     }
-    pub fn destructive(&self) -> bool {
+    fn destructive(&self) -> bool {
         DESTRUCTIVE.contains(&self.words().as_str())
     }
 
@@ -166,7 +166,7 @@ impl Tool {
         tool
     }
 
-    pub fn argv(&self, args: &Value) -> Result<Vec<String>, String> {
+    fn argv(&self, args: &Value) -> Result<Vec<String>, String> {
         if self.destructive() && args.get("confirm").and_then(Value::as_bool) != Some(true) {
             return Err(format!(
                 "{} cannot be undone: ask the player, then call it with confirm: true",

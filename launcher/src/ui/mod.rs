@@ -225,7 +225,7 @@ pub fn text_width(text: &str, step: TextStep) -> f32 {
     text.chars().count() as f32 * eclipse_theme::glass::GEIST_ADVANCE * step.size / step::BODY.size
 }
 
-pub fn on_pixel_grid(size: f32) -> f32 {
+pub(super) fn on_pixel_grid(size: f32) -> f32 {
     on_device_grid(size, SCALE.get())
 }
 
@@ -492,7 +492,7 @@ fn bar_fill() -> Div {
         .bg(color(look().accent_soft))
 }
 
-pub(super) struct Tip(SharedString);
+struct Tip(SharedString);
 
 impl gpui::Render for Tip {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {

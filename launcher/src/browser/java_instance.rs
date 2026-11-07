@@ -175,7 +175,7 @@ fn add(
         return Err(format!("{}'s dependencies go too deep.", project.title));
     }
     target.folder(project.kind)?;
-    let versions = source.versions(&project)?;
+    let versions = source.versions(&project, None)?;
     let Some(version) = target.pick(project.kind, &versions).cloned() else {
         return Err(match versions.iter().find_map(|v| v.blocked.clone()) {
             Some(why) => format!("{} can't be installed from here: {why}", project.title),
@@ -241,7 +241,7 @@ pub fn install_datapack(
     world: &Path,
     progress: &dyn Fn(f32),
 ) -> Result<(crate::datapacks::DataPack, String), String> {
-    let versions = source.versions(project)?;
+    let versions = source.versions(project, None)?;
     let version = target.pick(Kind::DataPack, &versions).ok_or_else(|| {
         format!(
             "{} has no data pack for Minecraft {}.",

@@ -25,7 +25,7 @@ use std::process::Command;
 
 /// The repository's name of `version` (as players name it: `47.3.0`) for `minecraft`:
 /// `1.20.1-47.3.0` where versions carry the game's in front.
-pub(super) fn maven_version(kind: Kind, minecraft: &str, version: &str) -> String {
+fn maven_version(kind: Kind, minecraft: &str, version: &str) -> String {
     match artifact(kind, minecraft).2 {
         "neoforge" => version.to_string(),
         _ => format!("{minecraft}-{version}"),
@@ -427,5 +427,4 @@ pub(super) fn install(
 }
 
 #[cfg(test)]
-#[path = "forge_install_tests.rs"]
 mod tests;

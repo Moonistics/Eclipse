@@ -38,28 +38,25 @@ pub(super) fn prepare(
     minecraft: Option<PathBuf>,
     download: bool,
     version: Option<String>,
+    settings: &backend::Settings,
 ) -> Result<(), String> {
-    let tag = backend::resolve_version(version.as_deref())?;
-    let minecraft = backend::minecraft_dir(minecraft)?;
+    let tag = backend::resolve_version(version.as_deref(), settings)?;
+    let minecraft = backend::minecraft_dir(minecraft, settings)?;
     let from = if download {
         backend::MinecraftFrom::Mojang
     } else {
         backend::MinecraftFrom::Install
     };
-    let (preparer, minecraft) =
-        backend::preparer(&tag, &minecraft, from, &|line| eprintln!("{line}"))?;
-    backend::sounds(&tag, &minecraft, &|line| println!("{line}"));
-    match preparer {
-        backend::Preparer::Process(cmd) => attached(cmd)?,
-        backend::Preparer::InProcess(options) => {
-            backend::prepare_in_process(&options, &|line| println!("{line}"))?
-        }
-    }
+    backend::prepare(&tag, &minecraft, from, &|event| match event {
+        backend::Preparing::Line(backend::Stream::Stdout, line) => println!("{line}"),
+        backend::Preparing::Line(backend::Stream::Stderr, line) => eprintln!("{line}"),
+        backend::Preparing::Step(_) | backend::Preparing::Files(_) => {}
+    })?;
     println!("{tag} is prepared.");
     Ok(())
 }
 
-pub(super) fn play(args: PlayArgs) -> Result<(), String> {
+pub(super) fn play(args: PlayArgs, settings: &backend::Settings) -> Result<(), String> {
     let PlayArgs {
         version,
         instance,
@@ -72,7 +69,7 @@ pub(super) fn play(args: PlayArgs) -> Result<(), String> {
     } = args;
     let instance = match instance {
         Some(name) => instances::find(&name)?,
-        None => instances::selected(),
+        None => instances::selected(settings),
     };
     if instance.java.is_some()
         && (version.is_some() || world.is_some() || join.is_some() || creative || account.is_some())
@@ -95,16 +92,19 @@ pub(super) fn play(args: PlayArgs) -> Result<(), String> {
         )),
         None => None,
     };
-    launch(backend::Play {
-        version,
-        who,
-        join,
-        world,
-        server,
-        creative,
-        args: arg,
-        ..backend::Play::of(instance)
-    })?;
+    launch(
+        backend::Play {
+            version,
+            who,
+            join,
+            world,
+            server,
+            creative,
+            args: arg,
+            ..backend::Play::of(instance)
+        },
+        settings,
+    )?;
     Ok(())
 }
 
@@ -112,35 +112,31 @@ pub(super) fn server(
     dir: Option<PathBuf>,
     version: Option<String>,
     accept_eula: bool,
+    settings: &backend::Settings,
 ) -> Result<(), String> {
-    let tag = backend::resolve_version(version.as_deref())?;
-    let dir = backend::server_dir(dir);
+    let tag = backend::resolve_version(version.as_deref(), settings)?;
+    let dir = backend::server_dir(dir, settings);
     // The server inherits this terminal, so typed lines reach its console.
-    attached(backend::server(&tag, &dir, accept_eula)?)?;
+    attached(backend::server(&tag, &dir, accept_eula, settings)?)?;
     Ok(())
 }
 
-pub(super) fn launch(request: backend::Play) -> Result<(), String> {
+pub(super) fn launch(request: backend::Play, settings: &backend::Settings) -> Result<(), String> {
     let instance = request.instance.clone();
-    let launched = backend::launch(request, &|line| eprintln!("{line}")).map_err(|e| e.hinted())?;
+    let launched =
+        backend::launch(request, settings, &|line| eprintln!("{line}")).map_err(|e| e.hinted())?;
     for notice in launched.notices() {
         eprintln!("{}", notice.said());
     }
     let started = std::time::Instant::now();
     let played = attached(launched.cmd);
-    if let Err(e) = instances::record_play(&instance.id, started.elapsed()) {
-        eprintln!("Play time not saved: {e}");
+    if let Some(cmd) = instances::game_ended(&instance, started.elapsed(), &launched.vars) {
+        after_exit(cmd);
     }
-    after_exit(&instance, &launched.vars);
-    played
+    played.map_err(String::from)
 }
 
-fn after_exit(instance: &instances::Instance, vars: &[(&'static str, std::ffi::OsString)]) {
-    let Some(mut cmd) =
-        eclipse_launcher::launch::after_exit(&instance.launch, &instance.home, vars)
-    else {
-        return;
-    };
+fn after_exit(mut cmd: std::process::Command) {
     match cmd.status() {
         Ok(s) if s.success() => {}
         Ok(s) => eprintln!("The post-exit command failed ({s})."),

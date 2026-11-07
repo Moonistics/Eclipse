@@ -136,7 +136,7 @@ fn control_face(control: Control, maximized: bool) -> gpui::Stateful<Div> {
 }
 
 /// Whether Windows uses a transparent native title bar for the launcher's custom chrome.
-pub const DRAWN: bool = cfg!(target_os = "windows");
+const DRAWN: bool = cfg!(target_os = "windows");
 
 pub fn options() -> TitlebarOptions {
     TitlebarOptions {

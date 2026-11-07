@@ -1,4 +1,9 @@
-use super::*;
+use crate::messages::Msg;
+use crate::Launcher;
+use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
+use eclipse_launcher::backend;
+use std::collections::HashMap;
+use std::time::Instant;
 
 #[derive(Default)]
 pub(super) struct AccountsUi {
@@ -48,7 +53,7 @@ impl Launcher {
             .request(&self.accounts.accounts, &offline, resources, &self.tx);
     }
 
-    pub(super) fn begin_auth_job(&mut self, uuid: &str) -> Option<u64> {
+    fn begin_auth_job(&mut self, uuid: &str) -> Option<u64> {
         if self.accounts_ui.auth_busy.contains_key(uuid) {
             return None;
         }
@@ -111,6 +116,25 @@ impl Launcher {
                     Ok(Accounts::load().has_owner(account::store())),
                 ));
             }
+        });
+    }
+
+    pub(super) fn sign_out(&mut self, uuid: String) {
+        let Some(generation) = self.begin_auth_job(&uuid) else {
+            return;
+        };
+        self.in_background(move |tell| {
+            let mut accounts = Accounts::load();
+            tell.send(Msg::AccountProgress(
+                uuid.clone(),
+                generation,
+                account::session::Phase::SigningOut,
+            ));
+            let result = accounts
+                .remove(account::store(), &uuid)
+                .and_then(|()| accounts.save())
+                .map(|()| accounts.has_owner(account::store()));
+            tell.send(Msg::AccountRemoved(uuid, generation, result));
         });
     }
 

@@ -58,7 +58,11 @@ pub(super) enum ServersCmd {
     Forget { server: String },
 }
 
-pub(super) fn servers(action: ServersCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn servers(
+    action: ServersCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::servers::{self, NewServer, World};
     let find = |which: &str| {
         servers::list()
@@ -77,7 +81,7 @@ pub(super) fn servers(action: ServersCmd, as_json: bool) -> Result<(), String> {
                         .map(|e| {
                             serde_json::json!({
                                 "name": e.name, "dir": e.dir,
-                                "phase": servers::status(&e.dir).phase,
+                                "phase": servers::status(&e.dir).phase.name(),
                             })
                         })
                         .collect(),
@@ -90,7 +94,7 @@ pub(super) fn servers(action: ServersCmd, as_json: bool) -> Result<(), String> {
                     "{}  ({}): {}",
                     e.name,
                     e.dir.display(),
-                    servers::status(&e.dir).phase
+                    servers::status(&e.dir).phase.name()
                 );
             }
         }
@@ -124,7 +128,7 @@ pub(super) fn servers(action: ServersCmd, as_json: bool) -> Result<(), String> {
                 players,
                 eula: accept_eula,
             };
-            let tag = backend::resolve_version(version.as_deref()).ok();
+            let tag = backend::resolve_version(version.as_deref(), settings).ok();
             let entry = servers::create(&spec, tag.as_deref(), &|l| eprintln!("{l}"))
                 .map_err(|p| p.message)?;
             if as_json {
@@ -134,7 +138,7 @@ pub(super) fn servers(action: ServersCmd, as_json: bool) -> Result<(), String> {
             }
         }
         ServersCmd::SetUp { version } => {
-            let tag = backend::resolve_version(version.as_deref())?;
+            let tag = backend::resolve_version(version.as_deref(), settings)?;
             servers::set_up(&tag)?;
             println!(
                 "Servers run Eclipse {}",

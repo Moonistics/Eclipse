@@ -308,12 +308,7 @@ impl Launcher {
         )
     }
 
-    pub(super) fn text_input(
-        &mut self,
-        f: Field,
-        el: Stateful<Div>,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    fn text_input(&mut self, f: Field, el: Stateful<Div>, cx: &mut Context<Self>) -> Stateful<Div> {
         let handle = self.fields.handle(f, cx);
         let el = el
             .track_focus(&handle)

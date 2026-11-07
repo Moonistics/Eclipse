@@ -495,7 +495,7 @@ fn an_instance_on_a_nightly_keeps_its_native_mods() {
         pinned_to_nightly(&Instance {
             id: "pinned".into(),
             name: "Pinned".into(),
-            kind: instances::Kind::Own,
+            kind: crate::instances::Kind::Own,
             work: PathBuf::from("pinned"),
             home: PathBuf::from("pinned"),
             icon: None,

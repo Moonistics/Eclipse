@@ -117,7 +117,7 @@ impl Launcher {
             row = row
                 .cursor_pointer()
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.quick_play(QuickPlay::World(folder.clone()));
+                    this.play(Some(QuickPlay::World(folder.clone())));
                     cx.notify();
                 }));
         }

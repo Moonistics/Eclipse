@@ -1,4 +1,7 @@
-use super::*;
+use crate::{ui, Launcher};
+use eclipse_launcher::i18n::trf;
+use gpui::prelude::*;
+use gpui::{div, px, Div};
 
 pub(super) fn startup_error() -> Option<String> {
     eclipse_launcher::data_location::startup_error().map(|error| {

@@ -15,7 +15,7 @@ pub struct Shot {
 
 /// The folder F2 saves into for the game folder `home`.
 pub fn folder(home: &Path) -> PathBuf {
-    home.join("screenshots")
+    home.join(crate::game_folder::SCREENSHOTS)
 }
 
 /// The pictures in `home`'s screenshots folder, the newest first.

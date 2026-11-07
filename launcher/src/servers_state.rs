@@ -9,7 +9,7 @@ use eclipse_launcher::servers::{
     self, Applied, Backup, BackupKind, Entry, Key, Phase, Problem, Status,
 };
 use gpui::prelude::*;
-use gpui::{Div, ScrollHandle, SharedString};
+use gpui::{ScrollHandle, SharedString};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashMap, VecDeque};
 use std::path::PathBuf;
@@ -424,7 +424,7 @@ pub(super) fn uptime(secs: u64) -> String {
 }
 
 impl Launcher {
-    pub(super) fn servers_page(&mut self, cx: &mut Context<Self>) -> Div {
+    pub(super) fn servers_load(&mut self) {
         if !self.servers.loaded {
             self.servers.list = servers::list();
             self.servers.modes.clear();
@@ -434,7 +434,6 @@ impl Launcher {
                 self.open_server(dir);
             }
         }
-        self.servers_view(cx)
     }
 
     pub(super) fn server_needs(&self) -> Option<Needs> {
@@ -496,7 +495,7 @@ pub(super) fn phase_label(status: &Status) -> String {
     if let Some(busy) = &status.update_busy {
         return trf("Updating: {step}", &[("step", busy)]);
     }
-    match status.phase() {
+    match status.phase {
         Phase::Running if status.crashes > 0 => tr("Running · restarted after a crash").into(),
         Phase::Running if status.paused => tr("Running · paused while nobody plays").into(),
         Phase::Running => tr("Running").into(),

@@ -23,6 +23,7 @@ use std::path::{Path, PathBuf};
 
 /// Records the whole attempt, including selection or export after compilation.
 pub(super) fn logged<T, E: From<String> + std::fmt::Display>(
+    cache_limit: Option<u64>,
     build: impl FnOnce() -> Result<T, E>,
 ) -> Result<T, E> {
     // Another build or a cleanup holds the lease on the same target/: refuse. Any other
@@ -53,7 +54,7 @@ pub(super) fn logged<T, E: From<String> + std::fmt::Display>(
     let Some(cache) = cache else {
         return result;
     };
-    match cache.trim(native_cache::limit_bytes(&backend::Settings::load())) {
+    match cache.trim(cache_limit) {
         Ok(bytes) if bytes > 0 => {
             let _ = append_log(&trf(
                 "Cleared {bytes} bytes of native build cache. The next changed build will compile from scratch.",
@@ -686,10 +687,10 @@ pub fn build(
     instance: &Instance,
     anyway: bool,
     on_base: bool,
-    profile: Profile,
+    settings: &backend::Settings,
     progress: impl Fn(Step),
 ) -> Result<String, BuildError> {
-    if let Some(error) = backend::native_mod_architecture_error() {
+    if let Some(error) = backend::native_mod_architecture_error(settings) {
         return Err(error.into());
     }
     let request = Request {
@@ -697,15 +698,15 @@ pub fn build(
         folder,
         anyway,
         on_base,
-        profile,
+        profile: Profile::chosen(settings),
         target: Target::Client,
     };
-    logged(|| {
+    logged(native_cache::limit_bytes(settings), || {
         let built = isolated(|skip| pipeline(request, &progress, skip, true), &progress)?;
         instances::edit(&instance.id, |meta| {
             meta.version = Some(built.version.clone())
         })?;
-        prune(&built.version);
+        prune(&built.version, settings);
         if built.plan != Plan::UpToDate {
             progress(Step::Done {
                 secs: built.secs,
@@ -733,7 +734,7 @@ pub fn build_server(
     output: &Path,
     anyway: bool,
     on_base: bool,
-    profile: Profile,
+    settings: &backend::Settings,
     progress: impl Fn(Step),
 ) -> Result<PathBuf, BuildError> {
     let request = Request {
@@ -741,10 +742,10 @@ pub fn build_server(
         folder,
         anyway,
         on_base,
-        profile,
+        profile: Profile::chosen(settings),
         target: Target::Server,
     };
-    logged(|| {
+    logged(native_cache::limit_bytes(settings), || {
         if output.symlink_metadata().is_ok() {
             return Err(already_exists(output).into());
         }
@@ -821,7 +822,7 @@ mod tests {
             &output,
             true,
             false,
-            Profile::Performance,
+            &backend::Settings::default(),
             |_| {},
         )
         .unwrap_err()
@@ -835,7 +836,7 @@ mod tests {
             &managed,
             true,
             false,
-            Profile::Performance,
+            &backend::Settings::default(),
             |_| {},
         )
         .unwrap_err()
@@ -876,7 +877,7 @@ mod tests {
             &out.join("server"),
             true,
             false,
-            Profile::Performance,
+            &backend::Settings::default(),
             |_| {},
         )
         .unwrap_err()
@@ -886,10 +887,13 @@ mod tests {
         assert!(log.contains("is not prepared yet"), "{log}");
         assert!(!log.contains("the last build's output"), "{log}");
         // A failure after compiler output keeps those diagnostics and the final reason.
-        let failure: Result<(), String> = logged(|| {
-            append_log("error[E0425]: cannot find value `missing` in this scope")?;
-            Err("Could not export the engine".into())
-        });
+        let failure: Result<(), String> = logged(
+            native_cache::limit_bytes(&backend::Settings::default()),
+            || {
+                append_log("error[E0425]: cannot find value `missing` in this scope")?;
+                Err("Could not export the engine".into())
+            },
+        );
         assert!(failure.is_err());
         let log = fs::read_to_string(log_path()).unwrap();
         assert!(log.starts_with("error[E0425]"), "{log}");
@@ -898,7 +902,10 @@ mod tests {
             "{log}"
         );
         assert!(!log.contains("Build completed."), "{log}");
-        let success: Result<(), String> = logged(|| Ok(()));
+        let success: Result<(), String> = logged(
+            native_cache::limit_bytes(&backend::Settings::default()),
+            || Ok(()),
+        );
         success.unwrap();
         assert_eq!(
             fs::read_to_string(log_path()).unwrap(),

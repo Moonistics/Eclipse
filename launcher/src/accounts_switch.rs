@@ -1,8 +1,9 @@
 //! Who plays: the sidebar's quick switch (a menu under the account chip) and Settings' offline
 //! names (`eclipse_launcher::account::Accounts::offline`).
 use super::fields::Field;
-use super::*;
-use eclipse_launcher::account::Player;
+use crate::{settings_page, Launcher};
+use eclipse_launcher::account::{self, Accounts, Player};
+use eclipse_launcher::i18n::tr;
 
 pub(super) struct WhoPlays {
     pub(super) name: String,
@@ -19,7 +20,7 @@ fn how_signed_in(who: &Player) -> &'static str {
 }
 
 impl Launcher {
-    pub(super) fn game_name(&self) -> String {
+    fn game_name(&self) -> String {
         self.offline_name
             .clone()
             .unwrap_or_else(|| tr(account::DEFAULT_PLAYER).into())

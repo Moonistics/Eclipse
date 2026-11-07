@@ -272,10 +272,10 @@ pub fn command() -> clap::Command {
 
 /// The commands that exist for AI agents: hidden and refused while No AI is on. Every other
 /// command stays: the launcher, packagers and scripts need them, and none drives the game.
-pub const AI_COMMANDS: [&str; 2] = ["mcp", "agent-config"];
+const AI_COMMANDS: [&str; 2] = ["mcp", "agent-config"];
 
 /// Runs a subcommand and returns the exit code, or None when the window should open.
-pub fn run() -> Option<i32> {
+pub fn run(settings: &backend::Settings) -> Option<i32> {
     use clap::FromArgMatches;
     let no_ai = backend::no_ai();
     let mut definition = command();
@@ -291,7 +291,7 @@ pub fn run() -> Option<i32> {
         Cmd::Mcp | Cmd::AgentConfig { .. } if no_ai => Err(eclipse_core::no_ai::REFUSAL.into()),
         Cmd::Mcp => crate::mcp::serve(),
         command => {
-            let result = execute(command, cli.json);
+            let result = execute(command, cli.json, settings);
             // A game it started has ended (attached) or none did (an error): a session file it
             // didn't read goes now.
             eclipse_launcher::account::discard_unread_sessions();
@@ -338,52 +338,48 @@ fn json(value: serde_json::Value) {
     println!("{}", serde_json::to_string_pretty(&value).unwrap());
 }
 
-fn attached(cmd: Command) -> Result<(), String> {
-    let (mut cmd, _runtime) = backend::prepare_command(cmd)?;
-    let status = cmd
-        .status()
-        .map_err(|e| format!("Could not start {:?}: {e}", cmd.get_program()))?;
-    if status.success() {
-        Ok(())
-    } else {
-        Err(format!("Exited with {status}"))
+fn attached(cmd: Command) -> Result<(), backend::Ended> {
+    let (mut cmd, _runtime) = backend::prepare_command(cmd).map_err(backend::Ended::Failed)?;
+    match cmd.status() {
+        Ok(status) => backend::Ended::of(Ok(status)),
+        Err(e) => Err(backend::Ended::not_started(&cmd, e)),
     }
 }
 
-fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
+fn execute(command: Cmd, as_json: bool, settings: &backend::Settings) -> Result<(), String> {
     match command {
         Cmd::Completions { shell } => completions(shell),
-        Cmd::Versions { installed } => versions::versions(installed, as_json),
-        Cmd::Install { tag } => versions::install(tag, as_json),
+        Cmd::Versions { installed } => versions::versions(installed, as_json, settings),
+        Cmd::Install { tag } => versions::install(tag, as_json, settings),
         Cmd::Remove { tag } => versions::remove(tag),
         Cmd::ImportBuild {
             path,
             version,
             trust_unsigned,
-        } => versions::import_build(path, version, trust_unsigned, as_json),
-        Cmd::Update { check } => versions::update(check, as_json),
-        Cmd::Notes { tag } => versions::notes(tag, as_json),
+        } => versions::import_build(path, version, trust_unsigned, as_json, settings),
+        Cmd::Update { check } => versions::update(check, as_json, settings),
+        Cmd::Notes { tag } => versions::notes(tag, as_json, settings),
         Cmd::Prepare {
             minecraft,
             download,
             version,
-        } => play::prepare(minecraft, download, version),
-        Cmd::Play(args) => play::play(args),
+        } => play::prepare(minecraft, download, version, settings),
+        Cmd::Play(args) => play::play(args, settings),
         Cmd::Server {
             dir,
             version,
             accept_eula,
-        } => play::server(dir, version, accept_eula),
-        Cmd::NativeCache { clear } => native::cache(clear),
-        Cmd::NativeBuild(args) => native::build(args),
+        } => play::server(dir, version, accept_eula, settings),
+        Cmd::NativeCache { clear } => native::cache(clear, settings),
+        Cmd::NativeBuild(args) => native::build(args, settings),
         Cmd::Links => links(as_json),
-        Cmd::Benchmark { repeats } => benchmark(repeats, as_json),
+        Cmd::Benchmark { repeats } => benchmark(repeats, as_json, settings),
         Cmd::NoAi { state } => agents::no_ai(state, as_json),
         Cmd::AgentConfig { client, test } => agents::agent_config(client, test, as_json),
-        Cmd::Settings { key, value } => settings::settings(key, value, as_json),
-        Cmd::GameArgs { args } => settings::game_args(args, as_json),
-        Cmd::DesktopEntry { remove } => settings::desktop_entry(remove),
-        Cmd::ShareLog { instance } => logs::share(instance, as_json),
+        Cmd::Settings { key, value } => settings::settings(key, value, as_json, settings),
+        Cmd::GameArgs { args } => settings::game_args(args, as_json, settings),
+        Cmd::DesktopEntry { remove } => settings::desktop_entry(remove, settings),
+        Cmd::ShareLog { instance } => logs::share(instance, as_json, settings),
         Cmd::UnshareLog { shared } => logs::unshare(shared),
         Cmd::Logs { lines, crash } => logs::logs(lines, crash, as_json),
         Cmd::Account { action } => {
@@ -393,6 +389,7 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
         Cmd::Worlds { action } => worlds::worlds(
             action.unwrap_or(worlds::WorldsCmd::List { instance: None }),
             as_json,
+            settings,
         ),
         Cmd::Packs { action } => packs::packs(
             action.unwrap_or(packs::PacksCmd::List {
@@ -400,28 +397,38 @@ fn execute(command: Cmd, as_json: bool) -> Result<(), String> {
                 instance: None,
             }),
             as_json,
+            settings,
         ),
         Cmd::Screenshots { action } => screenshots::screenshots(
             action.unwrap_or(screenshots::ScreenshotsCmd::List { instance: None }),
             as_json,
+            settings,
         ),
         Cmd::Multiplayer { action } => multiplayer::multiplayer(
             action.unwrap_or(multiplayer::MultiplayerCmd::List { instance: None }),
             as_json,
+            settings,
         ),
-        Cmd::Instance { action } => {
-            instance::instance(action.unwrap_or(instance::InstanceCmd::List), as_json)
-        }
-        Cmd::Modpack { action } => {
-            modpack::modpack(action.unwrap_or(modpack::ModpackCmd::List), as_json)
-        }
+        Cmd::Instance { action } => instance::instance(
+            action.unwrap_or(instance::InstanceCmd::List),
+            as_json,
+            settings,
+        ),
+        Cmd::Modpack { action } => modpack::modpack(
+            action.unwrap_or(modpack::ModpackCmd::List),
+            as_json,
+            settings,
+        ),
         Cmd::Mods { action } => mods::mods(
             action.unwrap_or(mods::ModsCmd::List { instance: None }),
             as_json,
+            settings,
         ),
-        Cmd::Servers { action } => {
-            servers::servers(action.unwrap_or(servers::ServersCmd::List), as_json)
-        }
+        Cmd::Servers { action } => servers::servers(
+            action.unwrap_or(servers::ServersCmd::List),
+            as_json,
+            settings,
+        ),
         Cmd::Rust { action } => rust::rust(action.unwrap_or(rust::RustCmd::Status), as_json),
         Cmd::Java { action } => java::java(action.unwrap_or(java::JavaCmd::List), as_json),
         Cmd::Mcp => unreachable!(),
@@ -454,8 +461,8 @@ fn links(as_json: bool) -> Result<(), String> {
     Ok(())
 }
 
-fn benchmark(repeats: usize, as_json: bool) -> Result<(), String> {
-    let path = crate::perf::benchmark(repeats.max(1))?;
+fn benchmark(repeats: usize, as_json: bool, settings: &backend::Settings) -> Result<(), String> {
+    let path = crate::perf::benchmark(repeats.max(1), settings)?;
     if as_json {
         json(serde_json::json!({ "report": path }));
     } else {

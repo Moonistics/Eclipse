@@ -374,7 +374,7 @@ fn live_modrinth_search_pick_and_download() {
         .unwrap();
     let p = packs.iter().find(|p| p.slug == "fresh-animations").unwrap();
     assert_eq!(p.support(), Support::Works);
-    let versions = source.versions(p).unwrap();
+    let versions = source.versions(p, None).unwrap();
     let chosen = pick(p.kind, &versions, false).unwrap();
     assert!(chosen.game_versions.iter().any(|g| g == GAME));
     let dir = scratch("live");

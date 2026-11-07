@@ -178,5 +178,4 @@ pub fn env(dir: &Path, name: &str, look: &Look) -> Vec<(&'static str, String)> {
 }
 
 #[cfg(test)]
-#[path = "skins/tests.rs"]
 mod tests;

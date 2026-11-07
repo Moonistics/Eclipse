@@ -118,7 +118,7 @@ const SPARE_BUILDS: usize = 3;
 /// [`backend::needed_versions`]), but `keep` and the [`SPARE_BUILDS`] newest, and any a running
 /// game still runs from ([`backend::remove_unused`]). The compiled crates (`native/target`) stay,
 /// so the next build only compiles what changed.
-pub fn prune(keep: &str) {
+pub fn prune(keep: &str, settings: &backend::Settings) {
     let builds = made(
         backend::installed()
             .into_iter()
@@ -128,7 +128,10 @@ pub fn prune(keep: &str) {
                 (v, dir)
             }),
     );
-    backend::remove_unused(stale(builds, keep, &backend::needed_versions()));
+    backend::remove_unused(
+        stale(builds, keep, &backend::needed_versions(settings)),
+        settings,
+    );
 }
 
 /// The installed builds among `builds` (name, folder), with when each was made or last used

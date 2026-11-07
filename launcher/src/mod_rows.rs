@@ -155,7 +155,7 @@ impl Launcher {
         right
     }
 
-    pub(super) fn native_mod_row(
+    fn native_mod_row(
         &self,
         row: &github_mods::Installed,
         busy: bool,

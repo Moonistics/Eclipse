@@ -23,7 +23,7 @@ pub(super) struct Importing {
 }
 
 impl Launcher {
-    pub(super) fn import_dropped(&mut self, files: Vec<PathBuf>, cx: &mut Context<Self>) {
+    fn import_dropped(&mut self, files: Vec<PathBuf>, cx: &mut Context<Self>) {
         for file in files {
             let name = file
                 .file_name()

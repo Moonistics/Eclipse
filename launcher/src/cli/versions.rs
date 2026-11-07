@@ -3,11 +3,15 @@ use eclipse_launcher::backend::{self, Release};
 use eclipse_launcher::build_import;
 use std::path::PathBuf;
 
-pub(super) fn versions(installed: bool, as_json: bool) -> Result<(), String> {
-    reuse_prepared(as_json);
+pub(super) fn versions(
+    installed: bool,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
+    reuse_prepared(as_json, settings);
     if installed {
         let installed = backend::installed();
-        let selected = backend::resolve_version(None).ok();
+        let selected = backend::resolve_version(None, settings).ok();
         if as_json {
             json(serde_json::json!({ "installed": installed, "selected": selected }));
         } else if installed.is_empty() {
@@ -29,7 +33,7 @@ pub(super) fn versions(installed: bool, as_json: bool) -> Result<(), String> {
             println!("{mark} {tag}  {state}");
         }
     } else {
-        let releases = backend::releases()?;
+        let releases = backend::releases(settings)?;
         if as_json {
             json(releases.iter().map(release_json).collect());
             return Ok(());
@@ -48,17 +52,21 @@ pub(super) fn versions(installed: bool, as_json: bool) -> Result<(), String> {
 }
 
 /// Versions and updates first give a version that isn't prepared the resources of one that is.
-fn reuse_prepared(as_json: bool) {
-    for (tag, from) in backend::reuse_prepared_everywhere() {
+fn reuse_prepared(as_json: bool, settings: &backend::Settings) {
+    for (tag, from) in backend::reuse_prepared_everywhere(settings) {
         if !as_json {
             eprintln!("Prepared {tag} with the resources of {from}.");
         }
     }
 }
 
-pub(super) fn install(tag: String, as_json: bool) -> Result<(), String> {
+pub(super) fn install(
+    tag: String,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     let label = format!("Installing {tag}");
-    let tag = backend::install_tag(&tag, false, progress(label))?;
+    let tag = backend::install_tag(&tag, false, settings, progress(label))?;
     if as_json {
         json(serde_json::json!({ "installed": tag, "prepared": backend::is_prepared(&tag) }));
     } else if backend::is_prepared(&tag) {
@@ -80,11 +88,12 @@ pub(super) fn import_build(
     version: Option<String>,
     trust_unsigned: bool,
     as_json: bool,
+    settings: &backend::Settings,
 ) -> Result<(), String> {
     if !trust_unsigned {
         return Err("An imported build is unsigned: Eclipse can't check where it came from. If you trust it, pass --trust-unsigned.".into());
     }
-    let tag = build_import::import(&path, version.as_deref())?;
+    let tag = build_import::import(&path, version.as_deref(), settings)?;
     let prepared = backend::is_prepared(&tag);
     if as_json {
         json(serde_json::json!({ "imported": tag, "prepared": prepared }));
@@ -96,8 +105,12 @@ pub(super) fn import_build(
     Ok(())
 }
 
-pub(super) fn notes(tag: Option<String>, as_json: bool) -> Result<(), String> {
-    let r = backend::release_notes(tag.as_deref())?;
+pub(super) fn notes(
+    tag: Option<String>,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
+    let r = backend::release_notes(tag.as_deref(), settings)?;
     if as_json {
         json(serde_json::json!({ "tag": r.tag, "name": r.name, "date": r.date, "notes": r.body }));
     } else {
@@ -112,9 +125,13 @@ pub(super) fn notes(tag: Option<String>, as_json: bool) -> Result<(), String> {
     Ok(())
 }
 
-pub(super) fn update(check: bool, as_json: bool) -> Result<(), String> {
-    reuse_prepared(as_json);
-    let updates = backend::check_updates()?;
+pub(super) fn update(
+    check: bool,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
+    reuse_prepared(as_json, settings);
+    let updates = backend::check_updates(settings)?;
     if as_json && check {
         json(serde_json::json!({
             "eclipse": updates.eclipse.as_ref().map(|r| &r.tag),
@@ -127,8 +144,12 @@ pub(super) fn update(check: bool, as_json: bool) -> Result<(), String> {
         None => println!("Eclipse: up to date."),
         Some(r) if check => println!("Eclipse: {} is available.", r.tag),
         Some(r) => {
-            let tag =
-                backend::install_tag(&r.tag, true, progress(format!("Installing {}", r.tag)))?;
+            let tag = backend::install_tag(
+                &r.tag,
+                true,
+                settings,
+                progress(format!("Installing {}", r.tag)),
+            )?;
             println!("Eclipse: installed {tag}.");
         }
     }

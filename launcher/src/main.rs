@@ -46,6 +46,7 @@ mod layout;
 mod line_edit;
 mod mod_rows;
 mod mods_actions;
+mod mods_detail;
 mod mods_github;
 mod servers_actions;
 mod servers_create;
@@ -65,6 +66,7 @@ mod microsoft;
 mod mods_modpacks;
 mod mods_page;
 mod mods_project;
+mod mods_results;
 mod mods_state;
 mod motion;
 mod native_build;
@@ -103,27 +105,21 @@ mod versions_page;
 mod versions_state;
 mod window_aside;
 
-use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
-use eclipse_launcher::backend::{self, Release, Running, Settings, Updates};
+use eclipse_launcher::account::{self, Accounts};
+use eclipse_launcher::backend::{self, Settings, Updates};
 use eclipse_launcher::i18n::{self, tr, trf};
-use eclipse_launcher::instances;
-use eclipse_launcher::native_mods;
 use eclipse_launcher::telemetry;
 use fields::Field;
-use game_run::Crash;
 use gpui::{
     actions, div, prelude::*, px, size, AnimationExt, AnyElement, App, Bounds, ClickEvent, Context,
-    Div, ElementId, FocusHandle, FontWeight, KeyBinding, KeyDownEvent, Menu, MenuItem,
-    MouseDownEvent, PathPromptOptions, Pixels, Point, SharedString, Stateful, Subscription, Window,
-    WindowBounds, WindowOptions,
+    Div, ElementId, FocusHandle, KeyBinding, Menu, MenuItem, PathPromptOptions, Pixels, Point,
+    Stateful, Subscription, Window, WindowBounds, WindowOptions,
 };
 use launcher_update::SelfUpdate;
-use messages::{Job, Msg};
+use messages::Msg;
 use page::Page;
-use play_state::PlayState;
 use scrollbar::Scrollbar;
 use std::borrow::Cow;
-use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{channel, Receiver, Sender};
 use std::time::{Duration, Instant};
 use theme::Theme;
@@ -278,7 +274,7 @@ struct Launcher {
 }
 
 impl Launcher {
-    fn new(window: &mut Window, cx: &mut Context<Self>) -> Self {
+    fn new(mut settings: Settings, window: &mut Window, cx: &mut Context<Self>) -> Self {
         let (tx, rx) = channel();
         let appearance = cx.observe_window_appearance(window, |_, _, cx| cx.notify());
         cx.spawn(async move |this, cx| loop {
@@ -290,7 +286,6 @@ impl Launcher {
             }
         })
         .detach();
-        let mut settings = Settings::load();
         let settings_seen = serde_json::to_value(&settings).unwrap_or_default();
         i18n::set(settings.language());
         motion::set_reduce_motion(settings.reduce_motion);
@@ -429,8 +424,9 @@ impl Launcher {
             tell.send(Msg::Keychain(account::no_keychain()));
             tell.send(Msg::Owner(accounts.has_owner(store)));
         });
-        this.in_background(|tell| {
-            if !backend::reuse_prepared_everywhere().is_empty() {
+        let settings = this.settings.clone();
+        this.in_background(move |tell| {
+            if !backend::reuse_prepared_everywhere(&settings).is_empty() {
                 tell.send(Msg::Reused);
             }
         });
@@ -919,7 +915,7 @@ fn main() {
     // A broken location must still open a window: startup() falls back to the default
     // folders and records the error.
     eclipse_launcher::data_location::startup();
-    backend::exe_path();
+    let _read_before_an_update_replaces_it = backend::exe_path();
     // The launcher's own installer (`update_handoff`): no window, no CLI parser.
     if let Some(code) = eclipse_launcher::update_handoff::run() {
         std::process::exit(code);
@@ -929,7 +925,8 @@ fn main() {
     backend::cleanup_launcher_updates();
     // What the launcher downloads goes through the player's proxy, if they set one: the parts
     // that build their own agents (`eclipse-port-pack`) are told before anything starts.
-    eclipse_launcher::proxy::announce(eclipse_launcher::backend::Settings::load().proxy);
+    let settings = Settings::load();
+    eclipse_launcher::proxy::announce(settings.proxy.clone());
     // The setup wizard and `eclipse-launcher.exe uninstall` (what Control Panel runs) are windows,
     // not CLI commands: asked of the CLI parser first, `uninstall` was refused as an unknown
     // subcommand, with the error going to the console that Control Panel's start doesn't have.
@@ -938,7 +935,7 @@ fn main() {
     #[cfg(not(windows))]
     let setup: Option<eclipse_launcher::setup_args::Mode> = None;
     if setup.is_none() {
-        if let Some(code) = cli::run() {
+        if let Some(code) = cli::run(&settings) {
             std::process::exit(code);
         }
     }
@@ -1003,7 +1000,7 @@ fn main() {
                     },
                     ..Default::default()
                 },
-                |window, cx| cx.new(|cx| Launcher::new(window, cx)),
+                |window, cx| cx.new(|cx| Launcher::new(settings, window, cx)),
             )
             .expect("window");
             cx.on_window_closed(|cx, _| shut_down(cx)).detach();

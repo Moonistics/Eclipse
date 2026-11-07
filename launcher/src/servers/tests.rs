@@ -145,7 +145,7 @@ fn lists_and_status_read_as_vanilla_and_the_supervisor_write_them() {
             "players": [{ "name": "Alex", "uuid": "u1", "ping": 12 }] } },
         "update": { "installed": "v1", "available": "v2", "busy": null, "last": "Not updated: x", "ok": false }
     }));
-    assert_eq!(s.phase, "running");
+    assert_eq!(s.phase, Phase::Running);
     assert_eq!(s.players[0].name, "Alex");
     assert_eq!(s.players[0].ping, Some(12));
     assert_eq!(
@@ -213,7 +213,7 @@ fn the_api_sends_the_token() {
         json!({ "address": address, "token": "t0k", "pid": 1 }).to_string(),
     )
     .unwrap();
-    assert_eq!(status(&dir).phase, "running");
+    assert_eq!(status(&dir).phase, Phase::Running);
     let api = Api::open(&dir).unwrap();
     assert_eq!(
         api.command("list").unwrap_err(),
@@ -231,7 +231,7 @@ fn the_api_sends_the_token() {
     assert!(seen[1].starts_with("POST /api/v1/command"));
     fs::remove_dir_all(&dir).unwrap();
     // Nothing answers: stopped.
-    assert_eq!(status(Path::new("/nonexistent")).phase, "stopped");
+    assert_eq!(status(Path::new("/nonexistent")).phase, Phase::Stopped);
 }
 
 #[test]
@@ -360,14 +360,15 @@ fn settings_are_named_as_server_toml_has_them() {
         args.contains(&"world.game_mode=survival".to_string()),
         "{args:?}"
     );
-    let phase = |p: &str| {
-        Status {
-            phase: p.into(),
-            ..Status::default()
-        }
-        .phase()
-    };
-    assert_eq!(phase("running"), Phase::Running);
-    assert_eq!(phase("restarting"), Phase::Restarting);
-    assert_eq!(phase("gone"), Phase::Stopped);
+    let phase = |p: &str| Status::parse(&json!({ "phase": p }));
+    assert_eq!(phase("running").phase, Phase::Running);
+    assert_eq!(phase("restarting").phase, Phase::Restarting);
+    assert_eq!(phase("gone").phase, Phase::Stopped);
+    assert!(
+        !phase("gone").running(),
+        "an unknown phase is stopped everywhere"
+    );
+    for p in ["starting", "running", "restarting", "stopping", "stopped"] {
+        assert_eq!(Phase::parse(p).name(), p);
+    }
 }

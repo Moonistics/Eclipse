@@ -1,5 +1,6 @@
 use super::json;
 use clap::Subcommand;
+use eclipse_launcher::backend;
 use eclipse_launcher::instances;
 use std::path::PathBuf;
 
@@ -20,12 +21,16 @@ pub(super) enum ScreenshotsCmd {
     },
 }
 
-pub(super) fn screenshots(action: ScreenshotsCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn screenshots(
+    action: ScreenshotsCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::screenshots;
     let home = |instance: Option<String>| -> Result<PathBuf, String> {
         Ok(match instance {
             Some(name) => instances::find(&name)?.home,
-            None => instances::selected().home,
+            None => instances::selected(settings).home,
         })
     };
     match action {

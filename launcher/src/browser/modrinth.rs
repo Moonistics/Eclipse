@@ -225,7 +225,7 @@ impl Source for Modrinth {
         parse_project(&p).ok_or_else(|| format!("Modrinth: {id} is not a pack Eclipse loads."))
     }
 
-    fn versions(&self, project: &Project) -> Result<Vec<Version>, String> {
+    fn versions(&self, project: &Project, _level: Option<u32>) -> Result<Vec<Version>, String> {
         let found = get(&format!("{API}/project/{}/version", encode(&project.id)))?;
         let mut all: Vec<Version> = found
             .as_array()
@@ -303,7 +303,7 @@ fn https(url: &str) -> Option<String> {
 }
 
 /// Modrinth's `GET /project/{id}` and `GET /project/{id}/members`.
-pub(super) fn details_of(project: &Value, members: &Value) -> Details {
+fn details_of(project: &Value, members: &Value) -> Details {
     let mut gallery: Vec<(i64, Image)> = project["gallery"]
         .as_array()
         .into_iter()

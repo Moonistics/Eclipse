@@ -8,8 +8,8 @@ use std::path::{Path, PathBuf};
 /// chosen in the launcher, the official launcher's (or ECLIPSE_MINECRAFT_DIR), the folder
 /// other launchers' files are linked into and Eclipse's own download, then every launcher's
 /// default folder.
-pub(super) fn minecraft_folders() -> Vec<PathBuf> {
-    let mut folders: Vec<PathBuf> = Settings::load().minecraft_dir.into_iter().collect();
+pub(super) fn minecraft_folders(chosen: Option<PathBuf>) -> Vec<PathBuf> {
+    let mut folders: Vec<PathBuf> = chosen.into_iter().collect();
     folders.extend([
         eclipse_prepare::artifacts::minecraft_dir(None),
         linked_minecraft_dir(),
@@ -46,6 +46,7 @@ pub(super) fn download_for_owner(
     dir: &Path,
     fetch: sources::Fetch,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
 ) -> Result<(), String> {
     let mut accounts = account::Accounts::load();
     // The strict gate, never `launch_for_game`: the developer option that lets offline names
@@ -59,7 +60,15 @@ pub(super) fn download_for_owner(
     if let Err(e) = accounts.save() {
         log(format!("Eclipse: the accounts are not saved: {e}"));
     }
-    download_for(pins, dir, pass, !accounts.accounts.is_empty(), fetch, log)
+    download_for(
+        pins,
+        dir,
+        pass,
+        !accounts.accounts.is_empty(),
+        fetch,
+        log,
+        progress,
+    )
 }
 
 /// Downloads Minecraft `id` (any version on Mojang's list, its version file's sha1 from it) into
@@ -72,7 +81,7 @@ pub(crate) fn download_version_for_owner(
 ) -> Result<PathBuf, String> {
     let dir = own_minecraft_dir();
     let pins = sources::Pins::for_version(id, manifest_sha1);
-    download_for_owner(&pins, &dir, &get_bytes, log)?;
+    download_for_owner(&pins, &dir, &get_bytes, log, &|_| {})?;
     Ok(dir)
 }
 
@@ -85,6 +94,7 @@ pub(super) fn download_for(
     signed_in: bool,
     fetch: sources::Fetch,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
 ) -> Result<(), String> {
     let v = &pins.version;
     match pass {
@@ -97,9 +107,9 @@ pub(super) fn download_for(
                 "{name} owns Minecraft: downloading {v} from Mojang"
             ));
             let os = crate::java_launch::os_name();
-            mojang::download(pins, dir, os, mojang::FILES_AT_A_TIME, fetch, log).map_err(|e| {
-                format!("Eclipse tried to download {v} from Mojang for {name}, but: {e}")
-            })
+            mojang::download(pins, dir, os, mojang::FILES_AT_A_TIME, fetch, log, progress).map_err(
+                |e| format!("Eclipse tried to download {v} from Mojang for {name}, but: {e}"),
+            )
         }
         // An owner by its last answer, who can't be asked now.
         Ok(pass) => Err(format!(
@@ -124,9 +134,9 @@ pub(super) fn download_for(
 
 /// The Minecraft folder to prepare from: the one given, the one chosen in the launcher, or the
 /// official launcher's default. It may be absent when imported files can be reused.
-pub fn minecraft_dir(requested: Option<PathBuf>) -> Result<PathBuf, String> {
+pub fn minecraft_dir(requested: Option<PathBuf>, settings: &Settings) -> Result<PathBuf, String> {
     Ok(requested
-        .or(Settings::load().minecraft_dir)
+        .or_else(|| settings.minecraft_dir.clone())
         .or_else(default_minecraft_dir)
         .unwrap_or_else(|| eclipse_prepare::artifacts::minecraft_dir(None)))
 }

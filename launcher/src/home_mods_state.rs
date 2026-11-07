@@ -323,7 +323,7 @@ mod tests {
     #[test]
     fn a_java_instance_lists_its_jars_on_and_off() {
         let home = std::env::temp_dir().join(format!("instance-mods-{}", std::process::id()));
-        let mods = home.join("mods");
+        let mods = home.join(eclipse_launcher::game_folder::JAVA_MODS);
         std::fs::create_dir_all(&mods).unwrap();
         std::fs::write(mods.join("zeta-1.0.jar"), b"not a zip").unwrap();
         std::fs::write(mods.join("alpha-2.0.jar.disabled"), b"not a zip").unwrap();

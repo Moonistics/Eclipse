@@ -208,6 +208,12 @@ pub fn can_choose_game_architecture() -> bool {
     supports_game_architecture_choice("windows", native_windows_architecture())
 }
 
+fn chosen_game_architecture(settings: &Settings) -> Option<GameArchitecture> {
+    can_choose_game_architecture()
+        .then(|| selected_game_architecture(settings))
+        .flatten()
+}
+
 /// A downloaded version records its requested and actual architectures. Old installs and imports
 /// have no marker; their PE machine type is used for both.
 fn installed_game_architecture(tag: &str) -> Option<InstalledGameArchitecture> {
@@ -227,23 +233,12 @@ pub(super) fn pe_architecture_file(path: &Path) -> Option<GameArchitecture> {
     pe_machine(path).ok().and_then(architecture_for_pe_machine)
 }
 
-pub(super) fn architecture_for_pe_machine(machine: u16) -> Option<GameArchitecture> {
+fn architecture_for_pe_machine(machine: u16) -> Option<GameArchitecture> {
     match machine {
         PE_X64 => Some(GameArchitecture::X64),
         PE_ARM64 => Some(GameArchitecture::Arm64),
         _ => None,
     }
-}
-
-fn installation_matches_game_architecture(tag: &str, settings: &Settings) -> bool {
-    if !can_choose_game_architecture() {
-        return true;
-    }
-    let Some(target) = selected_game_architecture(settings) else {
-        return true;
-    };
-    installed_game_architecture(tag)
-        .is_some_and(|installed| installed_architecture_matches(target, installed))
 }
 
 pub(super) fn installed_architecture_matches(
@@ -266,19 +261,15 @@ pub(super) fn game_architecture_install_needed(
 
 /// Whether an installed version needs the selected architecture downloaded. This also refreshes
 /// old installs with a same-version install when needed to record an ARM64 fallback choice.
-pub fn needs_game_architecture_install(tag: &str, release: &Release) -> bool {
-    if !can_choose_game_architecture() {
+pub fn needs_game_architecture_install(tag: &str, release: &Release, settings: &Settings) -> bool {
+    let Some(target) = chosen_game_architecture(settings) else {
         return false;
-    }
+    };
     let Some(expected) = release
         .asset
         .as_ref()
         .and_then(|(url, _)| architecture_for_asset(url))
     else {
-        return false;
-    };
-    let settings = Settings::load();
-    let Some(target) = selected_game_architecture(&settings) else {
         return false;
     };
     game_architecture_install_needed(target, expected, installed_game_architecture(tag))
@@ -295,29 +286,24 @@ pub(super) fn native_mod_architecture_message(
     })
 }
 
-pub(crate) fn native_mod_architecture_error() -> Option<String> {
-    if !can_choose_game_architecture() {
-        return None;
-    }
+pub(crate) fn native_mod_architecture_error(settings: &Settings) -> Option<String> {
+    let selected = chosen_game_architecture(settings)?;
     let process = architecture_for_platform(std::env::consts::ARCH)?;
-    let selected = selected_game_architecture(&Settings::load())?;
     native_mod_architecture_message(process, selected)
         .map(|message| crate::i18n::tr(message).to_string())
 }
 
 /// Refuse to launch an explicit game architecture until this version has been installed for it.
-pub(crate) fn game_architecture_launch_error(tag: &str) -> Option<String> {
-    if !can_choose_game_architecture() {
+pub(crate) fn game_architecture_launch_error(tag: &str, settings: &Settings) -> Option<String> {
+    if settings.game_architecture == GameArchitecture::Auto {
         return None;
     }
-    let settings = Settings::load();
-    if settings.game_architecture == GameArchitecture::Auto
-        || installation_matches_game_architecture(tag, &settings)
-    {
+    let target = chosen_game_architecture(settings)?;
+    let installed = installed_game_architecture(tag);
+    if installed.is_some_and(|installed| installed_architecture_matches(target, installed)) {
         return None;
     }
-    let target = selected_game_architecture(&settings)?;
-    let installed = installed_game_architecture(tag).map(|a| a.binary);
+    let installed = installed.map(|a| a.binary);
     let label = |arch| match arch {
         GameArchitecture::X64 => "x64".to_owned(),
         GameArchitecture::Arm64 => "ARM64".to_owned(),

@@ -1,8 +1,9 @@
+use super::jobs::{run, Ended, Stream};
 use super::minecraft::download_for_owner;
 use super::net::get_bytes;
 use super::paths::{data_dir, linked_minecraft_dir, own_minecraft_dir, version_dir};
 use super::resources::PREPARER_CRATE;
-use super::versions::{game_version, read_json};
+use super::versions::{game_version, read_json, Lock};
 use crate::sources;
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -51,7 +52,7 @@ pub(super) fn server_jar(
     crate::files::write(jar, &bytes)
 }
 
-pub enum Preparer {
+enum Preparer {
     /// eclipse-prepare, linked into the launcher: the version ships the same preparer sources.
     InProcess(eclipse_prepare::Options),
     /// The version's own preparer: its eclipse-prepare binary when its sources differ from the
@@ -144,15 +145,30 @@ impl PrepareStep {
     }
 }
 
-/// The step the preparation under way is at (`PrepareStep::ALL`'s index).
-static PREPARE_STEP: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
-
-pub fn prepare_step() -> PrepareStep {
-    PrepareStep::ALL[PREPARE_STEP.load(std::sync::atomic::Ordering::Relaxed)]
+pub enum Preparing {
+    Step(PrepareStep),
+    Files(Option<(usize, usize)>),
+    Line(Stream, String),
 }
 
-pub fn set_prepare_step(step: PrepareStep) {
-    PREPARE_STEP.store(step as usize, std::sync::atomic::Ordering::Relaxed);
+pub fn prepare(
+    tag: &str,
+    minecraft: &Path,
+    from: MinecraftFrom,
+    report: &(dyn Fn(Preparing) + Sync),
+) -> Result<(), Ended> {
+    let (preparer, minecraft) = preparer(tag, minecraft, from, report).map_err(Ended::Failed)?;
+    sounds(tag, &minecraft, report);
+    report(Preparing::Step(PrepareStep::Prepare));
+    let line = |stream, line| report(Preparing::Line(stream, line));
+    match preparer {
+        Preparer::Process(cmd) => run(cmd, &line),
+        Preparer::InProcess(options) => caught("The preparation stopped unexpectedly", || {
+            eclipse_prepare::prepare(&options, &|text| line(Stream::Stdout, text.to_string()))
+        })
+        .map(|_| ())
+        .map_err(Ended::Failed),
+    }
 }
 
 /// Checks what the preparation needs and picks how to run it. PLAY.txt describes the same
@@ -160,21 +176,23 @@ pub fn set_prepare_step(step: PrepareStep) {
 /// Java (and Python, for versions before eclipse-prepare). Also returns the Minecraft folder
 /// to prepare from: `minecraft`, or the files another launcher keeps, linked into the official
 /// launcher's layout (sources.rs).
-pub fn preparer(
+fn preparer(
     tag: &str,
     minecraft: &Path,
     from: MinecraftFrom,
-    log: &dyn Fn(String),
+    report: &dyn Fn(Preparing),
 ) -> Result<(Preparer, PathBuf), String> {
-    set_prepare_step(PrepareStep::Files);
+    let log = &|line| report(Preparing::Line(Stream::Stderr, line));
+    let files = &|files| report(Preparing::Files(files));
+    report(Preparing::Step(PrepareStep::Files));
     let version = game_version(tag);
     let dir = version_dir(tag);
     let reused = eclipse_prepare::artifacts::reuse_imported(&dir, &|line| log(line.to_string()))?;
     let chosen = minecraft.to_path_buf();
     // Resolved even when the game files are reused: the assets still come from the install.
     let minecraft = {
-        let pins = read_json(&dir.join("research-lock.json"))
-            .and_then(|lock| sources::Pins::read(&lock))
+        let pins = Lock::read(&dir)
+            .and_then(|lock| lock.pins())
             .ok_or("The version's research-lock.json doesn't pin the Minecraft files")?;
         let own = own_minecraft_dir();
         let mut known = vec![("Eclipse's own download", own.clone())];
@@ -182,7 +200,7 @@ pub fn preparer(
         let linked = linked_minecraft_dir();
         if from == MinecraftFrom::Mojang {
             // Straight from Mojang (what is already there and whole is kept), for an owner only.
-            download_for_owner(&pins, &own, &get_bytes, log)?;
+            download_for_owner(&pins, &own, &get_bytes, log, files)?;
             own
         } else {
             let resolved = sources::resolve(minecraft, &pins, &known, &linked, &get_bytes, log);
@@ -193,7 +211,7 @@ pub fn preparer(
                     sources::Resolved::Folder(dir) => dir,
                     sources::Resolved::NotFound(checked) => {
                         let not_found = sources::not_found(&version, &checked, minecraft);
-                        download_for_owner(&pins, &own, &get_bytes, log)
+                        download_for_owner(&pins, &own, &get_bytes, log, files)
                             .map_err(|e| format!("{not_found}\n  • {e}"))?;
                         own
                     }
@@ -215,8 +233,8 @@ pub fn preparer(
     // The Java the version pins, found as eclipse-prepare finds it, so a missing one is
     // reported (or downloaded) before the server jar is downloaded. Versions from before
     // java_major ran Java 25.
-    let major = read_json(&dir.join("research-lock.json"))
-        .and_then(|lock| lock["minecraft"]["java_major"].as_i64())
+    let major = Lock::read(&dir)
+        .and_then(|lock| lock.java_major())
         .unwrap_or(25);
     let mut games = vec![chosen, minecraft.clone(), own_minecraft_dir()];
     games.extend(
@@ -224,7 +242,7 @@ pub fn preparer(
             .into_iter()
             .map(|(_, dir)| dir),
     );
-    set_prepare_step(PrepareStep::Java);
+    report(Preparing::Step(PrepareStep::Java));
     let java_home = crate::java::for_preparing(
         major,
         !eclipse_prepare::exporters::available(&dir),
@@ -234,6 +252,7 @@ pub fn preparer(
                 .and_then(|json| json["javaVersion"]["component"].as_str().map(String::from))
         },
         log,
+        files,
     )?;
     let jar = data_dir()
         .join("server-jars")
@@ -279,7 +298,8 @@ pub fn preparer(
 /// install without them is a line in the log, never a failed preparation. The version's own
 /// preparer does it when it is not the launcher's and knows how; versions from before it read
 /// the sounds where the launcher's preparer puts them.
-pub fn sounds(tag: &str, minecraft: &Path, log: &dyn Fn(String)) {
+fn sounds(tag: &str, minecraft: &Path, report: &dyn Fn(Preparing)) {
+    let log = |line| report(Preparing::Line(Stream::Stdout, line));
     let dir = version_dir(tag);
     let own = own_preparer(&dir);
     let binary = preparer_binary(&dir).filter(|binary| {
@@ -288,7 +308,7 @@ pub fn sounds(tag: &str, minecraft: &Path, log: &dyn Fn(String)) {
             .output()
             .is_ok_and(|o| String::from_utf8_lossy(&o.stdout).contains("eclipse-prepare sounds"))
     });
-    set_prepare_step(PrepareStep::Sounds);
+    report(Preparing::Step(PrepareStep::Sounds));
     log("Copying the sounds from your Minecraft install".into());
     let result = match binary {
         Some(binary) => crate::process::command(binary)
@@ -318,18 +338,6 @@ pub fn sounds(tag: &str, minecraft: &Path, log: &dyn Fn(String)) {
     if let Err(e) = result {
         log(format!("No sound (the game will be silent): {e}"));
     }
-}
-
-/// Runs `Preparer::InProcess` on this thread, each progress line to `log`. A panic is an
-/// error like any other, so the window never waits on a preparation that died.
-pub fn prepare_in_process(
-    options: &eclipse_prepare::Options,
-    log: &dyn Fn(String),
-) -> Result<(), String> {
-    caught("The preparation stopped unexpectedly", || {
-        eclipse_prepare::prepare(options, &|line| log(line.to_string()))
-    })
-    .map(|_| ())
 }
 
 /// `run`, a panic in it the error `stopped`: the window never waits on work that died.

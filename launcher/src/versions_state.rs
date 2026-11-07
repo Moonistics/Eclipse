@@ -114,21 +114,27 @@ impl Launcher {
 
     pub(super) fn check_updates(&mut self) {
         self.update_check = UpdateCheck::Checking(Instant::now());
-        self.in_background(|tell| {
-            tell.send(Msg::Updates(backend::check_updates().map(Box::new)));
+        let settings = self.settings.clone();
+        self.in_background(move |tell| {
+            tell.send(Msg::Updates(
+                backend::check_updates(&settings).map(Box::new),
+            ));
         });
     }
 
     pub(super) fn fetch_releases(&mut self) {
         self.versions.releases = Load::Loading;
-        self.in_background(|tell| tell.send(Msg::Releases(backend::releases())));
+        let settings = self.settings.clone();
+        self.in_background(move |tell| tell.send(Msg::Releases(backend::releases(&settings))));
     }
 
     pub(super) fn fetch_startup_releases(&mut self) {
         self.update_check = UpdateCheck::Checking(Instant::now());
-        self.in_background(|tell| {
-            let updates =
-                backend::releases_and_updates(|releases| tell.send(Msg::Releases(releases)));
+        let settings = self.settings.clone();
+        self.in_background(move |tell| {
+            let updates = backend::releases_and_updates(&settings, |releases| {
+                tell.send(Msg::Releases(releases))
+            });
             tell.send(Msg::Updates(updates.map(Box::new)));
         });
     }
@@ -215,8 +221,11 @@ impl Launcher {
             why,
         });
         self.versions.install_error = None;
+        let settings = self.settings.clone();
         self.in_background(move |tell| {
-            let result = backend::install(&release, |p| tell.send(Msg::Progress(tag.clone(), p)));
+            let result = backend::install(&release, &settings, |p| {
+                tell.send(Msg::Progress(tag.clone(), p))
+            });
             tell.send(Msg::Installed(tag, result));
         });
     }
@@ -252,11 +261,11 @@ impl Launcher {
                 if backend::install_selects(&tag, why, selected) {
                     self.settings.default_version = Some(tag.clone());
                 }
-                // Pruning reads settings from disk: protect the selection only once it has been
-                // saved there. A failed save leaves all versions in place.
+                // A failed save leaves all versions in place.
                 if self.save_settings() {
+                    let settings = self.settings.clone();
                     self.in_background(move |tell| {
-                        tell.send(Msg::Pruned(backend::after_install(&tag, update)))
+                        tell.send(Msg::Pruned(backend::after_install(&tag, update, &settings)))
                     });
                 }
             }
@@ -335,8 +344,9 @@ impl Launcher {
         }
         self.versions.importing = true;
         self.versions.import_error = None;
+        let settings = self.settings.clone();
         self.in_background(move |tell| {
-            tell.send(Msg::Imported(build_import::import(&path, None)));
+            tell.send(Msg::Imported(build_import::import(&path, None, &settings)));
         });
         cx.notify();
     }

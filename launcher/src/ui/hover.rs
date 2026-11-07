@@ -85,7 +85,7 @@ pub fn hover_within(id: &SharedString) -> bool {
 
 /// Records that `id` is now hovered or not, for [`hover_fade`]: an element whose own hover
 /// listener does more calls it.
-pub(super) fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
+fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
     let hovered = hovered && !OFF.with_borrow(|off| off.contains(id));
     INSIDE.with_borrow_mut(|inside| {
         if hovered {
@@ -132,7 +132,7 @@ pub(super) fn held_back_said(el: Stateful<Div>, why: SharedString) -> Stateful<D
     super::held_focus(el, None)
 }
 
-pub(super) fn unhovered(mut el: Stateful<Div>) -> Stateful<Div> {
+fn unhovered(mut el: Stateful<Div>) -> Stateful<Div> {
     if let Some(ElementId::Name(id)) = el.interactivity().element_id.clone() {
         let mut state = HOVER.lock().unwrap();
         if state.on.as_ref().is_some_and(|(h, _)| *h == id) {

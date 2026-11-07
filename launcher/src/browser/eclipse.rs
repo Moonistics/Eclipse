@@ -221,6 +221,7 @@ fn official_in(index: Option<&Index>, id: &str) -> bool {
 pub fn trust_and_capabilities(
     id: &str,
     instance: Option<&crate::instances::Instance>,
+    settings: &crate::backend::Settings,
 ) -> Vec<String> {
     let Ok(index) = index() else {
         return Vec::new();
@@ -248,7 +249,9 @@ pub fn trust_and_capabilities(
             let pin = v.api.split('/').nth(1).unwrap_or_default();
             lines.push(
                 instance
-                    .and_then(|i| crate::native_fit::line(i, &p.id, v.hooks, pin, &v.broken_on))
+                    .and_then(|i| {
+                        crate::native_fit::line(i, settings, &p.id, v.hooks, pin, &v.broken_on)
+                    })
                     .unwrap_or_else(|| {
                         format!(
                             "Built by the launcher on Eclipse {}",
@@ -464,12 +467,11 @@ impl Source for Registry {
         })
     }
 
-    fn versions(&self, project: &Project) -> Result<Vec<Version>, String> {
+    fn versions(&self, project: &Project, level: Option<u32>) -> Result<Vec<Version>, String> {
         let index = index()?;
         let p = index
             .project(&project.id)
             .ok_or_else(|| format!("{} isn't in Eclipse's registry.", project.title))?;
-        let level = crate::instances::mod_api_level_at(&crate::instances::selected().home);
         Ok(p.versions
             .iter()
             .map(|v| version_of(&index, p, v, level))
@@ -624,9 +626,9 @@ fn relative(kind: Kind, id: &str, file_name: &str) -> Result<String, String> {
 pub fn install(
     project: &Project,
     home: &Path,
+    level: Option<u32>,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<installed::Entry>, String> {
-    let level = crate::instances::mod_api_level_at(home);
     install_from(&*index()?, local(), level, project, home, progress)
 }
 

@@ -155,7 +155,7 @@ pub fn read_logs(lines: usize, crash: bool) -> Result<(PathBuf, String), String>
         let text = fs::read_to_string(&path).map_err(|e| format!("{}: {e}", path.display()))?;
         return Ok((path, text));
     }
-    let path = logs_dir().join("latest.log");
+    let path = latest_log_in(&game_home());
     let text = tail_of(&path, lines.max(1))?;
     Ok((path, text))
 }

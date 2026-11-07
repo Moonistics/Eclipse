@@ -1,4 +1,4 @@
-use super::architecture::{can_choose_game_architecture, needs_game_architecture_install};
+use super::architecture::needs_game_architecture_install;
 use super::releases::{
     compare_versions, game_releases, installable_updates, is_game_tag, latest,
     launcher_releases_in, own_tag, release_list, Release,
@@ -43,12 +43,20 @@ pub(super) fn launcher_update_from(releases: &[Release], own: &str) -> Option<Re
 /// Publish the game releases before any fallback lookups for older launcher tags, so those
 /// lookups cannot hold up the release pages or opening animation. A list error reaches both.
 pub fn releases_and_updates(
+    settings: &Settings,
     on_releases: impl FnOnce(Result<Vec<Release>, String>),
 ) -> Result<Updates, String> {
-    releases_and_updates_with(release_list, installed, launcher_releases_in, on_releases)
+    releases_and_updates_with(
+        settings,
+        release_list,
+        installed,
+        launcher_releases_in,
+        on_releases,
+    )
 }
 
 pub(super) fn releases_and_updates_with(
+    settings: &Settings,
     load: impl FnOnce() -> Result<serde_json::Value, String>,
     installed: impl FnOnce() -> Vec<String>,
     launchers: impl FnOnce(&serde_json::Value) -> Vec<Release>,
@@ -61,10 +69,10 @@ pub(super) fn releases_and_updates_with(
             return Err(e);
         }
     };
-    let releases = game_releases(&list);
+    let releases = game_releases(&list, settings);
     let installed_versions = installed();
     let eclipse = eclipse_update(&installable_updates(&releases), &installed_versions)
-        .or_else(|| architecture_update(&releases, &installed_versions));
+        .or_else(|| architecture_update(&releases, &installed_versions, settings));
     on_releases(Ok(releases));
     Ok(Updates {
         eclipse,
@@ -72,19 +80,19 @@ pub(super) fn releases_and_updates_with(
     })
 }
 
-pub fn check_updates() -> Result<Updates, String> {
-    releases_and_updates(|_| {})
+pub fn check_updates(settings: &Settings) -> Result<Updates, String> {
+    releases_and_updates(settings, |_| {})
 }
 
 /// If the selected installed game has the wrong architecture, offer the same release again so
 /// the preference also applies when there is no newer game version.
-pub(super) fn architecture_update(releases: &[Release], installed: &[String]) -> Option<Release> {
-    if !can_choose_game_architecture() {
-        return None;
-    }
-    let default = Settings::load().default_version;
-    let tag =
-        super::followed_version(default.as_ref(), installed).filter(|tag| is_game_tag(tag))?;
+fn architecture_update(
+    releases: &[Release],
+    installed: &[String],
+    settings: &Settings,
+) -> Option<Release> {
+    let tag = super::followed_version(settings.default_version.as_ref(), installed)
+        .filter(|tag| is_game_tag(tag))?;
     let release = releases.iter().find(|release| release.tag == *tag)?;
-    needs_game_architecture_install(tag, release).then(|| release.clone())
+    needs_game_architecture_install(tag, release, settings).then(|| release.clone())
 }

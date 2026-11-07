@@ -19,7 +19,7 @@ use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The default instance's id: the game's home itself.
-pub const DEFAULT: &str = "eclipse";
+const DEFAULT: &str = "eclipse";
 const FILE: &str = "instances.json";
 const OWN: &str = game_folder::INSTANCES;
 const PORT_ID: &str = "port:";
@@ -191,6 +191,10 @@ impl Instance {
         let java = self.java.as_ref().map(|_| program);
         crate::launch::instance_vars(&self.name, &self.id, &self.home, java)
     }
+
+    pub fn plays_a_pack(&self) -> bool {
+        matches!(self.kind, Kind::Port { .. } | Kind::Pack { .. })
+    }
 }
 
 impl JavaGame {
@@ -282,16 +286,17 @@ impl Instance {
 
     /// The installed version this instance plays: its pinned one, else `requested` (the
     /// command line's `--version`) or the launcher's (`backend::resolve_version`).
-    pub fn resolve_version(&self, requested: Option<&str>) -> Result<String, String> {
+    pub fn resolve_version(
+        &self,
+        requested: Option<&str>,
+        settings: &backend::Settings,
+    ) -> Result<String, String> {
         self.eclipse()?;
         if requested.is_some() {
-            return backend::resolve_version(requested);
+            return backend::resolve_version(requested, settings);
         }
         let installed = backend::installed();
-        self.installed_version(
-            backend::Settings::load().default_version.as_ref(),
-            &installed,
-        )
+        self.installed_version(settings.default_version.as_ref(), &installed)
     }
 
     fn installed_version(
@@ -507,12 +512,10 @@ fn delete_in(
 
 /// The mod API level of the game that plays the folder `home`: the version its Eclipse instance
 /// plays, else the selected version's. None when that isn't installed.
-pub fn mod_api_level_at(home: &Path) -> Option<u32> {
-    let (default, installed) = (
-        backend::Settings::load().default_version,
-        backend::installed(),
-    );
-    playing_at(&list(), home, default.as_ref(), &installed).map(|tag| backend::mod_api_level(tag))
+pub fn mod_api_level_at(home: &Path, settings: &backend::Settings) -> Option<u32> {
+    let installed = backend::installed();
+    playing_at(&list(), home, settings.default_version.as_ref(), &installed)
+        .map(|tag| backend::mod_api_level(tag))
 }
 
 fn playing_at<'a>(
@@ -536,12 +539,15 @@ pub fn pack_id(id: &str) -> String {
 }
 
 /// The instance Play starts: the one picked in the launcher, else Eclipse.
-pub fn selected() -> Instance {
-    let all = list();
-    backend::Settings::load()
-        .instance
-        .and_then(|id| all.iter().find(|i| i.id == id).cloned())
-        .unwrap_or_else(|| all[0].clone())
+pub fn selected_in<'a>(list: &'a [Instance], settings: &backend::Settings) -> Option<&'a Instance> {
+    let id = settings.instance.as_deref().unwrap_or(DEFAULT);
+    list.iter().find(|i| i.id == id).or(list.first())
+}
+
+pub fn selected(settings: &backend::Settings) -> Instance {
+    selected_in(&list(), settings)
+        .cloned()
+        .expect("the list always holds Eclipse's own instance")
 }
 
 pub fn select(query: &str) -> Result<Instance, String> {
@@ -609,7 +615,7 @@ fn create_in(
     if all.iter().any(|i| i.name.eq_ignore_ascii_case(name)) {
         return Err(name_taken(name));
     }
-    if let Some(from) = from.filter(|f| matches!(f.kind, Kind::Port { .. } | Kind::Pack { .. })) {
+    if let Some(from) = from.filter(|f| f.plays_a_pack()) {
         return Err(format!(
             "{} plays its pack's mods: import the pack again for a second copy.",
             from.name
@@ -705,15 +711,19 @@ fn edit_in(
 
 /// Adds a finished run of the game to the instance's play time (by id: a renamed instance keeps
 /// it).
-pub fn record_play(id: &str, played: Duration) -> Result<(), String> {
+fn record_play(id: &str, played: Duration) -> Result<(), String> {
     record_play_in(&backend::data_dir(), id, played, SystemTime::now())
 }
 
-pub fn game_ended(instance: &Instance, played: Duration, vars: &crate::launch::Vars) {
+pub fn game_ended(
+    instance: &Instance,
+    played: Duration,
+    vars: &crate::launch::Vars,
+) -> Option<std::process::Command> {
     if let Err(e) = record_play(&instance.id, played) {
         eprintln!("Play time not saved: {e}");
     }
-    crate::launch::run_after_exit(&instance.launch, &instance.home, vars);
+    crate::launch::after_exit(&instance.launch, &instance.home, vars)
 }
 
 fn record_play_in(
@@ -803,10 +813,8 @@ fn new_player_name_in(game_home: &Path, data: &Path) -> Result<String, String> {
     Ok(name)
 }
 
-#[path = "instances/switch.rs"]
 mod switch;
 pub use switch::{switch, unkept, Plays, Unkept};
 
 #[cfg(test)]
-#[path = "instances/tests.rs"]
 mod tests;

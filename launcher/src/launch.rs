@@ -274,12 +274,8 @@ pub fn after_exit(
     Some(cmd)
 }
 
-/// Runs the post-exit command, if any, on its own thread: nothing waits for it, its output is
-/// dropped.
-pub fn run_after_exit(launch: &Launch, dir: &std::path::Path, vars: &[(&'static str, OsString)]) {
-    let Some(mut cmd) = after_exit(launch, dir, vars) else {
-        return;
-    };
+/// Runs the post-exit command on its own thread: nothing waits for it, its output is dropped.
+pub fn run_after_exit(mut cmd: Command) {
     crate::process::hide_console(&mut cmd);
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -425,5 +421,4 @@ fn cmd_line(line: &str) -> Command {
 }
 
 #[cfg(test)]
-#[path = "launch/tests.rs"]
 mod tests;

@@ -187,7 +187,7 @@ impl Launcher {
             ui::unavailable(join, why)
         } else {
             join.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.quick_play(to.clone());
+                this.play(Some(to.clone()));
                 cx.notify();
             }))
         };

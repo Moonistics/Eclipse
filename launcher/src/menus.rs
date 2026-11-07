@@ -1,5 +1,11 @@
-use super::*;
+use crate::ui::Press;
+use crate::{ui, Launcher};
 use eclipse_launcher::packs::Kind as PackKind;
+use gpui::prelude::*;
+use gpui::{
+    px, App, ClickEvent, Context, Div, FocusHandle, KeyDownEvent, MouseDownEvent, Pixels, Point,
+    SharedString, Stateful, Window,
+};
 
 #[derive(Clone, PartialEq, Debug)]
 pub(super) enum Menu {
@@ -50,7 +56,7 @@ impl Asking {
 impl Launcher {
     /// Whether `event` is the press that just closed a menu from outside it (on the menu's
     /// own button): the button then leaves the menu closed instead of opening it again.
-    pub(super) fn closed_by_this_press(&mut self, event: &ClickEvent) -> bool {
+    fn closed_by_this_press(&mut self, event: &ClickEvent) -> bool {
         closed_by_press(self.menu_closed_at.take(), event)
     }
 
@@ -155,11 +161,11 @@ impl Launcher {
         }
     }
 
-    pub(super) fn confirm_escape(&mut self) -> bool {
+    fn confirm_escape(&mut self) -> bool {
         self.asking.take().is_some()
     }
 
-    pub(super) fn opened_menu(&mut self, window: &Window, cx: &App) {
+    fn opened_menu(&mut self, window: &Window, cx: &App) {
         self.menu_opener = window.focused(cx);
         ui::menu_opened();
     }
@@ -317,13 +323,13 @@ pub(super) fn opener_focus(key: &str) -> Option<FocusHandle> {
 
 /// Whether the click `event` began with the mouse-down that closed a menu at `closed_at`.
 /// A keyboard click never did.
-pub(super) fn closed_by_press(closed_at: Option<Point<Pixels>>, event: &ClickEvent) -> bool {
+fn closed_by_press(closed_at: Option<Point<Pixels>>, event: &ClickEvent) -> bool {
     matches!(event, ClickEvent::Mouse(click) if closed_at == Some(click.down.position))
 }
 
 /// The menu a press on a menu's button leaves open: that menu, or none when it was already the
 /// one open (the sidebar's ⋯ and a right click on its row toggle the same way).
-pub(super) fn menu_after_press(open: Option<Menu>, pressed: Menu) -> Option<Menu> {
+fn menu_after_press(open: Option<Menu>, pressed: Menu) -> Option<Menu> {
     if open.as_ref() == Some(&pressed) {
         return None;
     }

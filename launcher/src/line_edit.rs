@@ -2,12 +2,12 @@
 //! undo), the keyboard (`handle`) and what it draws (`content`). A page keeps its own box and
 //! its Enter/Escape; this is what is inside it. Positions count characters, not bytes.
 
-use super::*;
 use crate::ui;
 use eclipse_theme::glass::ink;
+use gpui::prelude::*;
 use gpui::{
-    black, canvas, Bounds, Font, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
-    TextRun,
+    black, canvas, div, px, App, Bounds, Context, Div, Font, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, TextRun, Window,
 };
 use std::{cell::RefCell, rc::Rc};
 

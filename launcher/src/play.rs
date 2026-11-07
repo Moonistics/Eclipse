@@ -1,7 +1,13 @@
-use super::*;
+use crate::fields::Field;
 use crate::game_run::{Crash, GameProblem, Phase, QuickPlay, Run, Start, Started};
+use crate::messages::Msg;
+use crate::Launcher;
 use eclipse_launcher::browser::eclipse;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::Instance;
+use eclipse_launcher::{account, backend, instances, native_mods};
+use gpui::Context;
+use std::time::Instant;
 
 /// What the Play button does for the selected version.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -82,7 +88,7 @@ impl Launcher {
     }
 
     pub(super) fn minecraft_dir(&self) -> std::path::PathBuf {
-        backend::minecraft_dir(self.settings.minecraft_dir.clone()).unwrap_or_default()
+        backend::minecraft_dir(None, &self.settings).unwrap_or_default()
     }
 
     /// Prepares the selected version, its Minecraft files from the player's install or, for an
@@ -110,29 +116,11 @@ impl Launcher {
         self.game
             .log
             .push("Checking Java and your Minecraft install".into());
-        // The checks may download the server jar, so they run on the thread too.
         self.in_background(move |tell| {
-            let log = |line| tell.send(Msg::Line(Job::Prepare, line));
-            let result = backend::preparer(&tag, &minecraft, from, &log)
-                .inspect(|(_, minecraft)| backend::sounds(&tag, minecraft, &log))
-                .map(|(p, _)| {
-                    backend::set_prepare_step(backend::PrepareStep::Prepare);
-                    p
-                })
-                .and_then(|p| match p {
-                    backend::Preparer::Process(cmd) => {
-                        backend::spawn(cmd, tell.clone().output(Job::Prepare)).map(|_running| false)
-                    }
-                    backend::Preparer::InProcess(options) => {
-                        backend::prepare_in_process(&options, &log).map(|_| true)
-                    }
-                });
-            match result {
-                // A process sends its own Exit when it ends.
-                Ok(false) => {}
-                Ok(true) => tell.send(Msg::Exit(Job::Prepare, Ok(()))),
-                Err(e) => tell.send(Msg::Exit(Job::Prepare, Err(backend::Ended::Failed(e)))),
-            }
+            let result = backend::prepare(&tag, &minecraft, from, &|event| {
+                tell.send(Msg::Preparing(event))
+            });
+            tell.send(Msg::Prepared(result));
         });
         self.download_seen = None;
     }
@@ -196,12 +184,6 @@ impl Launcher {
             }
         }
         self.start_client(start);
-    }
-
-    /// Plays the selected instance straight into a world (`--world`) or a server (`--server`):
-    /// flags every Eclipse release takes.
-    pub(crate) fn quick_play(&mut self, to: QuickPlay) {
-        self.play(Some(to));
     }
 
     /// Join a friend: a code field and Join, which starts the game straight
@@ -269,17 +251,17 @@ impl Launcher {
     }
 
     fn launch_in_background(&mut self, play: backend::Play, auto: Option<eclipse::auto::Target>) {
-        let mods_tx = self.mods.tx.clone();
+        let settings = self.settings.clone();
         self.in_background(move |tell| {
             if let Some(auto) = auto {
                 let (lines, _) = eclipse::auto::update_all(&[auto]);
                 if !lines.is_empty() {
-                    let _ = mods_tx.send(mods_state::Event::AutoUpdated(lines, Vec::new()));
+                    tell.send(Msg::AutoUpdated(lines));
                 }
             }
-            let log = |line: String| tell.send(Msg::Line(Job::Client, line));
+            let log = |line: String| tell.send(Msg::GameLine(line));
             let eclipse = play.instance.java.is_none();
-            let result = backend::launch(play, &log);
+            let result = backend::launch(play, &settings, &log);
             tell.send(Msg::Started(Started { eclipse, result }));
         });
     }
@@ -296,7 +278,7 @@ impl Launcher {
 
     /// Whether the selected instance's version can start now, from a shortcut (a server's Join,
     /// a world's Play, a friend's code): Eclipse's only, never a Java instance.
-    pub(crate) fn can_start_selected(&self) -> bool {
+    fn can_start_selected(&self) -> bool {
         self.selected_instance().is_none_or(|i| i.java.is_none())
             && self
                 .selected_version()
@@ -320,7 +302,7 @@ impl Launcher {
 
     /// Whether a server's Join starts the selected instance now: a Java instance too, as Play
     /// would (no game running or starting).
-    pub(crate) fn can_join_selected(&self) -> bool {
+    fn can_join_selected(&self) -> bool {
         match self.selected_instance() {
             Some(i) if i.java.is_some() => !self.game.busy(),
             _ => self.can_start_selected(),
@@ -354,7 +336,7 @@ impl Launcher {
         let notices: Vec<String> = launched.notices().iter().map(|n| n.said()).collect();
         self.game.problem = (!notices.is_empty()).then(|| GameProblem::Notice(notices.join("\n")));
         self.game.home = Some(launched.home);
-        match backend::spawn(launched.cmd, self.tell().output(Job::Client)) {
+        match backend::spawn(launched.cmd, self.tell().game_output()) {
             Ok(client) => {
                 self.game.phase = Phase::Running(Run {
                     client,
@@ -382,7 +364,9 @@ impl Launcher {
         let owner = self.game.owner.clone();
         if let (Some(run), Some(id)) = (&run, owner) {
             if let Some(i) = self.instances.list.iter().find(|i| i.id == id) {
-                instances::game_ended(i, run.since.elapsed(), &run.vars);
+                if let Some(cmd) = instances::game_ended(i, run.since.elapsed(), &run.vars) {
+                    eclipse_launcher::launch::run_after_exit(cmd);
+                }
             }
             self.reload_instances();
         }
@@ -450,6 +434,7 @@ impl Launcher {
 mod tests {
     use super::*;
     use crate::game_run::test_instance;
+    use crate::native_build;
 
     #[test]
     fn a_pack_plays_its_own_instance_on_the_version_that_instance_plays() {
@@ -483,12 +468,24 @@ mod tests {
             to: Some(to),
             updates_mods: true,
         };
+        let built = Ok("v0.2.0-native".to_string());
+        let failed = Err(native_mods::BuildError::Failed("no compiler".into()));
+        let world = || start(QuickPlay::World("New World".into()));
+        assert_eq!(
+            native_build::resumed(Some(world()), &failed, |_| true),
+            None
+        );
+        assert_eq!(
+            native_build::resumed(Some(world()), &built, |_| false),
+            None
+        );
+        assert_eq!(native_build::resumed(None, &built, |_| true), None);
         let waited = |to| {
-            let mut native = native_build::NativeBuild {
-                then_play: Some(start(to)),
-                ..Default::default()
-            };
-            launch_of(native.then_play.take().unwrap(), false)
+            let resumed = native_build::resumed(Some(start(to)), &built, |tag| tag == "v0.2.0");
+            launch_of(
+                resumed.expect("a build that worked resumes its Play"),
+                false,
+            )
         };
         let world = waited(QuickPlay::World("New World".into()));
         assert_eq!(world.world.as_deref(), Some("New World"));

@@ -20,11 +20,11 @@ use std::time::{Duration, Instant};
 
 /// Formats without a row-by-row reader here (JPEG, WebP, interlaced PNG) are decoded whole
 /// first; a picture needing more than this is refused rather than decoded.
-pub const WHOLE_DECODE_MAX: u64 = 256 << 20;
+const WHOLE_DECODE_MAX: u64 = 256 << 20;
 
 /// The biggest texture GPUI's atlas makes on Metal and DirectX (a fixed 16384 there; on Linux it is
 /// the wgpu device's own limit, [`gpu_limit`]).
-pub const ATLAS_MAX: u32 = 16384;
+const ATLAS_MAX: u32 = 16384;
 
 /// Until the GPU has been asked (Linux): wgpu's default limit, which every adapter meets.
 const LIMIT_UNKNOWN: u32 = 8192;
@@ -32,7 +32,7 @@ const LIMIT_UNKNOWN: u32 = 8192;
 static GPU_LIMIT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
 /// The biggest picture side GPUI can hold in its atlas on this machine.
-pub fn gpu_limit() -> u32 {
+fn gpu_limit() -> u32 {
     if cfg!(any(target_os = "linux", target_os = "freebsd")) {
         GPU_LIMIT.get().copied().unwrap_or(LIMIT_UNKNOWN)
     } else {
@@ -69,7 +69,7 @@ pub fn probe_gpu_limit() {
 /// The side to make a picture drawn `points` across on a screen of `scale` pixels per point:
 /// what the screen shows, rounded up to 256 px (a resize doesn't remake it on every frame), and
 /// never more than `limit`, the GPU's ([`gpu_limit`]).
-pub fn drawn_side(points: f32, scale: f32, limit: u32) -> u32 {
+fn drawn_side(points: f32, scale: f32, limit: u32) -> u32 {
     let pixels = (points.max(1.) * scale.max(1.)).ceil().min(u32::MAX as f32) as u32;
     pixels.div_ceil(256).saturating_mul(256).min(limit).max(1)
 }
@@ -87,7 +87,7 @@ pub fn fitted(w: u32, h: u32, max: u32) -> (u32, u32) {
 }
 
 /// The picture at `path` fitted inside `max` × `max` (see [`fitted`]), as straight RGBA.
-pub fn load_fitted(path: &Path, max: u32) -> Result<image::RgbaImage, String> {
+fn load_fitted(path: &Path, max: u32) -> Result<image::RgbaImage, String> {
     let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut reader = BufReader::new(file);
     let png = reader
@@ -247,7 +247,7 @@ impl Shrink {
 /// those drawn within `grace`: they are on screen, and making them again on every frame would
 /// cost more than going over. What goes is handed back so the caller can free it where it is
 /// drawn too (GPUI's sprite atlas).
-pub struct Lru<K, V> {
+struct Lru<K, V> {
     budget: u64,
     grace: Duration,
     used: u64,
@@ -321,7 +321,7 @@ impl<K: Eq + Hash + Clone, V> Lru<K, V> {
         gone
     }
 
-    pub fn over_budget(&self) -> bool {
+    fn over_budget(&self) -> bool {
         self.used > self.budget
     }
 }

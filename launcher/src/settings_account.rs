@@ -2,10 +2,9 @@
 
 use crate::fields::{CanAdd, Field};
 use crate::menus::Asking;
-use crate::messages::Msg;
 use crate::ui::{ButtonKind, Press};
 use crate::{layout, microsoft, ui, Launcher};
-use eclipse_launcher::account::{Accounts, Player, SignInState};
+use eclipse_launcher::account::{Player, SignInState};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::{account, instances};
 use eclipse_theme::glass::{ink, space, step};
@@ -307,7 +306,7 @@ impl Launcher {
 }
 
 impl Launcher {
-    pub(super) fn microsoft_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
+    fn microsoft_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let mut rows = div().flex().flex_col();
         let mut n = 0;
         let selected = self.accounts.selected.clone();
@@ -410,23 +409,7 @@ impl Launcher {
                 ui::disabled(sign_out)
             } else {
                 sign_out.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let Some(generation) = this.begin_auth_job(&uuid) else {
-                        return;
-                    };
-                    let (tx, uuid) = (this.tx.clone(), uuid.clone());
-                    std::thread::spawn(move || {
-                        let mut accounts = Accounts::load();
-                        let _ = tx.send(Msg::AccountProgress(
-                            uuid.clone(),
-                            generation,
-                            account::session::Phase::SigningOut,
-                        ));
-                        let result = accounts
-                            .remove(account::store(), &uuid)
-                            .and_then(|()| accounts.save())
-                            .map(|()| accounts.has_owner(account::store()));
-                        let _ = tx.send(Msg::AccountRemoved(uuid, generation, result));
-                    });
+                    this.sign_out(uuid.clone());
                     cx.notify();
                 }))
             });
@@ -460,10 +443,7 @@ impl Launcher {
 
     /// Adding a Microsoft account, or signing one in again: what the row is called, what is
     /// happening (the code to enter, a problem), and its buttons.
-    pub(super) fn sign_in_parts(
-        &self,
-        cx: &mut Context<Self>,
-    ) -> (String, Div, Option<AnyElement>) {
+    fn sign_in_parts(&self, cx: &mut Context<Self>) -> (String, Div, Option<AnyElement>) {
         let t = self.theme;
         let configured = account::client_id().is_some();
         let busy = matches!(

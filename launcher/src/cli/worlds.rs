@@ -1,5 +1,6 @@
 use super::json;
 use clap::Subcommand;
+use eclipse_launcher::backend;
 use eclipse_launcher::instances;
 use std::path::PathBuf;
 
@@ -53,13 +54,17 @@ pub(super) enum WorldsCmd {
     },
 }
 
-pub(super) fn worlds(action: WorldsCmd, as_json: bool) -> Result<(), String> {
+pub(super) fn worlds(
+    action: WorldsCmd,
+    as_json: bool,
+    settings: &backend::Settings,
+) -> Result<(), String> {
     use eclipse_launcher::datapacks;
     use eclipse_launcher::worlds::{self, World};
     let home = |instance: Option<String>| -> Result<PathBuf, String> {
         Ok(match instance {
             Some(name) => instances::find(&name)?.home,
-            None => instances::selected().home,
+            None => instances::selected(settings).home,
         })
     };
     let value = |w: &World| {
@@ -79,7 +84,10 @@ pub(super) fn worlds(action: WorldsCmd, as_json: bool) -> Result<(), String> {
             if as_json {
                 json(all.iter().map(value).collect());
             } else if all.is_empty() {
-                println!("No worlds in {}", home.join("saves").display());
+                println!(
+                    "No worlds in {}",
+                    eclipse_launcher::worlds::saves_dir(&home).display()
+                );
             }
             for w in all.iter().filter(|_| !as_json) {
                 let version = w.version.as_deref().unwrap_or("unknown version");

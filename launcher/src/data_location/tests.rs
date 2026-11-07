@@ -59,6 +59,21 @@ fn a_missing_or_unreadable_location_is_reported_before_the_window_opens() {
     assert!(damaged.contains("Invalid"), "{damaged}");
 }
 
+#[test]
+fn a_data_folder_that_did_not_open_is_kept_as_its_cause() {
+    let temp = Temp::new();
+    let bootstrap = temp.0.join("location.json");
+    fs::write(&bootstrap, b"not json").unwrap();
+    let cause = resolve_at(&bootstrap).expect_err("a damaged pointer must reach the window");
+    *LOCATION.lock().unwrap() = Some(Err(cause.clone()));
+    startup();
+    let kept = startup_error();
+    *LOCATION.lock().unwrap() = None;
+    *STARTUP_ERROR.lock().unwrap() = None;
+    FORCE_DEFAULT.store(false, Ordering::Release);
+    assert_eq!(kept, Some(cause));
+}
+
 #[cfg(unix)]
 #[test]
 fn a_config_folder_behind_a_link_still_opens() {

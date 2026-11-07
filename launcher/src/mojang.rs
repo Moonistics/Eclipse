@@ -23,16 +23,6 @@ const JAVA_RUNTIMES: &str = "https://launchermeta.mojang.com/v1/products/java-ru
 
 pub const FILES_AT_A_TIME: usize = 8;
 
-/// The download under way: files done, of how many (0 when none runs).
-static DONE: AtomicUsize = AtomicUsize::new(0);
-static TOTAL: AtomicUsize = AtomicUsize::new(0);
-
-/// How far the download under way is, files done of how many; none when none runs.
-pub fn progress() -> Option<(usize, usize)> {
-    let total = TOTAL.load(Relaxed);
-    (total > 0).then(|| (DONE.load(Relaxed).min(total), total))
-}
-
 /// One file to download, with the size Mojang lists for it when it lists one.
 struct File {
     url: String,
@@ -51,6 +41,7 @@ pub fn download(
     jobs: usize,
     fetch: Fetch,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
 ) -> Result<(), String> {
     let v = &pins.version;
     let versions = dir.join("versions").join(v);
@@ -112,7 +103,7 @@ pub fn download(
     log(format!(
         "Downloading Minecraft {v} from Mojang: the game and {libraries} libraries"
     ));
-    fetch_all(&game, jobs, fetch, log)?;
+    fetch_all(&game, jobs, fetch, log, progress)?;
     let index = &manifest["assetIndex"];
     let index = File {
         url: text(index, "url")?,
@@ -122,7 +113,7 @@ pub fn download(
             .join("assets/indexes")
             .join(relative(&format!("{}.json", text(index, "id")?))?),
     };
-    let assets = fetch_all(std::slice::from_ref(&index), 1, fetch, log)
+    let assets = fetch_all(std::slice::from_ref(&index), 1, fetch, log, progress)
         .and_then(|_| objects(&read_json(&index.path)?, dir))
         .and_then(|objects| {
             log(format!("Downloading the sounds ({} files)", objects.len()));
@@ -138,7 +129,7 @@ pub fn download(
                 }
                 got
             };
-            fetch_each(&objects, jobs, &retrying, log, false)
+            fetch_each(&objects, jobs, &retrying, log, progress, false)
         });
     if let Err(e) = assets {
         log(format!("The sounds could not all be downloaded: {e}"));
@@ -171,6 +162,7 @@ pub fn java_runtime(
     jobs: usize,
     fetch: Fetch,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
 ) -> Result<PathBuf, String> {
     let platform = java_platform().ok_or("Mojang has no Java for this system")?;
     let index: Value = serde_json::from_slice(&fetch(JAVA_RUNTIMES)?)
@@ -217,7 +209,7 @@ pub fn java_runtime(
         "Downloading Minecraft's Java {name} from Mojang ({} files)",
         downloads.len()
     ));
-    fetch_all(&downloads, jobs, fetch, log)?;
+    fetch_all(&downloads, jobs, fetch, log, progress)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -354,8 +346,9 @@ fn fetch_all(
     jobs: usize,
     fetch: Fetch,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
 ) -> Result<(), String> {
-    fetch_each(files, jobs, fetch, log, true)
+    fetch_each(files, jobs, fetch, log, progress, true)
 }
 
 /// `fetch_all`, which with `stop_on_error` false goes on past a file that fails and reports how
@@ -365,14 +358,14 @@ fn fetch_each(
     jobs: usize,
     fetch: Fetch,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
     stop_on_error: bool,
 ) -> Result<(), String> {
     let errors = AtomicUsize::new(0);
     let next = AtomicUsize::new(0);
     let done = AtomicUsize::new(0);
     let failed = Mutex::new(None);
-    DONE.store(0, Relaxed);
-    TOTAL.store(files.len(), Relaxed);
+    progress(Some((0, files.len())));
     std::thread::scope(|scope| {
         let workers: Vec<_> = (0..jobs.clamp(1, files.len().max(1)))
             .map(|_| {
@@ -390,21 +383,27 @@ fn fetch_each(
                                 failed.lock().unwrap().get_or_insert(e);
                             }
                         }
-                        DONE.store(done.fetch_add(1, Relaxed) + 1, Relaxed);
+                        done.fetch_add(1, Relaxed);
                     }
                 })
             })
             .collect();
         let mut waited = 0;
+        let mut shown = 0;
         while !workers.iter().all(|w| w.is_finished()) {
             std::thread::sleep(Duration::from_millis(100));
             waited += 1;
+            let now = done.load(Relaxed);
+            if now != shown {
+                shown = now;
+                progress(Some((now, files.len())));
+            }
             if waited % 10 == 0 {
-                log(format!("{} of {} files", done.load(Relaxed), files.len()));
+                log(format!("{now} of {} files", files.len()));
             }
         }
     });
-    TOTAL.store(0, Relaxed);
+    progress(None);
     match failed.into_inner().unwrap() {
         Some(e) if !stop_on_error => Err(format!(
             "{} of {} files failed, the first: {e}",
@@ -417,5 +416,4 @@ fn fetch_each(
 }
 
 #[cfg(test)]
-#[path = "mojang_tests.rs"]
 mod tests;

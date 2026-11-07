@@ -59,7 +59,7 @@ impl Launcher {
         });
     }
 
-    pub(super) fn take_look_file(&mut self, path: PathBuf, cape: bool) {
+    fn take_look_file(&mut self, path: PathBuf, cape: bool) {
         let Some(name) = self.skin.as_ref().map(|p| p.name.clone()) else {
             return;
         };

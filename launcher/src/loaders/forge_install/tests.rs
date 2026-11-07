@@ -79,7 +79,7 @@ fn real_install_profiles_plan_their_client_steps() {
 
     // NeoForge 26.3: one step, installertools patching the game's jar.
     let (root, steps) = planned(
-        include_str!("../../tests/fixtures/loaders/neoforge-26.3.0.101.install_profile.json"),
+        include_str!("../../../tests/fixtures/loaders/neoforge-26.3.0.101.install_profile.json"),
         "26.3",
     );
     assert_eq!(steps.len(), 1);
@@ -109,7 +109,7 @@ fn real_install_profiles_plan_their_client_steps() {
 
     // Forge 26.3: the server's four steps left out, binarypatcher with its output's sha1.
     let (root, steps) = planned(
-        include_str!("../../tests/fixtures/loaders/forge-26.3-66.1.0.install_profile.json"),
+        include_str!("../../../tests/fixtures/loaders/forge-26.3-66.1.0.install_profile.json"),
         "26.3",
     );
     assert_eq!(steps.len(), 1);
@@ -130,7 +130,7 @@ fn real_install_profiles_plan_their_client_steps() {
 
     // Forge 1.20.1: mappings, Mojang's own mappings for the client side, split, rename, patch.
     let (root, steps) = planned(
-        include_str!("../../tests/fixtures/loaders/forge-1.20.1-47.4.0.install_profile.json"),
+        include_str!("../../../tests/fixtures/loaders/forge-1.20.1-47.4.0.install_profile.json"),
         "1.20.1",
     );
     let tools: Vec<&str> = steps.iter().map(|s| s.tool.as_str()).collect();

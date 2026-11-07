@@ -1,6 +1,5 @@
 # Build environment for the launcher and for building native mods on NixOS:
 # `nix-shell` in this folder, then `cargo build`, or press Build in the launcher started from it.
-# The launcher's Linux check reads /etc/os-release and names this shell on NixOS (#5248).
 { pkgs ? import <nixpkgs> {} }:
 pkgs.mkShell {
   nativeBuildInputs = with pkgs; [ pkg-config clang mold ];

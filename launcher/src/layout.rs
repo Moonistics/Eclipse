@@ -1,14 +1,14 @@
 use eclipse_theme::glass::space;
 
-pub const DEFAULT_WINDOW: (f32, f32) = (1180., 760.);
-pub const MIN_WINDOW: (f32, f32) = (800., 500.);
-pub const DEFAULT_WINDOW_SHARE: f32 = 0.9;
+const DEFAULT_WINDOW: (f32, f32) = (1180., 760.);
+const MIN_WINDOW: (f32, f32) = (800., 500.);
+const DEFAULT_WINDOW_SHARE: f32 = 0.9;
 
 pub const SIDEBAR: f32 = 236.;
-pub const SIDEBAR_NARROW: f32 = 208.;
-pub const NARROW_WINDOW: f32 = 960.;
-pub const PAGE_GUTTER: f32 = space::XXL;
-pub const PAGE_GUTTER_NARROW: f32 = space::XL;
+const SIDEBAR_NARROW: f32 = 208.;
+const NARROW_WINDOW: f32 = 960.;
+const PAGE_GUTTER: f32 = space::XXL;
+const PAGE_GUTTER_NARROW: f32 = space::XL;
 pub const PAGE_MAX: f32 = 1120.;
 pub const PAGE_FOOT: f32 = 48.;
 pub const CONTENT_INSET: f32 = space::MD + space::XXS;
@@ -23,7 +23,7 @@ pub const SETTINGS_LIST_BESIDE: f32 = 1440.;
 pub const DIALOG_ASIDE_WIDE: f32 = 1100.;
 pub const SERVER_CARD_MIN: f32 = 540.;
 pub const INSTANCE_COMPACT_BELOW: f32 = 600.;
-pub const SETTINGS_CONTROL_BESIDE: f32 = 840.;
+const SETTINGS_CONTROL_BESIDE: f32 = 840.;
 
 pub const SETTINGS_RAIL: f32 = FIELD_MD;
 

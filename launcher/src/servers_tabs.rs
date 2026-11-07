@@ -280,7 +280,7 @@ impl Launcher {
     }
 
     /// A setting row whose text gives way to `error` when the value was refused.
-    pub(super) fn setting_row_checked(
+    fn setting_row_checked(
         &self,
         name: impl Into<SharedString>,
         about: String,
@@ -295,7 +295,7 @@ impl Launcher {
         ui::setting_row(name, Some(note.into_any_element()), Some(control))
     }
 
-    pub(super) fn server_switch_row(
+    fn server_switch_row(
         &self,
         id: &'static str,
         name: impl Into<SharedString>,
@@ -319,7 +319,7 @@ impl Launcher {
     }
 
     /// − value + for a number setting within `range`.
-    pub(super) fn server_stepper(
+    fn server_stepper(
         &self,
         key: Key,
         range: std::ops::RangeInclusive<i64>,
@@ -331,7 +331,7 @@ impl Launcher {
         })
     }
 
-    pub(super) fn server_segments(
+    fn server_segments(
         &self,
         id: &'static str,
         name: &str,
@@ -560,7 +560,7 @@ impl Launcher {
             .child(self.delete_server_section(status, cx))
     }
 
-    pub(super) fn delete_server_section(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
+    fn delete_server_section(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
         let name = self
             .servers
             .list
@@ -644,7 +644,7 @@ impl Launcher {
         .items_start()
     }
 
-    pub(super) fn background_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
+    fn background_row(&mut self, cx: &mut Context<Self>) -> AnyElement {
         let on = self.servers.service.unwrap_or(false);
         let idle = self.servers.busy.is_none() && self.servers.service.is_some();
         self.server_switch_row(
@@ -672,7 +672,7 @@ impl Launcher {
         )
     }
 
-    pub(super) fn updates_section(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
+    fn updates_section(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
         let idle = self.servers.busy.is_none();
         let check = self.servers.update.clone();
         let release = status
@@ -788,7 +788,7 @@ impl Launcher {
 
     /// The server's details came back without its settings: its eclipse-server predates
     /// `config` (and `backups --json`).
-    pub(super) fn older_eclipse(&self) -> bool {
+    fn older_eclipse(&self) -> bool {
         self.servers.service.is_some() && self.servers.config.is_none()
     }
 

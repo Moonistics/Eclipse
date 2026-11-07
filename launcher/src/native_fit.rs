@@ -170,11 +170,11 @@ fn cached(cache: &Known, key: &CacheKey) -> Option<Option<Plays>> {
 
 /// The Eclipse `instance` plays; None for a Java instance, when nothing is installed, or when
 /// GitHub can't say its commit.
-pub fn plays(instance: &Instance) -> Option<Plays> {
+pub fn plays(instance: &Instance, settings: &backend::Settings) -> Option<Plays> {
     if instance.java.is_some() {
         return None;
     }
-    let version = instance.resolve_version(None).ok()?;
+    let version = instance.resolve_version(None, settings).ok()?;
     // Native builds can be rebuilt under the same version name on a different commit.
     // Read the build record before consulting the cache so the cached answer follows it.
     let native_revision = native_mods::about(&version).map(|about| about.eclipse);
@@ -245,12 +245,13 @@ pub fn pins(home: &Path) -> Vec<(String, String)> {
 /// `pin`, in `instance`; None when it can't be told.
 pub fn line(
     instance: &Instance,
+    settings: &backend::Settings,
     id: &str,
     hooks: Option<u32>,
     pin: &str,
     broken_on: &[BrokenOn],
 ) -> Option<String> {
-    let plays = plays(instance)?;
+    let plays = plays(instance, settings)?;
     fit(
         id,
         hooks,

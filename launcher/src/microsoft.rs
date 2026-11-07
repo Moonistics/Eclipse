@@ -8,7 +8,10 @@
 //! border; square corners. The symbol is drawn from the official
 //! `ms-symbollockup_mssymbol_19.svg` (its squares, places and colours as they are there), never
 //! recoloured or reshaped; see THIRD_PARTY_NOTICES.md.
-use super::*;
+use crate::theme::Theme;
+use eclipse_launcher::i18n::tr;
+use gpui::prelude::*;
+use gpui::{div, px, Div, FontWeight, Stateful};
 
 /// The symbol's squares in its 21-pixel box: left, top, colour.
 const SQUARES: [(f32, f32, u32); 4] = [

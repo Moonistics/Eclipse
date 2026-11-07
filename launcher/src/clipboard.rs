@@ -1,4 +1,6 @@
-use super::*;
+use crate::toast;
+use eclipse_launcher::i18n::{tr, trf};
+use gpui::App;
 
 const COPIED_SHOWN: usize = 40;
 

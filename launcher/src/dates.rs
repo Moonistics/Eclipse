@@ -1,4 +1,5 @@
-use super::*;
+use eclipse_launcher::i18n::{tr, trf};
+use std::time::Duration;
 
 /// A release's day ("Nov 1", "Nov 1, 2025" in another year), with its time in UTC when known.
 pub(super) fn published(date: &str, time: &str) -> String {

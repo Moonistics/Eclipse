@@ -81,7 +81,7 @@ possible; the launcher just doesn't offer it on its own.
   the gate's screen once when the launcher opens: why Eclipse needs the account ("like other
   launchers"), that worlds, offline names and settings stay where they are, and Sign in, which shows
   the device code on the same screen. It comes back whenever Play is refused; Not now closes it,
-  and Home keeps a Sign in row (`launcher/src/owner_page.rs`).
+  and Home keeps a Sign in row (`launcher/src/owner_gate.rs`).
 - **The answer lives with the tokens.** Each account's keychain item keeps the last answer
   (`owns`), so accounts.json can't say yes. Where there is no keychain the answer sits in the
   secrets file with the tokens; a player can edit that file, as they can write keychain items with

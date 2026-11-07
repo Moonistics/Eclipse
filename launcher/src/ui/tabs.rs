@@ -78,7 +78,7 @@ pub fn tab_width(label: &str, count: Option<usize>, pad: f32) -> f32 {
 
 pub const TAB_PAD_TIGHT: f32 = space::SM;
 
-pub(super) const TAB_STRIP_GAP: f32 = space::LG;
+const TAB_STRIP_GAP: f32 = space::LG;
 
 pub fn tab_strip_padded(
     id: impl Into<SharedString>,

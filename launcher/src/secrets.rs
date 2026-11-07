@@ -857,5 +857,4 @@ pub fn in_secrets_file() -> bool {
 }
 
 #[cfg(test)]
-#[path = "secrets/tests.rs"]
 pub(crate) mod tests;

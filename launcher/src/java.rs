@@ -230,13 +230,18 @@ pub fn pick(
         .cloned())
 }
 
-fn download(component: &str, log: &dyn Fn(String)) -> Result<PathBuf, String> {
+fn download(
+    component: &str,
+    log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
+) -> Result<PathBuf, String> {
     mojang::java_runtime(
         component,
         &runtimes_dir(),
         mojang::FILES_AT_A_TIME,
         &backend::get_bytes,
         log,
+        progress,
     )
 }
 
@@ -258,7 +263,7 @@ pub fn install(need: &Need, log: &dyn Fn(String)) -> Result<Runtime, String> {
             need.major
         ));
     }
-    let home = download(&need.component, log)?;
+    let home = download(&need.component, log, &|_| {})?;
     let home = ["jre.bundle/Contents/Home", ""]
         .iter()
         .map(|sub| home.join(sub))
@@ -278,6 +283,7 @@ pub fn for_preparing(
     games: &[PathBuf],
     component: impl FnOnce() -> Option<String>,
     log: &dyn Fn(String),
+    progress: &dyn Fn(Option<(usize, usize)>),
 ) -> Result<PathBuf, String> {
     let find = if compiler {
         eclipse_prepare::java::find
@@ -306,12 +312,11 @@ pub fn for_preparing(
             "{missing}\n  • Minecraft's own Java from Mojang needs glibc ({GLIBC_LOADER} is missing; on NixOS, enable programs.nix-ld), so install compatible Java instead."
         ));
     }
-    let home = download(&component, log).map_err(|e| {
+    let home = download(&component, log, progress).map_err(|e| {
         format!("{missing}\n  • Eclipse also tried to download Minecraft's own Java from Mojang, but: {e}")
     })?;
     find(major, &[home]).map(|jdk| jdk.home())
 }
 
 #[cfg(test)]
-#[path = "java/tests.rs"]
 mod tests;

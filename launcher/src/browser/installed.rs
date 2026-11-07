@@ -229,10 +229,11 @@ impl Game {
         project: &Project,
         everything: bool,
         home: &Path,
+        level: Option<u32>,
         progress: &dyn Fn(&str, f32),
     ) -> Result<Vec<Entry>, String> {
         match self {
-            Game::Eclipse => install(source, project, everything, home, progress),
+            Game::Eclipse => install(source, project, everything, home, level, progress),
             Game::Java(target) => java_instance::install(source, target, project, home, progress),
         }
     }
@@ -241,9 +242,10 @@ impl Game {
         &self,
         source: &dyn Source,
         entry: &Entry,
+        level: Option<u32>,
     ) -> Result<Option<Version>, String> {
         let project = source.project(&entry.project)?;
-        let versions = source.versions(&project)?;
+        let versions = source.versions(&project, level)?;
         let newest = match self {
             Game::Eclipse => pick(project.kind, &versions, true),
             Game::Java(target) => target.pick(project.kind, &versions),
@@ -307,6 +309,7 @@ impl Game {
 
 pub struct Destination<'a> {
     pub home: &'a Path,
+    pub settings: &'a crate::backend::Settings,
     /// A Java instance's game: its loader and Minecraft choose the files.
     pub java: Option<&'a java_instance::Target>,
     /// The world a data pack goes into: given, the project installs as a data pack.
@@ -372,8 +375,9 @@ pub fn install_into(
     }
     if p.kind == Kind::Modpack {
         let folder = crate::modpacks::ports_dir().join("downloads");
-        let file = fetch_modpack(source, p, &folder, &|f| progress(&p.title, f))?;
-        let resources = crate::modpacks::port_resources();
+        let level = crate::instances::mod_api_level_at(to.home, to.settings);
+        let file = fetch_modpack(source, p, &folder, level, &|f| progress(&p.title, f))?;
+        let resources = crate::modpacks::port_resources(to.settings);
         let imported = crate::modpacks::import_and_port(&file, resources.as_deref(), log)?;
         if let Some(url) = &p.icon {
             crate::instances::adopt_icon(&crate::modpacks::profile_home(&imported.work), url);
@@ -381,7 +385,8 @@ pub fn install_into(
         return Ok(Done::Port(imported));
     }
     let game = Game::of(to.java.cloned());
-    game.install(source, p, to.everything, to.home, progress)
+    let level = crate::instances::mod_api_level_at(to.home, to.settings);
+    game.install(source, p, to.everything, to.home, level, progress)
         .map(Done::Files)
 }
 
@@ -395,7 +400,12 @@ pub struct Step {
 
 /// What installing `project` takes, dependencies first, checked before any byte is downloaded:
 /// every file runs in Eclipse and has a version to install.
-pub fn plan(source: &dyn Source, project: &Project, everything: bool) -> Result<Vec<Step>, String> {
+pub fn plan(
+    source: &dyn Source,
+    project: &Project,
+    everything: bool,
+    level: Option<u32>,
+) -> Result<Vec<Step>, String> {
     if project.kind == Kind::Modpack {
         return Err(format!(
             "{} is a modpack: it is imported, not installed.",
@@ -409,7 +419,15 @@ pub fn plan(source: &dyn Source, project: &Project, everything: bool) -> Result<
         ));
     }
     let mut steps = Vec::new();
-    add(source, project.clone(), everything, false, 0, &mut steps)?;
+    add(
+        source,
+        project.clone(),
+        everything,
+        level,
+        false,
+        0,
+        &mut steps,
+    )?;
     Ok(steps)
 }
 
@@ -417,6 +435,7 @@ fn add(
     source: &dyn Source,
     project: Project,
     everything: bool,
+    level: Option<u32>,
     dependency: bool,
     depth: usize,
     steps: &mut Vec<Step>,
@@ -430,7 +449,7 @@ fn add(
     if let Support::No(why) = project.support() {
         return Err(format!("{} doesn't run in Eclipse: {why}", project.title));
     }
-    let versions = source.versions(&project)?;
+    let versions = source.versions(&project, level)?;
     let Some(version) = pick(project.kind, &versions, everything).cloned() else {
         return Err(match versions.iter().find_map(|v| v.blocked.clone()) {
             Some(why) => format!("{} can't be installed from here: {why}", project.title),
@@ -448,7 +467,7 @@ fn add(
         if needed.kind.folder().is_none() {
             return Err(format!("{} needs {}.", project.title, needed.title));
         }
-        add(source, needed, everything, true, depth + 1, steps)?;
+        add(source, needed, everything, level, true, depth + 1, steps)?;
     }
     steps.push(Step {
         project,
@@ -465,15 +484,16 @@ pub fn install(
     project: &Project,
     everything: bool,
     home: &Path,
+    level: Option<u32>,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<Entry>, String> {
     if project.source == SourceId::Eclipse {
-        return super::eclipse::install(project, home, progress);
+        return super::eclipse::install(project, home, level, progress);
     }
     if project.kind == Kind::Mod {
         return super::java::install(source, project, everything, home, progress);
     }
-    let steps = plan(source, project, everything)?;
+    let steps = plan(source, project, everything, level)?;
     put(
         source,
         steps,
@@ -573,16 +593,17 @@ pub fn remove(home: &Path, name: &str) -> Result<Entry, String> {
 }
 
 /// Downloads a modpack's file, checked, into `folder` (kept there: the import reads it).
-pub fn fetch_modpack(
+fn fetch_modpack(
     source: &dyn Source,
     project: &Project,
     folder: &Path,
+    level: Option<u32>,
     progress: &dyn Fn(f32),
 ) -> Result<PathBuf, String> {
     if project.kind != Kind::Modpack {
         return Err(format!("{} isn't a modpack.", project.title));
     }
-    let versions = source.versions(project)?;
+    let versions = source.versions(project, level)?;
     let version = pick(Kind::Modpack, &versions, true)
         .ok_or_else(|| format!("{} has no file to download.", project.title))?;
     let file = version.file().expect("pick keeps versions with a file");
@@ -620,7 +641,7 @@ pub fn install_datapack(
     let fetched = match project.source {
         SourceId::Eclipse => super::eclipse::fetch_datapack(project, &folder, progress),
         _ => {
-            let versions = source.versions(project)?;
+            let versions = source.versions(project, None)?;
             let version = pick(Kind::DataPack, &versions, everything).ok_or_else(|| {
                 format!(
                     "{} has no data pack for {}{}.",

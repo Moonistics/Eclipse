@@ -1,7 +1,13 @@
-use super::*;
+use crate::play_state::PlayState;
+use crate::{Launcher, LOG_LINES};
+use eclipse_launcher::account;
+use eclipse_launcher::backend::{self, Running};
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::Instance;
+use std::collections::VecDeque;
+use std::time::{Duration, Instant};
 
-pub(super) const START_SLACK: Duration = Duration::from_secs(2);
+const START_SLACK: Duration = Duration::from_secs(2);
 
 #[derive(Clone, Debug, PartialEq)]
 pub(super) enum QuickPlay {
@@ -38,7 +44,7 @@ impl Log {
         self.0.clear();
     }
 
-    pub(super) fn last_line(&self) -> Option<&String> {
+    fn last_line(&self) -> Option<&String> {
         self.0.iter().rev().find(|l| !l.trim().is_empty())
     }
 
@@ -83,6 +89,8 @@ pub(super) enum Phase {
     Preparing {
         started: Instant,
         then_play: Option<Box<Start>>,
+        step: backend::PrepareStep,
+        files: Option<(usize, usize)>,
     },
     Starting {
         pressed: Option<Instant>,
@@ -100,7 +108,7 @@ pub(super) struct Run {
 }
 
 impl GameRun {
-    pub(super) fn begin(&mut self, instance: Option<&Instance>) {
+    fn begin(&mut self, instance: Option<&Instance>) {
         self.log.clear();
         self.owner = instance.map(|i| i.id.clone());
     }
@@ -143,7 +151,25 @@ impl GameRun {
         self.phase = Phase::Preparing {
             started: Instant::now(),
             then_play: then_play.map(Box::new),
+            step: backend::PrepareStep::Files,
+            files: None,
         };
+    }
+
+    pub(super) fn prepare_moved(&mut self, event: backend::Preparing) {
+        match (&mut self.phase, event) {
+            (_, backend::Preparing::Line(_, line)) => self.log.push(line),
+            (Phase::Preparing { step, .. }, backend::Preparing::Step(now)) => *step = now,
+            (Phase::Preparing { files, .. }, backend::Preparing::Files(now)) => *files = now,
+            _ => {}
+        }
+    }
+
+    pub(super) fn prepare_step(&self) -> Option<(backend::PrepareStep, Option<(usize, usize)>)> {
+        match self.phase {
+            Phase::Preparing { step, files, .. } => Some((step, files)),
+            _ => None,
+        }
     }
 
     pub(super) fn starting_now(&mut self, instance: &Instance, pressed: Option<Instant>) {
@@ -158,7 +184,9 @@ impl GameRun {
 
     pub(super) fn end_preparing(&mut self) -> Option<(Instant, Option<Start>)> {
         match std::mem::take(&mut self.phase) {
-            Phase::Preparing { started, then_play } => Some((started, then_play.map(|s| *s))),
+            Phase::Preparing {
+                started, then_play, ..
+            } => Some((started, then_play.map(|s| *s))),
             other => {
                 self.phase = other;
                 None
@@ -268,7 +296,7 @@ impl Launcher {
 }
 
 #[cfg(test)]
-pub(super) fn test_instance(id: &str, kind: instances::Kind) -> Instance {
+pub(super) fn test_instance(id: &str, kind: eclipse_launcher::instances::Kind) -> Instance {
     Instance {
         id: id.into(),
         name: id.into(),
@@ -289,6 +317,7 @@ pub(super) fn test_instance(id: &str, kind: instances::Kind) -> Instance {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eclipse_launcher::instances;
 
     fn instance(id: &str) -> Instance {
         test_instance(id, instances::Kind::Own)

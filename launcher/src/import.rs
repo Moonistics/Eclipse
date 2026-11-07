@@ -317,5 +317,4 @@ fn fill(
 }
 
 #[cfg(test)]
-#[path = "import/tests.rs"]
 mod tests;

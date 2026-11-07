@@ -174,15 +174,9 @@ pub fn split_args(line: &str) -> Vec<String> {
     words
 }
 
-pub fn game_args() -> Vec<String> {
-    split_args(&Settings::load().game_args)
-}
-
 /// Appends the player's extra game arguments, so they add to the launcher's own or override them.
-fn append_game_args(cmd: &mut Command, instance: &Instance) {
-    cmd.args(split_args(
-        instance.game_args_or(&Settings::load().game_args),
-    ));
+fn append_game_args(cmd: &mut Command, instance: &Instance, settings: &Settings) {
+    cmd.args(split_args(instance.game_args_or(&settings.game_args)));
 }
 
 /// Renderer workarounds a player may have exported to start the launcher itself (a transparent
@@ -266,9 +260,9 @@ pub fn agree_eula(folder: &Path) -> Result<(), String> {
     fs::write(folder.join("eula.txt"), text).map_err(|e| e.to_string())
 }
 
-pub fn server_dir(requested: Option<PathBuf>) -> PathBuf {
+pub fn server_dir(requested: Option<PathBuf>, settings: &Settings) -> PathBuf {
     requested
-        .or(Settings::load().server_dir)
+        .or_else(|| settings.server_dir.clone())
         .unwrap_or_else(|| data_dir().join("server"))
 }
 
@@ -405,7 +399,11 @@ impl From<String> for PlayError {
     }
 }
 
-pub fn launch(play: Play, log: &dyn Fn(String)) -> Result<Launched, PlayError> {
+pub fn launch(
+    play: Play,
+    settings: &Settings,
+    log: &dyn Fn(String),
+) -> Result<Launched, PlayError> {
     let instance = &play.instance;
     let server = play.server.as_deref().map(|server| {
         let list = crate::server_list::List::load(&instance.home);
@@ -414,8 +412,8 @@ pub fn launch(play: Play, log: &dyn Fn(String)) -> Result<Launched, PlayError> {
     let (mut cmd, offline) = match instance.java {
         Some(_) => (java_game(instance, server.as_deref(), log)?, None),
         None => {
-            let tag = instance.resolve_version(play.version.as_deref())?;
-            if let Some(error) = game_architecture_launch_error(&tag) {
+            let tag = instance.resolve_version(play.version.as_deref(), settings)?;
+            if let Some(error) = game_architecture_launch_error(&tag, settings) {
                 return Err(PlayError::Failed(error));
             }
             let session = match &play.who {
@@ -426,7 +424,7 @@ pub fn launch(play: Play, log: &dyn Fn(String)) -> Result<Launched, PlayError> {
                 }
             }?;
             let offline = session.offline.clone();
-            let cmd = eclipse_command(&play, &tag, server.as_deref(), session)
+            let cmd = eclipse_command(&play, settings, &tag, server.as_deref(), session)
                 .inspect_err(|_| account::discard_unread_sessions())?;
             (cmd, offline)
         }
@@ -437,12 +435,13 @@ pub fn launch(play: Play, log: &dyn Fn(String)) -> Result<Launched, PlayError> {
 
 fn eclipse_command(
     play: &Play,
+    settings: &Settings,
     tag: &str,
     server: Option<&str>,
     session: account::GameSession,
 ) -> Result<Command, PlayError> {
     need_prepared(tag)?;
-    complete_assets(tag);
+    complete_assets(tag, settings);
     let mut cmd = client_command(tag);
     if let Some(file) = session.file {
         cmd.arg("--session-file").arg(file);
@@ -475,7 +474,7 @@ fn eclipse_command(
     if play.creative {
         cmd.arg("--creative");
     }
-    append_game_args(&mut cmd, &play.instance);
+    append_game_args(&mut cmd, &play.instance, settings);
     Ok(cmd)
 }
 
@@ -504,8 +503,13 @@ pub fn join_friend(cmd: &mut Command, code: &str) -> Result<(), String> {
 }
 
 /// The dedicated server's command in `folder`, once prepared and the EULA is agreed to.
-pub fn server(tag: &str, folder: &Path, accept_eula: bool) -> Result<Command, String> {
-    if let Some(error) = game_architecture_launch_error(tag) {
+pub fn server(
+    tag: &str,
+    folder: &Path,
+    accept_eula: bool,
+    settings: &Settings,
+) -> Result<Command, String> {
+    if let Some(error) = game_architecture_launch_error(tag, settings) {
         return Err(error);
     }
     need_prepared(tag)?;
