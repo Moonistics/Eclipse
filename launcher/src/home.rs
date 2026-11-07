@@ -57,7 +57,7 @@ impl Launcher {
             m => trf("about {n} min left", &[("n", &m.to_string())]),
         });
         // Play is the last step when it was pressed, not Prepare.
-        let play = self.game.play_when_prepared.is_some();
+        let play = self.game.plays_when_prepared();
         let soft = ui::look().accent_soft;
         let step_line = |name: &str, state: std::cmp::Ordering| {
             let (tone, ink) = match state {
@@ -115,6 +115,7 @@ fn crash_preview() -> Option<Crash> {
             ),
             summary: "java.lang.IllegalStateException: Rendersystem called from wrong thread"
                 .into(),
+            home: backend::game_home(),
         })
 }
 
@@ -389,13 +390,11 @@ impl Launcher {
             );
         }
         let choose = |kind| {
-            ui::button(
-                "go-versions",
-                None,
-                tr("Choose a version"),
-                kind,
-                ui::ButtonSize::Md,
-            )
+            let label = tr("Choose a version");
+            match kind {
+                ButtonKind::Primary => ui::primary("go-versions", None, label, ui::ButtonSize::Md),
+                _ => ui::button("go-versions", None, label, kind, ui::ButtonSize::Md),
+            }
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.go(Page::Versions);
                 cx.notify();
@@ -407,7 +406,12 @@ impl Launcher {
                 ui::page_only(tr("Looking for the newest Eclipse…")),
             );
         }
-        if let Some(own) = self.selected_instance().and_then(|i| i.version.clone()) {
+        let kept = self
+            .selected_instance()
+            .and_then(|i| self.plays(i))
+            .filter(|plays| !plays.follows)
+            .and_then(|plays| plays.tag.cloned());
+        if let Some(own) = kept {
             let name = eclipse_launcher::nightly::display_name(&own);
             return ui::empty_state(
                 "play-not-installed",
@@ -427,15 +431,14 @@ impl Launcher {
                 vec![choose(ButtonKind::Secondary)],
             );
         }
-        let install = ui::button(
+        let install = ui::primary(
             "play-install",
             Some("download-04"),
             tr("Install Eclipse"),
-            ButtonKind::Primary,
             ui::ButtonSize::Md,
         );
         let install = match update {
-            Some(_) => install.track_focus(&self.play_focus).on_press(cx.listener(
+            Some(_) => ui::keep_focus(install, &self.play_focus).on_press(cx.listener(
                 |this, _: &ClickEvent, _, cx| {
                     this.install_update();
                     cx.notify();
@@ -462,7 +465,8 @@ impl Launcher {
             },
         );
         let cause = match &crash.report {
-            Some(_) => ui::told_cause(&crash.summary),
+            Some(_) => ui::told_cause(&crash.summary)
+                .unwrap_or_else(|| tr("The game closed unexpectedly.").to_string()),
             None => tr("The game ended without a crash report.").to_string(),
         };
         let details = [crash.summary.clone()]
@@ -489,7 +493,7 @@ impl Launcher {
         let logs = ui::open_folder_button(
             "crash-logs",
             tr("Open logs folder"),
-            backend::logs_dir(),
+            backend::logs_dir_in(&crash.home),
             ui::ButtonSize::Md,
         );
         let dismiss = ui::button(

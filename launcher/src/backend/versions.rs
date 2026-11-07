@@ -19,12 +19,11 @@ pub(crate) const INSTALL_MARK: &str = ".installed";
 /// The mod API level of the game players run: the selected version's, else the newest installed
 /// one's. None with no version installed: the launcher doesn't know yet which game will run mods.
 pub fn game_mod_api_level() -> Option<u32> {
-    let installed = installed();
-    let tag = Settings::load()
-        .default_version
-        .filter(|s| installed.contains(s))
-        .or_else(|| installed.into_iter().next())?;
-    Some(mod_api_level(&tag))
+    let (installed, default) = (installed(), Settings::load().default_version);
+    Some(mod_api_level(followed_version(
+        default.as_ref(),
+        &installed,
+    )?))
 }
 
 /// A game version's mod API level, read once from the mark its program carries
@@ -398,12 +397,18 @@ pub fn resolve_version(requested: Option<&str>) -> Result<String, String> {
             .cloned()
             .ok_or_else(|| format!("{tag} is not installed."));
     }
-    let selected = Settings::load()
-        .default_version
-        .filter(|s| installed.contains(s));
-    selected
-        .or_else(|| installed.first().cloned())
+    followed_version(Settings::load().default_version.as_ref(), &installed)
+        .cloned()
         .ok_or_else(no_version_installed)
+}
+
+pub fn followed_version<'a>(
+    default: Option<&'a String>,
+    installed: &'a [String],
+) -> Option<&'a String> {
+    default
+        .filter(|d| installed.contains(d))
+        .or(installed.first())
 }
 
 /// What a command that needs an installed version says when there is none: the way to get one.

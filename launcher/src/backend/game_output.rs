@@ -4,7 +4,11 @@ use std::path::{Path, PathBuf};
 
 /// The game's logs (`latest.log` and the day archives), as it writes them in its home.
 pub fn logs_dir() -> PathBuf {
-    game_home().join("logs")
+    logs_dir_in(&game_home())
+}
+
+pub fn logs_dir_in(home: &Path) -> PathBuf {
+    home.join("logs")
 }
 
 /// Where the game writes `crash-<date>_<time>-client.txt` when it crashes.

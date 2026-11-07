@@ -151,6 +151,8 @@ pub struct Meta {
     /// What runs around the game: a pre-launch command, a wrapper, variables (`launch`).
     #[serde(default, skip_serializing_if = "Launch::is_empty")]
     pub launch: Launch,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_args: Option<String>,
     /// Set for a Minecraft: Java Edition instance: it plays the real game, not Eclipse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub java: Option<JavaGame>,
@@ -260,6 +262,7 @@ pub struct Instance {
     pub last_played: Option<SystemTime>,
     /// What runs around the game (`launch::wrap`).
     pub launch: Launch,
+    pub game_args: Option<String>,
     /// The Minecraft: Java Edition it plays, for a Java instance.
     pub java: Option<JavaGame>,
 }
@@ -282,16 +285,82 @@ impl Instance {
     /// command line's `--version`) or the launcher's (`backend::resolve_version`).
     pub fn resolve_version(&self, requested: Option<&str>) -> Result<String, String> {
         self.eclipse()?;
-        match (requested, &self.version) {
-            (None, Some(pinned)) => backend::resolve_version(Some(pinned)).map_err(|_| {
-                format!(
-                    "{} plays {pinned}, which is not installed: install it, or eclipse-launcher \
-                     instance version \"{}\" latest",
-                    self.name, self.name
-                )
-            }),
-            _ => backend::resolve_version(requested),
+        if requested.is_some() {
+            return backend::resolve_version(requested);
         }
+        let installed = backend::installed();
+        self.installed_version(
+            backend::Settings::load().default_version.as_ref(),
+            &installed,
+        )
+    }
+
+    fn installed_version(
+        &self,
+        default: Option<&String>,
+        installed: &[String],
+    ) -> Result<String, String> {
+        let plays = self.eclipse_version(default, installed);
+        if let Some(tag) = plays.and_then(EclipseVersion::installed_tag) {
+            return Ok(tag.clone());
+        }
+        match &self.version {
+            Some(pinned) => Err(format!(
+                "{} plays {pinned}, which is not installed: install it, or eclipse-launcher \
+                 instance version \"{}\" latest",
+                self.name, self.name
+            )),
+            None => Err(backend::no_version_installed()),
+        }
+    }
+
+    pub fn eclipse_version<'a>(
+        &'a self,
+        default: Option<&'a String>,
+        installed: &'a [String],
+    ) -> Option<EclipseVersion<'a>> {
+        self.java
+            .is_none()
+            .then(|| EclipseVersion::of(self.version.as_ref(), default, installed))
+    }
+
+    pub fn game_args_or<'a>(&'a self, default: &'a str) -> &'a str {
+        self.game_args.as_deref().unwrap_or(default)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EclipseVersion<'a> {
+    pub tag: Option<&'a String>,
+    pub follows: bool,
+    pub installed: bool,
+}
+
+impl<'a> EclipseVersion<'a> {
+    pub fn of(
+        pinned: Option<&'a String>,
+        default: Option<&'a String>,
+        installed: &'a [String],
+    ) -> Self {
+        match pinned {
+            Some(pinned) => EclipseVersion {
+                tag: Some(pinned),
+                follows: false,
+                installed: installed.contains(pinned),
+            },
+            None => {
+                let tag = backend::followed_version(default, installed);
+                EclipseVersion {
+                    tag,
+                    follows: true,
+                    installed: tag.is_some(),
+                }
+            }
+        }
+    }
+
+    pub fn installed_tag(self) -> Option<&'a String> {
+        self.tag.filter(|_| self.installed)
     }
 }
 
@@ -356,6 +425,7 @@ fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
                     .last_played
                     .map(|s| UNIX_EPOCH + Duration::from_secs(s)),
                 launch: meta.launch,
+                game_args: meta.game_args,
                 java: meta.java,
                 id,
                 kind,

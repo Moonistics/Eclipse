@@ -3,7 +3,7 @@
 //! it plays. One at a time, instead of one long page. The strip, and under it one card with the
 //! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
 use super::*;
-use crate::tab_strip::StripTab;
+use crate::tab_strip::{Strip, StripTab};
 use crate::ui;
 use eclipse_theme::glass::space;
 
@@ -119,8 +119,8 @@ impl Launcher {
                 count: count.filter(|n| *n > 0).map(|n| (n, tab.counted(n).into())),
             })
             .collect();
-        let strip = self.tab_strip(
-            "home-tab",
+        let (strip, panel) = self.tab_strip(
+            Strip::Home,
             tabs,
             open,
             layout::content_width(self.window_width),
@@ -137,11 +137,13 @@ impl Launcher {
             HomeTab::Console => self.console_tab(cx).map(IntoElement::into_any_element),
         };
         div().flex().flex_col().child(strip).child(
-            ui::card()
-                .flex()
-                .flex_col()
-                .p(px(ui::PANEL_INSET))
-                .children(body),
+            panel.child(
+                ui::card()
+                    .flex()
+                    .flex_col()
+                    .p(px(ui::PANEL_INSET))
+                    .children(body),
+            ),
         )
     }
 

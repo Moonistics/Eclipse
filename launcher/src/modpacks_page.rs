@@ -137,11 +137,7 @@ impl Launcher {
     fn play_pack(&mut self, work: PathBuf) {
         // The pack's instance plays its own version, if it has one.
         let pack = self.instances.list.iter().find(|i| i.work == work);
-        let Some(tag) = pack
-            .and_then(|i| self.version_of(i))
-            .or_else(|| self.default_version())
-            .cloned()
-        else {
+        let Some(tag) = pack.and_then(|i| self.version_of(i)).cloned() else {
             return;
         };
         if !self.can_start(&tag) {

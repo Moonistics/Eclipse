@@ -7,7 +7,7 @@ impl Launcher {
         let page = div()
             .flex()
             .flex_col()
-            .child(ui::page_head(Page::Notes.title(), ""));
+            .child(ui::page_head(Page::Notes.title(), None));
         let releases = match &self.versions.releases {
             Load::Loading => {
                 return page.child(ui::empty_card(ui::loading_state(

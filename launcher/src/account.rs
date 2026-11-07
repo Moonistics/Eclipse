@@ -950,10 +950,10 @@ pub fn launch(
             if let Some(text) = after {
                 // The game still starts; the player hears why the next launch may ask again.
                 if let Err(e) = store.set(&account.uuid, &text) {
-                    let said = format!(
-                        "{}'s renewed sign-in couldn't be saved in the keychain ({e}): you may \
-                         have to sign in again next time.",
-                        account.name
+                    let said = crate::i18n::trf(
+                        "{name}'s renewed sign-in couldn't be saved in the keychain ({error}): \
+                         you may have to sign in again next time.",
+                        &[("name", &account.name), ("error", &e.to_string())],
                     );
                     if let Ok(mut last) = UNSAVED.lock() {
                         *last = Some(said.clone());

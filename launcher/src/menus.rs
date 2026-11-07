@@ -7,9 +7,9 @@ pub(super) enum Menu {
     InstanceRow(String),
     Play,
     Version,
-    MoreTabs(SharedString),
+    MoreTabs(crate::tab_strip::Strip),
     Language,
-    ListRow(SharedString),
+    WorldRow(String),
     ModsTarget,
     ModsSort,
     AgentClient,
@@ -33,7 +33,7 @@ pub(super) enum Asking {
     ServerDelete,
     AllowedPlayer(String),
     InstanceDelete(String),
-    WorldDelete(SharedString),
+    WorldDelete(String),
     DiscardDraft,
 }
 
@@ -259,6 +259,8 @@ impl Launcher {
             "escape" if self.confirm_escape() => {}
             "escape" if self.page == Page::Mods && self.mods.browse.show_filters => {
                 self.mods.browse.show_filters = false;
+                let toggle = opener_focus(crate::mods_project::FILTERS_TOGGLE);
+                Self::focus_if_removed(window.focused(cx), toggle, window, cx);
             }
             "escape" if self.native_log_escape() => {}
             "escape" if self.servers_escape() => {}
@@ -271,6 +273,22 @@ impl Launcher {
         }
         cx.stop_propagation();
         cx.notify();
+    }
+
+    fn focus_if_removed(
+        was: Option<FocusHandle>,
+        to: Option<FocusHandle>,
+        window: &mut Window,
+        cx: &mut Context<Self>,
+    ) {
+        cx.on_next_frame(window, move |_, window, cx| {
+            cx.on_next_frame(window, move |this, window, cx| {
+                let removed = was.is_some_and(|f| !this.drawn(&f, window));
+                if let Some(to) = to.filter(|_| removed) {
+                    window.focus(&to, cx);
+                }
+            });
+        });
     }
 
     fn scroll_by_key(&mut self, key: &str, window: &Window, cx: &App) -> bool {

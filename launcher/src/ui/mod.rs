@@ -178,7 +178,11 @@ pub fn text(step: TextStep, weight: FontWeight, a: f32) -> Div {
 }
 
 pub fn mono(step: TextStep, a: f32) -> Div {
-    text(step, FontWeight::NORMAL, a).font_family(crate::theme::MONO)
+    in_mono(text(step, FontWeight::NORMAL, a), step)
+}
+
+pub fn in_mono<E: Styled>(el: E, step: TextStep) -> E {
+    el.font_family(crate::theme::MONO).text_size(px(step.size))
 }
 
 pub fn sign_in_code(code: impl Into<SharedString>) -> Div {
@@ -234,11 +238,7 @@ pub fn label(text: impl Into<SharedString>) -> Div {
 
 pub fn section_title(id: impl Into<SharedString>, title: impl Into<SharedString>) -> Stateful<Div> {
     let title: SharedString = title.into();
-    heading(id, title.clone(), 2).child(
-        pixel_text(pixel::PRESS)
-            .text_color(white(ink::FULL))
-            .child(title),
-    )
+    heading(id, title.clone(), 2).child(entity_title(title, pixel::CARD_TITLE))
 }
 
 pub fn card_title(title: impl Into<SharedString>) -> Div {
@@ -267,17 +267,16 @@ pub fn page_gap() -> f32 {
     }
 }
 
-pub fn page_head(title: impl Into<SharedString>, note: impl Into<SharedString>) -> Div {
+pub fn page_head(title: impl Into<SharedString>, note: Option<SharedString>) -> Div {
     page_head_with(title, note, None)
 }
 
 pub fn page_head_with(
     title: impl Into<SharedString>,
-    note: impl Into<SharedString>,
+    note: Option<SharedString>,
     aside: Option<AnyElement>,
 ) -> Div {
-    let (title, note): (SharedString, SharedString) = (title.into(), note.into());
-    let title = page_title(title);
+    let title = page_title(title.into());
     let head = match aside {
         Some(aside) => div()
             .flex()
@@ -295,7 +294,7 @@ pub fn page_head_with(
         .pt(px(page_top()))
         .mb(px(page_gap()))
         .child(head)
-        .when(!note.is_empty(), |d| d.child(page_note("page-note", note)))
+        .children(note.map(|note| page_note("page-note", note)))
 }
 
 pub fn page_note(id: impl Into<ElementId>, note: impl Into<SharedString>) -> Div {
@@ -315,6 +314,10 @@ pub fn page_title(title: SharedString) -> Stateful<Div> {
 }
 
 pub fn entity_title(text: impl Into<SharedString>, size: f32) -> Div {
+    debug_assert!(
+        size == pixel::PAGE_TITLE || size == pixel::CARD_TITLE,
+        "a thing inside a card is named by ui::card_title"
+    );
     pixel_text(size)
         .text_color(white(ink::FULL))
         .child(text.into())
@@ -476,6 +479,14 @@ impl gpui::Render for Tip {
     }
 }
 
+fn tip_size(text: &str) -> (f32, f32) {
+    let edges = 2. * ROW_EDGE;
+    (
+        text_width(text, step::CAPTION) + 2. * TIP_PAD + edges,
+        step::CAPTION.line + 2. * space::XS + edges,
+    )
+}
+
 fn tip_body(text: SharedString) -> Div {
     div()
         .px(px(TIP_PAD))
@@ -617,10 +628,8 @@ mod tests {
             (role, n.label()),
             (Some(Role::RadioGroup), Some("Difficulty"))
         );
-        assert_eq!(
-            buttons::segment_key(&Some("first_light")),
-            "some-first-light"
-        );
+        assert_eq!(value_key(&Some("first_light")), "some-first-light");
+        assert_eq!(value_key(&"DataCollection"), "data-collection");
 
         let (role, n) = read(&link("eula", "Read the EULA"));
         assert_eq!((role, n.label()), (Some(Role::Link), Some("Read the EULA")));
@@ -738,6 +747,73 @@ mod tests {
             (Some(Role::Slider), Some("Maximum memory"))
         );
         assert_eq!(n.numeric_value(), Some(4096.));
+    }
+
+    #[test]
+    fn a_control_keeps_its_focus_while_it_is_busy() {
+        let focusable = |n: &Node| n.supports_action(gpui::accesskit::Action::Focus);
+        let (_, n) = read(&disabled(button(
+            "mods-more",
+            None,
+            "Loading…",
+            ButtonKind::Secondary,
+            ButtonSize::Md,
+        )));
+        assert!(focusable(&n), "a busy button keeps the focus it had");
+        let (role, n) = read(&primary_busy(
+            "play",
+            "Preparing",
+            Some(0.4),
+            ButtonSize::Hero,
+        ));
+        assert_eq!(role, Some(Role::ProgressIndicator));
+        assert!(focusable(&n), "busy Play keeps the focus it had");
+        let (role, n) = read(&primary_unavailable(
+            "instance-save",
+            None,
+            "Save changes",
+            ButtonSize::Lg,
+            "Nothing changed yet",
+        ));
+        assert_eq!(role, Some(Role::Button));
+        assert!(focusable(&n));
+        assert_eq!(n.description(), Some("Nothing changed yet"));
+    }
+
+    #[test]
+    fn panels_dialogs_and_menus_say_what_they_are() {
+        let (role, n) = read(&tab_panel("home-tab-panel", "Worlds"));
+        assert_eq!((role, n.label()), (Some(Role::TabPanel), Some("Worlds")));
+        let (role, n) = read(&modal("owner-gate", "Sign in to play", None));
+        assert_eq!(
+            (role, n.label()),
+            (Some(Role::Dialog), Some("Sign in to play"))
+        );
+        let (role, n) = read(&sheet("first-run", "Welcome"));
+        assert_eq!((role, n.label()), (Some(Role::Dialog), Some("Welcome")));
+        let (role, n) = read(&popover("account-menu", "Account"));
+        assert_eq!((role, n.label()), (Some(Role::Menu), Some("Account")));
+        let (role, n) = read(&error_state(
+            "releases-failed",
+            "Couldn't load versions",
+            "offline",
+            |_, _, _| {},
+        ));
+        assert_eq!(role, Some(Role::Alert));
+        assert_eq!(n.label(), None);
+    }
+
+    #[test]
+    fn a_cause_is_said_only_when_the_error_says_one() {
+        assert_eq!(
+            told_cause("GitHub's certificate couldn't be checked.\nmore"),
+            Some("GitHub's certificate couldn't be checked.".into())
+        );
+        assert_eq!(
+            told_cause("Couldn't reach GitHub: os error 11"),
+            Some("Couldn't reach GitHub.".into())
+        );
+        assert_eq!(told_cause("java.lang.IllegalStateException: boom"), None);
     }
 
     #[test]

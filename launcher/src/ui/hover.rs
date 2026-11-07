@@ -107,17 +107,20 @@ pub fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
 }
 
 pub fn disabled(el: Stateful<Div>) -> Stateful<Div> {
-    unhovered(el)
-        .opacity(crate::theme::DISABLED)
-        .cursor_default()
-        .tab_stop(false)
-        .aria_description(crate::tr("Unavailable"))
+    super::busy_focus(
+        unhovered(el)
+            .opacity(crate::theme::DISABLED)
+            .cursor_default()
+            .aria_description(crate::tr("Unavailable")),
+    )
 }
 
 pub fn unavailable(el: Stateful<Div>, why: impl Into<SharedString>) -> Stateful<Div> {
-    let why: SharedString = why.into();
+    held_back(el.opacity(crate::theme::DISABLED), why.into())
+}
+
+pub(super) fn held_back(el: Stateful<Div>, why: SharedString) -> Stateful<Div> {
     let el = unhovered(el)
-        .opacity(crate::theme::DISABLED)
         .cursor_default()
         .aria_description(why.clone())
         .tooltip(super::tip(why.clone()));

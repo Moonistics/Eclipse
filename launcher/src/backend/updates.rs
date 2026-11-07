@@ -83,14 +83,9 @@ pub(super) fn architecture_update(releases: &[Release], installed: &[String]) ->
     if !can_choose_game_architecture() {
         return None;
     }
-    let settings = Settings::load();
-    let tag = settings
-        .default_version
-        .filter(|tag| installed.contains(tag))
-        .or_else(|| installed.iter().find(|tag| is_game_tag(tag)).cloned())?;
-    if !is_game_tag(&tag) {
-        return None;
-    }
-    let release = releases.iter().find(|release| release.tag == tag)?;
-    needs_game_architecture_install(&tag, release).then(|| release.clone())
+    let default = Settings::load().default_version;
+    let tag =
+        super::followed_version(default.as_ref(), installed).filter(|tag| is_game_tag(tag))?;
+    let release = releases.iter().find(|release| release.tag == *tag)?;
+    needs_game_architecture_install(tag, release).then(|| release.clone())
 }

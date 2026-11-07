@@ -1008,7 +1008,6 @@
   "1 line, the game is running": "1 line, the game is running",
   "Choose Minecraft folder…": "Choose Minecraft folder…",
   "Choose folder…": "Choose folder…",
-  "Couldn't search mods": "Couldn't search mods",
   "Couldn't set up the game": "Couldn't set up the game",
   "Couldn't start the game": "Couldn't start the game",
   "Eclipse looks for Minecraft in {path}": "Eclipse looks for Minecraft in {path}",
@@ -1037,7 +1036,6 @@
   "Not an Iris or OptiFine shader pack": "Not an Iris or OptiFine shader pack",
   "Edit…": "Edit…",
   "Lists no Minecraft version.": "Lists no Minecraft version.",
-  "Eclipse runs the mods it can port, from your own downloads.": "Eclipse runs the mods it can port, from your own downloads.",
   "Not one of Eclipse's own shader packs.": "Not one of Eclipse's own shader packs.",
   "Not a Fabric, NeoForge or Forge mod.": "Not a Fabric, NeoForge or Forge mod.",
   "Not checked yet.": "Not checked yet.",
@@ -1168,5 +1166,12 @@
   "{instance} doesn't play its Eclipse mods yet: build the game with them.": "{instance} doesn't play its Eclipse mods yet: build the game with them.",
   "{instance} with Eclipse mods": "{instance} with Eclipse mods",
   "{version} can't host servers. Install a newer version.": "{version} can't host servers. Install a newer version.",
-  "{version} from Eclipse · {mods}": "{version} from Eclipse · {mods}"
+  "{version} from Eclipse · {mods}": "{version} from Eclipse · {mods}",
+  "Delete {name}…": "Delete {name}…",
+  "Eclipse couldn't get Minecraft {version} ready.": "Eclipse couldn't get Minecraft {version} ready.",
+  "Export {name}": "Export {name}",
+  "Launch options for {name}": "Launch options for {name}",
+  "Mods couldn't be searched right now.": "Mods couldn't be searched right now.",
+  "The game closed unexpectedly.": "The game closed unexpectedly.",
+  "{name}'s renewed sign-in couldn't be saved in the keychain ({error}): you may have to sign in again next time.": "{name}'s renewed sign-in couldn't be saved in the keychain ({error}): you may have to sign in again next time."
 }

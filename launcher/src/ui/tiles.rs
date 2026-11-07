@@ -1,4 +1,4 @@
-use super::{edge, hover_over, on_pixel_grid, tip, tip_on_focus, white, TILE_LG};
+use super::{edge, hover_over, on_pixel_grid, tip, tip_on_focus, white, TipSide, TILE_LG};
 use eclipse_theme::glass::{fill, ink, radius, step};
 use gpui::{
     div, img, prelude::*, px, AnyElement, Div, Hsla, ImageSource, Role, SharedString, Stateful,
@@ -53,7 +53,7 @@ pub fn picture_button(
         .rounded(px(radius::ROW))
         .cursor_pointer()
         .tooltip(tip(label.clone()));
-    tip_on_focus(el, label)
+    tip_on_focus(el, label, TipSide::Above)
 }
 
 pub fn picture_slot() -> Div {

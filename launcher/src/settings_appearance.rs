@@ -61,7 +61,7 @@ impl Launcher {
         let current = self.settings.accent;
         let custom = !Accent::ALL.contains(&current);
         let swatch = |id: SharedString, on: bool| {
-            ui::chosen(
+            ui::selected(
                 ui::hoverable(id, eclipse_theme::glass::radius::ROW, ui::Hover::Row)
                     .flex()
                     .flex_none()

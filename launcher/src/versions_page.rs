@@ -19,7 +19,7 @@ impl Launcher {
         let import = self
             .import_build_button("import-build", cx)
             .into_any_element();
-        let head = ui::page_head_with(Page::Versions.title(), "", Some(import));
+        let head = ui::page_head_with(Page::Versions.title(), None, Some(import));
         let mut page = div().flex().flex_col().child(head).when(used > 0, |d| {
             d.child(
                 ui::card_note(trf(
@@ -55,7 +55,7 @@ impl Launcher {
                     None,
                     Vec::new(),
                 )
-                .mb(px(space::MD))
+                .mb(px(layout::CARD_GAP))
             }))
             .children(native)
             .children(imported);

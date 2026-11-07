@@ -1,6 +1,6 @@
 use super::{
-    chosen, color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text,
-    selected, setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, LIST_INSET,
+    color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected,
+    setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, TipSide, LIST_INSET,
     PANEL_INSET,
 };
 use eclipse_theme::glass::{
@@ -187,6 +187,20 @@ pub fn button(
     kind: ButtonKind,
     size: ButtonSize,
 ) -> Stateful<Div> {
+    debug_assert!(
+        kind != ButtonKind::Primary,
+        "a Primary goes through ui::primary"
+    );
+    any_button(id, icon_name, label, kind, size)
+}
+
+pub(super) fn any_button(
+    id: impl Into<SharedString>,
+    icon_name: Option<&'static str>,
+    label: impl Into<SharedString>,
+    kind: ButtonKind,
+    size: ButtonSize,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
     let look = look();
     let tone = match kind {
@@ -261,7 +275,25 @@ pub fn primary(
     label: impl Into<SharedString>,
     size: ButtonSize,
 ) -> Stateful<Div> {
-    button(id, icon_name, label, ButtonKind::Primary, size)
+    any_button(id, icon_name, label, ButtonKind::Primary, size)
+}
+
+pub fn primary_unavailable(
+    id: impl Into<SharedString>,
+    icon_name: Option<&'static str>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    why: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let face = button_face(
+        div().id(id.into()),
+        icon_name,
+        label,
+        size,
+        white(ink::DIM),
+        shouts(ButtonKind::Primary, size),
+    );
+    super::held_back(secondary(face), why.into())
 }
 
 pub fn icon_button(
@@ -314,7 +346,7 @@ fn icon_button_tipped(
         ButtonKind::Secondary => secondary(d),
         ButtonKind::Ghost => selected(d, active).rounded(px(radius::CONTROL)),
     };
-    tip_on_focus(d, label)
+    tip_on_focus(d, label, TipSide::Beside)
 }
 
 pub fn remove_button(
@@ -410,8 +442,29 @@ pub fn confirm(
     cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    let id: SharedString = id.into();
+    confirm_in(id.into(), asked, cancel, sure, false)
+}
+
+fn confirm_in(
+    id: SharedString,
+    asked: Confirm,
+    cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    in_menu: bool,
+) -> Div {
     let (question, verb) = (asked.question(), asked.verb());
+    let keep = button(
+        id.clone(),
+        None,
+        asked.keep(),
+        ButtonKind::Ghost,
+        ButtonSize::Sm,
+    );
+    let keep = if in_menu {
+        super::starts_menu(keep)
+    } else {
+        keep
+    };
     div()
         .flex()
         .flex_wrap()
@@ -428,16 +481,7 @@ pub fn confirm(
             div()
                 .flex()
                 .gap(px(space::SM))
-                .child(
-                    button(
-                        id.clone(),
-                        None,
-                        asked.keep(),
-                        ButtonKind::Ghost,
-                        ButtonSize::Sm,
-                    )
-                    .on_press(cancel),
-                )
+                .child(keep.on_press(cancel))
                 .child(
                     button(
                         format!("{id}-confirm"),
@@ -471,7 +515,7 @@ pub fn menu_confirm(
     cancel: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
     sure: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
 ) -> Div {
-    confirm(id, asked, cancel, sure)
+    confirm_in(id.into(), asked, cancel, sure, true)
         .mt(px(space::XS))
         .px(px(PANEL_INSET))
         .py(px(LIST_INSET))
@@ -485,7 +529,7 @@ pub fn primary_busy(
 ) -> Stateful<Div> {
     let look = look();
     let label: SharedString = label.into();
-    bevel(
+    super::busy_ringed(bevel(
         div()
             .id(id.into())
             .relative()
@@ -525,7 +569,7 @@ pub fn primary_busy(
                         .to_uppercase(),
                     ),
             ),
-    )
+    ))
 }
 
 pub fn copy_details(
@@ -533,17 +577,7 @@ pub fn copy_details(
     details: String,
     size: ButtonSize,
 ) -> Stateful<Div> {
-    icon_button(
-        id,
-        "copy-01",
-        crate::tr("Copy details"),
-        ButtonKind::Ghost,
-        size,
-        false,
-    )
-    .on_press(move |_, _, cx| {
-        crate::clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(details.clone()))
-    })
+    copy_button(id, crate::tr("Copy details"), details, size)
 }
 
 pub fn open_folder(dir: &std::path::Path, cx: &mut App) {
@@ -568,7 +602,14 @@ pub fn copy_button(
     size: ButtonSize,
 ) -> Stateful<Div> {
     let text: SharedString = text.into();
-    button(id, Some("copy-01"), label, ButtonKind::Secondary, size).on_press(move |_, _, cx| {
+    button(
+        id,
+        Some(crate::icons::COPY),
+        label,
+        ButtonKind::Secondary,
+        size,
+    )
+    .on_press(move |_, _, cx| {
         crate::clipboard::copy_to_clipboard(cx, ClipboardItem::new_string(text.to_string()))
     })
 }
@@ -701,6 +742,15 @@ pub fn toggle_row(
         .child(switch)
 }
 
+pub fn toggle_row_inset(
+    id: impl Into<SharedString>,
+    title: impl Into<SharedString>,
+    note: Option<SharedString>,
+    on: bool,
+) -> Stateful<Div> {
+    toggle_row(id, title, note, on).bg(inset())
+}
+
 pub const SETTING_ROW_GAP: f32 = space::XXL + space::SM;
 
 pub fn toggle_label(
@@ -762,9 +812,9 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         .iter()
         .map(|(value, label)| {
             let active = current == *value;
-            let segment = chosen(
+            let segment = selected(
                 hoverable(
-                    format!("{id}-{}", segment_key(value)),
+                    format!("{id}-{}", value_key(value)),
                     radius::CONTROL,
                     Hover::Row,
                 )
@@ -774,7 +824,7 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
                 .items_center()
                 .h(px(height))
                 .px(px(ButtonSize::Sm.pad()))
-                .text_color(white(if active { ink::FULL } else { ink::MUTED }))
+                .text_color(white(if active { ink::FULL } else { ink::DIM }))
                 .child(press_text().relative().child(label.clone())),
                 active,
             )
@@ -798,13 +848,20 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     })
 }
 
-pub(super) fn segment_key(value: &impl std::fmt::Debug) -> String {
-    let shown = format!("{value:?}").to_lowercase();
-    let words: Vec<&str> = shown
-        .split(|c: char| !c.is_alphanumeric())
-        .filter(|w| !w.is_empty())
-        .collect();
-    words.join("-")
+pub fn value_key(value: &impl std::fmt::Debug) -> String {
+    let mut key = String::new();
+    let mut last = '-';
+    for c in format!("{value:?}").chars() {
+        let starts_word = c.is_uppercase() && (last.is_lowercase() || last.is_ascii_digit());
+        if (!c.is_alphanumeric() || starts_word) && !key.is_empty() && !key.ends_with('-') {
+            key.push('-');
+        }
+        if c.is_alphanumeric() {
+            key.extend(c.to_lowercase());
+        }
+        last = c;
+    }
+    key.trim_end_matches('-').to_string()
 }
 
 fn padded_tab(
@@ -986,7 +1043,7 @@ pub fn tip_when_clipped(
         return el;
     }
     let full: SharedString = full.into();
-    tip_on_focus(el.tooltip(tip(full.clone())), full)
+    tip_on_focus(el.tooltip(tip(full.clone())), full, TipSide::Below)
 }
 
 pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {

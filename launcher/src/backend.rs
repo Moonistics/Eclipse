@@ -39,8 +39,9 @@ pub use architecture::{
     GameArchitecture,
 };
 pub use game_output::{
-    crash_report_since, crash_reports_dir, crash_summary, logs_dir, newest_crash_report, read_logs,
-    switch_from_auto, vulkan_crash_fallback, vulkan_start_crashed, GAME_FIRST_FRAME,
+    crash_report_since, crash_reports_dir, crash_summary, logs_dir, logs_dir_in,
+    newest_crash_report, read_logs, switch_from_auto, vulkan_crash_fallback, vulkan_start_crashed,
+    GAME_FIRST_FRAME,
 };
 pub use jobs::{prepare_command, spawn, Job, Logged, Msg, Running, RuntimeGuard, LOG_KEEP};
 pub use links::{links, Links};
@@ -54,7 +55,7 @@ pub(crate) use platform::{CLIENT, GAME_APP};
 use play::client_command;
 pub use play::{
     agree_eula, eula_agreed, game_args, join_friend, launch, need_prepared, no_ai, server,
-    server_command, server_dir, set_no_ai, split_args, Launched, Play, PlayError,
+    server_command, server_dir, set_no_ai, split_args, Launched, Play, PlayError, StartNotice,
     LAUNCHER_RENDER_ENV, SIGN_IN_HINT,
 };
 pub use prepare::{
@@ -86,9 +87,9 @@ pub use self_update::{
 pub use settings::{Appearance, NativeProfile, Settings, WhilePlaying};
 pub use updates::{check_updates, eclipse_update, launcher_update, releases_and_updates, Updates};
 pub use versions::{
-    after_install, disk_use, game_mod_api_level, game_version, install, install_tag, installed,
-    mod_api_level, nightly_downgrade, no_version_installed, prune_old_versions, remove,
-    remove_version, resolve_version, select_after_update,
+    after_install, disk_use, followed_version, game_mod_api_level, game_version, install,
+    install_tag, installed, mod_api_level, nightly_downgrade, no_version_installed,
+    prune_old_versions, remove, remove_version, resolve_version, select_after_update,
 };
 pub(crate) use versions::{
     copy_version_except, download, installed_at, is_installed, mark_installed, needed_versions,

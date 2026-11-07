@@ -318,9 +318,7 @@ pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Supp
                 Support::Partial("Lists no Minecraft version.".into())
             }
         }
-        Kind::Modpack => {
-            Support::Partial("Eclipse runs the mods it can port, from your own downloads.".into())
-        }
+        Kind::Modpack => Support::Partial("Some of its mods won't load in Eclipse.".into()),
         Kind::Shader => Support::No("Not one of Eclipse's own shader packs.".into()),
         Kind::DataPack => {
             let made_for = match newest_release(game_versions) {
@@ -347,9 +345,8 @@ pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Supp
 
 /// What a data pack does in Eclipse today, said before install; the install says it for the
 /// pack's own files (`crate::datapacks::coverage`).
-pub const DATAPACK_SUPPORT: &str = "Eclipse runs a data pack's functions, function tags, \
-     predicates and item modifiers; not yet its recipes, loot tables, advancements, other tags \
-     or worldgen.";
+pub const DATAPACK_SUPPORT: &str =
+    "Eclipse doesn't load data packs' recipes, loot tables or world generation yet.";
 
 /// A Minecraft version whose mods port-pack carries over: 1.21 and later (the data folders
 /// took their current names in 1.21).

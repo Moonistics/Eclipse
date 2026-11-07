@@ -28,6 +28,14 @@ pub const LAUNCH_OPTIONS: &str = "sliders-horizontal";
 pub const APPEARANCE: &str = "contrast";
 pub const ANY_COLOUR: &str = "color-picker";
 pub const SERVER_PANEL: &str = "dashboard-square-01";
+pub const MODS: &str = "puzzle";
+pub const NEW_INSTANCE: &str = "plus-sign";
+pub const ACCOUNT: &str = "user";
+pub const GAME: &str = "game-controller-01";
+pub const AI: &str = "ai-chat-02";
+pub const FOLDERS: &str = "folder-01";
+pub const DATA_COLLECTION: &str = "view";
+pub const COPY: &str = "copy-01";
 
 macro_rules! large_icons {
     ($($name:literal),* $(,)?) => {
@@ -117,6 +125,8 @@ mod tests {
     use gpui::AssetSource;
 
     const CELL: u32 = 2;
+
+    const DISTINCT_CELLS: usize = 8;
 
     struct Drawing {
         side: u32,
@@ -224,6 +234,18 @@ mod tests {
         }
     }
 
+    fn filled(drawing: &Drawing) -> std::collections::HashSet<(u32, u32)> {
+        let mut cells = std::collections::HashSet::new();
+        for [x, y, w, h] in &drawing.cells {
+            for cy in (*y..y + h).step_by(CELL as usize) {
+                for cx in (*x..x + w).step_by(CELL as usize) {
+                    cells.insert((cx, cy));
+                }
+            }
+        }
+        cells
+    }
+
     #[test]
     fn each_meaning_has_a_drawing_of_its_own() {
         let meanings = [
@@ -236,10 +258,44 @@ mod tests {
             NETWORK,
             CONSOLE,
             DEVELOPER,
+            HOME,
+            NOTES,
+            INFO,
+            SETTINGS,
+            UPDATES,
+            RETRY,
+            RANDOM,
+            LAUNCH_OPTIONS,
+            APPEARANCE,
+            ANY_COLOUR,
+            SERVER_PANEL,
+            MODS,
+            NEW_INSTANCE,
+            ACCOUNT,
+            GAME,
+            AI,
+            FOLDERS,
+            DATA_COLLECTION,
+            COPY,
         ];
         for (i, name) in meanings.iter().enumerate() {
-            assert!(eclipse_theme::glass_icons::get(name).is_some(), "{name}");
             assert!(!meanings[..i].contains(name), "{name} means two things");
+        }
+        let drawn: Vec<_> = meanings
+            .iter()
+            .map(|name| {
+                let svg = eclipse_theme::glass_icons::get(name).expect(name);
+                (name, filled(&drawing(svg).expect(name)))
+            })
+            .collect();
+        for (i, (a, cells)) in drawn.iter().enumerate() {
+            for (b, others) in &drawn[..i] {
+                let apart = cells.symmetric_difference(others).count();
+                assert!(
+                    apart >= DISTINCT_CELLS,
+                    "{a} and {b} differ by {apart} cells"
+                );
+            }
         }
     }
 

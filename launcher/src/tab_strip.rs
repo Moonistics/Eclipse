@@ -2,6 +2,33 @@ use super::*;
 use crate::menus::Menu;
 use crate::ui;
 
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum Strip {
+    Home,
+    Mods,
+    ModsProject,
+    Server,
+    Settings,
+}
+
+impl Strip {
+    fn prefix(self) -> &'static str {
+        match self {
+            Strip::Home => "home-tab",
+            Strip::Mods => "mods-tab",
+            Strip::ModsProject => "mods-project-tab",
+            Strip::Server => "server-tab",
+            Strip::Settings => "settings-section",
+        }
+    }
+}
+
+impl From<Strip> for SharedString {
+    fn from(strip: Strip) -> Self {
+        format!("{}s", strip.prefix()).into()
+    }
+}
+
 pub(super) struct StripTab<T> {
     pub(super) value: T,
     pub(super) label: SharedString,
@@ -11,13 +38,20 @@ pub(super) struct StripTab<T> {
 impl Launcher {
     pub(super) fn tab_strip<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         &mut self,
-        prefix: &str,
+        strip_of: Strip,
         tabs: Vec<StripTab<T>>,
         open: T,
         room: f32,
         pick: impl Fn(&mut Self, T, bool) + Clone + 'static,
         cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    ) -> (Stateful<Div>, Stateful<Div>) {
+        let prefix = strip_of.prefix();
+        let open_label = tabs
+            .iter()
+            .find(|t| t.value == open)
+            .map(|t| t.label.clone())
+            .unwrap_or_default();
+        let panel = ui::tab_panel(format!("{prefix}-panel"), open_label);
         let widths = |pad: f32, counts: bool| -> Vec<f32> {
             tabs.iter()
                 .map(|t| {
@@ -50,7 +84,7 @@ impl Launcher {
                 continue;
             }
             let (value, pick) = (tab.value, pick.clone());
-            let id = format!("{prefix}-{value:?}");
+            let id = format!("{prefix}-{}", ui::value_key(&value));
             let focus = ui::try_focus_for(id.clone());
             keys.push((value, focus.clone()));
             strip.push(
@@ -71,9 +105,9 @@ impl Launcher {
             );
         }
         if !hidden.is_empty() {
-            strip.push(self.more_tabs(prefix, hidden, open, more_focus, pick.clone(), cx));
+            strip.push(self.more_tabs(strip_of, hidden, open, more_focus, pick.clone(), cx));
         }
-        ui::tab_strip_padded(format!("{prefix}s"), pad, strip).on_key_down(cx.listener(
+        let strip = ui::tab_strip_padded(strip_of, pad, strip).on_key_down(cx.listener(
             move |this, ev: &KeyDownEvent, window, cx| {
                 let at = keys.iter().position(|(v, _)| *v == open).unwrap_or(0);
                 let last = keys.len().saturating_sub(1);
@@ -95,20 +129,21 @@ impl Launcher {
                 cx.stop_propagation();
                 cx.notify();
             },
-        ))
+        ));
+        (strip, panel)
     }
 
     fn more_tabs<T: Copy + PartialEq + std::fmt::Debug + 'static>(
         &mut self,
-        prefix: &str,
+        strip_of: Strip,
         hidden: Vec<StripTab<T>>,
         current: T,
         focus: Option<FocusHandle>,
         pick: impl Fn(&mut Self, T, bool) + Clone + 'static,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
-        let strip = format!("{prefix}s");
-        let menu = Menu::MoreTabs(strip.clone().into());
+        let strip = SharedString::from(strip_of);
+        let menu = Menu::MoreTabs(strip_of);
         let open = self.menu_is(&menu);
         let inside = hidden.iter().find(|t| t.value == current);
         let name = match inside {
@@ -124,7 +159,7 @@ impl Launcher {
         )
         .aria_expanded(open);
         let more = match focus {
-            Some(focus) => more.track_focus(&focus),
+            Some(focus) => ui::keep_focus(more, &focus),
             None => more,
         };
         let mut wrap = div()
@@ -134,22 +169,27 @@ impl Launcher {
             .child(self.menu_opener(more, menu, cx));
         if open {
             let mut list = self.menu_popover(format!("{strip}-menu"), tr("More tabs"), cx);
+            let starts_on_open = inside.is_some();
             for (i, tab) in hidden.into_iter().enumerate() {
                 let (value, pick) = (tab.value, pick.clone());
-                let row = ui::menu_item(
-                    format!("{strip}-menu-{:?}", tab.value),
+                let row = ui::pick_item(
+                    format!("{strip}-menu-{}", ui::value_key(&tab.value)),
                     tab.label,
-                    tab.count
-                        .map(|(_, said)| said.to_string())
-                        .unwrap_or_default(),
-                    false,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.close_menu();
-                    pick(this, value, false);
-                    cx.notify();
-                }));
-                list = list.child(if i == 0 { ui::starts_menu(row) } else { row });
+                    tab.count.map(|(_, said)| said).unwrap_or_default(),
+                    value == current,
+                );
+                let row = if i == 0 && !starts_on_open {
+                    ui::starts_menu(row)
+                } else {
+                    row
+                };
+                list = list.child(
+                    row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.close_menu();
+                        pick(this, value, false);
+                        cx.notify();
+                    })),
+                );
             }
             wrap = wrap.child(ui::menu_under(
                 ui::ButtonSize::Md.height(),

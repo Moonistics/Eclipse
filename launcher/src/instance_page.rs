@@ -4,7 +4,7 @@ use super::*;
 use crate::ui;
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{ink, pixel_text, space};
+use eclipse_theme::glass::{ink, space};
 use fields::Field;
 use instance_state::{NewKind, VersionList};
 
@@ -73,17 +73,13 @@ impl Launcher {
         let (title, note): (SharedString, _) = match &editing {
             Some(i) => (
                 trf("Edit {name}", &[("name", &i.name)]).into(),
-                if running {
-                    tr("Changes apply the next time it starts.")
-                } else {
-                    ""
-                },
+                running.then(|| tr("Changes apply the next time it starts.").into()),
             ),
             None if duplicate => {
                 let from = self.selected_instance().map_or("", |i| i.name.as_str());
-                (trf("Duplicate {name}", &[("name", from)]).into(), "")
+                (trf("Duplicate {name}", &[("name", from)]).into(), None)
             }
-            None => (tr("New instance").into(), ""),
+            None => (tr("New instance").into(), None),
         };
         let import = (editing.is_none() && !duplicate && !busy).then(|| self.import_button(cx));
         let switching = match &editing {
@@ -243,13 +239,19 @@ impl Launcher {
     /// The Eclipse version an instance plays: the one it keeps, else the one it follows.
     pub(super) fn draft_eclipse(&self) -> Option<String> {
         let pin = self.instances.draft.as_ref()?.pin.clone();
-        pin.or_else(|| self.followed_version())
+        self.draft_version_for(pin.as_ref())
     }
 
     /// The version an instance that keeps none plays: the launcher's, or with none installed
     /// yet, the newest Nightly, which Create installs.
     fn followed_version(&self) -> Option<String> {
-        self.default_version()
+        self.draft_version_for(None)
+    }
+
+    fn draft_version_for(&self, pin: Option<&String>) -> Option<String> {
+        let plays = self.plays_pinned(pin);
+        plays
+            .tag
             .cloned()
             .or_else(|| self.eclipse_choices().into_iter().next())
     }
@@ -539,12 +541,8 @@ impl Launcher {
         };
         let creates = editing.is_none() && !duplicate;
         let unchanged = editing.is_some() && !self.draft_changed();
-        let save = ui::primary(
-            "instance-save",
-            creates.then_some("plus-sign"),
-            label,
-            button,
-        );
+        let save_icon = creates.then_some(crate::icons::NEW_INSTANCE);
+        let save = ui::primary("instance-save", save_icon, label, button);
         let named = div()
             .relative()
             .flex()
@@ -552,7 +550,7 @@ impl Launcher {
             .flex_auto()
             .min_w_0()
             .gap(px(space::XS))
-            .child(ui::entity_title(name, pixel_text::PRESS))
+            .child(ui::card_title(name))
             // Why Create failed takes the summary's place, by the buttons.
             .children(match error {
                 Some(e) => Some(ui::error_note(e)),
@@ -604,29 +602,28 @@ impl Launcher {
             return foot(switching, row);
         }
         let buttons = if busy {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(space::SM))
-                .child(ui::disabled(cancel))
-                .child(ui::disabled(save))
+            let busy = ui::primary_busy("instance-save", label.trim_end_matches('…'), None, button);
+            ui::dialog_foot(ui::disabled(cancel), Some(busy.into_any_element()))
         } else {
-            div()
-                .flex()
-                .items_center()
-                .gap(px(space::SM))
-                .child(cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.close_instance_page();
+            let cancel = cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.close_instance_page();
+                cx.notify();
+            }));
+            let save = if unchanged {
+                ui::primary_unavailable(
+                    "instance-save",
+                    save_icon,
+                    label,
+                    button,
+                    tr("Nothing changed yet"),
+                )
+            } else {
+                save.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.save_instance(cx);
                     cx.notify();
-                })))
-                .child(if unchanged {
-                    ui::unavailable(save, tr("Nothing changed yet"))
-                } else {
-                    save.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.save_instance(cx);
-                        cx.notify();
-                    }))
-                })
+                }))
+            };
+            ui::dialog_foot(cancel, Some(save.into_any_element()))
         };
         let lead = lead
             .children(icon.map(|icon| {

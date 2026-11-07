@@ -569,3 +569,115 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
     assert_eq!(files(&home.join("saves")), home_files);
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn every_reader_of_the_version_an_instance_plays_gets_the_same_answer() {
+    let root = scratch("plays");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    create_in(&home, &data, "Pinned", None, None).unwrap();
+    create_in(&home, &data, "Vanilla", None, Some("1.21.4")).unwrap();
+    edit_in(&home, &data, "Pinned", |m| {
+        m.version = Some("v0.2.0".into())
+    })
+    .unwrap();
+    let all = list_in(&home, &data);
+    let eclipse = find_in(&all, DEFAULT).unwrap();
+    let pinned = find_in(&all, "Pinned").unwrap();
+    let vanilla = find_in(&all, "Vanilla").unwrap();
+    let (newer, older, gone) = (
+        "v0.3.0".to_string(),
+        "v0.2.0".to_string(),
+        "v0.1.0".to_string(),
+    );
+    let both = [newer.clone(), older.clone()];
+    let only_newer = [newer.clone()];
+    let check = |instance: &Instance,
+                 default: Option<&String>,
+                 installed: &[String],
+                 expected: EclipseVersion| {
+        let plays = instance.eclipse_version(default, installed).unwrap();
+        let case = format!("{} with {default:?} of {installed:?}", instance.name);
+        assert_eq!(plays, expected, "{case}");
+        let resolved = instance.installed_version(default, installed);
+        assert_eq!(resolved.as_ref().ok(), plays.installed_tag(), "{case}");
+    };
+    let plays = |tag, follows, installed| EclipseVersion {
+        tag,
+        follows,
+        installed,
+    };
+    check(
+        &eclipse,
+        Some(&older),
+        &both,
+        plays(Some(&older), true, true),
+    );
+    check(
+        &eclipse,
+        Some(&gone),
+        &both,
+        plays(Some(&newer), true, true),
+    );
+    check(&eclipse, None, &[], plays(None, true, false));
+    check(
+        &pinned,
+        Some(&newer),
+        &both,
+        plays(Some(&older), false, true),
+    );
+    check(
+        &pinned,
+        Some(&newer),
+        &only_newer,
+        plays(Some(&older), false, false),
+    );
+    check(&pinned, None, &[], plays(Some(&older), false, false));
+    let unplayable = pinned.installed_version(Some(&newer), &only_newer);
+    assert!(
+        unplayable
+            .unwrap_err()
+            .contains("v0.2.0, which is not installed"),
+        "a pinned version that isn't installed never plays the launcher's"
+    );
+    assert_eq!(
+        eclipse.installed_version(None, &[]),
+        Err(backend::no_version_installed())
+    );
+    assert_eq!(vanilla.eclipse_version(Some(&newer), &both), None);
+    assert!(vanilla.resolve_version(None).is_err());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn an_instance_without_its_own_game_arguments_uses_the_launchers() {
+    let root = scratch("game-args");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    fs::create_dir_all(home.join("instances/survival")).unwrap();
+    put(
+        &data.join(FILE),
+        r#"{"instances": {"survival": {"name": "Survival", "played_secs": 60}}}"#,
+    );
+    let survival = find_in(&list_in(&home, &data), "Survival").unwrap();
+    assert_eq!(survival.game_args, None);
+    assert_eq!(survival.game_args_or("--fps 120"), "--fps 120");
+    edit_in(&home, &data, "Survival", |m| m.group = Some("Old".into())).unwrap();
+    let kept = fs::read_to_string(data.join(FILE)).unwrap();
+    assert!(!kept.contains("game_args"), "{kept}");
+
+    let own = edit_in(&home, &data, "Survival", |m| {
+        m.game_args = Some("--quick".into())
+    })
+    .unwrap();
+    assert_eq!(own.game_args_or("--fps 120"), "--quick");
+    let none = edit_in(&home, &data, "Survival", |m| {
+        m.game_args = Some(String::new())
+    })
+    .unwrap();
+    assert_eq!(none.game_args_or("--fps 120"), "");
+    let back = edit_in(&home, &data, "Survival", |m| m.game_args = None).unwrap();
+    assert_eq!(back.game_args_or("--fps 120"), "--fps 120");
+    assert_eq!(back.played, Duration::from_secs(60));
+    fs::remove_dir_all(&root).unwrap();
+}

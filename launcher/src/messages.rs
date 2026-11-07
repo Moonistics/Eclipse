@@ -238,7 +238,7 @@ impl Launcher {
                 Msg::Line(_, line) if line.contains("Session ID is") => {}
                 Msg::Line(job, line) => {
                     if job == Job::Client && line.starts_with(perf::GAME_FIRST_FRAME) {
-                        if let Some(pressed) = self.game.pressed.take() {
+                        if let Some(pressed) = self.game.take_pressed() {
                             self.perf
                                 .record_since("launcher.play_to_game_frame_ms", pressed);
                         }
@@ -256,17 +256,15 @@ impl Launcher {
                     let error = result.err();
                     match job {
                         Job::Prepare => {
-                            self.game.preparing = false;
+                            let (started, then_play) = self.game.end_preparing().unzip();
                             // Play pressed before the version was prepared plays now.
-                            if let Some(tag) = self.game.play_when_prepared.take() {
+                            if let Some(tag) = then_play.flatten() {
                                 if error.is_none() && backend::is_prepared(&tag) {
                                     self.game.pack = None;
                                     self.start_client(tag);
                                 }
                             }
-                            if let (None, Some(started)) =
-                                (&error, self.game.prepare_started.take())
-                            {
+                            if let (None, Some(started)) = (&error, started) {
                                 self.perf.record_since("launcher.prepare_ms", started);
                             }
                             // A preparer process's exit status says little, so its last line
@@ -283,7 +281,7 @@ impl Launcher {
                             });
                         }
                         Job::Client => {
-                            self.game.client = None;
+                            let run = self.game.end_run();
                             // Any session file the game didn't read (it crashed first).
                             account::discard_unread_sessions();
                             self.come_back(cx);
@@ -292,28 +290,26 @@ impl Launcher {
                             self.multiplayer.stale();
                             self.screenshots.stale();
                             self.game_packs.stale();
-                            let vars = std::mem::take(&mut self.game.vars);
-                            if let Some((id, started)) = self.game.run.take() {
-                                if let Err(e) = instances::record_play(&id, started.elapsed()) {
+                            let owner = self.game.owner.clone();
+                            if let (Some(run), Some(id)) = (&run, owner) {
+                                if let Err(e) = instances::record_play(&id, run.since.elapsed()) {
                                     eprintln!("Play time not saved: {e}");
                                 }
                                 if let Some(i) = instances::list().into_iter().find(|i| i.id == id)
                                 {
                                     eclipse_launcher::launch::run_after_exit(
-                                        &i.launch, &i.home, &vars,
+                                        &i.launch, &i.home, &run.vars,
                                     );
                                 }
                                 self.reload_instances();
                             }
                             // The run's own game folder: an instance's or a pack's keeps its reports.
                             let home = self.game.home.clone().unwrap_or_else(backend::game_home);
-                            let report = self
-                                .game
-                                .started
-                                .take()
-                                .and_then(|since| backend::crash_report_since(&home, since));
+                            let report = run
+                                .as_ref()
+                                .and_then(|r| backend::crash_report_since(&home, r.reports_since));
                             let switched = if error.is_some() && report.is_none() {
-                                self.switched_from_vulkan()
+                                self.switched_from_vulkan(&home)
                             } else {
                                 None
                             };
@@ -341,7 +337,11 @@ impl Launcher {
                                         })
                                     })
                                     .unwrap_or_default();
-                                self.game.crash = Some(Crash { report, summary });
+                                self.game.crash = Some(Crash {
+                                    report,
+                                    summary,
+                                    home,
+                                });
                             }
                         }
                         Job::Server => {}
@@ -392,10 +392,10 @@ impl Launcher {
 impl Launcher {
     fn game_started(&mut self, started: game_run::Started, cx: &mut Context<Self>) {
         self.load_auth_statuses(false);
-        if self.game.starting.take().is_none() {
+        let Some((pressed, reports_since)) = self.game.end_starting() else {
             account::discard_unread_sessions();
             return;
-        }
+        };
         let launched = match started.result {
             Ok(launched) => launched,
             Err(backend::PlayError::NoOwner) => {
@@ -414,18 +414,18 @@ impl Launcher {
             self.owner = Some(true);
         }
         self.accounts = Accounts::load();
-        self.game.problem = launched
-            .offline
-            .as_ref()
-            .map(|why| trf("Playing offline: {why}", &[("why", why)]))
-            .or_else(|| launched.unsaved.clone())
-            .map(GameProblem::Notice);
-        self.game.vars = launched.vars;
+        let notices: Vec<String> = launched.notices().iter().map(|n| n.said()).collect();
+        self.game.problem = (!notices.is_empty()).then(|| GameProblem::Notice(notices.join("\n")));
         self.game.home = Some(launched.home);
         match backend::spawn(Job::Client, launched.cmd, self.tx.clone()) {
-            Ok(running) => {
-                self.game.client = Some(running);
-                self.game.run = Some((started.instance, Instant::now()));
+            Ok(client) => {
+                self.game.phase = game_run::Phase::Running(game_run::Run {
+                    client,
+                    since: Instant::now(),
+                    pressed,
+                    reports_since,
+                    vars: launched.vars,
+                });
                 self.step_aside(cx);
             }
             Err(e) => {

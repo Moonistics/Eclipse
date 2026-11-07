@@ -2780,7 +2780,7 @@ fn play(request: backend::Play) -> Result<(), String> {
     let instance = request.instance.clone();
     let launched = backend::launch(request, &|line| eprintln!("{line}")).map_err(|e| e.hinted())?;
     for notice in launched.notices() {
-        eprintln!("{notice}");
+        eprintln!("{}", notice.said());
     }
     let started = std::time::Instant::now();
     let played = attached(launched.cmd);

@@ -11,7 +11,7 @@
 //!   a placeholder stands in until one arrives.
 use super::mods_page::{Checking, Event};
 use super::*;
-use crate::tab_strip::StripTab;
+use crate::tab_strip::{Strip, StripTab};
 use crate::ui::{self, white};
 use eclipse_launcher::browser::{
     self,
@@ -152,6 +152,8 @@ pub(super) enum Loaded {
 const IMAGE_WORKERS: usize = 4;
 
 const FILTER_NAME: f32 = 120.;
+
+pub(super) const FILTERS_TOGGLE: &str = "mods-filters";
 
 const PAGE_TEXT: f32 = layout::MEASURE_TEXT;
 
@@ -348,15 +350,19 @@ impl Launcher {
             0 => tr("None").to_string(),
             n => n.to_string(),
         };
-        ui::labelled_dropdown(
-            "mods-filters",
+        let toggle = ui::labelled_dropdown(
+            FILTERS_TOGGLE,
             tr("Filters"),
             None,
             value,
             shown,
             ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+        );
+        let toggle = match menus::opener_focus(FILTERS_TOGGLE) {
+            Some(focus) => ui::keep_focus(toggle, &focus),
+            None => toggle,
+        };
+        toggle.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.mods.browse.show_filters = !this.mods.browse.show_filters;
             cx.notify();
         }))
@@ -725,12 +731,12 @@ impl Launcher {
         };
         let mut action = div().flex().flex_none().items_center().gap(px(space::MD));
         if busy.as_ref().is_some_and(|b| b.installs(&p.id)) {
-            action = action.child(ui::disabled(ui::primary(
+            action = action.child(ui::primary_busy(
                 "mods-page-install",
-                Some("download-04"),
-                tr("Installing…"),
+                tr("Installing"),
+                None,
                 ui::ButtonSize::Md,
-            )));
+            ));
         } else if installed {
             action = action.child(state(
                 ui::Tone::Live,
@@ -906,8 +912,8 @@ impl Launcher {
                 count: None,
             })
             .collect();
-        let tabs = self.tab_strip(
-            "mods-project-tab",
+        let (tabs, panel) = self.tab_strip(
+            Strip::ModsProject,
             named,
             tab,
             layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
@@ -995,7 +1001,7 @@ impl Launcher {
                     .into_any_element(),
             },
         };
-        Some(page.child(div().flex().flex_col().child(tabs).child(body)))
+        Some(page.child(div().flex().flex_col().child(tabs).child(panel.child(body))))
     }
 }
 

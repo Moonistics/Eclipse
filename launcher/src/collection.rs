@@ -61,10 +61,10 @@ fn json_view(view: &(String, String), scroll: &Scrollbar) -> Div {
                     .id("data-json")
                     .max_h(px(JSON_HEIGHT))
                     .overflow_y_scroll()
-                    .font_family(theme::MONO)
-                    .text_size(px(step::CAPTION.size))
-                    .text_color(ui::white(ink::BODY))
-                    .children(view.1.lines().map(|l| div().child(l.to_string()))),
+                    .child(
+                        ui::mono(step::CAPTION, ink::BODY)
+                            .children(view.1.lines().map(|l| div().child(l.to_string()))),
+                    ),
             ),
         )
 }
@@ -160,18 +160,12 @@ impl Launcher {
                 cx.notify();
             }))
             .into_any_element(),
-            ui::button(
-                "ask-save",
-                None,
-                tr("Save choices"),
-                ButtonKind::Primary,
-                ui::ButtonSize::Md,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.answer_consent(this.collection.draft);
-                cx.notify();
-            }))
-            .into_any_element(),
+            ui::primary("ask-save", None, tr("Save choices"), ui::ButtonSize::Md)
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.answer_consent(this.collection.draft);
+                    cx.notify();
+                }))
+                .into_any_element(),
         ];
         let card = ui::dialog(
             "consent-card",

@@ -2,7 +2,7 @@
 //! Stop, its console and command line; beside it the list of servers and how friends reach the
 //! open one. Below, the server's Players, Settings and Backups.
 use super::*;
-use crate::tab_strip::StripTab;
+use crate::tab_strip::{Strip, StripTab};
 use crate::ui::{self, white, Tone};
 use eclipse_theme::glass::{ink, pixel_text, space, step, TextStep};
 
@@ -30,7 +30,7 @@ fn tone(status: &Status) -> Tone {
 
 impl Launcher {
     pub(super) fn servers_view(&mut self, cx: &mut Context<Self>) -> Div {
-        let head = ui::page_head(Page::Servers.title(), "");
+        let head = ui::page_head(Page::Servers.title(), None);
         // A server is always shown: the open one, else the first.
         let listed = |d: &PathBuf| self.servers.list.iter().any(|e| &e.dir == d);
         if !self.servers.open.as_ref().is_some_and(listed) {
@@ -225,11 +225,10 @@ impl Launcher {
                 ui::ButtonSize::Lg,
             ));
         } else {
-            let start = ui::button(
+            let start = ui::primary(
                 "server-start",
                 Some("play"),
                 tr("Start"),
-                ButtonKind::Primary,
                 ui::ButtonSize::Lg,
             );
             buttons = buttons.child(if idle {
@@ -424,9 +423,10 @@ impl Launcher {
             log.flex()
                 .items_center()
                 .justify_center()
-                .font_family(eclipse_theme::glass::FONT)
-                .text_color(white(ink::MUTED))
-                .child(tr("Waiting for the server's log…"))
+                .child(ui::empty_line(
+                    "server-console-waiting",
+                    tr("Waiting for the server's log…"),
+                ))
         } else {
             let accent = ui::color(ui::look().accent_soft);
             log.text_color(white(ink::BODY))
@@ -552,24 +552,24 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let size = ui::ButtonSize::Md;
+        let button = |id: String, icon, label| match kind {
+            ButtonKind::Primary => ui::primary(id, icon, label, size),
+            _ => ui::button(id, icon, label, kind, size),
+        };
         match need {
-            Needs::Eclipse if self.updates.eclipse.is_some() => ui::button(
+            Needs::Eclipse if self.updates.eclipse.is_some() => button(
                 format!("{prefix}-install-eclipse"),
                 Some("download-04"),
                 tr("Install Eclipse"),
-                kind,
-                size,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.install_update();
                 cx.notify();
             })),
-            Needs::Eclipse => ui::button(
+            Needs::Eclipse => button(
                 format!("{prefix}-choose-version"),
                 None,
                 tr("Choose a version"),
-                kind,
-                size,
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.servers.create = None;
@@ -577,30 +577,24 @@ impl Launcher {
                 this.go(Page::Versions);
                 cx.notify();
             })),
-            Needs::GameFiles { .. } => ui::button(
-                format!("{prefix}-prepare"),
-                None,
-                tr("Prepare game files"),
-                kind,
-                size,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.fix(Fix::Prepare, cx);
-                cx.notify();
-            })),
-            Needs::ServerProgram { .. } => ui::button(
-                format!("{prefix}-versions"),
-                None,
-                tr("Manage versions"),
-                kind,
-                size,
-            )
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.servers.create = None;
-                this.servers.problem = None;
-                this.go(Page::Versions);
-                cx.notify();
-            })),
+            Needs::GameFiles { .. } => {
+                button(format!("{prefix}-prepare"), None, tr("Prepare game files")).on_press(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.fix(Fix::Prepare, cx);
+                        cx.notify();
+                    }),
+                )
+            }
+            Needs::ServerProgram { .. } => {
+                button(format!("{prefix}-versions"), None, tr("Manage versions")).on_press(
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.servers.create = None;
+                        this.servers.problem = None;
+                        this.go(Page::Versions);
+                        cx.notify();
+                    }),
+                )
+            }
         }
     }
 
@@ -659,7 +653,8 @@ impl Launcher {
         ui::error_state_told(
             "servers-prepare-failed",
             ui::page_only(tr("Couldn't set up the game")),
-            ui::told_cause(error),
+            ui::told_cause(error)
+                .unwrap_or_else(|| trf("Eclipse couldn't get Minecraft {version} ready.", &args)),
             error,
             again,
             vec![versions],
@@ -844,8 +839,8 @@ impl Launcher {
                 count: None,
             })
             .collect();
-        let strip = self.tab_strip(
-            "server-tab",
+        let (strip, panel) = self.tab_strip(
+            Strip::Server,
             tabs,
             self.servers.tab,
             layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
@@ -868,7 +863,7 @@ impl Launcher {
             .p(px(ui::CARD_PADDING))
             .child(strip.relative())
             .child(
-                div()
+                panel
                     .relative()
                     .flex()
                     .flex_col()

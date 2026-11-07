@@ -235,10 +235,7 @@ impl Launcher {
             })
             .when(!secret, |d| d.aria_value(self.fields.value(f).to_string()))
             .w(px(width))
-            .when(f.holds_code(), |d| {
-                d.font_family(crate::theme::MONO)
-                    .text_size(px(step::NOTE.size))
-            })
+            .when(f.holds_code(), |d| ui::in_mono(d, step::NOTE))
             .cursor_text()
             .children(lead.map(|l| div().relative().flex_none().child(l)))
             .child(

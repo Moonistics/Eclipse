@@ -37,7 +37,7 @@ pub fn fade_height() -> f32 {
 
 const STATE_ACTIONS_GAP: f32 = space::XL;
 
-const COPY_INSET: f32 = space::LG - PANEL_INSET;
+const GROUP_HEAD: f32 = space::XXL + space::SM;
 
 const DIALOG_NARROW: f32 = 520.;
 
@@ -412,6 +412,32 @@ fn dialog_column(
     ]
 }
 
+pub const DIALOG_BUTTON: ButtonSize = ButtonSize::Lg;
+
+pub fn dialog_dismiss(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+) -> Stateful<Div> {
+    button(id, None, label, ButtonKind::Ghost, DIALOG_BUTTON)
+}
+
+pub fn dialog_foot(dismiss: Stateful<Div>, main: Option<AnyElement>) -> Div {
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .gap(px(space::MD))
+        .child(dismiss)
+        .children(main)
+}
+
+pub fn tab_panel(id: impl Into<SharedString>, tab: impl Into<SharedString>) -> Stateful<Div> {
+    div()
+        .id(id.into())
+        .role(Role::TabPanel)
+        .aria_label(tab.into())
+}
+
 pub fn dialog_colour() -> Hsla {
     let plate = surface_colour(Surface::Card);
     let plate = if light() { plate } else { plate.blend(scrim()) };
@@ -488,7 +514,11 @@ fn state(
         .child(
             heading(format!("{id}-title"), title.text.clone(), 2)
                 .mt(px(gap))
-                .child(entity_title(title.text, size)),
+                .child(
+                    super::pixel_text(size)
+                        .text_color(white(ink::FULL))
+                        .child(title.text),
+                ),
         )
         .when(!note.is_empty(), |d| {
             d.child(
@@ -555,7 +585,8 @@ pub fn error_state_with(
     extra: Vec<Stateful<Div>>,
     retry: ButtonKind,
 ) -> Stateful<Div> {
-    error_state_told(id, title, told_cause(error), error, on_retry, extra, retry)
+    let cause = told_cause(error).unwrap_or_default();
+    error_state_told(id, title, cause, error, on_retry, extra, retry)
 }
 
 pub fn error_state_told(
@@ -568,7 +599,7 @@ pub fn error_state_told(
     retry: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
-    let retry = button(
+    let retry = super::any_button(
         format!("{id}-retry"),
         Some(crate::icons::RETRY),
         crate::tr("Try again"),
@@ -576,28 +607,24 @@ pub fn error_state_told(
         ButtonSize::Md,
     )
     .on_press(on_retry);
-    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md)
-        .absolute()
-        .top(px(COPY_INSET))
-        .right(px(COPY_INSET));
-    let state = state(id, "alert-circle", danger(), title.into(), cause.into())
-        .role(Role::Alert)
-        .child(copy);
-    actions(state, std::iter::once(retry).chain(extra).collect())
+    let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
+    let state = state(id, "alert-circle", danger(), title.into(), cause.into()).role(Role::Alert);
+    let buttons = std::iter::once(retry).chain(extra).chain([copy]);
+    actions(state, buttons.collect())
 }
 
 pub fn plain_error(error: &str) -> &str {
     error.lines().next().unwrap_or_default()
 }
 
-pub fn told_cause(error: &str) -> String {
+pub fn told_cause(error: &str) -> Option<String> {
     let line = plain_error(error);
     if line.ends_with('.') {
-        return line.to_string();
+        return Some(line.to_string());
     }
     match line.split_once(": ") {
-        Some((said, _)) if said.starts_with(char::is_uppercase) => format!("{said}."),
-        _ => crate::tr("Copy the details to report it.").to_string(),
+        Some((said, _)) if said.starts_with(char::is_uppercase) => Some(format!("{said}.")),
+        _ => None,
     }
 }
 
@@ -643,7 +670,7 @@ pub fn group_head(
         .items_center()
         .justify_between()
         .gap(px(space::LG))
-        .h(px(ButtonSize::Md.height()))
+        .min_h(px(GROUP_HEAD))
         .child(section_title(id, title))
         .children(aside)
 }

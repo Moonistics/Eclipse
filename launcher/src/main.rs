@@ -210,6 +210,13 @@ struct Crash {
     report: Option<std::path::PathBuf>,
     /// One line on what went wrong: the report's error, else how the process ended.
     summary: String,
+    home: std::path::PathBuf,
+}
+
+#[derive(Clone, Debug, PartialEq)]
+enum QuickPlay {
+    World(String),
+    Server(String),
 }
 
 enum Load<T> {
@@ -301,7 +308,7 @@ struct Launcher {
     window_long_side: f32,
     joining: Option<String>,
     /// Where the next start goes at once: `--world <folder>` or `--server <address>`.
-    quick_play: Option<(&'static str, String)>,
+    quick_play: Option<QuickPlay>,
     /// Opt-in data collection: the player's answer and Settings' section (`collection`).
     collection: collection::Collection,
     /// Settings' "Connect an AI agent" (`agents_page`).
@@ -530,8 +537,11 @@ impl Launcher {
         this.mods_auto_update();
         this.fetch_links();
         if home::getting_ready_preview() {
-            this.game.preparing = true;
-            this.game.play_when_prepared = this.selected_version().cloned();
+            let (selected, tag) = (
+                this.selected_instance().cloned(),
+                this.selected_version().cloned(),
+            );
+            this.game.preparing_now(selected.as_ref(), tag);
         }
         // `ECLIPSE_LAUNCHER_PAGE=new-instance`: the New instance page on Modded, for screenshots
         // (`new-instance-eclipse`, `new-instance-vanilla`: on those).
@@ -852,7 +862,7 @@ impl Launcher {
     /// started, a native crash in the graphics driver (#746), switches the game to
     /// `backend::vulkan_crash_fallback` (DirectX 12 on Windows, OpenGL on Linux; only where the
     /// player left the graphics API on Auto). The API's label when it did.
-    fn switched_from_vulkan(&self) -> Option<&'static str> {
+    fn switched_from_vulkan(&self, run_home: &std::path::Path) -> Option<&'static str> {
         let (api, label) = backend::vulkan_crash_fallback(std::env::consts::OS)?;
         if !backend::vulkan_start_crashed(&self.game.log) {
             return None;
@@ -860,7 +870,7 @@ impl Launcher {
         // The GPU is the same for every profile: the game home's setting and the crashed run's.
         let home = backend::game_home();
         let mut homes = vec![home.clone()];
-        homes.extend(self.game.home.clone().filter(|h| *h != home));
+        homes.extend((run_home != home).then(|| run_home.to_path_buf()));
         let mut switched = false;
         for home in homes {
             match backend::switch_from_auto(&home, api) {
@@ -873,17 +883,18 @@ impl Launcher {
 
     /// The version Play starts: the selected instance's own, else the launcher's.
     fn selected_version(&self) -> Option<&String> {
-        self.selected_instance()
-            .and_then(|i| self.version_of(i))
-            .or_else(|| self.default_version())
+        match self.selected_instance().and_then(|i| self.plays(i)) {
+            Some(plays) => plays.installed_tag(),
+            None => self.default_version(),
+        }
     }
 
     /// The launcher's version: what instances without one of their own play.
     fn default_version(&self) -> Option<&String> {
-        self.settings
-            .default_version
-            .as_ref()
-            .filter(|s| self.versions.installed.contains(s))
+        backend::followed_version(
+            self.settings.default_version.as_ref(),
+            &self.versions.installed,
+        )
     }
 
     fn use_version(&mut self, tag: String) {
@@ -1024,17 +1035,21 @@ impl Launcher {
 
     /// Prepares the selected version, its Minecraft files from the player's install or, for an
     /// owner who asks, from Mojang.
-    fn prepare(&mut self, from: backend::MinecraftFrom) {
+    fn prepare(&mut self, from: backend::MinecraftFrom, then_play: bool) {
         let Some(tag) = self.selected_version().cloned() else {
             return;
         };
+        if self.game.busy() {
+            return;
+        }
         let minecraft = self
             .settings
             .minecraft_dir
             .clone()
             .unwrap_or_else(|| eclipse_prepare::artifacts::minecraft_dir(None));
         let selected = self.selected_instance().cloned();
-        self.game.begin(selected.as_ref());
+        self.game
+            .preparing_now(selected.as_ref(), then_play.then(|| tag.clone()));
         self.game.prepare_error = None;
         self.game
             .log
@@ -1070,8 +1085,6 @@ impl Launcher {
                 }
             }
         });
-        self.game.preparing = true;
-        self.game.prepare_started = Some(Instant::now());
         self.download_seen = None;
     }
 
@@ -1084,12 +1097,11 @@ impl Launcher {
             // Mojang's game: no Eclipse version or preparation, only no game already running.
             // It joins a server; a friend's code and opening a world are Eclipse's.
             self.joining = None;
-            let server = self
-                .quick_play
-                .take()
-                .filter(|(flag, _)| *flag == "--server")
-                .map(|(_, ip)| ip);
-            if self.game.active() {
+            let server = match self.quick_play.take() {
+                Some(QuickPlay::Server(address)) => Some(address),
+                _ => None,
+            };
+            if self.game.busy() {
                 return;
             }
             self.game.pack = None;
@@ -1124,7 +1136,7 @@ impl Launcher {
     /// (downloaded the first time, their lines in the log), then `drain` starts the game when
     /// the command arrives.
     fn start_java(&mut self, instance: instances::Instance, server: Option<String>) {
-        self.game.starting_now(&instance);
+        self.game.starting_now(&instance, None);
         let play = backend::Play {
             server,
             ..backend::Play::of(instance)
@@ -1148,13 +1160,9 @@ impl Launcher {
             let log = |line: String| {
                 let _ = tx.send(Msg::Line(Job::Client, line));
             };
-            let (instance, eclipse) = (play.instance.id.clone(), play.instance.java.is_none());
+            let eclipse = play.instance.java.is_none();
             let result = backend::launch(play, &log);
-            let _ = starts.send(game_run::Started {
-                instance,
-                eclipse,
-                result,
-            });
+            let _ = starts.send(game_run::Started { eclipse, result });
         });
     }
 
@@ -1163,7 +1171,7 @@ impl Launcher {
     pub(crate) fn can_start(&self, tag: &str) -> bool {
         starts_now(
             backend::is_prepared(tag),
-            self.game.preparing,
+            self.game.preparing(),
             self.game.active(),
         )
     }
@@ -1181,7 +1189,7 @@ impl Launcher {
     /// would (no game running or starting).
     pub(crate) fn can_join_selected(&self) -> bool {
         match self.selected_instance() {
-            Some(i) if i.java.is_some() => !self.game.active(),
+            Some(i) if i.java.is_some() => !self.game.busy(),
             _ => self.can_start_selected(),
         }
     }
@@ -1203,8 +1211,7 @@ impl Launcher {
         let Some(instance) = instance else {
             return;
         };
-        self.game.starting_now(&instance);
-        self.game.pressed = Some(Instant::now());
+        self.game.starting_now(&instance, Some(Instant::now()));
         // Registry mods update before the game reads them (`eclipse::auto`); native mods only
         // at start, where a build can follow.
         let auto =
@@ -1214,8 +1221,8 @@ impl Launcher {
                 natives: false,
             });
         let (world, server) = match self.quick_play.take() {
-            Some(("--world", world)) => (Some(world), None),
-            Some((_, server)) => (None, Some(server)),
+            Some(QuickPlay::World(world)) => (Some(world), None),
+            Some(QuickPlay::Server(server)) => (None, Some(server)),
             None => (None, None),
         };
         let play = backend::Play {
@@ -1375,10 +1382,10 @@ impl Launcher {
 
     /// Plays the selected instance straight into a world (`--world`) or a server (`--server`):
     /// flags every Eclipse release takes.
-    pub(crate) fn quick_play(&mut self, flag: &'static str, value: String) {
-        self.quick_play = Some((flag, value));
+    pub(crate) fn quick_play(&mut self, to: QuickPlay) {
+        self.quick_play = Some(to);
         self.play();
-        if self.game.starting.is_none() {
+        if !self.game.starting() {
             self.quick_play = None;
         }
     }
@@ -1392,7 +1399,7 @@ impl Launcher {
         }
         self.joining = Some(code);
         self.play();
-        if self.game.starting.is_none() {
+        if !self.game.starting() {
             self.joining = None;
         }
     }

@@ -36,20 +36,29 @@ pub const FIELD_MD: f32 = 240.;
 pub const FIELD_LG: f32 = 400.;
 pub const FIELD_XL: f32 = MEASURE_NOTE;
 
-pub fn sidebar(window: f32) -> f32 {
-    if window < NARROW_WINDOW && !crate::ui::pixel_text_grows() {
-        SIDEBAR_NARROW
-    } else {
+fn narrowest_sidebar() -> f32 {
+    if crate::ui::pixel_text_grows() {
         SIDEBAR
+    } else {
+        SIDEBAR_NARROW
     }
 }
 
+pub fn sidebar(window: f32) -> f32 {
+    sidebar_at(window, narrowest_sidebar())
+}
+
+fn sidebar_at(window: f32, narrowest: f32) -> f32 {
+    (SIDEBAR - (NARROW_WINDOW - window).max(0.)).max(narrowest)
+}
+
 pub fn gutter(window: f32) -> f32 {
-    if window < NARROW_WINDOW {
-        PAGE_GUTTER_NARROW
-    } else {
-        PAGE_GUTTER
-    }
+    gutter_at(window, narrowest_sidebar())
+}
+
+fn gutter_at(window: f32, narrowest: f32) -> f32 {
+    let narrowing = NARROW_WINDOW - (SIDEBAR - narrowest);
+    (PAGE_GUTTER - (narrowing - window).max(0.) / 2.).max(PAGE_GUTTER_NARROW)
 }
 
 pub fn content_width(window: f32) -> f32 {
@@ -83,6 +92,24 @@ pub fn min_window(display: Option<(f32, f32)>) -> (f32, f32) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_page_never_widens_as_the_window_narrows() {
+        for narrowest in [SIDEBAR_NARROW, SIDEBAR] {
+            let content = |w: f32| {
+                (w - sidebar_at(w, narrowest) - 2. * gutter_at(w, narrowest)).min(PAGE_MAX)
+            };
+            let mut last = content(MIN_WINDOW.0);
+            for w in (MIN_WINDOW.0 as u32 + 1)..=2000 {
+                let now = content(w as f32);
+                assert!(now >= last, "{w} px wide: {now} after {last}");
+                last = now;
+            }
+        }
+        assert_eq!(sidebar_at(NARROW_WINDOW, SIDEBAR_NARROW), SIDEBAR);
+        assert_eq!(sidebar_at(MIN_WINDOW.0, SIDEBAR_NARROW), SIDEBAR_NARROW);
+        assert_eq!(gutter_at(MIN_WINDOW.0, SIDEBAR_NARROW), PAGE_GUTTER_NARROW);
+    }
 
     #[test]
     fn a_window_never_opens_larger_than_the_screen() {

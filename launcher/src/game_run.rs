@@ -5,7 +5,6 @@ use eclipse_launcher::instances::Instance;
 pub(super) const START_SLACK: Duration = Duration::from_secs(2);
 
 pub(super) struct Started {
-    pub(super) instance: String,
     pub(super) eclipse: bool,
     pub(super) result: Result<backend::Launched, backend::PlayError>,
 }
@@ -25,56 +24,138 @@ impl Default for Starts {
 #[derive(Default)]
 pub(super) struct GameRun {
     pub(super) starts: Starts,
-    pub(super) client: Option<Running>,
-    pub(super) problem: Option<GameProblem>,
-    pub(super) started: Option<std::time::SystemTime>,
+    pub(super) owner: Option<String>,
+    pub(super) phase: Phase,
     pub(super) home: Option<std::path::PathBuf>,
-    pub(super) run: Option<(String, Instant)>,
-    pub(super) vars: eclipse_launcher::launch::Vars,
-    pub(super) since: Option<Instant>,
-    pub(super) starting: Option<String>,
+    pub(super) problem: Option<GameProblem>,
     pub(super) pack: Option<std::path::PathBuf>,
     pub(super) crash: Option<Crash>,
-    pub(super) preparing: bool,
-    pub(super) play_when_prepared: Option<String>,
-    pub(super) prepare_started: Option<Instant>,
     pub(super) prepare_error: Option<String>,
-    pub(super) pressed: Option<Instant>,
     pub(super) log: VecDeque<String>,
-    pub(super) log_for: Option<String>,
+}
+
+#[derive(Default)]
+pub(super) enum Phase {
+    #[default]
+    Idle,
+    Preparing {
+        started: Instant,
+        then_play: Option<String>,
+    },
+    Starting {
+        pressed: Option<Instant>,
+        reports_since: std::time::SystemTime,
+    },
+    Running(Run),
+}
+
+pub(super) struct Run {
+    pub(super) client: Running,
+    pub(super) since: Instant,
+    pub(super) pressed: Option<Instant>,
+    pub(super) reports_since: std::time::SystemTime,
+    pub(super) vars: eclipse_launcher::launch::Vars,
 }
 
 impl GameRun {
     pub(super) fn begin(&mut self, instance: Option<&Instance>) {
         self.log.clear();
-        self.log_for = instance.map(|i| i.id.clone());
+        self.owner = instance.map(|i| i.id.clone());
     }
 
     fn belongs_to(&self, instance: Option<&Instance>) -> bool {
-        self.log_for.as_deref() == instance.map(|i| i.id.as_str())
-    }
-
-    fn plays(&self, instance: &Instance) -> bool {
-        match &self.run {
-            Some((id, _)) => *id == instance.id,
-            None => self.log_for.as_deref() == Some(&instance.id),
-        }
+        self.owner.as_deref() == instance.map(|i| i.id.as_str())
     }
 
     pub(super) fn active(&self) -> bool {
-        self.client.is_some() || self.starting.is_some()
+        matches!(self.phase, Phase::Starting { .. } | Phase::Running(_))
     }
 
     pub(super) fn busy(&self) -> bool {
-        self.preparing || self.active()
+        !matches!(self.phase, Phase::Idle)
     }
 
-    pub(super) fn starting_now(&mut self, instance: &Instance) {
+    pub(super) fn preparing(&self) -> bool {
+        matches!(self.phase, Phase::Preparing { .. })
+    }
+
+    pub(super) fn starting(&self) -> bool {
+        matches!(self.phase, Phase::Starting { .. })
+    }
+
+    pub(super) fn plays_when_prepared(&self) -> bool {
+        matches!(
+            self.phase,
+            Phase::Preparing {
+                then_play: Some(_),
+                ..
+            }
+        )
+    }
+
+    pub(super) fn run(&self) -> Option<&Run> {
+        match &self.phase {
+            Phase::Running(run) => Some(run),
+            _ => None,
+        }
+    }
+
+    pub(super) fn preparing_now(&mut self, instance: Option<&Instance>, then_play: Option<String>) {
+        self.begin(instance);
+        self.phase = Phase::Preparing {
+            started: Instant::now(),
+            then_play,
+        };
+    }
+
+    pub(super) fn starting_now(&mut self, instance: &Instance, pressed: Option<Instant>) {
         self.problem = None;
         self.crash = None;
         self.begin(Some(instance));
-        self.started = Some(std::time::SystemTime::now() - START_SLACK);
-        self.starting = Some(instance.id.clone());
+        self.phase = Phase::Starting {
+            pressed,
+            reports_since: std::time::SystemTime::now() - START_SLACK,
+        };
+    }
+
+    pub(super) fn end_preparing(&mut self) -> Option<(Instant, Option<String>)> {
+        match std::mem::take(&mut self.phase) {
+            Phase::Preparing { started, then_play } => Some((started, then_play)),
+            other => {
+                self.phase = other;
+                None
+            }
+        }
+    }
+
+    pub(super) fn end_starting(&mut self) -> Option<(Option<Instant>, std::time::SystemTime)> {
+        match std::mem::take(&mut self.phase) {
+            Phase::Starting {
+                pressed,
+                reports_since,
+            } => Some((pressed, reports_since)),
+            other => {
+                self.phase = other;
+                None
+            }
+        }
+    }
+
+    pub(super) fn end_run(&mut self) -> Option<Run> {
+        match std::mem::take(&mut self.phase) {
+            Phase::Running(run) => Some(run),
+            other => {
+                self.phase = other;
+                None
+            }
+        }
+    }
+
+    pub(super) fn take_pressed(&mut self) -> Option<Instant> {
+        match &mut self.phase {
+            Phase::Running(run) => run.pressed.take(),
+            _ => None,
+        }
     }
 }
 
@@ -171,12 +252,15 @@ impl InstallState {
 
 impl Launcher {
     pub(super) fn update_for(&self, i: &Instance) -> Option<&Release> {
-        let follows = i.version.is_none() && i.java.is_none();
+        let follows = self.plays(i).is_some_and(|p| p.follows);
         self.updates.eclipse.as_ref().filter(|_| follows)
     }
 
     pub(super) fn install_state(&self, i: &Instance) -> InstallState {
-        let Some(tag) = self.version_of(i) else {
+        let Some(plays) = self.plays(i) else {
+            return InstallState::NotInstalled;
+        };
+        let Some(tag) = plays.installed_tag() else {
             return InstallState::NotInstalled;
         };
         if let Some(update) = self.update_for(i) {
@@ -188,13 +272,14 @@ impl Launcher {
         match self.native_build_of(tag) {
             Some(build) => InstallState::Built(build),
             None => InstallState::Ready {
-                pinned: i.version.as_ref().map(|_| tag.clone()),
+                pinned: (!plays.follows).then(|| tag.clone()),
             },
         }
     }
 
     pub(super) fn play_state(&self, i: &Instance) -> PlayState {
-        if self.game.client.is_some() && self.game.plays(i) {
+        let ours = self.game.belongs_to(Some(i));
+        if ours && self.game.run().is_some() {
             return PlayState::Running;
         }
         let update = self.update_for(i);
@@ -202,8 +287,7 @@ impl Launcher {
         if let Some(p) = update.and_then(|u| installing(&u.tag)) {
             return PlayState::Updating(p);
         }
-        let plays = i.version.as_ref().or(self.default_version());
-        if let Some(tag) = plays.filter(|_| i.java.is_none()) {
+        if let Some(tag) = self.plays(i).and_then(|p| p.tag) {
             if let Some(p) = installing(tag) {
                 return PlayState::Installing(Some(p));
             }
@@ -216,15 +300,13 @@ impl Launcher {
                 return PlayState::Installing(None);
             }
         }
-        if self.game.preparing && self.game.belongs_to(Some(i)) {
-            return PlayState::Preparing(
+        match self.game.phase {
+            Phase::Preparing { .. } if ours => PlayState::Preparing(
                 eclipse_launcher::mojang::progress().map(|(d, n)| d as f32 / n.max(1) as f32),
-            );
+            ),
+            Phase::Starting { .. } if ours => PlayState::Starting,
+            _ => PlayState::Idle,
         }
-        if self.game.starting.is_some() && self.game.belongs_to(Some(i)) {
-            return PlayState::Starting;
-        }
-        PlayState::Idle
     }
 
     pub(super) fn selected_play_state(&self) -> PlayState {
@@ -247,9 +329,10 @@ impl Launcher {
     }
 
     pub(super) fn shown_game_problem(&self) -> Option<&GameProblem> {
-        self.game.problem.as_ref().filter(|_| {
-            self.game.log_for.is_none() || self.game.belongs_to(self.selected_instance())
-        })
+        self.game
+            .problem
+            .as_ref()
+            .filter(|_| self.game.owner.is_none() || self.game.belongs_to(self.selected_instance()))
     }
 
     pub(super) fn shown_crash(&self) -> Option<&Crash> {
@@ -260,26 +343,20 @@ impl Launcher {
     }
 
     pub(super) fn busy_reason(&self) -> Option<String> {
-        if !self.game.busy() {
-            return None;
-        }
-        let id = self.game.run.as_ref().map(|(id, _)| id);
-        let name = id
-            .or(self.game.log_for.as_ref())
+        let name = self
+            .game
+            .owner
+            .as_ref()
             .and_then(|id| self.instances.list.iter().find(|i| i.id == *id))
             .map_or("Eclipse", |i| i.name.as_str());
-        Some(if self.game.client.is_some() {
-            trf("{name} is still running: close it first", &[("name", name)])
-        } else if self.game.starting.is_some() {
-            trf(
-                "{name} is still starting: wait for it to open",
-                &[("name", name)],
-            )
-        } else {
-            trf(
-                "{name} is still preparing: wait for it to finish",
-                &[("name", name)],
-            )
+        let name = [("name", name)];
+        Some(match self.game.phase {
+            Phase::Idle => return None,
+            Phase::Running(_) => trf("{name} is still running: close it first", &name),
+            Phase::Starting { .. } => trf("{name} is still starting: wait for it to open", &name),
+            Phase::Preparing { .. } => {
+                trf("{name} is still preparing: wait for it to finish", &name)
+            }
         })
     }
 
@@ -306,6 +383,7 @@ mod tests {
             played: Duration::ZERO,
             last_played: None,
             launch: Default::default(),
+            game_args: None,
             java: None,
         }
     }
@@ -314,12 +392,28 @@ mod tests {
     fn a_run_belongs_to_the_instance_that_started_it() {
         let (mine, other) = (instance("survival"), instance("creative"));
         let mut run = GameRun::default();
-        run.begin(Some(&mine));
+        run.preparing_now(Some(&mine), Some("v0.2.0".into()));
         run.log.push_back("Minecraft 26.3 was not found".into());
         assert!(run.belongs_to(Some(&mine)));
         assert!(!run.belongs_to(Some(&other)));
-        assert!(run.plays(&mine) && !run.plays(&other));
-        run.run = Some((other.id.clone(), Instant::now()));
-        assert!(run.plays(&other) && !run.plays(&mine));
+        assert!(run.busy() && run.preparing() && run.plays_when_prepared() && !run.active());
+        assert_eq!(
+            run.end_preparing().map(|(_, tag)| tag),
+            Some(Some("v0.2.0".into()))
+        );
+        assert!(
+            !run.busy() && run.belongs_to(Some(&mine)),
+            "its log stays with it"
+        );
+        run.starting_now(&other, None);
+        assert!(run.belongs_to(Some(&other)) && run.log.is_empty());
+        assert!(run.busy() && run.active() && run.starting() && !run.preparing());
+        assert!(
+            run.end_run().is_none(),
+            "a run that never started doesn't end"
+        );
+        assert!(run.starting(), "and the start goes on");
+        assert!(run.end_starting().is_some());
+        assert!(!run.busy() && run.end_starting().is_none());
     }
 }

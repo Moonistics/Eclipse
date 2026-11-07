@@ -84,6 +84,7 @@ impl Launcher {
 
     pub(super) fn toast_float(&self) -> Option<Div> {
         let (text, n, error) = current()?;
+        let back = self.content_focus.clone();
         let close = error.then(|| {
             ui::icon_button(
                 "toast-dismiss",
@@ -93,8 +94,9 @@ impl Launcher {
                 ui::ButtonSize::Sm,
                 false,
             )
-            .on_press(|_, window, _| {
+            .on_press(move |_, window, cx| {
                 dismiss();
+                window.focus(&back, cx);
                 window.refresh();
             })
         });

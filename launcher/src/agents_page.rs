@@ -8,11 +8,17 @@ use crate::ui;
 use eclipse_launcher::agents;
 use eclipse_theme::glass::space;
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum AgentJob {
+    Add,
+    Test,
+}
+
 #[derive(Default)]
 pub(crate) struct AgentsUi {
     client: Option<&'static str>,
-    /// The add or test under way, by its button.
-    running: Option<&'static str>,
+    /// The add or test under way.
+    running: Option<AgentJob>,
     /// What the last add or test said, and whether it went well.
     status: Option<(bool, String)>,
     add_failed: bool,
@@ -87,7 +93,7 @@ impl Launcher {
             let add = ui::button(
                 "agent-add",
                 None,
-                if running == Some("agent-add") {
+                if running == Some(AgentJob::Add) {
                     tr("Running…").to_owned()
                 } else {
                     label
@@ -99,7 +105,7 @@ impl Launcher {
                 ui::disabled(add)
             } else {
                 add.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.agents.running = Some("agent-add");
+                    this.agents.running = Some(AgentJob::Add);
                     this.agents.status = None;
                     let (program, args) = (program, args.clone());
                     let task = cx
@@ -137,7 +143,7 @@ impl Launcher {
         let test = ui::button(
             "agent-test",
             None,
-            tr(if running == Some("agent-test") {
+            tr(if running == Some(AgentJob::Test) {
                 "Testing…"
             } else {
                 "Test the connection"
@@ -149,7 +155,7 @@ impl Launcher {
             ui::disabled(test)
         } else {
             test.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.agents.running = Some("agent-test");
+                this.agents.running = Some(AgentJob::Test);
                 this.agents.status = None;
                 let exe = backend::update_target();
                 let task = cx.background_executor().spawn(async move {

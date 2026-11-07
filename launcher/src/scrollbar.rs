@@ -9,7 +9,9 @@ const GUTTER: f32 = 12.;
 
 const EDGE_INSET: f32 = 2.;
 
-const THUMB_WIDTH: f32 = 8.;
+const THUMB_WIDTH: f32 = 6.;
+
+const THUMB_ROUND: f32 = THUMB_WIDTH / 2.;
 
 const THUMB: f32 = 0.36;
 
@@ -107,17 +109,20 @@ impl Scrollbar {
                         let hitbox = hitbox.unwrap();
                         window.paint_quad(fill(bounds, track_color));
                         let inset = (GUTTER - THUMB_WIDTH) / 2.;
-                        window.paint_quad(fill(
-                            Bounds::new(
-                                point(bounds.left() + px(inset), bounds.top() + px(g.top)),
-                                size(px(THUMB_WIDTH), px(g.thumb)),
-                            ),
-                            if state.grabbed.get().is_some() {
-                                held_color
-                            } else {
-                                thumb_color
-                            },
-                        ));
+                        window.paint_quad(
+                            fill(
+                                Bounds::new(
+                                    point(bounds.left() + px(inset), bounds.top() + px(g.top)),
+                                    size(px(THUMB_WIDTH), px(g.thumb)),
+                                ),
+                                if state.grabbed.get().is_some() {
+                                    held_color
+                                } else {
+                                    thumb_color
+                                },
+                            )
+                            .corner_radii(px(THUMB_ROUND)),
+                        );
                         window.on_mouse_event({
                             let state = state.clone();
                             move |ev: &MouseDownEvent, phase, window, cx| {

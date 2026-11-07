@@ -38,7 +38,7 @@ impl Launcher {
             .on_press(find_on_mods_page(PackKind::Mod, cx));
             return body.child(ui::empty_state(
                 "instance-mods-empty",
-                "puzzle",
+                crate::icons::MODS,
                 tr("No mods yet"),
                 match &game {
                     Some(game) => trf("Find mods made for {game}.", &[("game", game)]),
@@ -161,7 +161,7 @@ impl Launcher {
             )
             .into_any_element()
         } else {
-            ui::row_picture(None, "puzzle")
+            ui::row_picture(None, crate::icons::MODS)
         };
         let source = if let Some(origin) = row.native.as_ref().and_then(|n| n.origin.as_ref()) {
             trf("from GitHub: {source}", &[("source", &origin.label())])

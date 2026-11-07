@@ -69,7 +69,7 @@ impl Launcher {
     fn world_row(&mut self, w: &World, cx: &mut Context<Self>) -> Div {
         let key = SharedString::from(format!("world-{}", w.folder));
         let hovered = ui::hover_within(&key);
-        let menu_open = self.menu_is(&Menu::ListRow(key.clone()));
+        let menu_open = self.menu_is(&Menu::WorldRow(w.folder.clone()));
         let busy = self.worlds.busy.is_some();
         let this_busy = self.worlds.busy.as_ref() == Some(&w.folder);
         let can_play = self.can_start_selected() && !busy;
@@ -85,7 +85,7 @@ impl Launcher {
         facts.push(dates::ago(w.last_played));
         let focus = ui::try_focus_for(key.clone());
         let focused = focus.as_ref().is_some_and(ui::keyboard_focus);
-        let menu_key = key.clone();
+        let menu_key = w.folder.clone();
         let description = facts
             .iter()
             .cloned()
@@ -97,7 +97,7 @@ impl Launcher {
             .on_key_down(
                 cx.listener(move |this, ev: &gpui::KeyDownEvent, window, cx| {
                     if ui::opens_row_menu(&ev.keystroke) {
-                        this.open_menu_from(Menu::ListRow(menu_key.clone()), window, cx);
+                        this.open_menu_from(Menu::WorldRow(menu_key.clone()), window, cx);
                         cx.stop_propagation();
                         cx.notify();
                     }
@@ -106,12 +106,12 @@ impl Launcher {
         if can_play {
             let folder = w.folder.clone();
             if let Some(focus) = &focus {
-                row = row.track_focus(focus);
+                row = ui::keep_focus(row, focus);
             }
             row = row
                 .cursor_pointer()
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.quick_play("--world", folder.clone());
+                    this.quick_play(QuickPlay::World(folder.clone()));
                     cx.notify();
                 }));
         }
@@ -159,7 +159,7 @@ impl Launcher {
             ui::ButtonSize::Md,
             menu_open,
         );
-        let more = self.menu_opener(more, Menu::ListRow(key.clone()), cx);
+        let more = self.menu_opener(more, Menu::WorldRow(w.folder.clone()), cx);
         let mut more = div().relative().child(more);
         if menu_open {
             more = more.child(ui::menu_under(
@@ -178,14 +178,14 @@ impl Launcher {
     /// A world's ⋯ menu: Back up world, Duplicate world, its data packs, Open world folder, then
     /// Delete… (then asked to confirm).
     fn world_menu(&mut self, w: &World, cx: &mut Context<Self>) -> Stateful<Div> {
-        let key = SharedString::from(format!("world-{}", w.folder));
-        let confirming = self.is_asking(&Asking::WorldDelete(key.clone()));
+        let confirming = self.is_asking(&Asking::WorldDelete(w.folder.clone()));
         let act = |this: &mut Self, action: Action, w: &World, cx: &mut Context<Self>| {
             this.close_menu();
             this.world_action(action, w.clone(), cx);
             cx.notify();
         };
         let (backup, dup, packs, gone) = (w.clone(), w.clone(), w.clone(), w.clone());
+        let folder_asked = w.folder.clone();
         let folder = w.path.clone();
         let packs_label = if self.world_packs_open(w) {
             tr("Hide data packs")
@@ -208,7 +208,7 @@ impl Launcher {
         } else {
             ui::menu_row("world-menu-delete", "delete-02", tr("Delete…"), true)
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.asking = Some(Asking::WorldDelete(key.clone()));
+                    this.asking = Some(Asking::WorldDelete(folder_asked.clone()));
                     cx.notify();
                 }))
                 .into_any_element()
@@ -436,7 +436,7 @@ impl Launcher {
             ui::unavailable(join, tr("The server is offline"))
         } else if self.can_join_selected() {
             join.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.quick_play("--server", ip.clone());
+                this.quick_play(QuickPlay::Server(ip.clone()));
                 cx.notify();
             }))
         } else {

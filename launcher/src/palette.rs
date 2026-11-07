@@ -10,7 +10,7 @@ use super::*;
 use crate::settings_page::SettingsSection;
 use crate::ui;
 use eclipse_launcher::browser::{Kind as PackKind, Project};
-use eclipse_launcher::instances::Kind as InstanceKind;
+use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, space, step};
 use std::path::PathBuf;
 
@@ -38,6 +38,11 @@ pub(super) struct Palette {
 #[derive(Clone)]
 enum Run {
     Play(String),
+    Edit(String),
+    Duplicate(String),
+    Export(String),
+    LaunchOptions(String),
+    AskDelete(String),
     Go(Page),
     Settings(SettingsSection),
     Look(backend::Appearance),
@@ -52,6 +57,11 @@ impl Run {
     fn key(&self) -> String {
         match self {
             Run::Play(id) => format!("play-{id}"),
+            Run::Edit(id) => format!("edit-{id}"),
+            Run::Duplicate(id) => format!("duplicate-{id}"),
+            Run::Export(id) => format!("export-{id}"),
+            Run::LaunchOptions(id) => format!("launch-{id}"),
+            Run::AskDelete(id) => format!("delete-{id}"),
             Run::Go(page) => format!("go-{page:?}"),
             Run::Settings(section) => format!("settings-{section:?}"),
             Run::Look(look) => format!("look-{look:?}"),
@@ -99,18 +109,46 @@ impl Launcher {
 
     /// The commands for `q` (lower case, trimmed).
     fn palette_commands(&self, q: &str) -> Vec<Command> {
-        let instance = self
-            .selected_instance()
-            .map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
+        let selected = self.selected_instance();
+        let instance = selected.map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
+        let playable = |i: &&Instance| matches!(i.kind, InstanceKind::Default | InstanceKind::Own);
+        let selected_id = selected.map(|i| i.id.as_str());
+        let mut plays: Vec<&Instance> = self.instances.list.iter().filter(playable).collect();
+        plays.sort_by_key(|i| Some(i.id.as_str()) != selected_id);
+        let command = |label: String, run: Run| Command {
+            label,
+            hint: tr("Instance").to_string(),
+            run,
+        };
+        let name = [("name", instance.as_str())];
         let mut all = Vec::new();
-        for i in &self.instances.list {
-            if matches!(i.kind, InstanceKind::Default | InstanceKind::Own) {
-                all.push(Command {
-                    label: trf("Play {name}", &[("name", &i.name)]),
-                    hint: tr("Instance").to_string(),
-                    run: Run::Play(i.id.clone()),
-                });
+        let mut plays = plays.into_iter();
+        if let Some(i) = plays.next() {
+            all.push(command(
+                trf("Play {name}", &[("name", &i.name)]),
+                Run::Play(i.id.clone()),
+            ));
+        }
+        if let Some(i) = selected {
+            let id = || i.id.clone();
+            all.push(command(trf("Edit {name}", &name), Run::Edit(id())));
+            if playable(&i) {
+                all.push(command(
+                    trf("Duplicate {name}", &name),
+                    Run::Duplicate(id()),
+                ));
             }
+            all.push(command(trf("Export {name}", &name), Run::Export(id())));
+            all.push(command(
+                trf("Launch options for {name}", &name),
+                Run::LaunchOptions(id()),
+            ));
+        }
+        for i in plays {
+            all.push(command(
+                trf("Play {name}", &[("name", &i.name)]),
+                Run::Play(i.id.clone()),
+            ));
         }
         for page in Page::NAV {
             all.push(Command {
@@ -149,6 +187,12 @@ impl Launcher {
             run: Run::Look(look),
         });
         let mut removals = Vec::new();
+        if let Some(i) = selected.filter(|i| i.kind != InstanceKind::Default) {
+            removals.push(command(
+                trf("Delete {name}…", &name),
+                Run::AskDelete(i.id.clone()),
+            ));
+        }
         if q.chars().count() >= 2 {
             let mods = self.palette.as_ref().map_or(&[][..], |p| &p.mods[..]);
             for p in mods.iter().filter(|p| p.title.to_lowercase().contains(q)) {
@@ -173,9 +217,11 @@ impl Launcher {
                 });
             }
         }
-        all.retain(|c| {
+        let asked = |c: &Command| {
             q.is_empty() || c.label.to_lowercase().contains(q) || c.hint.to_lowercase().contains(q)
-        });
+        };
+        all.retain(asked);
+        removals.retain(|c| !q.is_empty() && asked(c));
         all.truncate(SHOWN.saturating_sub(removals.len().min(SHOWN / 2)));
         all.extend(removals);
         all.truncate(SHOWN);
@@ -206,14 +252,34 @@ impl Launcher {
         self.palette_close();
         match run {
             Run::Play(id) => {
-                let Some(instance) = self.instances.list.iter().find(|i| i.id == id).cloned()
-                else {
+                let Some(instance) = self.instance_by_id(&id) else {
                     return;
                 };
                 self.select_instance(&instance);
                 self.go(Page::Home);
                 self.press_play();
             }
+            Run::Edit(id) => {
+                if let Some(i) = self.instance_by_id(&id) {
+                    self.open_instance_page(Some(i));
+                }
+            }
+            Run::Duplicate(id) => {
+                if let Some(i) = self.instance_by_id(&id) {
+                    self.show_duplicate(&i);
+                }
+            }
+            Run::Export(id) => {
+                if let Some(i) = self.instance_by_id(&id) {
+                    self.show_export(&i);
+                }
+            }
+            Run::LaunchOptions(id) => {
+                if let Some(i) = self.instance_by_id(&id) {
+                    self.show_launch_options(&i);
+                }
+            }
+            Run::AskDelete(id) => self.ask_delete_instance(id, window, cx),
             Run::Go(page) => self.go(page),
             Run::Settings(section) => self.show_settings(section),
             Run::Look(look) => {
@@ -342,15 +408,22 @@ impl Launcher {
                 .palette
                 .as_ref()
                 .is_some_and(|p| self.palette_search_failed(p.search));
-            ui::empty(
-                "palette-empty",
-                if failed {
-                    tr("Couldn't search mods").to_string()
-                } else {
-                    trf("Nothing matches “{query}”.", &[("query", raw.trim())])
-                },
-            )
-            .px(px(space::MD))
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(space::XS))
+                .py(px(space::XL))
+                .px(px(space::MD))
+                .child(ui::empty_line(
+                    "palette-empty",
+                    trf("Nothing matches “{query}”.", &[("query", raw.trim())]),
+                ))
+                .children(failed.then(|| {
+                    ui::card_note(ui::said(
+                        "palette-empty-mods",
+                        tr("Mods couldn't be searched right now."),
+                    ))
+                }))
         });
         let card = ui::dialog_plate()
             .id("palette")

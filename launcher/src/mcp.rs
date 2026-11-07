@@ -104,7 +104,7 @@ impl Session {
                 )
                 .map_err(|e| e.hinted())?;
                 for notice in launched.notices() {
-                    eprintln!("{notice}");
+                    eprintln!("{}", notice.said());
                 }
                 let (started, vars) = (std::time::Instant::now(), launched.vars);
                 let client = Logged::start_then(Job::Client, launched.cmd, move |_| {

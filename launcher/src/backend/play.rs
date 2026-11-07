@@ -183,8 +183,10 @@ pub fn game_args() -> Vec<String> {
 }
 
 /// Appends the player's extra game arguments, so they add to the launcher's own or override them.
-fn append_game_args(cmd: &mut Command) {
-    cmd.args(game_args());
+fn append_game_args(cmd: &mut Command, instance: &Instance) {
+    cmd.args(split_args(
+        instance.game_args_or(&Settings::load().game_args),
+    ));
 }
 
 /// Renderer workarounds a player may have exported to start the launcher itself (a transparent
@@ -353,12 +355,27 @@ pub struct Launched {
 impl Launched {
     /// What the player is told as the game starts: why it plays offline, a renewed sign-in that
     /// wasn't saved.
-    pub fn notices(&self) -> impl Iterator<Item = String> + '_ {
-        let offline = self
-            .offline
-            .as_ref()
-            .map(|e| format!("Playing offline: {e}"));
-        offline.into_iter().chain(self.unsaved.clone())
+    pub fn notices(&self) -> Vec<StartNotice> {
+        let offline = self.offline.clone().map(StartNotice::Offline);
+        let unsaved = self.unsaved.clone().map(StartNotice::Unsaved);
+        offline.into_iter().chain(unsaved).collect()
+    }
+}
+
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum StartNotice {
+    Offline(String),
+    Unsaved(String),
+}
+
+impl StartNotice {
+    pub fn said(&self) -> String {
+        match self {
+            StartNotice::Offline(why) => {
+                crate::i18n::trf("Playing offline: {why}", &[("why", why)])
+            }
+            StartNotice::Unsaved(said) => said.clone(),
+        }
     }
 }
 
@@ -479,7 +496,7 @@ fn eclipse_command(
     if play.creative {
         cmd.arg("--creative");
     }
-    append_game_args(&mut cmd);
+    append_game_args(&mut cmd, &play.instance);
     Ok(cmd)
 }
 

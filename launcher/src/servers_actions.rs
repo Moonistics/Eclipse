@@ -395,9 +395,7 @@ impl Launcher {
                     if let Some(eclipse) = eclipse {
                         self.select_instance(&eclipse);
                     }
-                    if !self.game.preparing {
-                        self.prepare(backend::MinecraftFrom::Install);
-                    }
+                    self.prepare(backend::MinecraftFrom::Install, false);
                 }
             },
             Fix::AgreeEula => {

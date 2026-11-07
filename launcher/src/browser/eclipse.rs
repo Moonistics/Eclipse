@@ -30,6 +30,9 @@ const MAX_INDEX: u64 = 16 << 20;
 /// The last index fetched, kept in the game folder for when the registry can't be reached.
 const CACHE: &str = "mod-browser/eclipse-index.json";
 
+const UNREADABLE: &str =
+    "Eclipse's mod list came back unreadable. A firewall or proxy may be in the way.";
+
 /// Where the index comes from: `ECLIPSE_MOD_INDEX` (a file or an `https://` address, for a
 /// test registry), else [`INDEX_URL`].
 fn location() -> String {
@@ -113,7 +116,7 @@ fn fetch_index() -> Result<(Index, String), String> {
 }
 
 fn read_index(text: &str) -> Result<Index, String> {
-    parse(text).map_err(|e| format!("Eclipse's mod registry wasn't readable: {e}"))
+    parse(text).map_err(|e| format!("{UNREADABLE}\n{e}"))
 }
 
 fn parse(text: &str) -> Result<Index, String> {

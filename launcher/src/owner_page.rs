@@ -123,16 +123,9 @@ impl Launcher {
             Shown::Code(uri, _) => {
                 let uri = uri.to_string();
                 Some(
-                    ui::button(
-                        "owner-open",
-                        None,
-                        tr("Open link"),
-                        ButtonKind::Primary,
-                        ui::ButtonSize::Lg,
-                    )
-                    .px(px(space::XL))
-                    .on_press(move |_, _, cx| cx.open_url(&uri))
-                    .into_any_element(),
+                    ui::primary("owner-open", None, tr("Open link"), ui::DIALOG_BUTTON)
+                        .on_press(move |_, _, cx| cx.open_url(&uri))
+                        .into_any_element(),
                 )
             }
             Shown::Starting(_) | Shown::Unavailable => None,
@@ -145,20 +138,20 @@ impl Launcher {
                     .into_any_element(),
             ),
         };
-        let (close, kind) = match state {
-            Shown::Unavailable => (tr("Close"), ButtonKind::Secondary),
-            _ => (tr("Not now"), ButtonKind::Ghost),
+        let close = match state {
+            Shown::Unavailable => tr("Close"),
+            _ => tr("Not now"),
         };
-        let later = ui::button("owner-later", None, close, kind, ui::ButtonSize::Lg)
-            .px(px(space::XL))
-            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+        let later = ui::dialog_dismiss("owner-later", close).on_press(cx.listener(
+            |this, _: &ClickEvent, _, cx| {
                 this.close_owner_screen();
                 cx.notify();
-            }));
+            },
+        ));
         if matches!(state, Shown::Code(..)) {
             card = card.child(ui::card_note(tr("Waiting for Microsoft…")).mt(px(space::MD)));
         }
-        let foot = main.into_iter().chain([later.into_any_element()]).collect();
+        let foot = vec![ui::dialog_foot(later, main).into_any_element()];
         ui::modal("owner-gate", tr("Sign in to play"), None)
             .flex()
             .items_center()

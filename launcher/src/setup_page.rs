@@ -287,7 +287,7 @@ impl Setup {
                     ))
                     .child(
                         div().flex().justify_end().child(
-                            ui::button(
+                            ui::primary(
                                 "go",
                                 None,
                                 tr(&if self.update {
@@ -295,7 +295,6 @@ impl Setup {
                                 } else {
                                     tr("Install").to_string()
                                 }),
-                                ButtonKind::Primary,
                                 ui::ButtonSize::Md,
                             )
                             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
@@ -330,7 +329,7 @@ impl Setup {
                                     .on_press(cx.listener(|_, _: &ClickEvent, _, cx| cx.quit())),
                             )
                             .child(
-                                ui::button("go", None, tr("Uninstall"), ButtonKind::Primary, ui::ButtonSize::Md)
+                                ui::primary("go", None, tr("Uninstall"), ui::ButtonSize::Md)
                                     .on_press(
                                         cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx)),
                                     ),
@@ -365,14 +364,10 @@ impl Setup {
                 if self.mode == Mode::Install {
                     body = body.child(
                         div().flex().items_center().justify_end().child(
-                            ui::button(
-                                "launch",
-                                None,
-                                tr("Launch Eclipse"),
-                                ButtonKind::Primary,
-                                ui::ButtonSize::Md,
-                            )
-                            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx))),
+                            ui::primary("launch", None, tr("Launch Eclipse"), ui::ButtonSize::Md)
+                                .on_press(
+                                    cx.listener(|this, _: &ClickEvent, _, cx| this.launch(cx)),
+                                ),
                         ),
                     );
                 }

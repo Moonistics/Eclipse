@@ -136,12 +136,30 @@ impl Launcher {
         list.iter().find(|i| i.id == id).or(list.first())
     }
 
+    pub(super) fn plays<'a>(
+        &'a self,
+        instance: &'a Instance,
+    ) -> Option<instances::EclipseVersion<'a>> {
+        instance.eclipse_version(
+            self.settings.default_version.as_ref(),
+            &self.versions.installed,
+        )
+    }
+
+    pub(super) fn plays_pinned<'a>(
+        &'a self,
+        pin: Option<&'a String>,
+    ) -> instances::EclipseVersion<'a> {
+        instances::EclipseVersion::of(
+            pin,
+            self.settings.default_version.as_ref(),
+            &self.versions.installed,
+        )
+    }
+
     /// The installed version `instance` plays: its own, else the launcher's.
-    pub(super) fn version_of(&self, instance: &Instance) -> Option<&String> {
-        match &instance.version {
-            Some(own) => self.versions.installed.iter().find(|t| *t == own),
-            None => self.default_version(),
-        }
+    pub(super) fn version_of<'a>(&'a self, instance: &'a Instance) -> Option<&'a String> {
+        self.plays(instance)?.installed_tag()
     }
 
     /// Keeps the selected instance on `tag`, or lets it follow the launcher's version.
@@ -465,6 +483,48 @@ impl Launcher {
 }
 
 impl Launcher {
+    pub(super) fn instance_by_id(&self, id: &str) -> Option<Instance> {
+        self.instances.list.iter().find(|i| i.id == id).cloned()
+    }
+
+    fn show_on_home(&mut self, instance: &Instance) {
+        self.close_menu();
+        self.select_instance(instance);
+        self.go(Page::Home);
+    }
+
+    pub(super) fn show_duplicate(&mut self, instance: &Instance) {
+        self.show_on_home(instance);
+        self.start_copy();
+    }
+
+    pub(super) fn show_export(&mut self, instance: &Instance) {
+        self.show_on_home(instance);
+        if self.export.is_none() {
+            self.toggle_export();
+        }
+    }
+
+    pub(super) fn show_launch_options(&mut self, instance: &Instance) {
+        self.show_on_home(instance);
+        self.launch = None;
+        self.toggle_launch();
+    }
+
+    pub(super) fn can_delete_instance(&self, instance: &Instance) -> bool {
+        instance.kind != InstanceKind::Default && !self.game.active()
+    }
+
+    pub(super) fn ask_delete_instance(&mut self, id: String, window: &Window, cx: &App) {
+        let Some(instance) = self.instance_by_id(&id) else {
+            return;
+        };
+        self.open_menu_from(menus::Menu::InstanceRow(id.clone()), window, cx);
+        if self.can_delete_instance(&instance) {
+            self.asking = Some(menus::Asking::InstanceDelete(id));
+        }
+    }
+
     pub(super) fn delete_instance(&mut self, id: &str) {
         if self.game.active() {
             return;

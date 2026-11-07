@@ -12,6 +12,8 @@ use std::rc::Rc;
 
 const REVEAL_MARGIN: f32 = 24.;
 
+const LIST_ROW_GAP: f32 = eclipse_theme::glass::space::XS;
+
 const RING_WIDTH: f32 = 4.;
 
 const RING_GAP: f32 = 1.5;
@@ -24,6 +26,8 @@ const TIP_GAP: f32 = eclipse_theme::glass::space::SM;
 
 const SPARE_HANDLES: usize = 64;
 
+const SPARE_PRESS_HANDLES: usize = 128;
+
 const PAGE_STEP: usize = 8;
 
 const TYPE_AHEAD: std::time::Duration = std::time::Duration::from_millis(900);
@@ -33,14 +37,20 @@ thread_local! {
     static LISTS: RefCell<HashMap<SharedString, Scrollbar>> = RefCell::default();
     static FOCUS_TIP: RefCell<Option<FocusTip>> = const { RefCell::new(None) };
     static MENU_OPENING: Cell<bool> = const { Cell::new(false) };
+    static MENU_START: RefCell<Option<SharedString>> = const { RefCell::new(None) };
     static HANDLES: RefCell<HashMap<SharedString, FocusHandle>> = RefCell::default();
     static SPARE: RefCell<Vec<FocusHandle>> = const { RefCell::new(Vec::new()) };
     static SHORT_OF: Cell<usize> = const { Cell::new(0) };
+    static PRESS_SPARE: RefCell<Vec<FocusHandle>> = const { RefCell::new(Vec::new()) };
+    static PRESS_SHORT_OF: Cell<usize> = const { Cell::new(0) };
+    static PRESSED: RefCell<HashSet<SharedString>> = RefCell::default();
+    static KEPT: RefCell<HashMap<SharedString, FocusHandle>> = RefCell::default();
     static FOCUSED: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
     static KEYBOARD: Cell<bool> = const { Cell::new(false) };
     static MODALS: RefCell<Modals> = RefCell::default();
-    static CURSORS: RefCell<HashMap<SharedString, usize>> = RefCell::default();
+    static CURSORS: RefCell<HashMap<SharedString, Cursor>> = RefCell::default();
     static REVEAL_SOON: RefCell<HashSet<SharedString>> = RefCell::default();
+    static FOCUS_WHEN_SHOWN: RefCell<HashMap<SharedString, usize>> = RefCell::default();
     static TYPED: RefCell<(String, Option<std::time::Instant>)> = RefCell::default();
 }
 
@@ -49,6 +59,14 @@ struct FocusTip {
     label: SharedString,
     bounds: Bounds<Pixels>,
     handle: FocusHandle,
+    side: TipSide,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(super) enum TipSide {
+    Below,
+    Beside,
+    Above,
 }
 
 #[derive(Default)]
@@ -58,14 +76,90 @@ struct Modals {
     openers: HashMap<SharedString, FocusHandle>,
 }
 
+#[derive(Clone, Default)]
+struct Cursor {
+    at: usize,
+    row: Option<SharedString>,
+}
+
 #[derive(Default)]
 struct Spot {
     bounds: Bounds<Pixels>,
     panes: Vec<(ScrollHandle, Pixels)>,
+    row: bool,
 }
 
 pub(super) fn forget_spots() {
     SPOTS.with_borrow_mut(Vec::clear);
+    PRESSED.with_borrow_mut(HashSet::clear);
+    KEPT.with_borrow_mut(HashMap::clear);
+    MENU_START.set(None);
+}
+
+fn element_name(el: &mut Stateful<Div>) -> Option<SharedString> {
+    match el.interactivity().element_id.clone() {
+        Some(gpui::ElementId::Name(id)) => Some(id),
+        _ => None,
+    }
+}
+
+pub fn skipped_by_tab(mut el: Stateful<Div>) -> Stateful<Div> {
+    match press_handle(&mut el, true) {
+        Some(handle) => el.track_focus(&handle.tab_stop(false)),
+        None => el.tab_stop(false),
+    }
+}
+
+pub fn keep_focus(mut el: Stateful<Div>, handle: &FocusHandle) -> Stateful<Div> {
+    if let Some(id) = element_name(&mut el) {
+        KEPT.with_borrow_mut(|kept| kept.insert(id, handle.clone()));
+    }
+    el.track_focus(handle)
+}
+
+pub(super) fn press_handle(el: &mut Stateful<Div>, again: bool) -> Option<FocusHandle> {
+    let id = element_name(el)?;
+    if let Some(kept) = KEPT.with_borrow(|kept| kept.get(&id).cloned()) {
+        return Some(kept);
+    }
+    let first = PRESSED.with_borrow_mut(|pressed| pressed.insert(id.clone()));
+    if !first && !again {
+        return None;
+    }
+    let key: SharedString = format!("press-{id}").into();
+    HANDLES.with_borrow_mut(|handles| {
+        if let Some(handle) = handles.get(&key) {
+            return Some(handle.clone());
+        }
+        let Some(handle) = PRESS_SPARE.with_borrow_mut(Vec::pop) else {
+            PRESS_SHORT_OF.set(PRESS_SHORT_OF.get() + 1);
+            return None;
+        };
+        handles.insert(key, handle.clone());
+        Some(handle)
+    })
+}
+
+pub(super) fn ring_while_focused(
+    el: Stateful<Div>,
+    handle: &FocusHandle,
+    filled: bool,
+) -> Stateful<Div> {
+    if !keyboard_focus(handle) {
+        return el;
+    }
+    let ring = div()
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+        .rounded(px(eclipse_theme::glass::radius::CONTROL))
+        .shadow(if filled {
+            gap_ring_shadows(RING_GAP)
+        } else {
+            inset_shadow()
+        });
+    el.child(deferred(ring))
 }
 
 pub trait Press: Sized {
@@ -90,12 +184,17 @@ fn solid(el: &mut Stateful<Div>) -> bool {
 
 pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
     let filled = solid(&mut el);
+    let held = press_handle(&mut el, false);
     let el = if el.a11y_role().is_none() {
         el.role(Role::Button)
     } else {
         el
     };
     let el = el.tab_index(0);
+    let el = match held {
+        Some(handle) => el.track_focus(&handle.tab_stop(true)),
+        None => el,
+    };
     let el = if filled {
         el.focus_visible(ring)
     } else {
@@ -107,12 +206,17 @@ pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
 pub(super) fn note_focus(window: &Window, cx: &mut App) {
     FOCUSED.set(window.focused(cx));
     KEYBOARD.set(window.last_input_was_keyboard());
-    let wanted = SPARE_HANDLES + SHORT_OF.take();
-    SPARE.with_borrow_mut(|spare| {
-        while spare.len() < wanted {
-            spare.push(cx.focus_handle().tab_index(0).tab_stop(true));
-        }
-    });
+    for (pool, short, size) in [
+        (&SPARE, &SHORT_OF, SPARE_HANDLES),
+        (&PRESS_SPARE, &PRESS_SHORT_OF, SPARE_PRESS_HANDLES),
+    ] {
+        let wanted = size + short.take();
+        pool.with_borrow_mut(|spare| {
+            while spare.len() < wanted {
+                spare.push(cx.focus_handle().tab_index(0).tab_stop(true));
+            }
+        });
+    }
     MODALS.with_borrow_mut(|m| m.last = std::mem::take(&mut m.shown));
 }
 
@@ -149,7 +253,7 @@ pub fn keyboard_focus(handle: &FocusHandle) -> bool {
 
 pub fn reveal_on_tab(el: Stateful<Div>) -> Stateful<Div> {
     let spot: Rc<RefCell<Spot>> = Rc::default();
-    el.child(spot_measure(spot.clone()))
+    el.child(spot_measure(spot.clone(), false))
         .on_key_up(move |ev: &KeyUpEvent, window, cx| {
             if ev.keystroke.key != "tab" {
                 return;
@@ -159,11 +263,12 @@ pub fn reveal_on_tab(el: Stateful<Div>) -> Stateful<Div> {
         })
 }
 
-fn spot_measure(spot: Rc<RefCell<Spot>>) -> impl IntoElement {
+fn spot_measure(spot: Rc<RefCell<Spot>>, row: bool) -> impl IntoElement {
     measure(move |bounds| {
         *spot.borrow_mut() = Spot {
             bounds,
             panes: Vec::new(),
+            row,
         };
         SPOTS.with_borrow_mut(|spots| spots.push(spot));
     })
@@ -175,7 +280,13 @@ fn reveal_spot(spot: &Rc<RefCell<Spot>>, window: &mut Window) {
     for (pane, measured_at) in &spot.panes {
         bounds.origin.y += pane.offset().y - *measured_at;
         let before = pane.offset().y;
-        reveal(pane, bounds);
+        let margin = if spot.row {
+            let room = (pane.bounds().size.height - bounds.size.height) / 2.;
+            (bounds.size.height + px(LIST_ROW_GAP)).min(room.max(px(0.)))
+        } else {
+            px(REVEAL_MARGIN)
+        };
+        reveal(pane, bounds, margin);
         bounds.origin.y += pane.offset().y - before;
         window.refresh();
     }
@@ -206,7 +317,7 @@ pub fn options_focus(list: &str) -> Option<FocusHandle> {
 pub fn options_with_heads(
     mut list: Stateful<Div>,
     name: impl Into<SharedString>,
-    rows: Vec<(Stateful<Div>, SharedString, bool)>,
+    mut rows: Vec<(Stateful<Div>, SharedString, bool)>,
     heads: Vec<(usize, AnyElement)>,
     follow: bool,
     on_pick: impl Fn(usize, &mut Window, &mut App) + 'static,
@@ -218,22 +329,45 @@ pub fn options_with_heads(
     let handle = try_focus_for(options_key(&id));
     let count = rows.len();
     let labels: Vec<SharedString> = rows.iter().map(|r| r.1.clone()).collect();
+    let keys: Rc<Vec<Option<SharedString>>> =
+        Rc::new(rows.iter_mut().map(|r| element_name(&mut r.0)).collect());
     let first = rows.iter().position(|r| r.2);
-    let kept = CURSORS.with_borrow(|c| c.get(&id).copied());
+    let kept = CURSORS.with_borrow(|c| c.get(&id).cloned()).map(|kept| {
+        kept.row
+            .and_then(|row| keys.iter().position(|k| k.as_ref() == Some(&row)))
+            .unwrap_or(kept.at)
+    });
+    let shown_now = FOCUS_WHEN_SHOWN.with_borrow_mut(|w| {
+        let at = w.get(&id).copied().filter(|&at| at < count)?;
+        w.remove(&id);
+        Some(at)
+    });
     let cursor = if follow {
         first.or(kept)
     } else {
         kept.or(first)
+    };
+    let cursor = shown_now
+        .or(cursor)
+        .unwrap_or(0)
+        .min(count.saturating_sub(1));
+    if shown_now.is_some() {
+        REVEAL_SOON.with_borrow_mut(|r| r.insert(id.clone()));
     }
-    .unwrap_or(0)
-    .min(count.saturating_sub(1));
-    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), cursor));
+    let cursor_at = {
+        let keys = keys.clone();
+        move |at: usize| Cursor {
+            at,
+            row: keys.get(at).cloned().flatten(),
+        }
+    };
+    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), cursor_at(cursor)));
     let ringed = handle.as_ref().is_some_and(keyboard_focus);
     let on_pick = Rc::new(on_pick);
     let mut heads = heads.into_iter().peekable();
     let mut children: Vec<AnyElement> = Vec::new();
     let rows = rows.into_iter().enumerate().map(|(i, (row, label, on))| {
-        let (pick, key) = (on_pick.clone(), id.clone());
+        let (pick, key, at) = (on_pick.clone(), id.clone(), cursor_at.clone());
         let row = if row.a11y_role().is_none() {
             row.role(Role::ListBoxOption)
         } else {
@@ -246,7 +380,7 @@ pub fn options_with_heads(
             .aria_size_of_set(count)
             .cursor_pointer()
             .on_click(move |_, window, cx| {
-                CURSORS.with_borrow_mut(|c| c.insert(key.clone(), i));
+                CURSORS.with_borrow_mut(|c| c.insert(key.clone(), at(i)));
                 pick(i, window, cx);
             });
         if i != cursor {
@@ -254,7 +388,7 @@ pub fn options_with_heads(
         }
         let spot: Rc<RefCell<Spot>> = Rc::default();
         let (seen, list) = (spot.clone(), id.clone());
-        row.child(spot_measure(spot))
+        row.child(spot_measure(spot, true))
             .child(
                 canvas(
                     move |_, window, _| {
@@ -296,6 +430,19 @@ pub fn options_with_heads(
         Some(handle) => list.track_focus(handle),
         None => list,
     };
+    let list = match handle.clone().filter(|_| shown_now.is_some()) {
+        Some(handle) => list.child(
+            canvas(
+                move |_, window, _| {
+                    let handle = handle.clone();
+                    window.on_next_frame(move |window, cx| window.focus(&handle, cx));
+                },
+                |_, _, _, _| {},
+            )
+            .absolute(),
+        ),
+        None => list,
+    };
     list.children(children)
         .on_key_up(move |ev: &KeyUpEvent, window, cx| {
             if ev.keystroke.key != "tab" {
@@ -317,7 +464,7 @@ pub fn options_with_heads(
             let k = &ev.keystroke;
             let last = count - 1;
             let cursor = CURSORS
-                .with_borrow(|c| c.get(&key).copied())
+                .with_borrow(|c| c.get(&key).map(|c| c.at))
                 .unwrap_or(cursor)
                 .min(last);
             let to = match k.key.as_str() {
@@ -337,7 +484,7 @@ pub fn options_with_heads(
                     None => return,
                 },
             };
-            CURSORS.with_borrow_mut(|c| c.insert(key.clone(), to));
+            CURSORS.with_borrow_mut(|c| c.insert(key.clone(), cursor_at(to)));
             REVEAL_SOON.with_borrow_mut(|r| r.insert(key.clone()));
             if follow && to != cursor {
                 on_pick(to, window, cx);
@@ -348,7 +495,7 @@ pub fn options_with_heads(
 }
 
 pub fn options_cursor(id: &str) -> usize {
-    CURSORS.with_borrow(|c| c.get(id).copied().unwrap_or(0))
+    CURSORS.with_borrow(|c| c.get(id).map_or(0, |c| c.at))
 }
 
 pub fn options_step(id: &str, by: isize, count: usize) {
@@ -360,8 +507,12 @@ pub fn options_step(id: &str, by: isize, count: usize) {
 
 pub fn set_options_cursor(id: &str, at: usize) {
     let id = SharedString::from(id.to_string());
-    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), at));
+    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), Cursor { at, row: None }));
     REVEAL_SOON.with_borrow_mut(|r| r.insert(id));
+}
+
+pub fn focus_option(id: &str, at: usize) {
+    FOCUS_WHEN_SHOWN.with_borrow_mut(|w| w.insert(SharedString::from(id.to_string()), at));
 }
 
 fn typed_match(k: &gpui::Keystroke, labels: &[SharedString], cursor: usize) -> Option<usize> {
@@ -496,9 +647,8 @@ pub fn scroll_list_to(id: impl Into<SharedString>, index: usize) {
     LISTS.with_borrow_mut(|l| l.entry(id.into()).or_default().handle.scroll_to_item(index));
 }
 
-fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
+fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>, margin: Pixels) {
     let view = pane.bounds();
-    let margin = px(REVEAL_MARGIN);
     let mut offset = pane.offset();
     if bounds.top() < view.top() + margin {
         offset.y += view.top() + margin - bounds.top();
@@ -512,7 +662,7 @@ fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>) {
     }
 }
 
-pub fn tip_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
+pub(super) fn tip_on_focus(el: Stateful<Div>, label: SharedString, side: TipSide) -> Stateful<Div> {
     let spot = Rc::new(Cell::new(None));
     let seen = spot.clone();
     el.child(measure(move |bounds| seen.set(Some(bounds))))
@@ -525,6 +675,7 @@ pub fn tip_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
                     label: label.clone(),
                     bounds,
                     handle,
+                    side,
                 }));
                 window.refresh();
             }
@@ -533,41 +684,28 @@ pub fn tip_on_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
 
 pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
     let mut el = el;
-    let key = match el.interactivity().element_id.clone() {
-        Some(gpui::ElementId::Name(id)) => id,
-        _ => SharedString::from("unavailable"),
-    };
     let filled = solid(&mut el);
+    let handle = press_handle(&mut el, true);
     let el = if el.a11y_role().is_none() {
         el.role(Role::Button)
     } else {
         el
     };
-    let Some(handle) = try_focus_for(format!("held-{key}")) else {
+    let Some(handle) = handle else {
         return reveal_on_tab(el.tab_index(0));
     };
-    let ringed = keyboard_focus(&handle);
-    let el = reveal_on_tab(el.track_focus(&handle));
-    if !ringed {
+    let el = reveal_on_tab(el.track_focus(&handle.clone().tab_stop(true)));
+    if !keyboard_focus(&handle) {
         return el;
     }
-    let ring = div()
-        .absolute()
-        .top_0()
-        .left_0()
-        .size_full()
-        .rounded(px(eclipse_theme::glass::radius::CONTROL))
-        .shadow(if filled {
-            gap_ring_shadows(RING_GAP)
-        } else {
-            inset_shadow()
-        });
+    let el = ring_while_focused(el, &handle, filled);
     let tip = canvas(
         move |bounds, window, _| {
             let tip = Some(FocusTip {
                 label: label.clone(),
                 bounds,
                 handle: handle.clone(),
+                side: TipSide::Below,
             });
             if FOCUS_TIP.with_borrow(|t| *t != tip) {
                 FOCUS_TIP.set(tip);
@@ -580,7 +718,26 @@ pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div
     .top_0()
     .left_0()
     .size_full();
-    el.child(deferred(ring)).child(tip)
+    el.child(tip)
+}
+
+pub(super) fn busy_focus(mut el: Stateful<Div>) -> Stateful<Div> {
+    let filled = solid(&mut el);
+    match press_handle(&mut el, true) {
+        Some(handle) => {
+            let el = el.track_focus(&handle.clone().tab_stop(false));
+            ring_while_focused(el, &handle, filled)
+        }
+        None => el.tab_index(0).tab_stop(false),
+    }
+}
+
+pub(super) fn busy_ringed(mut el: Stateful<Div>) -> Stateful<Div> {
+    let el = match press_handle(&mut el, true) {
+        Some(handle) => el.track_focus(&handle.tab_stop(false)),
+        None => el.tab_index(0).tab_stop(false),
+    };
+    el.focus_visible(ring)
 }
 
 pub fn focus_tip(window: &Window) -> Option<AnyElement> {
@@ -588,12 +745,21 @@ pub fn focus_tip(window: &Window) -> Option<AnyElement> {
         label,
         bounds,
         handle,
+        side,
     } = FOCUS_TIP.with_borrow(|t| t.clone())?;
     if !handle.is_focused(window) || !window.last_input_was_keyboard() {
         FOCUS_TIP.set(None);
         return None;
     }
-    let at = point(bounds.left(), bounds.bottom() + px(TIP_GAP));
+    let (width, height) = super::tip_size(&label);
+    let gap = px(TIP_GAP);
+    let beside = point(bounds.right() + gap, bounds.center().y - px(height / 2.));
+    let above = point(bounds.left(), bounds.top() - gap - px(height));
+    let at = match side {
+        TipSide::Beside if beside.x + px(width) + gap <= window.viewport_size().width => beside,
+        TipSide::Above if above.y >= px(0.) => above,
+        _ => point(bounds.left(), bounds.bottom() + gap),
+    };
     Some(
         deferred(
             gpui::anchored()
@@ -614,20 +780,28 @@ pub fn menu_focus() -> FocusHandle {
     focus_for("menu")
 }
 
-fn menu_start() -> FocusHandle {
-    focus_for("menu-start")
-}
-
 pub fn menu_opened() {
     MENU_OPENING.set(true);
 }
 
-pub fn starts_menu(row: Stateful<Div>) -> Stateful<Div> {
-    row.track_focus(&menu_start())
+pub fn starts_menu(mut row: Stateful<Div>) -> Stateful<Div> {
+    MENU_START.set(element_name(&mut row));
+    row
+}
+
+fn menu_start() -> Option<FocusHandle> {
+    let id = MENU_START.with_borrow(Clone::clone)?;
+    HANDLES.with_borrow(|handles| {
+        handles
+            .get(&SharedString::from(format!("press-{id}")))
+            .cloned()
+    })
 }
 
 pub(super) fn menu_keys(menu: Stateful<Div>) -> Stateful<Div> {
-    let handle = menu_focus();
+    let Some(handle) = try_focus_for("menu") else {
+        return menu;
+    };
     let opening = handle.clone();
     menu.track_focus(&handle)
         .tab_group()
@@ -636,7 +810,9 @@ pub(super) fn menu_keys(menu: Stateful<Div>) -> Stateful<Div> {
             move |_, window, cx| {
                 if MENU_OPENING.take() {
                     window.defer(cx, move |window, cx| {
-                        window.focus(&menu_start(), cx);
+                        if let Some(start) = menu_start() {
+                            window.focus(&start, cx);
+                        }
                         if !opening.contains_focused(window, cx) {
                             first_row(&opening, window, cx);
                         }
@@ -677,7 +853,9 @@ pub fn modal_focus(id: &SharedString) -> FocusHandle {
 }
 
 pub(super) fn modal_keys(scope: Stateful<Div>, id: SharedString) -> Stateful<Div> {
-    let handle = modal_focus(&id);
+    let Some(handle) = try_focus_for(format!("modal-{id}")) else {
+        return scope;
+    };
     let opened = MODALS.with_borrow_mut(|m| {
         m.shown.push(id.clone());
         let opened = !m.last.contains(&id);

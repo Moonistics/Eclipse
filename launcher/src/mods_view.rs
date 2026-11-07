@@ -12,7 +12,7 @@
 use super::*;
 use crate::menus::Asking;
 use crate::menus::Menu;
-use crate::tab_strip::StripTab;
+use crate::tab_strip::{Strip, StripTab};
 use crate::ui::{self};
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, radius, space};
@@ -80,8 +80,8 @@ impl Launcher {
                 count: None,
             })
             .collect();
-        let tabs = self.tab_strip(
-            "mods-tab",
+        let (tabs, panel) = self.tab_strip(
+            Strip::Mods,
             kinds,
             open,
             layout::content_width(self.window_width),
@@ -93,7 +93,7 @@ impl Launcher {
             .flex_col()
             .child(ui::page_head_with(
                 Page::Mods.title(),
-                "",
+                None,
                 target.map(IntoElement::into_any_element),
             ))
             .child(tabs);
@@ -105,17 +105,14 @@ impl Launcher {
             .map(|notice| notice.mb(px(layout::CARD_GAP)));
         // A project's own page replaces the two cards.
         if let Some(project) = self.mods_project_page(cx) {
-            return div()
-                .flex()
-                .flex_col()
-                .child(header)
-                .children(notice)
-                .child(
+            return div().flex().flex_col().child(header).child(
+                panel.flex().flex_col().children(notice).child(
                     ui::card()
                         .p(px(ui::CARD_PADDING))
                         .children(self.mods_busy_plate())
                         .child(project),
-                );
+                ),
+            );
         }
 
         let java = self.mods.java_for(self.mods.kind).is_some();
@@ -227,7 +224,7 @@ impl Launcher {
             .top(px(space::LG))
             .right(px(space::LG))
             .when_some(ui::try_focus_for(DETAIL_CLOSE), |d, handle| {
-                d.track_focus(&handle)
+                ui::keep_focus(d, &handle)
             })
             .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
                 this.close_mod_detail(window, cx);
@@ -311,16 +308,17 @@ impl Launcher {
                     .mb(px(layout::CARD_GAP))
                     .child(advice)
             });
-        div()
-            .flex()
-            .flex_col()
-            .child(header)
-            .children(notice)
-            .children(advice)
-            .children(packs)
-            .children(installed)
-            .child(cards)
-            .children(github)
+        div().flex().flex_col().child(header).child(
+            panel
+                .flex()
+                .flex_col()
+                .children(notice)
+                .children(advice)
+                .children(packs)
+                .children(installed)
+                .child(cards)
+                .children(github),
+        )
     }
 
     fn mods_float_room(&self) -> f32 {
@@ -383,7 +381,7 @@ impl Launcher {
             ui::ButtonSize::Md,
         );
         let button = match menus::opener_focus("mods-target") {
-            Some(focus) => button.track_focus(&focus),
+            Some(focus) => ui::keep_focus(button, &focus),
             None => button,
         };
         let button = self.menu_opener(button, Menu::ModsTarget, cx);
@@ -840,7 +838,7 @@ impl Launcher {
                 } else {
                     ui::disabled(button)
                 };
-                let button = button.when(i != cursor, |b| b.tab_stop(false));
+                let button = button.when(i != cursor, ui::skipped_by_tab);
                 ui::shown_on_focus(button, shown).into_any_element()
             } else {
                 div().into_any_element()
@@ -959,6 +957,7 @@ impl Launcher {
         .when(!searching, |d| {
             d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.mods_search(offset);
+                ui::focus_option(RESULTS, offset);
                 cx.notify();
             }))
         })

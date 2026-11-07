@@ -4,7 +4,6 @@ use super::*;
 use crate::menus::Menu;
 use crate::ui::{self};
 use eclipse_theme::glass::space;
-use std::time::Instant;
 
 const PLAY: f32 = 240.;
 const PLAY_WIDE: f32 = 280.;
@@ -22,12 +21,6 @@ impl Launcher {
     /// Java instance); `prepared`: whether that version's files are ready.
     pub(super) fn home_head(&mut self, tag: &str, prepared: bool, cx: &mut Context<Self>) -> Div {
         let java = self.selected_instance().and_then(|i| i.java.clone());
-        // How long this game has run, for "Playing for 5 min now".
-        match (&self.game.client, self.game.since) {
-            (Some(_), None) => self.game.since = Some(Instant::now()),
-            (None, Some(_)) => self.game.since = None,
-            _ => {}
-        }
         let play = self.play_group(tag, cx);
         let invite = java.is_none().then(|| {
             let width = self.invite_width(tag);
@@ -82,7 +75,7 @@ impl Launcher {
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
     fn played_text(&self, tag: &str, prepared: bool) -> Div {
-        let line = match (self.game.since, self.selected_instance()) {
+        let line = match (self.game.run().map(|r| r.since), self.selected_instance()) {
             (Some(since), _) => trf(
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
@@ -140,20 +133,23 @@ impl Launcher {
         };
         let focus = self.play_focus.clone();
         let main = match busy {
-            Some((label, progress)) => {
-                ui::primary_busy("play", label, progress, ui::ButtonSize::Hero)
-            }
-            None if running => ui::button(
-                "play",
-                Some("stop"),
-                tr("Stop"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Hero,
+            Some((label, progress)) => ui::keep_focus(
+                ui::primary_busy("play", label, progress, ui::ButtonSize::Hero),
+                &focus,
+            ),
+            None if running => ui::keep_focus(
+                ui::button(
+                    "play",
+                    Some("stop"),
+                    tr("Stop"),
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Hero,
+                ),
+                &focus,
             )
-            .track_focus(&focus)
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                if let Some(client) = &this.game.client {
-                    client.kill();
+                if let Some(run) = this.game.run() {
+                    run.client.kill();
                 }
                 cx.notify();
             })),
@@ -162,14 +158,10 @@ impl Launcher {
                     Some(_) => (tr("Update"), "download-04"),
                     None => (tr("Play"), "play"),
                 };
-                let main = ui::button(
-                    "play",
-                    Some(icon),
-                    label,
-                    ButtonKind::Primary,
-                    ui::ButtonSize::Hero,
-                )
-                .track_focus(&focus);
+                let main = ui::keep_focus(
+                    ui::primary("play", Some(icon), label, ui::ButtonSize::Hero),
+                    &focus,
+                );
                 match &update {
                     Some(_) => main.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                         this.install_update();
@@ -242,7 +234,9 @@ impl Launcher {
                     row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         match what {
-                            PlayItem::Prepare => this.prepare(backend::MinecraftFrom::Install),
+                            PlayItem::Prepare => {
+                                this.prepare(backend::MinecraftFrom::Install, false)
+                            }
                             PlayItem::Play => this.press_play(),
                             PlayItem::MinecraftFolder => this.choose_folder(cx),
                         }
@@ -256,16 +250,18 @@ impl Launcher {
     }
 
     pub(super) fn press_play(&mut self) {
+        if self.cant_sign_in_to_play() {
+            self.owner_screen_open = true;
+            self.game.problem = Some(game_run::GameProblem::NeedsOwner);
+            return;
+        }
         let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
             || self
                 .selected_version()
                 .is_some_and(|tag| backend::is_prepared(tag));
         match play_press(ready, self.game.busy()) {
             PlayPress::Play => self.play(),
-            PlayPress::PrepareThenPlay => {
-                self.game.play_when_prepared = self.selected_version().cloned();
-                self.prepare(backend::MinecraftFrom::Install);
-            }
+            PlayPress::PrepareThenPlay => self.prepare(backend::MinecraftFrom::Install, true),
             PlayPress::Nothing => {
                 if let Some(why) = self.busy_reason() {
                     crate::toast::say(why);

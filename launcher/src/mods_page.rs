@@ -380,11 +380,8 @@ fn count(n: u64) -> String {
 /// A registry project's rating: five pixel stars, the mean's nearest whole number of them lit, the
 /// mean and how many; None while the ratings aren't known.
 pub(super) fn stars(id: &str) -> Option<Div> {
-    let row = ui::text(step::NOTE, FontWeight::NORMAL, ink::MUTED)
-        .flex()
-        .items_center()
-        .gap(px(space::XXS));
-    Some(match eclipse::rating(id)? {
+    let row = div().flex().items_center().gap(px(space::XXS));
+    Some(ui::card_note(match eclipse::rating(id)? {
         None => row.child(tr("No ratings yet")),
         Some(r) => {
             let lit = r.average.round() as usize;
@@ -405,7 +402,7 @@ pub(super) fn stars(id: &str) -> Option<Div> {
                 count(r.count)
             )))
         }
-    })
+    }))
 }
 
 impl Launcher {

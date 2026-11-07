@@ -11,8 +11,8 @@ pub const EDGE: f32 = 0.07;
 pub const EDGE_LIGHT: f32 = 0.12;
 pub const FIELD_EDGE: f32 = 0.34;
 pub const FIELD_EDGE_LIGHT: f32 = 0.48;
-pub const SELECTED_EDGE: f32 = FIELD_EDGE;
-pub const SELECTED_EDGE_LIGHT: f32 = FIELD_EDGE_LIGHT;
+pub const SELECTED_EDGE: f32 = 0.3;
+pub const SELECTED_EDGE_LIGHT: f32 = 0.52;
 pub const SWITCH_EDGE_LIGHT: f32 = 0.56;
 pub const ON_LIGHT: u32 = 0x14151c;
 /// A running game or server, and a ready instance.
@@ -433,16 +433,25 @@ mod tests {
 
     #[test]
     fn a_chosen_card_shows_its_edge() {
-        use crate::night::over;
+        use crate::night::{over, DAWN};
         let look = Glass::default_look();
-        for card in [look.plate, FLOAT] {
-            let plate = over(0xffffff, fill::SELECTED, card);
-            let ratio = crate::contrast(over(0xffffff, SELECTED_EDGE, plate), card);
-            assert!(ratio >= 3., "chosen edge on #{card:06x}: {ratio:.2}");
+        let track = over(0x000000, fill::WELL_SHADE, look.plate);
+        for under in [BASE, look.plate, FLOAT, track] {
+            let plate = over(0xffffff, fill::SELECTED, under);
+            let ratio = crate::contrast(over(0xffffff, SELECTED_EDGE, plate), under);
+            assert!(ratio >= 3., "selected edge on #{under:06x}: {ratio:.2}");
         }
-        let plate = over(ON_LIGHT, fill::SELECTED, PAPER);
-        let ratio = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, plate), PAPER);
-        assert!(ratio >= 3., "light chosen edge: {ratio:.2}");
+        let well = over(ON_LIGHT, fill::FIELD, PAPER);
+        for under in [PAPER, well, DAWN.side] {
+            let plate = over(ON_LIGHT, fill::SELECTED, under);
+            let ratio = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, plate), under);
+            assert!(
+                ratio >= 3.,
+                "light selected edge on #{under:06x}: {ratio:.2}"
+            );
+        }
+        let raised = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, PAPER), DAWN.side);
+        assert!(raised >= 3., "the sidebar's raised plate: {raised:.2}");
     }
 
     #[test]

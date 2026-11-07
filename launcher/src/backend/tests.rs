@@ -2491,6 +2491,7 @@ fn play_turns_a_taken_down_mod_off_in_the_instance_it_plays() {
         played: std::time::Duration::ZERO,
         last_played: None,
         launch: Default::default(),
+        game_args: Some("--from-the-instance".into()),
         java: None,
     };
     let launched = launch(
@@ -2499,6 +2500,15 @@ fn play_turns_a_taken_down_mod_off_in_the_instance_it_plays() {
             ..Play::of(instance)
         },
         &|_| {},
+    );
+    let args: Vec<String> = launched.as_ref().map_or_else(
+        |_| Vec::new(),
+        |l| {
+            l.cmd
+                .get_args()
+                .map(|a| a.to_string_lossy().into_owned())
+                .collect()
+        },
     );
     let on = java::is_enabled(&home, "coords_hud");
     match before {
@@ -2509,6 +2519,7 @@ fn play_turns_a_taken_down_mod_off_in_the_instance_it_plays() {
     fs::remove_dir_all(&home).unwrap();
     assert_eq!(launched.err(), None);
     assert!(!on, "the taken-down mod is off in the instance's folder");
+    assert!(args.iter().any(|a| a == "--from-the-instance"), "{args:?}");
 }
 
 #[cfg(unix)]

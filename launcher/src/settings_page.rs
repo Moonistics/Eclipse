@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::game_run::InstallState;
-use crate::tab_strip::StripTab;
+use crate::tab_strip::{Strip, StripTab};
 use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, space, step};
 
@@ -63,6 +63,10 @@ impl SettingsSection {
         }
     }
 
+    fn element_id(self) -> String {
+        format!("settings-section-{}", self.id())
+    }
+
     pub(super) fn name(self) -> &'static str {
         match self {
             SettingsSection::Account => tr("Account"),
@@ -80,16 +84,16 @@ impl SettingsSection {
 
     fn icon(self) -> &'static str {
         match self {
-            SettingsSection::Account => "user",
+            SettingsSection::Account => crate::icons::ACCOUNT,
             SettingsSection::Updates => crate::icons::UPDATES,
             SettingsSection::Appearance => crate::icons::APPEARANCE,
             SettingsSection::Language => crate::icons::LANGUAGE,
             SettingsSection::Network => crate::icons::NETWORK,
-            SettingsSection::Game => "game-controller-01",
-            SettingsSection::Ai => "ai-chat-02",
-            SettingsSection::Folders => "folder-01",
+            SettingsSection::Game => crate::icons::GAME,
+            SettingsSection::Ai => crate::icons::AI,
+            SettingsSection::Folders => crate::icons::FOLDERS,
             SettingsSection::Developer => crate::icons::DEVELOPER,
-            SettingsSection::DataCollection => "view",
+            SettingsSection::DataCollection => crate::icons::DATA_COLLECTION,
         }
     }
 }
@@ -188,8 +192,8 @@ impl Launcher {
                     count: None,
                 })
                 .collect();
-            let head = self.tab_strip(
-                "settings-section",
+            let (head, panel) = self.tab_strip(
+                Strip::Settings,
                 named,
                 open,
                 layout::content_width(self.window_width),
@@ -202,13 +206,13 @@ impl Launcher {
                 .flex_1()
                 .min_h_0()
                 .child(head)
-                .child(pane)
+                .child(panel.flex().flex_col().flex_1().min_h_0().child(pane))
         } else {
             let entries = shown
                 .iter()
                 .map(|&section| {
                     let row = ui::nav_row(
-                        format!("settings-rail-{}", section.id()),
+                        section.element_id(),
                         section.icon(),
                         section.name(),
                         section == open,
@@ -255,7 +259,7 @@ impl Launcher {
             .flex_col()
             .w_full()
             .h_full()
-            .child(ui::page_head(Page::Settings.title(), ""))
+            .child(ui::page_head(Page::Settings.title(), None))
             .child(body)
     }
 
@@ -393,8 +397,10 @@ impl Launcher {
             install,
             InstallState::Ready { pinned: Some(_) } | InstallState::Built(_)
         );
-        let version = self
-            .default_version()
+        let version = own
+            .as_ref()
+            .and_then(|i| self.plays(i))
+            .and_then(|plays| plays.tag)
             .filter(|_| names_version)
             .map(|tag| eclipse_launcher::nightly::display_name(tag));
         let (tone, line) = match busy {
@@ -585,7 +591,7 @@ impl Launcher {
 
     fn settings_card(&mut self, section: SettingsSection, cx: &mut Context<Self>) -> Stateful<Div> {
         let id = section.id();
-        let card = ui::setting_card(format!("settings-{id}"), section.name()).when_some(
+        let card = ui::setting_card(section.element_id(), section.name()).when_some(
             ui::try_focus_for(format!("settings-{id}")),
             |card, handle| card.track_focus(&handle.tab_stop(false)),
         );

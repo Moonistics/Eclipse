@@ -58,9 +58,7 @@ impl Launcher {
                     .flex_1()
                     .min_w_0()
                     .gap(px(space::XS))
-                    .child(
-                        ui::entity_title(name, eclipse_theme::glass::pixel_text::PRESS).truncate(),
-                    )
+                    .child(ui::card_title(name).truncate())
                     .child(ui::state_title(status.0, status.1)),
             );
 

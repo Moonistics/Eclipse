@@ -446,13 +446,12 @@ impl Launcher {
                 .child(ui::card_note(tr("The first name becomes an operator.")).mt(px(space::MD)));
         }
 
-        let accounts = ui::toggle_row(
+        let accounts = ui::toggle_row_inset(
             "create-accounts",
             tr("Require Microsoft sign-in"),
             Some(tr("Stops anyone joining under someone else's name.").into()),
             check,
         )
-        .bg(ui::inset())
         .on_press(set(cx, |c| c.check_accounts = !c.check_accounts));
         let accounts = div()
             .flex()
@@ -675,13 +674,7 @@ impl Launcher {
             Some(fix @ Fix::Prepare) => Some(fix.clone()),
             _ => None,
         });
-        let cancel = ui::button(
-            "create-cancel",
-            None,
-            tr("Cancel"),
-            ButtonKind::Ghost,
-            ui::ButtonSize::Md,
-        );
+        let cancel = ui::dialog_dismiss("create-cancel", tr("Cancel"));
         let mut foot: Vec<AnyElement> = status
             .map(|s| s.w_full().min_w_0().into_any_element())
             .into_iter()
@@ -697,9 +690,9 @@ impl Launcher {
                 .into_any_element(),
         );
         if creating {
-            foot.push(ui::disabled(cancel).into_any_element());
+            let busy = ui::primary_busy("create-go", tr("Creating"), None, ui::DIALOG_BUTTON);
             foot.push(
-                ui::primary_busy("create-go", tr("Creating"), None, ui::ButtonSize::Md)
+                ui::dialog_foot(ui::disabled(cancel), Some(busy.into_any_element()))
                     .into_any_element(),
             );
             return foot;
@@ -710,7 +703,7 @@ impl Launcher {
                 None,
                 tr("Prepare game files"),
                 ButtonKind::Secondary,
-                ui::ButtonSize::Md,
+                ui::DIALOG_BUTTON,
             )
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.fix(fix.clone(), cx);
@@ -718,30 +711,24 @@ impl Launcher {
             }))
             .into_any_element()
         }));
-        foot.push(
-            cancel
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.servers.create = None;
-                    this.servers.problem = None;
-                    cx.notify();
-                }))
-                .into_any_element(),
-        );
-        let create = ui::primary(
-            "create-go",
-            Some("plus-sign"),
-            tr("Create server"),
-            ui::ButtonSize::Md,
-        );
-        foot.push(match self.server_needs() {
-            Some(need) => ui::unavailable(create, need.line()).into_any_element(),
-            None => create
-                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+        let cancel = cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.servers.create = None;
+            this.servers.problem = None;
+            cx.notify();
+        }));
+        let (icon, label) = (Some("plus-sign"), tr("Create server"));
+        let create = match self.server_needs() {
+            Some(need) => {
+                ui::primary_unavailable("create-go", icon, label, ui::DIALOG_BUTTON, need.line())
+            }
+            None => ui::primary("create-go", icon, label, ui::DIALOG_BUTTON).on_press(cx.listener(
+                |this, _: &ClickEvent, _, cx| {
                     this.create_server();
                     cx.notify();
-                }))
-                .into_any_element(),
-        });
+                },
+            )),
+        };
+        foot.push(ui::dialog_foot(cancel, Some(create.into_any_element())).into_any_element());
         foot
     }
 }

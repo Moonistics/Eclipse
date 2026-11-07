@@ -93,6 +93,7 @@ fn a_modded_pack_fills_the_instance_it_is_imported_into() {
             played: std::time::Duration::ZERO,
             last_played: None,
             launch: Default::default(),
+            game_args: None,
             java: Some(Default::default()),
         })
     };

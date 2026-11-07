@@ -47,6 +47,10 @@ impl Launcher {
         !matches!(self.accounts.player(), Player::Microsoft(_)) && account::client_id().is_some()
     }
 
+    pub(super) fn cant_sign_in_to_play(&self) -> bool {
+        self.owner_shown() == Some(false) && account::client_id().is_none()
+    }
+
     pub(super) fn open_sign_in(&mut self) {
         self.start_sign_in();
         self.show_settings(settings_page::SettingsSection::Account);

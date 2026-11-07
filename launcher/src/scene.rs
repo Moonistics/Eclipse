@@ -31,6 +31,7 @@ const SETTING_SHOWN: f32 = 0.4;
 const SETTING_SHOWN_BEST: f32 = 0.45;
 
 const CORONA_ALPHAS: [f32; 4] = [0.10, 0.065, 0.04, 0.02];
+const DAY_CORONA_ALPHAS: [f32; 4] = [0.26, 0.15, 0.08, 0.035];
 const CORONA_RING: f32 = 0.26;
 const CORONA_FADE_RINGS: f32 = 2.;
 const STREAMERS: usize = 12;
@@ -55,11 +56,12 @@ const STAR_DOT: f32 = 0.5;
 const SMALLEST_STAR_DOT: f32 = 1.5;
 const TEXT_CLEARANCE: f32 = 24.;
 
-const CLOUD_EVERY: f32 = 24.;
 const CLOUD_BAND: (f32, f32) = (0.45, 0.85);
 const CLOUD_LENGTH: (f32, f32) = (14., 34.);
 const CLOUD_ALPHA: f32 = 0.7;
 const CLOUD_CLEARANCE: f32 = 4.;
+const CLOUD_GROUP: usize = 3;
+const CLOUD_STEP: (f32, f32) = (6., 10.);
 const CLOUD_ROWS: [(f32, f32); 4] = [(0.3, 0.35), (0.1, 0.75), (0., 1.), (0.15, 0.65)];
 
 const SNOW_LINE: f32 = 0.34;
@@ -118,9 +120,10 @@ struct Palette {
     stars: Option<[Rgb; 3]>,
     clouds: Option<Shape>,
     corona: Rgb,
+    corona_alphas: [f32; 4],
     streamer: Rgb,
     rim: Rgb,
-    bead: Rgb,
+    bead: Option<Rgb>,
     moon: Rgb,
     far: Shape,
     mid: Shape,
@@ -143,9 +146,10 @@ const AT_NIGHT: Palette = Palette {
     stars: Some([[176., 182., 222.], [104., 110., 160.], [62., 67., 108.]]),
     clouds: None,
     corona: [255., 176., 72.],
+    corona_alphas: CORONA_ALPHAS,
     streamer: [255., 196., 110.],
     rim: [255., 226., 170.],
-    bead: [255., 248., 230.],
+    bead: Some([255., 248., 230.]),
     moon: [7., 8., 13.],
     far: Shape {
         body: [26., 28., 60.],
@@ -176,11 +180,12 @@ const BY_DAY: Palette = Palette {
         body: [255., 255., 255.],
         edge: [226., 222., 220.],
     }),
-    corona: [248., 170., 60.],
-    streamer: [242., 158., 52.],
-    rim: [245., 165., 36.],
-    bead: [255., 250., 236.],
-    moon: [146., 148., 174.],
+    corona: [244., 150., 40.],
+    corona_alphas: DAY_CORONA_ALPHAS,
+    streamer: [236., 140., 36.],
+    rim: [240., 148., 16.],
+    bead: None,
+    moon: [80., 82., 102.],
     far: Shape {
         body: [196., 196., 218.],
         edge: [214., 214., 232.],
@@ -677,29 +682,15 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
         }
     }
 
-    if let Some(cloud) = &palette.clouds {
-        let mut drift = Rng(29);
-        for _ in 0..(w / CLOUD_EVERY).round() as usize {
-            let x = drift.next() * w;
-            let y = drift.between(CLOUD_BAND) * horizon;
-            let len = drift.between(CLOUD_LENGTH);
-            let near_sun = disc.is_some_and(|(r, sx, sy)| {
-                (x + len / 2. - sx as f32).abs() < len / 2. + r * SUN_CLEARANCE
-                    && (y - sy as f32).abs() < r * SUN_CLEARANCE
-            });
-            let (left, right) = stage.column;
-            let in_gutter = x >= stage.sidebar as f32 && x + len < left as f32 - CLOUD_CLEARANCE;
-            if near_sun || !(in_gutter || x > right as f32 + CLOUD_CLEARANCE) {
-                continue;
-            }
-            let (x, y) = (x as i32, y as i32);
-            let part = |share: f32| (len * share).round() as i32;
+    if let Some(shape) = &palette.clouds {
+        for cloud in clouds(stage, cols, disc) {
+            let part = |share: f32| (cloud.len * share).round() as i32;
             for (row, &(from, share)) in CLOUD_ROWS.iter().enumerate() {
                 let underside = row == CLOUD_ROWS.len() - 1;
-                let colour = if underside { cloud.edge } else { cloud.body };
+                let colour = if underside { shape.edge } else { shape.body };
                 c.veil(
-                    x + part(from),
-                    y + row as i32,
+                    cloud.x + part(from),
+                    cloud.y + row as i32,
                     part(share),
                     1,
                     colour,
@@ -798,6 +789,47 @@ fn paint(cols: usize, rows: usize, stage: Stage, sun: Sun, look: Look) -> Pictur
     }
 }
 
+struct Cloud {
+    x: i32,
+    y: i32,
+    len: f32,
+}
+
+fn clouds(stage: Stage, cols: usize, disc: Option<(f32, i32, i32)>) -> Vec<Cloud> {
+    let (left, right) = stage.column;
+    let clear = CLOUD_CLEARANCE as i32;
+    let gutters = [
+        (stage.sidebar + clear, left - clear),
+        (right + clear + 1, cols as i32 - clear),
+    ];
+    let tallest = CLOUD_ROWS.len() as f32 + (CLOUD_GROUP - 1) as f32 * CLOUD_STEP.1;
+    let mut out = Vec::new();
+    for ((from, to), seed) in gutters.into_iter().zip([34, 31]) {
+        let room = (to - from) as f32;
+        let holds_sun = disc.is_some_and(|(r, sx, _)| {
+            let reach = r * SUN_CLEARANCE;
+            sx as f32 + reach > from as f32 && (sx as f32) - reach < to as f32
+        });
+        if room < CLOUD_LENGTH.0 || holds_sun {
+            continue;
+        }
+        let mut drift = Rng(seed);
+        let mut y = drift.between(CLOUD_BAND) * (stage.skyline - tallest);
+        out.extend((0..CLOUD_GROUP).map(|_| {
+            let len = drift.between(CLOUD_LENGTH).min(room);
+            let x = from + (drift.next() * (room - len)) as i32;
+            let cloud = Cloud {
+                x,
+                y: y as i32,
+                len,
+            };
+            y += drift.between(CLOUD_STEP);
+            cloud
+        }));
+    }
+    out
+}
+
 fn eclipse(
     c: &mut Canvas,
     (r, sx, sy): (f32, i32, i32),
@@ -805,7 +837,7 @@ fn eclipse(
     under_home: impl Fn(i32) -> f32,
 ) {
     let ring = corona_ring(r);
-    for (i, alpha) in CORONA_ALPHAS.iter().enumerate().rev() {
+    for (i, alpha) in palette.corona_alphas.iter().enumerate().rev() {
         c.disc(sx, sy, r + (i + 1) as f32 * ring, palette.corona, |y| {
             alpha * under_home(y)
         });
@@ -831,11 +863,14 @@ fn eclipse(
     }
     c.disc(sx, sy, r + 1., palette.rim, |_| 1.);
     c.disc(sx, sy, r, palette.moon, |_| 1.);
+    let Some(bead) = palette.bead else {
+        return;
+    };
     let (bx, by) = (
         sx + (BEAD_ANGLE.cos() * r).round() as i32,
         sy + (BEAD_ANGLE.sin() * r).round() as i32,
     );
-    c.rect(bx - 1, by - 1, 2, 2, palette.bead);
+    c.rect(bx - 1, by - 1, 2, 2, bead);
     if r >= BEAD_SPARKLE_FROM {
         for (dx, dy) in [
             (-2, 0),
@@ -1220,8 +1255,9 @@ mod tests {
             for night in [NIGHT, DAWN] {
                 let look = Look::of(&night);
                 let palette = look.palette();
-                let sun = [palette.moon, palette.rim, palette.bead].map(colour);
-                let arc = [palette.rim, palette.bead].map(colour);
+                let bead = palette.bead.unwrap_or(palette.rim);
+                let sun = [palette.moon, palette.rim, bead].map(colour);
+                let arc = [palette.rim, bead].map(colour);
                 let p = window(width, height, look);
                 let shade = |x: i32, y: i32| {
                     let [red, green, blue, _] = at(&p, x as usize, y as usize);
@@ -1487,6 +1523,14 @@ mod tests {
             .fold(0, |out, v| (out << 8) | v.round().clamp(0., 255.) as u32)
     }
 
+    fn apart(a: Rgb, b: Rgb) -> f32 {
+        let (a, b) = (
+            eclipse_theme::glass::oklab(hex(a)),
+            eclipse_theme::glass::oklab(hex(b)),
+        );
+        (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f32>().sqrt()
+    }
+
     fn sky_at_sun(look: Look, stage: Stage, rows: usize) -> Rgb {
         let sy = (rows as f32 * SUN_HIGH).round();
         let horizon = (rows as f32 * HORIZON).max(stage.skyline).round();
@@ -1534,11 +1578,7 @@ mod tests {
 
     #[test]
     fn the_high_sun_is_quieter_than_play() {
-        use eclipse_theme::glass::{oklab, ACCENT};
-        let apart = |a: Rgb, b: Rgb| {
-            let (a, b) = (oklab(hex(a)), oklab(hex(b)));
-            (0..3).map(|i| (a[i] - b[i]).powi(2)).sum::<f32>().sqrt()
-        };
+        use eclipse_theme::glass::ACCENT;
         let play_size = NARROW_PLAY * crate::ui::ButtonSize::Hero.height();
         for (width, height) in HIGH_SUN_SIZES {
             let (stage, _, r) = high_sun(width, height);
@@ -1571,20 +1611,59 @@ mod tests {
     }
 
     #[test]
-    fn the_ring_draws_the_eclipse_not_the_disc() {
+    fn at_night_the_ring_draws_the_eclipse_not_the_disc() {
         for (width, height) in HIGH_SUN_SIZES {
             let (stage, _, _) = high_sun(width, height);
             let rows = (height / stage.texel).ceil() as usize;
-            for night in [NIGHT, DAWN] {
-                let look = Look::of(&night);
-                let behind = hex(sky_at_sun(look, stage, rows));
-                let moon = eclipse_theme::contrast(hex(look.palette().moon), behind);
-                assert!(
-                    moon < 3.,
-                    "{width}x{height}, dark {}: the moon is {moon:.2}:1 on its sky",
-                    look.dark
-                );
-            }
+            let look = Look::of(&NIGHT);
+            let behind = hex(sky_at_sun(look, stage, rows));
+            let moon = eclipse_theme::contrast(hex(look.palette().moon), behind);
+            assert!(
+                moon < 3.,
+                "{width}x{height}: the moon is {moon:.2}:1 on its sky"
+            );
+        }
+    }
+
+    fn corona_glow(palette: &Palette, behind: Rgb) -> f32 {
+        let inner = palette
+            .corona_alphas
+            .iter()
+            .rev()
+            .fold(behind, |c, &a| mix(c, palette.corona, a));
+        apart(inner, behind)
+    }
+
+    #[test]
+    fn by_day_a_dark_moon_and_its_corona_stand_out_on_the_sky() {
+        let day = Look::of(&DAWN);
+        let palette = day.palette();
+        let (stage, _, _) = high_sun(1920., 1080.);
+        let night = corona_glow(&AT_NIGHT, sky_at_sun(Look::of(&NIGHT), stage, 216));
+        let mut behind = Vec::new();
+        for (width, height) in HIGH_SUN_SIZES {
+            let (stage, _, _) = high_sun(width, height);
+            let sky = sky_at_sun(day, stage, (height / stage.texel).ceil() as usize);
+            let glow = corona_glow(palette, sky);
+            assert!(
+                glow >= night * 2. / 3.,
+                "{width}x{height}: the corona stands {glow:.3} off its sky, {night:.3} at night"
+            );
+            behind.push(sky);
+        }
+        for (width, height) in SETTING_SIZES {
+            let land = land(width, height);
+            let (_, cy) = land.setting_sun().expect("a setting sun");
+            let horizon = (land.rows * HORIZON)
+                .max(cy as f32 + SETTING_RADIUS)
+                .max(land.skyline)
+                .round();
+            let shown = cy - SETTING_RADIUS as i32..cy;
+            behind.extend(shown.map(|y| sky(&day.sky, (y as f32 / horizon).min(1.))));
+        }
+        for sky in behind {
+            let moon = eclipse_theme::contrast(hex(palette.moon), hex(sky));
+            assert!(moon >= 3., "the moon is {moon:.2}:1 on #{:06x}", hex(sky));
         }
     }
 
@@ -1735,20 +1814,76 @@ mod tests {
     #[test]
     fn the_diamond_ring_glints_only_off_the_moon() {
         let (cols, rows) = (384, 216);
-        let look = Look::of(&NIGHT);
         let (sx, sy, r) = (330, (rows as f32 * SUN_HIGH).round() as i32, 12.);
         assert!(r >= BEAD_SPARKLE_FROM);
         let sun = Sun::Beside { x: sx, r: r as i32 };
-        let p = paint(cols, rows, stage(1920., 1080., 5., home(1080.)), sun, look);
-        let ends = [colour(look.palette().moon), colour(look.palette().bead)];
-        let reach = r as i32;
-        for dy in -reach..=reach {
-            for dx in -reach..=reach {
-                if inside(r, dx, dy) {
-                    let here = at(&p, (sx + dx) as usize, (sy + dy) as usize);
+        for night in [NIGHT, DAWN] {
+            let look = Look::of(&night);
+            let p = paint(cols, rows, stage(1920., 1080., 5., home(1080.)), sun, look);
+            let palette = look.palette();
+            let ends: Vec<[u8; 3]> = [Some(palette.moon), palette.bead]
+                .into_iter()
+                .flatten()
+                .map(colour)
+                .collect();
+            let reach = r as i32;
+            for dy in -reach..=reach {
+                for dx in -reach..=reach {
+                    if inside(r, dx, dy) {
+                        let here = at(&p, (sx + dx) as usize, (sy + dy) as usize);
+                        assert!(
+                            ends.iter().any(|c| here[..3] == *c),
+                            "dark {}: a glint on the moon at ({dx}, {dy}): {here:?}",
+                            look.dark
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn clouds_drift_in_groups_never_alone() {
+        let day = Look::of(&DAWN);
+        let wide = (1500..=3440)
+            .step_by(80)
+            .flat_map(|width| [900., 1080., 1200., 1440.].map(|height| (width as f32, height)));
+        for (width, height) in SIZES.into_iter().chain(wide) {
+            let stage = stage(width, height, texel(width as f64, 1.), home(height));
+            let p = window(width, height, day);
+            let white = |x: i32, y: i32| {
+                let (here, sky) = (at(&p, x as usize, y as usize), at(&p, 0, y as usize));
+                (0..3).all(|i| here[i] > sky[i])
+            };
+            let (left, right) = stage.column;
+            let gutters = [
+                ("left", stage.sidebar, left),
+                ("right", right + 1, p.cols as i32),
+            ];
+            for (side, from, to) in gutters {
+                let mut tops = 0;
+                for y in 1..stage.skyline as i32 {
+                    let mut x = from;
+                    while x < to {
+                        let start = x;
+                        while x < to && white(x, y) {
+                            x += 1;
+                        }
+                        let above = start - 1..=x.min(to - 1);
+                        if x > start && !above.into_iter().any(|a| white(a, y - 1)) {
+                            tops += 1;
+                        }
+                        x += 1;
+                    }
+                }
+                assert!(
+                    tops == 0 || tops >= CLOUD_GROUP,
+                    "{width}x{height}: {tops} clouds in the {side} gutter"
+                );
+                if (width, height, side) == (1920., 1080., "left") {
                     assert!(
-                        ends.iter().any(|c| here[..3] == *c),
-                        "a glint on the moon at ({dx}, {dy}): {here:?}"
+                        tops >= CLOUD_GROUP,
+                        "1920x1080: no clouds beside the sidebar"
                     );
                 }
             }
