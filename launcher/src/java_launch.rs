@@ -66,14 +66,14 @@ impl Launch<'_> {
 }
 
 /// `host:port` as the game's arguments before 1.20 take it: `--server host --port port`
-/// (25565 when none is given; an IPv6 address keeps its own colons).
+/// (the default port when none is given; an IPv6 address keeps its own colons).
 fn host_and_port(address: &str) -> (&str, u16) {
     match address.rsplit_once(':') {
         Some((host, port)) if !host.contains(':') || host.ends_with(']') => match port.parse() {
             Ok(port) => (host.trim_matches(['[', ']']), port),
-            Err(_) => (address, 25565),
+            Err(_) => (address, crate::server_list::DEFAULT_PORT),
         },
-        _ => (address, 25565),
+        _ => (address, crate::server_list::DEFAULT_PORT),
     }
 }
 
@@ -239,12 +239,7 @@ pub fn classpath(version: &Value, minecraft: &Path, os: &str) -> Result<Vec<Path
 
 /// Unpacks this system's natives of an old version (a library's classifier) into `to`, without
 /// what the library's `extract.exclude` names (META-INF/). Versions since 1.19 have none.
-pub fn unpack_natives(
-    version: &Value,
-    minecraft: &Path,
-    os: &str,
-    to: &Path,
-) -> Result<(), String> {
+fn unpack_natives(version: &Value, minecraft: &Path, os: &str, to: &Path) -> Result<(), String> {
     fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
     for library in version["libraries"].as_array().into_iter().flatten() {
         if !allowed(&library["rules"], os, &[]) {

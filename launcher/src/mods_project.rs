@@ -828,7 +828,6 @@ impl Launcher {
                     .flex()
                     .items_center()
                     .gap(px(space::LG))
-                    .children(super::mods_page::stars(&p.id))
                     .children(repo.map(|repo| {
                         ui::button(
                             "mods-star",

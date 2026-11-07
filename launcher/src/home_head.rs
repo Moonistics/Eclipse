@@ -288,27 +288,6 @@ impl Launcher {
         wrap
     }
 
-    pub(super) fn press_play(&mut self) {
-        if self.cant_sign_in_to_play() {
-            self.owner_screen_open = true;
-            self.game.problem = Some(game_run::GameProblem::NeedsOwner);
-            return;
-        }
-        let ready = self.selected_instance().is_some_and(|i| i.java.is_some())
-            || self
-                .selected_version()
-                .is_some_and(|tag| backend::is_prepared(tag));
-        match play_press(ready, self.game.busy()) {
-            PlayPress::Play => self.play(),
-            PlayPress::PrepareThenPlay => self.prepare(backend::MinecraftFrom::Install, true),
-            PlayPress::Nothing => {
-                if let Some(why) = self.busy_reason() {
-                    crate::toast::say(why);
-                }
-            }
-        }
-    }
-
     /// The version: "Version" over the one played, a chevron that turns while its list is open;
     /// the list ticks the one played and ends with Manage versions.
     fn version_picker(&self, cx: &mut Context<Self>) -> Div {

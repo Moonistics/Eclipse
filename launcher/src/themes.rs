@@ -54,7 +54,7 @@ pub(crate) fn stored_theme<'de, D: serde::Deserializer<'de>>(
     Ok(id.map(|id| theme(Some(&id)).map_or(id, |t| t.id.to_owned())))
 }
 
-pub const NAMED: [(Accent, &str, &str, u32); 7] = [
+const NAMED: [(Accent, &str, &str, u32); 7] = [
     (
         Accent::AMBER,
         "amber",
@@ -79,27 +79,27 @@ impl Accent {
         hue: None,
         rgb: None,
     };
-    pub const BLUE: Accent = Accent {
+    const BLUE: Accent = Accent {
         hue: Some(212.),
         rgb: None,
     };
-    pub const TEAL: Accent = Accent {
+    pub(crate) const TEAL: Accent = Accent {
         hue: Some(176.),
         rgb: None,
     };
-    pub const GREEN: Accent = Accent {
+    const GREEN: Accent = Accent {
         hue: Some(140.),
         rgb: None,
     };
-    pub const VIOLET: Accent = Accent {
+    const VIOLET: Accent = Accent {
         hue: Some(252.),
         rgb: None,
     };
-    pub const RED: Accent = Accent {
+    const RED: Accent = Accent {
         hue: Some(356.),
         rgb: None,
     };
-    pub const PINK: Accent = Accent {
+    const PINK: Accent = Accent {
         hue: Some(322.),
         rgb: None,
     };
@@ -125,7 +125,7 @@ impl Accent {
     }
 
     /// A colour (`0xrrggbb`): one of the swatches is its named accent.
-    pub fn from_rgb(rgb: u32) -> Self {
+    fn from_rgb(rgb: u32) -> Self {
         let rgb = rgb & 0xff_ffff;
         match NAMED.iter().find(|n| n.3 == rgb) {
             Some(n) => n.0,

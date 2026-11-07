@@ -86,6 +86,10 @@ impl Field {
         matches!(self, Field::ServerCommand)
     }
 
+    fn secret(self) -> bool {
+        matches!(self, Field::TailscaleToken)
+    }
+
     fn empty(self) -> LineEdit {
         let max = match self {
             Field::InviteCode | Field::Proxy => 256,
@@ -116,7 +120,7 @@ pub(super) struct Fields {
     /// A suggested value shown selected: the first key typed replaces it.
     pub(super) selected: Option<Field>,
     /// A field whose value was refused, and why: shown under it until it's edited.
-    pub(super) invalid: Option<(Field, &'static str)>,
+    pub(super) invalid: Option<(Field, Option<&'static str>)>,
 }
 
 impl Fields {
@@ -139,7 +143,7 @@ impl Fields {
     /// Mark a field invalid without an explanatory message, or clear its previous error.
     pub(super) fn set_field_invalid(&mut self, field: Field, invalid: bool) {
         if invalid {
-            self.invalid = Some((field, ""));
+            self.invalid = Some((field, None));
         } else if self.invalid.is_some_and(|(current, _)| current == field) {
             self.invalid = None;
         }
@@ -218,7 +222,7 @@ impl Launcher {
         let selected = focused && self.fields.selected == Some(f);
         let refused = self.fields.invalid.filter(|(g, _)| *g == f);
         let invalid = refused.is_some();
-        let secret = f == Field::TailscaleToken;
+        let secret = f.secret();
         let placeholder: SharedString = placeholder.into();
         let measured = self.fields.widths.entry(f).or_default().clone();
         let room = match measured.get() {
@@ -238,7 +242,7 @@ impl Launcher {
             .role(gpui::Role::TextInput)
             .aria_label(f.name())
             .aria_placeholder(placeholder)
-            .when_some(refused.filter(|(_, why)| !why.is_empty()), |d, (_, why)| {
+            .when_some(refused.and_then(|(_, why)| why), |d, why| {
                 d.aria_description(tr(why))
             })
             .when(!secret, |d| d.aria_value(self.fields.value(f).to_string()))
@@ -339,10 +343,10 @@ impl Launcher {
     }
 
     pub(super) fn field_error(&self, f: Field) -> Option<Div> {
-        let (_, why) = self
+        let why = self
             .fields
             .invalid
-            .filter(|(g, why)| *g == f && !why.is_empty())?;
+            .and_then(|(g, why)| why.filter(|_| g == f))?;
         Some(ui::error_note(tr(why)))
     }
 
@@ -372,7 +376,7 @@ impl Launcher {
             | Field::Proxy => {}
             Field::PaletteSearch => self.palette_enter(window, cx),
             Field::MemoryLimit => self.memory_enter(),
-            Field::OfflineName => self.offline_name_enter(),
+            Field::OfflineName => self.add_offline_name(),
             Field::MultiplayerName | Field::MultiplayerAddress => self.add_server(),
             Field::InviteCode => self.join_friend(),
             Field::ModsSearch => self.mods_search(0),
@@ -392,7 +396,7 @@ impl Launcher {
                 let code = self.fields.value(Field::InviteCode).trim();
                 let wrong = !code.is_empty() && eclipse_friends::invite::parse(code).is_none();
                 self.fields.invalid = if wrong {
-                    Some((f, tr("That isn't an invite code.")))
+                    Some((f, Some(tr("That isn't an invite code."))))
                 } else {
                     self.fields.invalid.filter(|(g, _)| *g != f)
                 };

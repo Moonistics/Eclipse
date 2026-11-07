@@ -1,7 +1,6 @@
 use super::{
     color, copy_details, danger, disabled, dot, edge, hoverable, icon, light, look, row_fill,
-    starts_menu, text, warn, white, ButtonSize, Hover, IconSize, Tone, SETTING_ROW_GAP, TILE_MD,
-    TILE_SM,
+    starts_menu, text, warn, white, ButtonSize, Hover, IconSize, Tone, TILE_MD, TILE_SM,
 };
 use eclipse_theme::glass::{
     fill, ink, radius, space, step, ON_LIGHT, PAPER, SELECTED_EDGE, SELECTED_EDGE_LIGHT,
@@ -312,7 +311,7 @@ fn chip_body<E: Styled + ParentElement>(
         )
 }
 
-pub const CHIP: f32 = 44.;
+pub(super) const CHIP: f32 = 44.;
 
 pub const CHIP_FACE: f32 = TILE_SM;
 
@@ -497,18 +496,23 @@ pub fn setting_text(title: impl IntoElement, note: Option<AnyElement>) -> Div {
         }))
 }
 
+const SETTING_ROW_GAP: f32 = space::XXL + space::SM;
+
+pub(super) fn setting_row_frame<E: Styled>(el: E) -> E {
+    el.flex()
+        .items_center()
+        .gap(px(SETTING_ROW_GAP))
+        .p(px(super::SETTING_ROW_PADDING))
+        .rounded(px(radius::ROW))
+}
+
 /// A Settings row: the name over its note, the control on the right.
 pub fn setting_row(
     title: impl IntoElement,
     note: Option<AnyElement>,
     control: Option<AnyElement>,
 ) -> Div {
-    div()
-        .flex()
-        .items_center()
-        .gap(px(SETTING_ROW_GAP))
-        .p(px(super::SETTING_ROW_PADDING))
-        .rounded(px(radius::ROW))
+    setting_row_frame(div())
         .child(setting_text(title, note))
         .children(control.map(|c| {
             div()

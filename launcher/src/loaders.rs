@@ -119,7 +119,7 @@ fn order(version: &str) -> (Vec<u64>, bool, Vec<(u64, String)>) {
 
 /// A service's list, `[{"loader": {"version", "stable"}}]`, the newest first (Quilt's comes in no
 /// order). Quilt's has no `stable`: its betas carry a `-` (`0.20.0-beta.9`).
-pub fn parse_versions(text: &str) -> Result<Vec<Listed>, String> {
+fn parse_versions(text: &str) -> Result<Vec<Listed>, String> {
     let list: Value =
         serde_json::from_str(text).map_err(|e| format!("The loader's version list: {e}"))?;
     let list = list

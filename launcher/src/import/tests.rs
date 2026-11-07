@@ -210,7 +210,7 @@ fn an_export_comes_back_as_an_instance_and_nothing_escapes_its_folder() {
     let made = dir.join("instances");
     for format in [Format::Mrpack, Format::Zip] {
         let out = dir.join(format!("Shared.{}", format.extension()));
-        export(&home, "Shared", format, &["Base".into()], &[], &out).unwrap();
+        export(&home, "Shared", format, &["Base".into()], &out).unwrap();
         let i = import_into(&out, NONE, &maker(&made)).unwrap();
         for f in [
             "options.txt",

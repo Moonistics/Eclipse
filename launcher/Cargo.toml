@@ -41,7 +41,6 @@ clap = { version = "4", features = ["derive"] }
 clap_complete = "4"
 eclipse-theme = { path = "../crates/eclipse-theme" }
 eclipse-core = { path = "../crates/eclipse-core" }
-eclipse-cosmetics = { path = "../crates/eclipse-cosmetics" }
 # `eclipse-launcher mcp`: the Model Context Protocol, shared with eclipse-ctl and eclipse-server.
 eclipse-mcp = { path = "../crates/eclipse-mcp" }
 eclipse-prepare = { path = "../crates/eclipse-prepare" }
@@ -62,8 +61,9 @@ eclipse-protocol = { path = "../crates/eclipse-protocol" }
 eclipse-world = { path = "../crates/eclipse-world" }
 # Deleting a world moves it to the system's trash
 trash = "5"
-# Backup names carry the local time, as vanilla's do
+# Skin textures and servers.dat icons
 base64 = "0.22"
+# Backup names carry the local time, as vanilla's do
 chrono = { version = "0.4", default-features = false, features = ["clock"] }
 # The session file's random name.
 getrandom = "0.3"
@@ -73,7 +73,8 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 # Screenshots read a row at a time and shrunk as they come (`pictures`): the version `image` uses.
 png = "0.18"
 
-# Native builds at low priority (rust_toolchain::low_priority); already in the lockfile.
+# Native builds at low priority (rust_toolchain::low_priority) and whether an update's launcher
+# still runs (self_update); already in the lockfile.
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
 # Microsoft account secrets in the OS keychain: the Secret Service on Linux through oo7 (the same
@@ -89,7 +90,7 @@ keyring = { version = "3", features = ["apple-native"] }
 # Decode Keychain OSStatus errors without matching localized error strings (secrets.rs).
 security-framework = "3"
 # Painting the window's title bar dark or light (titlebar::apply_appearance), and the system's
-# reduced motion (sky::moves): crates already in the lockfile through gpui and wgpu.
+# reduced motion (motion.rs): crates already in the lockfile through gpui and wgpu.
 objc2-app-kit = { version = "0.3", default-features = false, features = ["NSAccessibility", "NSAppearance", "NSView", "NSWindow", "NSWorkspace"] }
 raw-window-handle = "0.6"
 [target.'cfg(target_os = "windows")'.dependencies]
@@ -106,10 +107,6 @@ winreg = "0.56"
 [target.'cfg(windows)'.build-dependencies]
 # The icon resource in the .exe (build.rs).
 winresource = "0.1"
-
-[dev-dependencies]
-# Tokenize source strings for the translation completeness test, including multiline calls.
-syn = "2"
 
 [profile.release]
 strip = true

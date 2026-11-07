@@ -85,7 +85,7 @@ impl Icon {
 /// Drawn instead of [`Meta::icon`] while it is there.
 pub const PICTURE: &str = "icon.png";
 /// How many pixels a side a picture is kept at: twice the largest it is drawn.
-pub const PICTURE_SIDE: u32 = 128;
+const PICTURE_SIDE: u32 = 128;
 
 /// Any image file's `bytes` as a picture: PNG, scaled down to fit [`PICTURE_SIDE`].
 pub fn picture(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -394,7 +394,7 @@ fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
     for p in modpacks::list_in(&game_home.join(game_folder::PORTS)) {
         let home = modpacks::profile_home(&p.work);
         found.push((
-            format!("{PORT_ID}{}", p.slug),
+            port_id(&p.slug),
             p.title().into(),
             Kind::Port { slug: p.slug },
             p.work,
@@ -404,7 +404,7 @@ fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
     for p in registry_pack::list_in(&game_home.join(game_folder::PACKS)) {
         let home = registry_pack::home(&p.work);
         found.push((
-            format!("{PACK_ID}{}", p.id),
+            pack_id(&p.id),
             p.name,
             Kind::Pack { id: p.id },
             p.work,
@@ -504,6 +504,38 @@ fn delete_in(
         Ok(())
     })?;
     Ok(instance)
+}
+
+/// The mod API level of the game that plays the folder `home`: the version its Eclipse instance
+/// plays, else the selected version's. None when that isn't installed.
+pub fn mod_api_level_at(home: &Path) -> Option<u32> {
+    let (default, installed) = (
+        backend::Settings::load().default_version,
+        backend::installed(),
+    );
+    playing_at(&list(), home, default.as_ref(), &installed).map(|tag| backend::mod_api_level(tag))
+}
+
+fn playing_at<'a>(
+    list: &'a [Instance],
+    home: &Path,
+    default: Option<&'a String>,
+    installed: &'a [String],
+) -> Option<&'a String> {
+    match list.iter().find(|i| i.home == home) {
+        Some(i) => i.eclipse_version(default, installed)?.installed_tag(),
+        None => backend::followed_version(default, installed),
+    }
+}
+
+/// The id of the instance an imported modpack plays as, by its folder name.
+pub fn port_id(slug: &str) -> String {
+    format!("{PORT_ID}{slug}")
+}
+
+/// The id of the instance a registry modpack plays as, by its id.
+pub fn pack_id(id: &str) -> String {
+    format!("{PACK_ID}{id}")
 }
 
 /// The instance Play starts: the one picked in the launcher, else Eclipse.
@@ -674,6 +706,13 @@ fn edit_in(
 /// it).
 pub fn record_play(id: &str, played: Duration) -> Result<(), String> {
     record_play_in(&backend::data_dir(), id, played, SystemTime::now())
+}
+
+pub fn game_ended(instance: &Instance, played: Duration, vars: &crate::launch::Vars) {
+    if let Err(e) = record_play(&instance.id, played) {
+        eprintln!("Play time not saved: {e}");
+    }
+    crate::launch::run_after_exit(&instance.launch, &instance.home, vars);
 }
 
 fn record_play_in(

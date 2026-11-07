@@ -1,8 +1,8 @@
 //! The launcher's view of Eclipse's design tokens (`crates/eclipse-theme`): the Corona look
 //! (`eclipse_theme::glass`) in Geist, with Geist Mono for paths and codes. The light appearance
 //! draws it over the dawn sky (`eclipse_theme::night::DAWN`).
-use eclipse_launcher::backend::Appearance;
-use eclipse_launcher::themes::Accent;
+use eclipse_launcher::backend::{Appearance, Settings};
+use eclipse_launcher::themes::{self, Accent};
 use eclipse_theme as tokens;
 use gpui::{rgb, Hsla, WindowAppearance};
 use std::time::Duration;
@@ -16,6 +16,17 @@ pub use tokens::DISABLED;
 
 /// Motion: short and eased out, never bouncy.
 pub const QUICK: Duration = tokens::QUICK.duration();
+
+pub type Inputs = (Appearance, Accent, Option<String>, WindowAppearance);
+
+pub fn inputs(settings: &Settings, system: WindowAppearance) -> Inputs {
+    (
+        settings.appearance,
+        settings.accent,
+        settings.theme.clone(),
+        system,
+    )
+}
 
 #[derive(Clone, Copy)]
 pub struct Theme {
@@ -51,6 +62,16 @@ impl Theme {
     pub fn with_sky(mut self, sky: [u32; 6]) -> Self {
         self.night.sky = sky;
         self
+    }
+
+    /// The theme Settings ask for, under the window's own light or dark: the player's look,
+    /// under the launcher theme's sky if they picked one.
+    pub fn for_settings(settings: &Settings, system: WindowAppearance) -> Self {
+        let theme = Self::for_appearance(settings.appearance, settings.accent, system);
+        match themes::theme(settings.theme.as_deref()) {
+            Some(picked) => theme.with_sky(picked.sky),
+            None => theme,
+        }
     }
 
     /// The pinned appearance (`pinned_dark`), the system's when the player asked to follow it, in

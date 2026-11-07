@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::path::Path;
 
 /// The Minecraft version and the loader (none for a vanilla pack) a pack's index names.
-pub fn game_of(index: &Value) -> Result<(String, Option<Loader>), String> {
+fn game_of(index: &Value) -> Result<(String, Option<Loader>), String> {
     let dependencies = &index["dependencies"];
     let minecraft = dependencies["minecraft"]
         .as_str()

@@ -408,7 +408,7 @@ fn checked(bytes: &[u8], dir: &Path) -> Result<Packed, String> {
 /// Every mod folder under `root`, as deep as [`DEPTH`] and past build output and hidden folders:
 /// a `eclipse-mixin.toml`, or an unpacked `.hnmod` (`eclipse-native.json`), each read as
 /// `native-build <folder>` reads one. A mod's folder is not searched further.
-pub fn find_mods(root: &Path) -> Result<Vec<Bundle>, String> {
+fn find_mods(root: &Path) -> Result<Vec<Bundle>, String> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<Bundle>) -> Result<(), String> {
         if let Some(found) = native_mods::bundle_in(dir)? {
             out.push(found);

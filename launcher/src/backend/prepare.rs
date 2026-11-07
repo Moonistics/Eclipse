@@ -26,6 +26,31 @@ fn python() -> Option<&'static str> {
     candidates.iter().copied().find(|p| found(p, "--version"))
 }
 
+/// The server jar the version json `manifest` names, at `jar`: the one kept there when it is
+/// Mojang's, else downloaded and checked against the json's sha1.
+pub(super) fn server_jar(
+    manifest: &Path,
+    version: &str,
+    jar: &Path,
+    fetch: sources::Fetch,
+    log: &dyn Fn(String),
+) -> Result<(), String> {
+    let json: serde_json::Value =
+        serde_json::from_str(&fs::read_to_string(manifest).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    let server = &json["downloads"]["server"];
+    let (Some(url), Some(sha1)) = (server["url"].as_str(), server["sha1"].as_str()) else {
+        return Err(format!("{} has no server download", manifest.display()));
+    };
+    if sources::sha1_file(jar).as_deref() == Some(sha1) {
+        return Ok(());
+    }
+    log(format!("Downloading the {version} server jar from Mojang"));
+    let bytes = sources::fetch_checked(fetch, url, sha1)
+        .map_err(|e| format!("The {version} server jar from Mojang {e}"))?;
+    crate::files::write(jar, &bytes)
+}
+
 /// How a version's resources are prepared.
 pub enum Preparer {
     /// eclipse-prepare, linked into the launcher: the version ships the same preparer sources.
@@ -216,20 +241,11 @@ pub fn preparer(
     let jar = data_dir()
         .join("server-jars")
         .join(format!("{version}.jar"));
-    if !reused && !jar.exists() {
-        let json: serde_json::Value =
-            serde_json::from_str(&fs::read_to_string(&manifest).map_err(|e| e.to_string())?)
-                .map_err(|e| e.to_string())?;
-        let url = json["downloads"]["server"]["url"]
-            .as_str()
-            .ok_or_else(|| format!("{} has no server download", manifest.display()))?;
-        log(format!("Downloading the {version} server jar from Mojang"));
-        crate::files::write(&jar, &get_bytes(url)?)?;
+    if !reused {
+        server_jar(&manifest, &version, &jar, &get_bytes, log)?;
     }
     if let Some(binary) = binary {
-        if eclipse_prepare::sources_sha256(&dir.join(PREPARER_CRATE)).as_deref()
-            == Some(eclipse_prepare::SOURCES_SHA256)
-        {
+        if own_preparer(&dir) {
             let options = eclipse_prepare::Options {
                 root: dir,
                 import: !reused,
@@ -268,8 +284,7 @@ pub fn preparer(
 /// the sounds where the launcher's preparer puts them.
 pub fn sounds(tag: &str, minecraft: &Path, log: &dyn Fn(String)) {
     let dir = version_dir(tag);
-    let own = eclipse_prepare::sources_sha256(&dir.join(PREPARER_CRATE)).as_deref()
-        == Some(eclipse_prepare::SOURCES_SHA256);
+    let own = own_preparer(&dir);
     let binary = preparer_binary(&dir).filter(|binary| {
         !own && crate::process::command(binary)
             .arg("--help")
@@ -298,10 +313,9 @@ pub fn sounds(tag: &str, minecraft: &Path, log: &dyn Fn(String)) {
                     false => Err(text(&o.stderr).trim_start_matches("error: ").to_string()),
                 }
             }),
-        None => std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        None => caught("The sound copy stopped unexpectedly", || {
             eclipse_prepare::sounds(&dir, Some(minecraft), &|line| log(line.to_string()))
-        }))
-        .unwrap_or_else(|_| Err("The sound copy stopped unexpectedly".into()))
+        })
         .map(|_| ()),
     };
     if let Err(e) = result {
@@ -315,9 +329,23 @@ pub fn prepare_in_process(
     options: &eclipse_prepare::Options,
     log: &dyn Fn(String),
 ) -> Result<(), String> {
-    std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+    caught("The preparation stopped unexpectedly", || {
         eclipse_prepare::prepare(options, &|line| log(line.to_string()))
-    }))
-    .unwrap_or_else(|_| Err("The preparation stopped unexpectedly".into()))
+    })
     .map(|_| ())
+}
+
+/// `run`, a panic in it the error `stopped`: the window never waits on work that died.
+pub(super) fn caught<T>(
+    stopped: &str,
+    run: impl FnOnce() -> Result<T, String>,
+) -> Result<T, String> {
+    std::panic::catch_unwind(std::panic::AssertUnwindSafe(run))
+        .unwrap_or_else(|_| Err(stopped.into()))
+}
+
+/// Whether the version in `dir` ships the launcher's own preparer, which then runs in-process.
+fn own_preparer(dir: &Path) -> bool {
+    eclipse_prepare::sources_sha256(&dir.join(PREPARER_CRATE)).as_deref()
+        == Some(eclipse_prepare::SOURCES_SHA256)
 }

@@ -10,7 +10,7 @@ use crate::backend;
 use crate::instances;
 
 /// The id of the instance (its folder in `instances/`) the opt-in Nightly played in.
-pub const INSTANCE: &str = "nightly";
+const INSTANCE: &str = "nightly";
 
 /// The date of a nightly's version (`nightly-2026-10-28-0c02067`), or None for any other version.
 pub use eclipse_release_sign::nightly_date as date_of;

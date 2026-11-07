@@ -1,7 +1,7 @@
 /// The release assets of each system Eclipse ships for: (OS, architecture, the game, the launcher).
 /// game-build.yml builds the game's, nightly-build.yml signs and publishes them, and launcher.yml
 /// builds the launcher's (`platform_assets_are_published`).
-pub const PLATFORMS: [(&str, &str, &str, &str); 5] = [
+pub(super) const PLATFORMS: [(&str, &str, &str, &str); 5] = [
     (
         "linux",
         "x86_64",
@@ -70,12 +70,12 @@ pub(super) const fn platform_assets(os: &str, arch: &str) -> Option<(&'static st
 const OWN_ASSETS: Option<(&str, &str)> =
     platform_assets(std::env::consts::OS, std::env::consts::ARCH);
 /// The game build this launcher installs, None where Eclipse has none.
-pub const ASSET: Option<&str> = match OWN_ASSETS {
+pub(crate) const ASSET: Option<&str> = match OWN_ASSETS {
     Some((game, _)) => Some(game),
     None => None,
 };
 /// The launcher build this launcher updates itself from.
-pub const LAUNCHER_ASSET: Option<&str> = match OWN_ASSETS {
+pub(crate) const LAUNCHER_ASSET: Option<&str> = match OWN_ASSETS {
     Some((_, launcher)) => Some(launcher),
     None => None,
 };
@@ -101,9 +101,10 @@ pub(super) const fn game_fallback_for(os: &str, arch: &str) -> Option<&'static s
 /// one file. A launcher running from one updates by replacing that file ([`appimage_path`]), so it
 /// needs this archive rather than the platform's `.tar.gz`.
 #[cfg(all(target_os = "linux", target_arch = "x86_64"))]
-pub const LAUNCHER_APPIMAGE_ASSET: Option<&str> = Some("eclipse-launcher-linux-x86_64.AppImage");
+pub(crate) const LAUNCHER_APPIMAGE_ASSET: Option<&str> =
+    Some("eclipse-launcher-linux-x86_64.AppImage");
 #[cfg(not(all(target_os = "linux", target_arch = "x86_64")))]
-pub const LAUNCHER_APPIMAGE_ASSET: Option<&str> = None;
+pub(crate) const LAUNCHER_APPIMAGE_ASSET: Option<&str> = None;
 
 pub(super) const LAUNCHER_BINARY: &str = if cfg!(windows) {
     "eclipse-launcher.exe"
@@ -119,3 +120,29 @@ pub(crate) const CLIENT: &str = if cfg!(windows) {
 } else {
     "eclipse-client"
 };
+
+/// The COFF machine of an x64 and of an ARM64 Windows program.
+pub(crate) const PE_X64: u16 = 0x8664;
+pub(crate) const PE_ARM64: u16 = 0xaa64;
+
+/// Reads the COFF machine from a Windows PE executable after validating its two signatures.
+pub(crate) fn pe_machine(path: &std::path::Path) -> Result<u16, String> {
+    use std::io::{Read, Seek, SeekFrom};
+    let mut file = std::fs::File::open(path).map_err(|error| error.to_string())?;
+    let mut dos = [0; 64];
+    file.read_exact(&mut dos)
+        .map_err(|error| error.to_string())?;
+    if &dos[..2] != b"MZ" {
+        return Err("missing DOS MZ signature".into());
+    }
+    let pe_offset = u32::from_le_bytes(dos[0x3c..0x40].try_into().unwrap()) as u64;
+    file.seek(SeekFrom::Start(pe_offset))
+        .map_err(|error| error.to_string())?;
+    let mut header = [0; 6];
+    file.read_exact(&mut header)
+        .map_err(|error| error.to_string())?;
+    if &header[..4] != b"PE\0\0" {
+        return Err("missing PE signature".into());
+    }
+    Ok(u16::from_le_bytes([header[4], header[5]]))
+}

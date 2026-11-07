@@ -27,24 +27,8 @@ fn registry() -> &'static Registry {
     REGISTRY.get_or_init(Registry::default)
 }
 
-/// Strips Windows extended-length prefixes (`\\?\` and `\\?\UNC\`) so canonicalized and
-/// non-canonicalized paths match.
-fn strip_verbatim(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{stripped}"));
-        }
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            return PathBuf::from(stripped);
-        }
-    }
-    path
-}
-
 /// Normalizes a game home folder to a uniform canonical representation for keyed locking.
-pub fn normalize_home(path: &Path) -> PathBuf {
+fn normalize_home(path: &Path) -> PathBuf {
     let p = if let Ok(c) = path.canonicalize() {
         c
     } else if path.is_relative() {
@@ -54,7 +38,7 @@ pub fn normalize_home(path: &Path) -> PathBuf {
     } else {
         path.to_path_buf()
     };
-    let clean = strip_verbatim(p);
+    let clean = PathBuf::from(crate::files::without_verbatim(&p.to_string_lossy()).as_ref());
     #[cfg(windows)]
     {
         PathBuf::from(clean.to_string_lossy().to_lowercase())
@@ -91,7 +75,7 @@ impl Drop for HomeLockGuard {
 ///
 /// Re-entrant: if the current thread already holds the lock for this folder, this succeeds
 /// immediately and increments the recursion depth.
-pub fn lock_home(home: &Path) -> HomeLockGuard {
+pub(crate) fn lock_home(home: &Path) -> HomeLockGuard {
     let path = normalize_home(home);
     let current_tid = std::thread::current().id();
     let reg = registry();

@@ -8,12 +8,17 @@ pub fn logs_dir() -> PathBuf {
 }
 
 pub fn logs_dir_in(home: &Path) -> PathBuf {
-    home.join("logs")
+    home.join(crate::game_folder::LOGS)
+}
+
+/// The log of the game's last run in `home`.
+pub fn latest_log_in(home: &Path) -> PathBuf {
+    logs_dir_in(home).join("latest.log")
 }
 
 /// Where the game writes `crash-<date>_<time>-client.txt` when it crashes.
-pub fn crash_reports_dir() -> PathBuf {
-    game_home().join("crash-reports")
+fn crash_reports_dir() -> PathBuf {
+    game_home().join(crate::game_folder::CRASH_REPORTS)
 }
 
 /// The crash reports in `dir`, oldest first (their names sort by time).
@@ -33,14 +38,14 @@ fn crash_reports_in(dir: &Path) -> Vec<PathBuf> {
     reports
 }
 
-pub fn newest_crash_report() -> Option<PathBuf> {
+fn newest_crash_report() -> Option<PathBuf> {
     crash_reports_in(&crash_reports_dir()).pop()
 }
 
 /// The newest crash report the game playing in `home` wrote at or after `since` (one from the
 /// run that started then).
 pub fn crash_report_since(home: &Path, since: std::time::SystemTime) -> Option<PathBuf> {
-    crash_report_in_since(&home.join("crash-reports"), since)
+    crash_report_in_since(&home.join(crate::game_folder::CRASH_REPORTS), since)
 }
 
 pub(super) fn crash_report_in_since(dir: &Path, since: std::time::SystemTime) -> Option<PathBuf> {

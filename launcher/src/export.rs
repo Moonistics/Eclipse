@@ -20,7 +20,7 @@ use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 
-const INDEX: &str = "modrinth.index.json";
+pub(crate) const INDEX: &str = "modrinth.index.json";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Format {
@@ -58,8 +58,22 @@ pub struct Exported {
 }
 
 /// Writes the instance whose game folder is `home` to `out`. `worlds` are folders of its
-/// `saves/`; `linked` comes from [`linkable`] (empty for a zip).
+/// `saves/`; a `.mrpack` lists the resource packs Modrinth still serves by their download.
 pub fn export(
+    home: &Path,
+    name: &str,
+    format: Format,
+    worlds: &[String],
+    out: &Path,
+) -> Result<Exported, String> {
+    let linked = match format {
+        Format::Mrpack => linkable(home, &from_modrinth),
+        Format::Zip => Vec::new(),
+    };
+    export_with(home, name, format, worlds, &linked, out)
+}
+
+fn export_with(
     home: &Path,
     name: &str,
     format: Format,

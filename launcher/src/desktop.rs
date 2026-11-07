@@ -78,7 +78,7 @@ pub(crate) fn quote(path: &Path) -> String {
 }
 
 /// The launcher's entry, starting the binary at `exe`.
-pub fn launcher_entry(exe: &Path) -> String {
+fn launcher_entry(exe: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -200,7 +200,7 @@ fn target_exists(program: &str, path: Option<&OsStr>) -> bool {
 /// Whether the launcher may write its entry by itself: there is none under `data`, or the one
 /// there starts a program that no longer exists. An entry pointing at another launcher that
 /// still works is left alone.
-pub fn needs_repair_in(data: &Path, path: Option<&OsStr>) -> bool {
+fn needs_repair_in(data: &Path, path: Option<&OsStr>) -> bool {
     match fs::read_to_string(data.join("applications").join(LAUNCHER_ENTRY)) {
         Ok(entry) => !entry_target(&entry).is_some_and(|p| target_exists(&p, path)),
         Err(e) => e.kind() == io::ErrorKind::NotFound,

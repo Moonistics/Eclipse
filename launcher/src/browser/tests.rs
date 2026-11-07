@@ -109,7 +109,7 @@ fn data_packs_are_their_own_kind() {
     });
     let p = modrinth::parse_hit(&hit).unwrap();
     assert_eq!(p.kind, Kind::Mod);
-    let p = p.as_datapack();
+    let p = p.into_datapack();
     assert_eq!(
         (p.kind, p.page.as_str()),
         (Kind::DataPack, "https://modrinth.com/datapack/terralith")
@@ -389,4 +389,14 @@ fn curseforge_is_coming_soon_and_never_searched() {
     let ids: Vec<SourceId> = sources().iter().map(|s| s.id()).collect();
     assert_eq!(ids, [SourceId::Modrinth, SourceId::Eclipse]);
     assert!(source(SourceId::CurseForge).is_none());
+}
+
+#[test]
+fn eclipse_instances_look_on_the_registry_first_for_mods_and_shaders() {
+    assert_eq!(Kind::Mod.first_source(true), SourceId::Eclipse);
+    assert_eq!(Kind::Shader.first_source(true), SourceId::Eclipse);
+    assert_eq!(Kind::Mod.first_source(false), SourceId::Modrinth);
+    assert_eq!(Kind::ResourcePack.first_source(true), SourceId::Modrinth);
+    assert!(!Kind::Shader.picks_source());
+    assert!(Kind::DataPack.picks_source());
 }

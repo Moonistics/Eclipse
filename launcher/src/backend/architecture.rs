@@ -1,6 +1,7 @@
 use super::paths::version_dir;
 use super::platform::{
-    game_fallback_for, platform_assets, ASSET, CLIENT, GAME_FALLBACK, PLATFORMS,
+    game_fallback_for, pe_machine, platform_assets, ASSET, CLIENT, GAME_FALLBACK, PE_ARM64, PE_X64,
+    PLATFORMS,
 };
 use super::releases::Release;
 use super::settings::Settings;
@@ -119,8 +120,8 @@ pub(super) fn native_windows_architecture() -> Option<&'static str> {
         } != 0
         {
             return match native_machine {
-                0x8664 => Some("x86_64"),  // IMAGE_FILE_MACHINE_AMD64
-                0xaa64 => Some("aarch64"), // IMAGE_FILE_MACHINE_ARM64
+                PE_X64 => Some("x86_64"),
+                PE_ARM64 => Some("aarch64"),
                 _ => None,
             };
         }
@@ -223,27 +224,13 @@ fn installed_game_architecture(tag: &str) -> Option<InstalledGameArchitecture> {
 }
 
 pub(super) fn pe_architecture_file(path: &Path) -> Option<GameArchitecture> {
-    use std::io::{Read, Seek, SeekFrom};
-
-    let mut file = fs::File::open(path).ok()?;
-    let mut dos = [0u8; 0x40];
-    file.read_exact(&mut dos).ok()?;
-    if &dos[..2] != b"MZ" {
-        return None;
-    }
-    let pe = u32::from_le_bytes(dos[0x3c..0x40].try_into().ok()?);
-    file.seek(SeekFrom::Start(u64::from(pe))).ok()?;
-    let mut header = [0u8; 6];
-    file.read_exact(&mut header).ok()?;
-    (&header[..4] == b"PE\x00\x00")
-        .then(|| architecture_for_pe_machine(u16::from_le_bytes([header[4], header[5]])))
-        .flatten()
+    pe_machine(path).ok().and_then(architecture_for_pe_machine)
 }
 
 pub(super) fn architecture_for_pe_machine(machine: u16) -> Option<GameArchitecture> {
     match machine {
-        0x8664 => Some(GameArchitecture::X64),
-        0xaa64 => Some(GameArchitecture::Arm64),
+        PE_X64 => Some(GameArchitecture::X64),
+        PE_ARM64 => Some(GameArchitecture::Arm64),
         _ => None,
     }
 }
@@ -319,7 +306,7 @@ pub(crate) fn native_mod_architecture_error() -> Option<String> {
 }
 
 /// Refuse to launch an explicit game architecture until this version has been installed for it.
-pub fn game_architecture_launch_error(tag: &str) -> Option<String> {
+pub(crate) fn game_architecture_launch_error(tag: &str) -> Option<String> {
     if !can_choose_game_architecture() {
         return None;
     }

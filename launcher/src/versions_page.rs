@@ -253,7 +253,7 @@ impl Launcher {
                 let release = release.clone();
                 return b
                     .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.install(&release);
+                        this.install(&release, backend::InstallWhy::Added);
                         cx.notify();
                     }))
                     .into_any_element();
@@ -281,7 +281,7 @@ impl Launcher {
         } else {
             let release = release.clone();
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.install(&release);
+                this.install(&release, backend::InstallWhy::Added);
                 cx.notify();
             }))
             .into_any_element()

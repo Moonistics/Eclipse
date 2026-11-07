@@ -4,8 +4,8 @@
 //! mods in `home/eclipse-mods/`, each downloaded and checked against the index like any
 //! registry mod, turned on or off as the pack says. The pack's overrides (settings, resource
 //! packs, a mod's saved settings) are copied in once, when it is installed.
-use super::{fetch, index, install_version, local, newest, Index};
-use crate::browser::{java, FileRef};
+use super::{fetch, index, install_version, local, newest, version_of, Index};
+use crate::browser::java;
 use eclipse_mods::{index as idx, modpack::Modpack};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -104,16 +104,8 @@ fn install_version_in(
     progress: &dyn Fn(&str, f32),
 ) -> Result<Installed, String> {
     let line = format!("{} {}", p.name, v.version);
-    let file = FileRef {
-        url: v.file.url.clone(),
-        name: v.file.name.clone(),
-        size: v.file.size,
-        sha512: None,
-        sha256: Some(v.file.sha256.clone()),
-        sha1: None,
-        primary: true,
-    };
-    let path = fetch(&file, &work.join("downloads"), local, &|f| {
+    let file = &version_of(index, p, v, None).files[0];
+    let path = fetch(file, &work.join("downloads"), local, &|f| {
         progress(&line, f)
     })?;
     idx::check_file(index, p, v, &path).inspect_err(|_| {
@@ -133,7 +125,7 @@ fn install_version_in(
                 p.name, m.id, m.version
             ));
         };
-        install_version(index, local, mp, mv, &home, progress)?;
+        install_version(index, local, mp, mv, &home, &|_| Ok(()), progress)?;
         java::set_enabled(&home, &m.id, m.on)?;
         mods.push(format!("{} {}", m.id, m.version));
     }

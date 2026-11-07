@@ -107,7 +107,7 @@ impl Os {
     }
 }
 
-const OFFICIAL: &str = "the official launcher";
+pub(crate) const OFFICIAL: &str = "the official launcher";
 
 pub fn known_folders_here() -> Vec<(&'static str, PathBuf)> {
     Folders::current()

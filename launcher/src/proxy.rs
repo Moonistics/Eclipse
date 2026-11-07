@@ -32,7 +32,7 @@ pub fn spec_for(url: &str) -> Option<String> {
 }
 
 /// The proxy to reach `url` through: `spec_for`'s address, read as one.
-pub fn for_url(url: &str) -> Option<ureq::Proxy> {
+fn for_url(url: &str) -> Option<ureq::Proxy> {
     spec_for(url).and_then(|spec| eclipse_port_pack::net::parse(&spec))
 }
 

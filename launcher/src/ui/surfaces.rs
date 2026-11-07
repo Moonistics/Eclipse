@@ -13,7 +13,7 @@ use gpui::{
     Hsla, MouseDownEvent, Pixels, Point, Role, ScrollHandle, SharedString, Stateful, Window,
 };
 
-pub const POPOVER_WIDTH: f32 = 280.;
+pub(super) const POPOVER_WIDTH: f32 = 280.;
 
 const POPOVER_MAX_HEIGHT: f32 = 360.;
 
@@ -77,7 +77,7 @@ pub fn surface_colour(kind: Surface) -> Hsla {
     }
 }
 
-pub fn backdrop(kind: Surface, radius: f32) -> AnyElement {
+pub(super) fn backdrop(kind: Surface, radius: f32) -> AnyElement {
     div()
         .absolute()
         .top_0()
@@ -256,13 +256,13 @@ pub fn corner_float(content: impl IntoElement) -> Div {
 
 /// What a dialog or the palette lays over the launcher: GPUI can't blur what it drew, so a
 /// menu's float covers the page. The scrim goes over it.
-pub fn scrim_backdrop() -> impl IntoElement {
+pub(super) fn scrim_backdrop() -> impl IntoElement {
     backdrop(Surface::Float, 0.)
 }
 
 /// The scrim over [`scrim_backdrop`]: lighter in the light appearance, so the dimmed launcher
 /// stays day-lit.
-pub fn scrim() -> Hsla {
+pub(super) fn scrim() -> Hsla {
     color(eclipse_theme::glass::SCRIM).opacity(if light() {
         SCRIM_SHADE_LIGHT
     } else {
@@ -798,7 +798,7 @@ pub fn more_below_fade(pane: &ScrollHandle, under: Hsla) -> Option<Div> {
 /// The focus ring (2 px of the accent's soft shade) over a focused field, inside its edge with
 /// the field's corners: GPUI has no outline, and a field clips what lies outside it. Put it in a
 /// `relative` field round at `radius`.
-pub fn focus_ring(radius: f32) -> Div {
+pub(super) fn focus_ring(radius: f32) -> Div {
     div()
         .absolute()
         .top_0()
@@ -809,7 +809,7 @@ pub fn focus_ring(radius: f32) -> Div {
         .border_color(color(look().accent_soft))
 }
 
-pub fn field_bg(focused: bool) -> Hsla {
+pub(super) fn field_bg(focused: bool) -> Hsla {
     if light() {
         color(PAPER).opacity(if focused { 1. } else { fill::CONTROL_LIGHT })
     } else {
@@ -821,7 +821,7 @@ pub fn field_bg(focused: bool) -> Hsla {
     }
 }
 
-pub fn field_edge() -> Hsla {
+pub(super) fn field_edge() -> Hsla {
     if light() {
         color(eclipse_theme::glass::ON_LIGHT).opacity(FIELD_EDGE_LIGHT)
     } else {
@@ -853,7 +853,7 @@ pub fn field(focused: bool, invalid: bool, size: ButtonSize) -> Div {
         })
         .border_1()
         .border_color(if invalid { danger() } else { field_edge() })
-        .font_family(eclipse_theme::glass::FONT)
+        .font_family(crate::theme::FONT)
         .text_size(px(text.size))
         .when(focused, |d| d.child(focus_ring(radius::CONTROL)))
 }

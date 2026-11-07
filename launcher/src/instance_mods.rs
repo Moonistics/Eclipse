@@ -171,7 +171,7 @@ impl Launcher {
     /// Whether the selected instance has mods to show: Eclipse's always, a Java one with a loader.
     pub(super) fn has_mods_tab(&self) -> bool {
         self.selected_instance()
-            .is_some_and(|i| i.java.as_ref().is_none_or(|j| j.loader.is_some()))
+            .is_some_and(instance_state::takes_mods)
     }
 
     /// Reads the selected instance's mods off the UI thread, once until something changes them:

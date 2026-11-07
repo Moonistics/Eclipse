@@ -24,7 +24,7 @@ const API: &str = "https://api.github.com";
 
 /// How long a saved answer is used without asking again: the launcher looks for releases every
 /// [`backend::CHECK_EVERY`], so a few minutes late at worst.
-pub const FRESH_SECS: u64 = 5 * 60;
+const FRESH_SECS: u64 = 5 * 60;
 
 /// What one source answered.
 #[derive(Debug)]

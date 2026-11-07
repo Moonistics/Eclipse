@@ -129,7 +129,7 @@ pub fn preview() -> (String, String) {
 
 /// What only the game knows (the GPU it draws with, the screen its window is on), as an
 /// example: the launcher draws with neither.
-pub fn with_example_gpu(mut system: System) -> System {
+fn with_example_gpu(mut system: System) -> System {
     system.gpu = "example: the GPU the game draws with".into();
     system.gpu_vendor = "nvidia".into();
     system.gpu_kind = "discrete".into();
@@ -170,7 +170,7 @@ pub fn delete_my_data() -> Result<String, String> {
 
 /// Hides the player's account names and UUIDs and their worlds' folder names, besides what
 /// `Scrubber` finds on its own.
-pub fn scrubber() -> Scrubber {
+fn scrubber() -> Scrubber {
     let mut s = Scrubber::new();
     for account in Accounts::load().accounts {
         s = s.term(account.name).term(account.uuid);
@@ -186,7 +186,7 @@ pub fn scrubber() -> Scrubber {
 }
 
 /// The end of the game's log as a bug report would carry it: scrubbed, without chat.
-pub fn log_for_report() -> Option<String> {
+fn log_for_report() -> Option<String> {
     let (_, text) = backend::read_logs(300, false).ok()?;
     let kept: Vec<&str> = text.lines().filter(|l| !l.contains("[CHAT]")).collect();
     let mut log = scrubber().scrub(&kept.join("\n"));

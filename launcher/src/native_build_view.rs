@@ -274,7 +274,7 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.build_native(false);
+                    this.build_native(false, None);
                     cx.notify();
                 }))
                 .into_any_element(),
@@ -315,7 +315,7 @@ impl Launcher {
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.build_native(true);
+            this.build_native(true, None);
             cx.notify();
         }));
         ui::notice(

@@ -16,7 +16,7 @@ pub struct Updates {
 /// The newest Eclipse build with a build here (the current Nightly), if it isn't installed and
 /// no installed version is newer. Two Nightlies of one day compare equal: the one on GitHub is
 /// the update.
-pub fn eclipse_update(releases: &[Release], installed: &[String]) -> Option<Release> {
+pub(crate) fn eclipse_update(releases: &[Release], installed: &[String]) -> Option<Release> {
     let newest = latest(releases)?;
     let newer = !installed.contains(&newest.tag)
         && installed
@@ -27,7 +27,7 @@ pub fn eclipse_update(releases: &[Release], installed: &[String]) -> Option<Rele
 
 /// The newest launcher release with an archive for this platform, if newer than this launcher
 /// ([`own_tag`]: a launcher from before 0.2 takes any `launcher@` release).
-pub fn launcher_update(releases: &[Release]) -> Option<Release> {
+pub(crate) fn launcher_update(releases: &[Release]) -> Option<Release> {
     launcher_update_from(releases, &own_tag())
 }
 

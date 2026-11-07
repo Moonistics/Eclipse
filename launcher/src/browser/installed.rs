@@ -8,7 +8,10 @@ use super::{
     java_instance, pick, safe_name, FileRef, HomeLockGuard, Kind, Project, Source, SourceId,
 };
 use super::{Support, Version};
+use crate::desktop_seams::Trash;
 use crate::game_folder;
+use crate::i18n::trf;
+use eclipse_mods::index::Index;
 use serde::{Deserialize, Serialize};
 use std::fs;
 use std::path::{Component, Path, PathBuf};
@@ -26,7 +29,7 @@ const FOLDERS: [&str; 5] = [
 /// the `.jar` files in `mods/`.
 pub(super) const OFF: &str = ".disabled";
 /// How deep required dependencies are followed.
-const MAX_DEPTH: usize = 4;
+pub(super) const MAX_DEPTH: usize = 4;
 
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -60,7 +63,7 @@ pub struct Entry {
 /// plain names only (no root, drive or `..`), so `home.join(file)` stays in the game folder. The
 /// list is a file in that folder, which a modpack could have put there: an entry naming any other
 /// place must never make the browser remove or rename it.
-pub fn in_folders(file: &str) -> bool {
+pub(crate) fn in_folders(file: &str) -> bool {
     let mut parts = Path::new(file).components();
     let top = parts.next();
     matches!(top, Some(Component::Normal(t)) if FOLDERS.iter().any(|f| t == *f))
@@ -248,12 +251,132 @@ impl Game {
         Ok(newest.filter(|v| v.id != entry.version).cloned())
     }
 
-    pub fn remove(&self, home: &Path, name: &str) -> Result<Entry, String> {
+    /// Removes what the browser installed as `name`: a pack goes to `trash`, where the player
+    /// can get it back; a mod is deleted, as its project can be installed again.
+    pub fn remove(&self, home: &Path, name: &str, trash: Trash) -> Result<Entry, String> {
+        let pack = Installed::load(home)
+            .lookup(name)
+            .filter(|e| e.kind != Kind::Mod)
+            .and_then(|e| e.path(home))
+            .filter(|path| path.exists());
+        if let Some(path) = pack {
+            trash(&path).map_err(|e| format!("{}: {e}", path.display()))?;
+        }
         match self {
             Game::Eclipse => remove(home, name),
             Game::Java(_) => java_instance::remove(home, name),
         }
     }
+
+    /// Turns the mod `entry` on or off: in a Java instance by renaming its file, else as the
+    /// game's Options > Mods does. A registry mod `index` says was taken down doesn't turn on.
+    pub fn set_on(
+        &self,
+        home: &Path,
+        entry: &Entry,
+        on: bool,
+        index: Option<&Index>,
+    ) -> Result<(), String> {
+        if let Game::Java(_) = self {
+            return java_instance::set_on(home, entry, on);
+        }
+        let id = super::eclipse::mod_id(entry)
+            .filter(|_| entry.kind == Kind::Mod)
+            .ok_or_else(|| format!("{} isn't a mod: only mods turn on and off.", entry.title))?;
+        if let Some(r) = index
+            .filter(|_| on)
+            .and_then(|i| super::eclipse::taken_down(i, entry))
+        {
+            return Err(trf(
+                "{name} was taken down: {reason}",
+                &[("name", &entry.title), ("reason", &r.reason)],
+            ));
+        }
+        super::java::set_enabled(home, id, on)
+    }
+}
+
+/// Where a project from the browser goes.
+pub struct Destination<'a> {
+    /// The instance's game folder.
+    pub home: &'a Path,
+    /// A Java instance's game: its loader and Minecraft choose the files.
+    pub java: Option<&'a java_instance::Target>,
+    /// The world a data pack goes into: given, the project installs as a data pack.
+    pub world: Option<&'a Path>,
+    /// Any version, not only those made for this game.
+    pub everything: bool,
+}
+
+/// What installing a project made.
+pub enum Done {
+    /// A data pack in the world, its version and, in Eclipse, what of it runs.
+    DataPack {
+        pack: crate::datapacks::DataPack,
+        number: String,
+        coverage: Option<crate::datapacks::Coverage>,
+    },
+    /// A registry modpack, installed as its own instance.
+    Pack(super::eclipse::pack::Installed),
+    /// A modpack from Modrinth, imported and ported as its own instance.
+    Port(crate::modpacks::Imported),
+    /// Files in the instance's folders, dependencies included.
+    Files(Vec<Entry>),
+}
+
+/// Installs `project` where `to` says: a data pack into the world, a modpack as its own instance
+/// (with the pack's icon; `log` says how its import goes), anything else into the instance's
+/// folders.
+pub fn install_into(
+    source: &dyn Source,
+    project: &Project,
+    to: &Destination,
+    progress: &dyn Fn(&str, f32),
+    log: &dyn Fn(String),
+) -> Result<Done, String> {
+    let p = project;
+    if let Some(world) = to.world {
+        let into = |f| progress(&p.title, f);
+        return Ok(match to.java {
+            Some(target) => {
+                let (pack, number) =
+                    java_instance::install_datapack(source, target, p, world, &into)?;
+                Done::DataPack {
+                    pack,
+                    number,
+                    coverage: None,
+                }
+            }
+            None => {
+                let done = install_datapack(source, p, to.everything, world, &into)?;
+                Done::DataPack {
+                    pack: done.pack,
+                    number: done.number,
+                    coverage: Some(done.coverage),
+                }
+            }
+        });
+    }
+    if p.kind == Kind::Modpack && p.source == SourceId::Eclipse {
+        let installed = super::eclipse::pack::install(&p.id, progress)?;
+        if let Some(url) = &p.icon {
+            crate::instances::adopt_icon(&super::eclipse::pack::home(&installed.work), url);
+        }
+        return Ok(Done::Pack(installed));
+    }
+    if p.kind == Kind::Modpack {
+        let folder = crate::modpacks::ports_dir().join("downloads");
+        let file = fetch_modpack(source, p, &folder, &|f| progress(&p.title, f))?;
+        let resources = crate::modpacks::port_resources();
+        let imported = crate::modpacks::import_and_port(&file, resources.as_deref(), log)?;
+        if let Some(url) = &p.icon {
+            crate::instances::adopt_icon(&crate::modpacks::profile_home(&imported.work), url);
+        }
+        return Ok(Done::Port(imported));
+    }
+    let game = Game::of(to.java.cloned());
+    game.install(source, p, to.everything, to.home, progress)
+        .map(Done::Files)
 }
 
 /// One file to install: the project, the version chosen and why it was pulled in.

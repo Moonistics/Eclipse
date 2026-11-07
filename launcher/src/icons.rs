@@ -8,34 +8,44 @@ const LARGE_DIR: &str = "icons/24/";
 const CELLS: f32 = 8.;
 const LARGE_CELLS: f32 = 12.;
 
-pub const PACK: &str = "cube";
-pub const WORLD: &str = "earth";
-pub const SERVER: &str = "computer";
-pub const MULTIPLAYER: &str = "user-multiple-02";
-pub const VERSION: &str = "package-01";
-pub const LANGUAGE: &str = "language-square";
-pub const NETWORK: &str = "globe-02";
-pub const CONSOLE: &str = "computer-terminal-01";
-pub const DEVELOPER: &str = "source-code";
-pub const HOME: &str = "home-01";
-pub const NOTES: &str = "note-01";
-pub const INFO: &str = "information-circle";
-pub const SETTINGS: &str = "settings-01";
-pub const UPDATES: &str = "download-04";
-pub const RETRY: &str = "refresh";
-pub const RANDOM: &str = "dice";
-pub const LAUNCH_OPTIONS: &str = "sliders-horizontal";
-pub const APPEARANCE: &str = "contrast";
-pub const ANY_COLOUR: &str = "color-picker";
-pub const SERVER_PANEL: &str = "dashboard-square-01";
-pub const MODS: &str = "puzzle";
-pub const NEW_INSTANCE: &str = "plus-sign";
-pub const ACCOUNT: &str = "user";
-pub const GAME: &str = "game-controller-01";
-pub const AI: &str = "ai-chat-02";
-pub const FOLDERS: &str = "folder-01";
-pub const DATA_COLLECTION: &str = "view";
-pub const COPY: &str = "copy-01";
+macro_rules! meanings {
+    ($($meaning:ident = $drawing:literal),* $(,)?) => {
+        $(pub const $meaning: &str = $drawing;)*
+        #[cfg(test)]
+        const MEANINGS: &[&str] = &[$($meaning),*];
+    };
+}
+
+meanings!(
+    PACK = "cube",
+    WORLD = "earth",
+    SERVER = "computer",
+    MULTIPLAYER = "user-multiple-02",
+    VERSION = "package-01",
+    LANGUAGE = "language-square",
+    NETWORK = "globe-02",
+    CONSOLE = "computer-terminal-01",
+    DEVELOPER = "source-code",
+    HOME = "home-01",
+    NOTES = "note-01",
+    INFO = "information-circle",
+    SETTINGS = "settings-01",
+    UPDATES = "download-04",
+    RETRY = "refresh",
+    RANDOM = "dice",
+    LAUNCH_OPTIONS = "sliders-horizontal",
+    APPEARANCE = "contrast",
+    ANY_COLOUR = "color-picker",
+    SERVER_PANEL = "dashboard-square-01",
+    MODS = "puzzle",
+    NEW_INSTANCE = "plus-sign",
+    ACCOUNT = "user",
+    GAME = "game-controller-01",
+    AI = "ai-chat-02",
+    FOLDERS = "folder-01",
+    DATA_COLLECTION = "view",
+    COPY = "copy-01",
+);
 
 macro_rules! large_icons {
     ($($name:literal),* $(,)?) => {
@@ -249,36 +259,7 @@ mod tests {
 
     #[test]
     fn each_meaning_has_a_drawing_of_its_own() {
-        let meanings = [
-            PACK,
-            WORLD,
-            SERVER,
-            MULTIPLAYER,
-            VERSION,
-            LANGUAGE,
-            NETWORK,
-            CONSOLE,
-            DEVELOPER,
-            HOME,
-            NOTES,
-            INFO,
-            SETTINGS,
-            UPDATES,
-            RETRY,
-            RANDOM,
-            LAUNCH_OPTIONS,
-            APPEARANCE,
-            ANY_COLOUR,
-            SERVER_PANEL,
-            MODS,
-            NEW_INSTANCE,
-            ACCOUNT,
-            GAME,
-            AI,
-            FOLDERS,
-            DATA_COLLECTION,
-            COPY,
-        ];
+        let meanings = MEANINGS;
         for (i, name) in meanings.iter().enumerate() {
             assert!(!meanings[..i].contains(name), "{name} means two things");
         }

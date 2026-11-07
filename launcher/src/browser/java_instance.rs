@@ -2,14 +2,11 @@
 //! own files, for the instance's Minecraft version and loader, put in its `mods/`,
 //! `resourcepacks/`, `shaderpacks/` and a world's `datapacks/` as they are (nothing is ported).
 //! The instance's `mod-browser.json` lists all but the data packs, as for Eclipse's folder.
-use super::installed::{self, Entry, Installed, Step};
+use super::installed::{self, Entry, Installed, Step, MAX_DEPTH};
 use super::{details, Kind, Project, Query, Source, Support, Version};
 use crate::game_folder;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-/// How deep required dependencies are followed.
-const MAX_DEPTH: usize = 4;
 
 const SHADER_PACK_LOADERS: [&str; 3] = ["iris", "optifine", "canvas"];
 

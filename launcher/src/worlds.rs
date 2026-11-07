@@ -51,8 +51,13 @@ pub struct World {
 }
 
 /// The worlds in a game folder's `saves/`, the last played first.
+/// The folder of the worlds of the game folder `home`.
+pub fn saves_dir(home: &Path) -> PathBuf {
+    home.join(SAVES)
+}
+
 pub fn list(home: &Path) -> Vec<World> {
-    let mut worlds: Vec<World> = fs::read_dir(home.join(SAVES))
+    let mut worlds: Vec<World> = fs::read_dir(saves_dir(home))
         .into_iter()
         .flatten()
         .flatten()
@@ -142,7 +147,7 @@ pub fn find(home: &Path, query: &str) -> Result<World, String> {
         .find(|w| w.folder == query)
         .or_else(|| all.iter().find(|w| w.name.eq_ignore_ascii_case(query)))
         .cloned()
-        .ok_or_else(|| format!("No world {query} in {}", home.join(SAVES).display()))
+        .ok_or_else(|| format!("No world {query} in {}", saves_dir(home).display()))
 }
 
 /// `base`, else `base (1)`, `base (2)`... from the `first` count: the first name free in `dir`

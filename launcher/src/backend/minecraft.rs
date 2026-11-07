@@ -65,7 +65,7 @@ pub(super) fn download_for_owner(
 /// Downloads Minecraft `id` (any version on Mojang's list, its version file's sha1 from it) into
 /// Eclipse's own game folder, in the official launcher's layout, for an account that owns the
 /// game (asked again now). Returns that folder.
-pub fn download_version_for_owner(
+pub(crate) fn download_version_for_owner(
     id: &str,
     manifest_sha1: &str,
     log: &dyn Fn(String),

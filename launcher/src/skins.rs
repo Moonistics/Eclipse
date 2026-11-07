@@ -8,9 +8,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const SKIN_ENV: &str = "ECLIPSE_OFFLINE_SKIN";
-pub const MODEL_ENV: &str = "ECLIPSE_OFFLINE_SKIN_MODEL";
-pub const CAPE_ENV: &str = "ECLIPSE_OFFLINE_CAPE";
+const SKIN_ENV: &str = "ECLIPSE_OFFLINE_SKIN";
+const MODEL_ENV: &str = "ECLIPSE_OFFLINE_SKIN_MODEL";
+const CAPE_ENV: &str = "ECLIPSE_OFFLINE_CAPE";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]

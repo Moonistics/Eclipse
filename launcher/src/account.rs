@@ -152,7 +152,7 @@ impl std::fmt::Debug for MsTokens {
     }
 }
 
-pub enum Poll {
+enum Poll {
     Pending,
     /// The server asked to poll less often: wait 5 s more.
     SlowDown,
@@ -202,7 +202,7 @@ fn oauth_error(v: &Value) -> String {
 }
 
 /// One poll of the token endpoint while the player signs in.
-pub fn poll(ep: &Endpoints, client_id: &str, code: &DeviceCode) -> Result<Poll, String> {
+fn poll(ep: &Endpoints, client_id: &str, code: &DeviceCode) -> Result<Poll, String> {
     let (status, v) = send(
         request_to("POST", &format!("{}/token", ep.microsoft)),
         Some(Body::Form(vec![
@@ -494,7 +494,7 @@ pub fn finish_sign_in(ep: &Endpoints, ms: MsTokens) -> Result<(Account, Secrets)
     finish_sign_in_with_progress(ep, ms, &|_| {})
 }
 
-pub fn finish_sign_in_with_progress(
+fn finish_sign_in_with_progress(
     ep: &Endpoints,
     ms: MsTokens,
     progress: &dyn Fn(session::Phase),
@@ -804,6 +804,16 @@ impl Accounts {
         Ok(())
     }
 
+    /// Keeps `look` for the offline name `name`; refused for a name not kept (forgotten while a
+    /// file was being picked, say).
+    pub fn set_look(&mut self, name: &str, look: crate::skins::Look) -> Result<(), String> {
+        if !self.offline.iter().any(|n| n.eq_ignore_ascii_case(name)) {
+            return Err(format!("No offline name {name}."));
+        }
+        self.looks.insert(name.to_ascii_lowercase(), look);
+        Ok(())
+    }
+
     /// An offline name's look (the default: no skin of its own).
     pub fn look(&self, name: &str) -> crate::skins::Look {
         self.looks
@@ -974,7 +984,7 @@ pub fn launch(
 /// (`backend::Settings::dev_offline`, `offline_without_owner`) no owner is no refusal: the game
 /// starts offline, without a session and without an `owner`. Downloads never come through here:
 /// `backend::download_for_owner` asks [`launch`] itself, so the option never downloads the game.
-pub fn launch_for_game(
+fn launch_for_game(
     ep: &Endpoints,
     client_id: Option<&str>,
     store: &dyn SecretStore,
@@ -989,11 +999,7 @@ pub fn launch_for_game(
 
 /// Write the session for the game, readable by this user only, in a fresh file it deletes
 /// when it reads it.
-pub fn write_session_file(
-    dir: &Path,
-    account: &Account,
-    secrets: &Secrets,
-) -> Result<PathBuf, String> {
+fn write_session_file(dir: &Path, account: &Account, secrets: &Secrets) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
     // The folder too is this user's only (the files already are).
     #[cfg(unix)]
@@ -1007,7 +1013,7 @@ pub fn write_session_file(
             let old = e
                 .metadata()
                 .and_then(|m| m.modified())
-                .is_ok_and(|m| m.elapsed().is_ok_and(|age| age > Duration::from_secs(120)));
+                .is_ok_and(|m| m.elapsed().is_ok_and(|age| age > SESSION_FILE_LIFE));
             if old {
                 let _ = std::fs::remove_file(e.path());
             }
@@ -1305,7 +1311,11 @@ fn session_file(game_home: &Path, pass: Launch, env: Vec<(&'static str, String)>
         ..GameSession::default()
     };
     if let Some((account, secrets)) = pass.session {
-        match write_launch_session_file(&game_home.join("sessions"), &account, &secrets) {
+        match write_launch_session_file(
+            &game_home.join(crate::game_folder::SESSIONS),
+            &account,
+            &secrets,
+        ) {
             Ok(file) => out.file = Some(file),
             Err(e) => out.offline = Some(e),
         }
@@ -1325,7 +1335,7 @@ fn split_sessions(
             &Endpoints::live(),
             client_id().as_deref(),
             store(),
-            &game_home.join("sessions"),
+            &game_home.join(crate::game_folder::SESSIONS),
             accounts,
         );
         accounts.selected = selected;
@@ -1338,8 +1348,8 @@ fn split_sessions(
 /// Whether the game's Splitscreen setting is on (`eclipse-extras.txt`, `splitscreen:true`): only
 /// then do the other accounts' sessions go to it.
 fn splitscreen_on(game_home: &Path) -> bool {
-    std::fs::read_to_string(game_home.join("eclipse-extras.txt"))
-        .is_ok_and(|text| text.lines().any(|l| l.trim() == "splitscreen:true"))
+    std::fs::read_to_string(game_home.join(crate::game_folder::EXTRAS))
+        .is_ok_and(|text| crate::game_folder::setting(&text, "splitscreen") == Some("true"))
 }
 
 /// The signed-in accounts but the one that plays, each its session in a file of its own, for

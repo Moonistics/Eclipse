@@ -464,3 +464,69 @@ fn data_packs_go_into_a_world_when_something_in_them_runs() {
     assert_eq!(names.len(), 2, "{names:?}");
     fs::remove_dir_all(world.parent().unwrap().parent().unwrap()).unwrap();
 }
+
+#[test]
+fn installs_where_asked_and_removed_packs_go_to_the_trash() {
+    let home = home("where-asked");
+    let mut fake = Fake::default();
+    fake.add(project("base", Kind::ResourcePack));
+    fake.release("base", "1", &[], b"base pack", false);
+    let to = Destination {
+        home: &home,
+        java: None,
+        world: None,
+        everything: false,
+    };
+    let base = fake.project("base").unwrap();
+    let Done::Files(done) = install_into(&fake, &base, &to, NONE, &|_| {}).unwrap() else {
+        panic!("a resource pack is a file");
+    };
+    assert_eq!(done[0].file, "resourcepacks/base-1.zip");
+    let refused = Game::Eclipse
+        .set_on(&home, &done[0], false, None)
+        .unwrap_err();
+    assert!(refused.contains("only mods turn on and off"), "{refused}");
+
+    let bin = home.join("trash");
+    let trash = |p: &Path| crate::desktop_seams::to_folder(p, &bin);
+    Game::Eclipse.remove(&home, "base", &trash).unwrap();
+    assert!(!home.join("resourcepacks/base-1.zip").exists());
+    assert_eq!(fs::read(bin.join("base-1.zip")).unwrap(), b"base pack");
+    assert!(Installed::load(&home).entries.is_empty());
+    fs::remove_dir_all(&home).unwrap();
+}
+
+#[test]
+fn a_java_instances_world_takes_data_packs_by_its_own_rules() {
+    let home = home("java-datapack");
+    let world = home.join("saves/World");
+    fs::create_dir_all(&world).unwrap();
+    let mut fake = Fake::default();
+    let mut terrain = project("terrain", Kind::DataPack);
+    terrain.loaders = vec!["datapack".into()];
+    fake.add(terrain);
+    let worldgen = datapack_zip(&["data/t/worldgen/biome/b.json"]);
+    fake.release("terrain", "1.0", &[], &worldgen, false);
+    let terrain = fake.project("terrain").unwrap();
+    let java = java_instance::Target {
+        minecraft: GAME.into(),
+        loader: Some("fabric".into()),
+    };
+    let to = Destination {
+        home: &home,
+        java: Some(&java),
+        world: Some(&world),
+        everything: false,
+    };
+    let Done::DataPack { pack, coverage, .. } =
+        install_into(&fake, &terrain, &to, NONE, &|_| {}).unwrap()
+    else {
+        panic!("a data pack goes into the world");
+    };
+    assert_eq!(pack.file, "terrain-1.0.zip");
+    assert!(coverage.is_none());
+    // Eclipse's own world refuses it: nothing in it runs in Eclipse yet.
+    let eclipse = Destination { java: None, ..to };
+    assert!(install_into(&fake, &terrain, &eclipse, NONE, &|_| {}).is_err());
+    fs::remove_dir_all(&home).unwrap();
+}

@@ -94,11 +94,6 @@ fn group_label(
 }
 
 impl Launcher {
-    pub(super) fn instance_icon(&mut self, i: &Instance, size: f32) -> AnyElement {
-        let spec = self.icon_spec(i);
-        self.icon_for(spec, size)
-    }
-
     /// A sidebar row's state line and its dot, from what the launcher knows of the instance;
     /// `short` where the narrow sidebar has no room for the whole line.
     fn row_state(&self, i: &Instance, short: bool) -> (Tone, String) {
@@ -633,7 +628,7 @@ impl Launcher {
                 let why = self.launcher_update_help(error.as_deref());
                 let url = backend::download_page(&self.links.website);
                 let mut actions = Vec::new();
-                if self.launcher_download_available() {
+                if !backend::package_managed_launcher() {
                     actions.push(
                         ui::button(
                             "download-launcher",
@@ -850,14 +845,16 @@ impl Launcher {
                     },
                 )),
             )
-            .child(
-                item("duplicate", "copy-01", tr("Duplicate…").into()).on_press(cx.listener(
-                    move |this, _: &ClickEvent, _, cx| {
-                        this.show_duplicate(&copy);
-                        cx.notify();
-                    },
-                )),
-            )
+            .when(instance_state::duplicable(&instance), |menu| {
+                menu.child(
+                    item("duplicate", "copy-01", tr("Duplicate…").into()).on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.show_duplicate(&copy);
+                            cx.notify();
+                        },
+                    )),
+                )
+            })
             .child(
                 item("folder", "folder-01", tr("Open instance folder").into()).on_press(
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -910,7 +907,7 @@ impl Launcher {
                     cx.notify();
                 })),
             );
-        let can_delete = self.can_delete_instance(&instance);
+        let delete_block = self.delete_block(&instance);
         let gone = instance.id.clone();
         let delete = if confirm {
             ui::menu_confirm(
@@ -929,20 +926,16 @@ impl Launcher {
             .into_any_element()
         } else {
             let ask = ui::menu_row("row-menu-delete", "delete-02", tr("Delete…"), true);
-            if can_delete {
-                let asked = instance.id.clone();
-                ask.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.asking = Some(Asking::InstanceDelete(asked.clone()));
-                    cx.notify();
-                }))
-                .into_any_element()
-            } else {
-                let why = if instance.kind == InstanceKind::Default {
-                    tr("Eclipse's own instance can't be deleted")
-                } else {
-                    tr("Close the game first")
-                };
-                ui::unavailable(ask, why).into_any_element()
+            match delete_block {
+                None => {
+                    let asked = instance.id.clone();
+                    ask.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        this.asking = Some(Asking::InstanceDelete(asked.clone()));
+                        cx.notify();
+                    }))
+                    .into_any_element()
+                }
+                Some(why) => ui::unavailable(ask, why).into_any_element(),
             }
         };
         menu = menu.child(delete);

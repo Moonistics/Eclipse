@@ -215,7 +215,7 @@ impl Source for Modrinth {
             .flatten()
             .filter_map(parse_hit)
             .map(|p| match query.kind {
-                Kind::DataPack => p.as_datapack(),
+                Kind::DataPack => p.into_datapack(),
                 _ => p,
             })
             .collect())

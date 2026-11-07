@@ -1,7 +1,81 @@
 use super::*;
-use game_run::GameProblem;
+use eclipse_launcher::backend::{Links, Output, Staged};
+
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub(super) enum Job {
+    Prepare,
+    Client,
+}
+
+pub(super) enum Msg {
+    Releases(Result<Vec<Release>, String>),
+    Links(Links),
+    Progress(String, f32),
+    Installed(String, Result<(), String>),
+    /// A version's files are gone (or could not be deleted).
+    Removed(String, Result<(), String>),
+    /// `prune_old_versions` ended; these versions were deleted.
+    Pruned(Vec<String>),
+    /// What each installed version takes on disk (`disk_use`).
+    DiskUse(Vec<(String, u64)>),
+    Line(Job, String),
+    Exit(Job, Result<(), backend::Ended>),
+    Started(game_run::Started),
+    /// Boxed: two releases, the largest message by far.
+    Updates(Result<Box<Updates>, String>),
+    LauncherProgress(f32),
+    LauncherUpdated(Result<Option<Staged>, String>),
+    Reused,
+    /// None when secrets are kept in the OS keychain, else what to say: they last only until
+    /// the launcher closes, and why.
+    Keychain(Option<String>),
+    /// Whether an account in the launcher owned the game at its last check (the owner gate).
+    Owner(bool),
+    /// Credential-free result from a background account operation.
+    AccountStatus(String, u64, account::session::Status),
+    AccountProgress(String, u64, account::session::Phase),
+    AccountHead(String, Option<String>, Option<Vec<[u8; 4]>>, bool),
+    AccountRemoved(String, u64, Result<bool, String>),
+    /// A modpack step's line (`modpacks`).
+    PackLine(String),
+    /// A modpack step ended: the pack as it now is.
+    PackDone(Result<Box<eclipse_launcher::modpacks::Imported>, String>),
+    /// Where the native-mods build is (`native_mods::Step::label`).
+    NativeProgress(String),
+    /// The native-mods build ended: the version built, or why not.
+    Native(Result<String, native_mods::BuildError>),
+    /// An imported game build is installed (`build_import::import`): its version, or why not.
+    Imported(Result<String, String>),
+}
+
+#[derive(Clone)]
+pub(super) struct Tell(Sender<Msg>);
+
+impl Tell {
+    pub(super) fn send(&self, msg: Msg) {
+        let _ = self.0.send(msg);
+    }
+
+    pub(super) fn output(self, job: Job) -> impl Fn(Output) + Send + Sync + 'static {
+        move |out| {
+            self.send(match out {
+                Output::Line(line) => Msg::Line(job, line),
+                Output::Exit(result) => Msg::Exit(job, result),
+            })
+        }
+    }
+}
 
 impl Launcher {
+    pub(super) fn tell(&self) -> Tell {
+        Tell(self.tx.clone())
+    }
+
+    pub(super) fn in_background(&self, work: impl FnOnce(Tell) + Send + 'static) {
+        let tell = self.tell();
+        std::thread::spawn(move || work(tell));
+    }
+
     pub(super) fn drain(&mut self, cx: &mut Context<Self>) {
         let mut changed = false;
         self.perf.tick();
@@ -24,329 +98,57 @@ impl Launcher {
                 changed = true;
             }
         }
-        while let Ok(started) = self.game.starts.rx.try_recv() {
-            changed = true;
-            self.game_started(started, cx);
-        }
         while let Ok(msg) = self.rx.try_recv() {
             changed = true;
             match msg {
-                Msg::Releases(r) => {
-                    if let (Ok(_), Some(checked)) = (&r, self.update_check.since()) {
-                        self.perf.record_since("launcher.release_list_ms", checked);
-                    }
-                    self.versions.releases = r.map_or_else(Load::Failed, Load::Ready)
-                }
+                Msg::Releases(r) => self.releases_arrived(r),
                 Msg::Links(links) => {
                     self.multiplayer.stale();
                     self.links = links;
                 }
                 // The page reads is_prepared when drawn; `changed` redraws it.
-                Msg::Reused(_) => self.versions.installed = backend::installed(),
+                Msg::Reused => self.versions.installed = backend::installed(),
                 Msg::Keychain(said) => self.accounts_ui.keychain = said,
                 Msg::Owner(owns) => self.owner = Some(owns),
                 Msg::AccountHead(uuid, url, face, failed) => {
                     self.profile_heads.loaded(&uuid, &url, face, failed)
                 }
                 Msg::AccountProgress(uuid, generation, phase) => {
-                    if self.accounts_ui.auth_busy.get(&uuid) == Some(&generation) {
-                        self.accounts_ui.auth_progress.insert(uuid, phase);
-                    }
+                    self.auth_moved(uuid, generation, phase)
                 }
                 Msg::AccountStatus(uuid, generation, status) => {
-                    if self.accounts_ui.auth_busy.get(&uuid) != Some(&generation) {
-                        continue;
-                    }
-                    self.accounts_ui.auth_busy.remove(&uuid);
-                    self.accounts_ui.auth_progress.remove(&uuid);
-                    if self.accounts.find(&uuid).is_some() {
-                        if status.state == account::session::State::Ready {
-                            self.owner = Some(true);
-                        }
-                        self.accounts_ui.auth_status.insert(uuid, status);
-                        // A refresh may have saved a new name or skin: show it now.
-                        let saved = Accounts::load();
-                        if saved != self.accounts {
-                            self.accounts = saved;
-                            self.load_profile_heads();
-                        }
-                    }
+                    self.auth_checked(uuid, generation, status)
                 }
                 Msg::AccountRemoved(uuid, generation, result) => {
-                    if self.accounts_ui.auth_busy.get(&uuid) != Some(&generation) {
-                        continue;
-                    }
-                    self.accounts_ui.auth_busy.remove(&uuid);
-                    self.accounts_ui.auth_progress.remove(&uuid);
-                    match result {
-                        Ok(owns) => {
-                            self.accounts = Accounts::load();
-                            self.accounts_ui.auth_status.remove(&uuid);
-                            self.owner = Some(owns);
-                        }
-                        Err(e) => self.accounts_ui.sign_in_state = Some(SignInState::Done(Err(e))),
-                    }
+                    self.account_removed(uuid, generation, result)
                 }
-                Msg::Progress(tag, p) => {
-                    let from = self.versions.installing.as_ref().map_or(0., |i| i.done());
-                    self.versions.installing = Some(versions_state::Install {
-                        tag,
-                        bar: (from, p),
-                    });
-                }
-                Msg::Installed(tag, result) => {
-                    self.versions.installing = None;
-                    self.versions.installed = backend::installed();
-                    let as_update = self
-                        .versions
-                        .update_install
-                        .take()
-                        .filter(|(t, _)| *t == tag);
-                    let for_instance = self
-                        .versions
-                        .instance_install
-                        .take_if(|t| *t == tag)
-                        .is_some();
-                    if let (Ok(()), Some(started)) = (&result, self.versions.install_started.take())
-                    {
-                        let name = if as_update.is_some() {
-                            "launcher.update_ms"
-                        } else {
-                            "launcher.install_ms"
-                        };
-                        self.perf.record_since(name, started);
-                    }
-                    match result {
-                        Ok(()) => {
-                            if self.updates.eclipse.as_ref().is_some_and(|r| r.tag == tag) {
-                                self.updates.eclipse = None;
-                            }
-                            // An instance's own version leaves the other instances on theirs.
-                            let update = as_update.is_some();
-                            let select = becomes_default(
-                                &tag,
-                                as_update.map(|(_, select)| select),
-                                for_instance,
-                                self.default_version().map(String::as_str),
-                            );
-                            if select {
-                                self.settings.default_version = Some(tag.clone());
-                            }
-                            // Pruning reads settings from disk: protect the selection only once
-                            // it has been saved there. A failed save leaves all versions in place.
-                            if self.save_settings() {
-                                let tx = self.tx.clone();
-                                std::thread::spawn(move || {
-                                    let gone = backend::after_install(&tag, update);
-                                    let _ = tx.send(Msg::Pruned(gone));
-                                });
-                            }
-                        }
-                        Err(e) => self.versions.install_error = Some((tag, e)),
-                    }
-                    if let Some(next) = self.versions.install_next.take() {
-                        self.install_for_instance(next);
-                    }
-                }
-                Msg::Removed(tag, result) => {
-                    self.versions.removing.retain(|t| *t != tag);
-                    self.versions.installed = backend::installed();
-                    let selected = if self.settings_save_error.is_some() {
-                        self.settings.default_version.take()
-                    } else {
-                        Settings::load().default_version
-                    };
-                    self.settings.default_version =
-                        selection_after_removal(&self.versions.installed, selected);
-                    if let Err(e) = result {
-                        self.versions.install_error = Some((tag, e));
-                    }
-                }
+                Msg::Progress(tag, p) => self.install_moved(tag, p),
+                Msg::Installed(tag, result) => self.installed(tag, result),
+                Msg::Removed(tag, result) => self.removed(tag, result),
                 Msg::DiskUse(disk) => self.versions.disk = disk,
-                Msg::Imported(result) => {
-                    self.versions.importing = false;
-                    self.versions.installed = backend::installed();
-                    match result {
-                        // `build_import::import` saved the selection; this keeps the window's copy.
-                        Ok(tag) => self.settings.default_version = Some(tag),
-                        Err(e) => self.versions.import_error = Some(e),
-                    }
-                }
-                Msg::Pruned(gone) => {
-                    if !gone.is_empty() {
-                        self.versions.installed = backend::installed();
-                    }
-                }
-                Msg::Updates(Ok(updates)) => {
-                    self.update_check.answered(Ok(()));
-                    self.updates = *updates;
-                    if self.settings.auto_install() {
-                        self.install_update();
-                    }
-                    if let Some(release) = self.updates.launcher.clone() {
-                        self.update_launcher(release);
-                    }
-                }
-                Msg::Updates(Err(e)) => self.update_check.answered(Err(e)),
+                Msg::Imported(result) => self.imported(result),
+                Msg::Pruned(gone) => self.pruned(gone),
+                Msg::Updates(updates) => self.updates_arrived(updates),
                 Msg::NativeProgress(step) => self.native.step = Some(step),
-                Msg::Native(result) => {
-                    // The last step of a build that worked says how it went.
-                    let last = self.native.step.take();
-                    self.native.started = None;
-                    self.native.done = result.is_ok().then_some(last).flatten();
-                    self.versions.installed = backend::installed();
-                    self.reload_instances();
-                    // A build attempt ended: an open panel reads the log it left.
-                    self.native_log.stale = true;
-                    match result {
-                        Err(native_mods::BuildError::Mismatch(list)) => {
-                            self.native.mismatch = Some(list)
-                        }
-                        Err(native_mods::BuildError::Failed(e)) => self.native.error = Some(e),
-                        // Play waited for this build (`Mods::rebuild`).
-                        Ok(_) if std::mem::take(&mut self.mods.play_after_build) => self.play(),
-                        Ok(_) => {}
-                    }
-                    self.mods.play_after_build = false;
-                }
-                Msg::LauncherProgress(p) => {
-                    if let SelfUpdate::Downloading(_, f) = &mut self.self_update {
-                        *f = p;
-                    }
-                }
-                Msg::LauncherUpdated(result) => {
-                    let version = match &self.self_update {
-                        SelfUpdate::Downloading(v, _) => v.clone(),
-                        _ => String::new(),
-                    };
-                    self.self_update = match result {
-                        Ok(staged) => {
-                            eclipse_launcher::update_handoff::set_pending(staged);
-                            SelfUpdate::Ready(version)
-                        }
-                        Err(e) => SelfUpdate::Failed(e),
-                    };
-                }
-                Msg::PackLine(line) => {
-                    self.modpacks.log.push_back(line);
-                    if self.modpacks.log.len() > LOG_LINES {
-                        self.modpacks.log.pop_front();
-                    }
-                }
+                Msg::Native(result) => self.native_built(result),
+                Msg::LauncherProgress(p) => self.launcher_update_moved(p),
+                Msg::LauncherUpdated(result) => self.launcher_updated(result),
+                Msg::PackLine(line) => self.modpacks.log.push(line),
                 Msg::PackDone(result) => self.pack_done(result),
                 // Old versions log their session; it never reaches the window.
                 Msg::Line(_, line) if line.contains("Session ID is") => {}
                 Msg::Line(job, line) => {
-                    if job == Job::Client && line.starts_with(perf::GAME_FIRST_FRAME) {
+                    if job == Job::Client && line.starts_with(backend::GAME_FIRST_FRAME) {
                         if let Some(pressed) = self.game.take_pressed() {
                             self.perf
                                 .record_since("launcher.play_to_game_frame_ms", pressed);
                         }
                     }
-                    // The MCP server keeps its own server's log; the launcher's are the preparer's
-                    // and the game's.
-                    if job != Job::Server {
-                        self.game.log.push_back(line);
-                        if self.game.log.len() > LOG_LINES {
-                            self.game.log.pop_front();
-                        }
-                    }
+                    self.game.log.push(line);
                 }
-                Msg::Exit(job, result) => {
-                    let error = result.err();
-                    match job {
-                        Job::Prepare => {
-                            let (started, then_play) = self.game.end_preparing().unzip();
-                            // Play pressed before the version was prepared plays now.
-                            if let Some(tag) = then_play.flatten() {
-                                if error.is_none() && backend::is_prepared(&tag) {
-                                    self.game.pack = None;
-                                    self.start_client(tag);
-                                }
-                            }
-                            if let (None, Some(started)) = (&error, started) {
-                                self.perf.record_since("launcher.prepare_ms", started);
-                            }
-                            // A preparer process's exit status says little, so its last line
-                            // follows; the launcher's own errors are full sentences already.
-                            self.game.prepare_error = error.map(|e| {
-                                let tail = self
-                                    .game
-                                    .log
-                                    .iter()
-                                    .rev()
-                                    .find(|l| !l.trim().is_empty())
-                                    .filter(|_| e.starts_with("Exited with"));
-                                tail.map_or(e.clone(), |t| format!("{e}: {t}"))
-                            });
-                        }
-                        Job::Client => {
-                            let run = self.game.end_run();
-                            // Any session file the game didn't read (it crashed first).
-                            account::discard_unread_sessions();
-                            self.come_back(cx);
-                            // The game saved: last played, sizes and pictures changed.
-                            self.worlds.stale();
-                            self.multiplayer.stale();
-                            self.screenshots.stale();
-                            self.game_packs.stale();
-                            let owner = self.game.owner.clone();
-                            if let (Some(run), Some(id)) = (&run, owner) {
-                                if let Err(e) = instances::record_play(&id, run.since.elapsed()) {
-                                    eprintln!("Play time not saved: {e}");
-                                }
-                                if let Some(i) = instances::list().into_iter().find(|i| i.id == id)
-                                {
-                                    eclipse_launcher::launch::run_after_exit(
-                                        &i.launch, &i.home, &run.vars,
-                                    );
-                                }
-                                self.reload_instances();
-                            }
-                            // The run's own game folder: an instance's or a pack's keeps its reports.
-                            let home = self.game.home.clone().unwrap_or_else(backend::game_home);
-                            let report = run
-                                .as_ref()
-                                .and_then(|r| backend::crash_report_since(&home, r.reports_since));
-                            let switched = if error.is_some() && report.is_none() {
-                                self.switched_from_vulkan(&home)
-                            } else {
-                                None
-                            };
-                            if let Some(api) = switched {
-                                self.game.problem = Some(GameProblem::Notice(trf(
-                                    "Eclipse's Vulkan renderer crashed while starting on this \
-                                     graphics card, so the game now uses {api}. Press Play to \
-                                     start it again. Video Settings > Graphics API switches back.",
-                                    &[("api", api)],
-                                )));
-                            } else if error.is_some() || report.is_some() {
-                                let summary = report
-                                    .as_ref()
-                                    .and_then(|p| std::fs::read_to_string(p).ok())
-                                    .and_then(|text| backend::crash_summary(&text))
-                                    .or_else(|| {
-                                        let tail = self
-                                            .game
-                                            .log
-                                            .iter()
-                                            .rev()
-                                            .find(|l| !l.trim().is_empty());
-                                        error.as_ref().map(|e| {
-                                            tail.map_or(e.clone(), |t| format!("{e}: {t}"))
-                                        })
-                                    })
-                                    .unwrap_or_default();
-                                self.game.crash = Some(Crash {
-                                    report,
-                                    summary,
-                                    home,
-                                });
-                            }
-                        }
-                        Job::Server => {}
-                    }
-                }
+                Msg::Exit(Job::Prepare, result) => self.prepare_ended(result.err()),
+                Msg::Exit(Job::Client, result) => self.run_ended(result.err(), cx),
+                Msg::Started(started) => self.game_started(started, cx),
             }
         }
         changed |= self.servers_tick();
@@ -354,28 +156,7 @@ impl Launcher {
         changed |= self.github_tick();
         changed |= self.native_log_read(cx);
         changed |= self.toast_tick();
-        if let Some(sign_in) = &self.accounts_ui.sign_in {
-            if let Some(state) =
-                sign_in_change(&mut self.accounts_ui.sign_in_state, sign_in.state())
-            {
-                if let SignInState::Done(Ok(ref account)) = state {
-                    self.accounts_ui.auth_busy.remove(&account.uuid);
-                    self.accounts_ui.sign_in_target = None;
-                    self.accounts = Accounts::load();
-                    self.load_profile_heads();
-                    self.load_auth_statuses(false);
-                    // Sign-in refuses accounts that don't own the game.
-                    self.owner = Some(true);
-                    self.owner_screen_open = false;
-                    self.game.problem = None;
-                    if !self.settings.owner_notice_seen {
-                        self.settings.owner_notice_seen = true;
-                        self.save_settings();
-                    }
-                }
-                changed = true;
-            }
-        }
+        changed |= self.sign_in_moved();
         if self
             .update_check
             .since()
@@ -385,53 +166,6 @@ impl Launcher {
         }
         if changed {
             cx.notify();
-        }
-    }
-}
-
-impl Launcher {
-    fn game_started(&mut self, started: game_run::Started, cx: &mut Context<Self>) {
-        self.load_auth_statuses(false);
-        let Some((pressed, reports_since)) = self.game.end_starting() else {
-            account::discard_unread_sessions();
-            return;
-        };
-        let launched = match started.result {
-            Ok(launched) => launched,
-            Err(backend::PlayError::NoOwner) => {
-                self.owner = Some(false);
-                self.owner_screen_open = true;
-                self.game.problem = Some(GameProblem::NeedsOwner);
-                return;
-            }
-            Err(e) => {
-                self.game.problem = Some(GameProblem::Failed(e.to_string()));
-                return;
-            }
-        };
-        // Past the gate by the developer option alone is no owner.
-        if started.eclipse && !self.settings.dev_offline {
-            self.owner = Some(true);
-        }
-        self.accounts = Accounts::load();
-        let notices: Vec<String> = launched.notices().iter().map(|n| n.said()).collect();
-        self.game.problem = (!notices.is_empty()).then(|| GameProblem::Notice(notices.join("\n")));
-        self.game.home = Some(launched.home);
-        match backend::spawn(Job::Client, launched.cmd, self.tx.clone()) {
-            Ok(client) => {
-                self.game.phase = game_run::Phase::Running(game_run::Run {
-                    client,
-                    since: Instant::now(),
-                    pressed,
-                    reports_since,
-                    vars: launched.vars,
-                });
-                self.step_aside(cx);
-            }
-            Err(e) => {
-                self.game.problem = Some(GameProblem::Failed(e));
-                account::discard_unread_sessions();
-            }
         }
     }
 }

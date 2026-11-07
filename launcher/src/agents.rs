@@ -6,7 +6,7 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 /// The name the server is added under in every client.
-pub const SERVER_NAME: &str = "eclipse";
+const SERVER_NAME: &str = "eclipse";
 
 pub struct Client {
     /// `claude-code`, `codex`, `cursor` or `generic`.
@@ -154,7 +154,7 @@ pub fn self_test(exe: &Path) -> Result<usize, String> {
 }
 
 /// `program args...` quoted for a POSIX shell where a word needs it.
-pub fn shell_line(program: &str, args: &[String]) -> String {
+fn shell_line(program: &str, args: &[String]) -> String {
     let quote = |w: &str| {
         if !w.is_empty()
             && w.chars()

@@ -10,7 +10,7 @@
 use super::*;
 use crate::settings_page::SettingsSection;
 use crate::ui;
-use eclipse_launcher::browser::{Kind as PackKind, Project};
+use eclipse_launcher::browser::Project;
 use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
 use eclipse_theme::glass::{ink, space, step};
 use std::path::PathBuf;
@@ -27,6 +27,8 @@ const CARD_TOP: f32 = 0.14;
 const LIST_HEIGHT: f32 = 0.5;
 
 const LIST: &str = "palette-list";
+
+const SCRIM: &str = "palette-scrim";
 
 pub(super) struct Palette {
     /// The registry's mods for the query [`asked`](Self::asked) last.
@@ -92,7 +94,7 @@ impl Launcher {
                 window.focus(&opener, cx);
             }
         }
-        ui::modal_opened_from("palette-scrim", window.focused(cx));
+        ui::modal_opened_from(SCRIM, window.focused(cx));
         self.fields.text(Field::PaletteSearch).set(String::new());
         let focus = self.fields.handle(Field::PaletteSearch, cx);
         window.focus(&focus, cx);
@@ -136,7 +138,7 @@ impl Launcher {
         if let Some(i) = selected {
             let id = || i.id.clone();
             all.push(command(trf("Edit {name}", &name), Run::Edit(id())));
-            if playable(&i) {
+            if instance_state::duplicable(i) {
                 all.push(command(
                     trf("Duplicate {name}", &name),
                     Run::Duplicate(id()),
@@ -289,7 +291,6 @@ impl Launcher {
             Run::Look(look) => {
                 self.settings.appearance = look;
                 self.save_settings();
-                self.restyle();
             }
             Run::NewInstance => self.open_instance_page(None),
             Run::Folder(home) => ui::open_folder(&home, cx),
@@ -305,11 +306,7 @@ impl Launcher {
                     window.focus_next(cx);
                 });
             }
-            Run::AskRemove(id) => {
-                self.show_mods(PackKind::Mod);
-                self.mods.picked = Some(id.clone());
-                self.asking = Some(menus::Asking::Mod(id));
-            }
+            Run::AskRemove(id) => self.mods_ask_remove(id),
         }
     }
 
@@ -338,7 +335,7 @@ impl Launcher {
         let q = raw.trim().to_lowercase();
         let finds_mods = self
             .selected_instance()
-            .is_none_or(|i| i.java.as_ref().is_none_or(|j| j.loader.is_some()));
+            .is_none_or(instance_state::takes_mods);
         let list = self.palette_commands(&q);
         let count = list.len();
         let cursor = ui::options_cursor(LIST).min(count.saturating_sub(1));
@@ -447,7 +444,7 @@ impl Launcher {
             cx.notify();
         });
         Some(
-            ui::modal("palette-scrim", tr("Commands"), Some(Box::new(dismiss)))
+            ui::modal(SCRIM, tr("Commands"), Some(Box::new(dismiss)))
                 .flex()
                 .justify_center()
                 .items_start()

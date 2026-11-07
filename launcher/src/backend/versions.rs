@@ -538,6 +538,28 @@ pub fn select_after_update(selected: Option<&str>, installed_before: &[String]) 
     }
 }
 
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub enum InstallWhy {
+    Picked,
+    Added,
+    ForInstance,
+    Update { select: bool },
+}
+
+pub fn update_selects(release: &Release, selected: Option<&str>, installed: &[String]) -> bool {
+    nightly_downgrade(release, installed).is_none() && select_after_update(selected, installed)
+}
+
+pub fn install_selects(tag: &str, why: InstallWhy, selected: Option<&str>) -> bool {
+    match (why, selected) {
+        (InstallWhy::Picked, _) => true,
+        (InstallWhy::Update { select }, _) => select,
+        (_, None) => true,
+        (InstallWhy::ForInstance, Some(_)) => false,
+        (InstallWhy::Added, Some(now)) => compare_versions(tag, now).is_gt(),
+    }
+}
+
 /// Installs `tag` (or with "latest" the newest release, pre-releases left out), then updates the selection as
 /// `select_after_update` says when `as_update`, or always selects it otherwise.
 pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result<String, String> {
@@ -563,11 +585,15 @@ pub fn install_tag(tag: &str, as_update: bool, progress: impl Fn(f32)) -> Result
     }
     install(release, progress)?;
     Settings::update(|settings| {
+        let selected = settings.default_version.as_deref();
         // An older Nightly is a deliberate rollback: installed, but an update never moves the selection back.
-        if !as_update
-            || (downgrade.is_none()
-                && select_after_update(settings.default_version.as_deref(), &before))
-        {
+        let why = match as_update {
+            true => InstallWhy::Update {
+                select: update_selects(release, selected, &before),
+            },
+            false => InstallWhy::Picked,
+        };
+        if install_selects(&release.tag, why, selected) {
             settings.default_version = Some(release.tag.clone());
         }
     })?;

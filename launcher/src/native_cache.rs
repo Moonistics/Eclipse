@@ -130,7 +130,7 @@ impl Dirs {
     }
 }
 
-pub const DEFAULT_GIB: u64 = 30;
+const DEFAULT_GIB: u64 = 30;
 
 /// The cache limit in GiB (`settings native-cache-gib`); 0 turns automatic cleanup off.
 pub fn limit_gib(settings: &backend::Settings) -> u64 {

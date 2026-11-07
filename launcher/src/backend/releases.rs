@@ -6,9 +6,9 @@ use super::REPO;
 /// Launcher releases are tagged `launcher@X.Y.Z` from 0.2 on (docs/versioning.md), and Eclipse's
 /// own `vX.Y.Z`. Before 0.2 they were `launcher-vX.Y.Z` and `vYYYY.MM.DD[.N]`: every 0.2 tag is
 /// newer than every one of those ([`release_order`]).
-pub const LAUNCHER_TAG_PREFIX: &str = "launcher@";
+const LAUNCHER_TAG_PREFIX: &str = "launcher@";
 /// The launcher tags from before 0.2 (`launcher-v0.16.0`).
-pub const OLD_LAUNCHER_TAG_PREFIX: &str = "launcher-v";
+pub(crate) const OLD_LAUNCHER_TAG_PREFIX: &str = "launcher-v";
 
 #[derive(Clone, Debug, serde::Serialize)]
 pub struct Release {
@@ -26,6 +26,50 @@ pub struct Release {
     /// signature are there, while `tag` is the version it installs as (`nightly-2026-10-28-0c02067`).
     /// None for a release.
     pub nightly: Option<String>,
+}
+
+impl Release {
+    /// Its notes as players read them: its changes without their pull request numbers; the
+    /// contributors' thanks, what follows the notes and the raw HTML every view skips are left out.
+    pub fn notes(&self) -> String {
+        let mut out = Vec::new();
+        let mut thanks = false;
+        for line in self.body.lines() {
+            let said = line.trim();
+            if said == "---" || said.starts_with("Your launcher updates itself") {
+                break;
+            }
+            if let Some(name) = said.strip_prefix("### ") {
+                thanks = name.trim() == "Contributors";
+            }
+            if thanks || said.starts_with('<') {
+                continue;
+            }
+            out.push(match said.strip_prefix("- ") {
+                Some(item) => format!(
+                    "{}- {}",
+                    &line[..line.len() - line.trim_start().len()],
+                    without_refs(item)
+                ),
+                None => line.to_string(),
+            });
+        }
+        out.join("\n").trim().to_string()
+    }
+}
+
+/// "Fix the picker (#6389, fixes #6342)" → "Fix the picker".
+fn without_refs(item: &str) -> &str {
+    let mut s = item.trim();
+    while let Some(open) = s.rfind(" (") {
+        let tail = &s[open..];
+        if tail.ends_with(')') && tail.contains('#') {
+            s = s[..open].trim_end();
+        } else {
+            break;
+        }
+    }
+    s
 }
 
 /// A Eclipse game tag: `v` then a digit (`v2026.10.13`). Launcher tags never match.
@@ -54,7 +98,7 @@ pub fn launcher_version(tag: &str) -> Option<&str> {
 /// The tag this launcher was released as. launcher.yml gives it (`ECLIPSE_LAUNCHER_TAG`); a release
 /// built before it did gave only the version, of a `launcher-v` tag; a build from source is
 /// Cargo.toml's version on the 0.2 line.
-pub fn own_tag() -> String {
+pub(crate) fn own_tag() -> String {
     own_tag_of(
         option_env!("ECLIPSE_LAUNCHER_TAG"),
         option_env!("ECLIPSE_LAUNCHER_VERSION"),
@@ -78,7 +122,7 @@ pub(super) fn own_tag_of(tag: Option<&str>, injected: Option<&str>) -> String {
 /// then the 0.2 tags (`vX.Y.Z`, `launcher@X.Y.Z`) in semver's order, a pre-release
 /// (`v0.3.0-rc.1`) before its release.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum ReleaseOrder {
+enum ReleaseOrder {
     /// Numbers without trailing zeros, so 1.2 and 1.2.0 are equal.
     Before02(Vec<u64>),
     Semver([u64; 3], Prerelease),
@@ -89,10 +133,10 @@ pub enum ReleaseOrder {
 
 /// (is a release, the pre-release's identifiers): a release follows every pre-release of its
 /// version; identifiers compare one by one, numbers before words, a shorter list first.
-pub type Prerelease = (bool, Vec<Identifier>);
+type Prerelease = (bool, Vec<Identifier>);
 
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
-pub enum Identifier {
+enum Identifier {
     Number(u64),
     Word(String),
 }
@@ -100,7 +144,7 @@ pub enum Identifier {
 /// Semver's majors stay below this; a date tag's first number is a year.
 const FIRST_YEAR: u64 = 1000;
 
-pub fn release_order(tag: &str) -> ReleaseOrder {
+fn release_order(tag: &str) -> ReleaseOrder {
     if let Some(date) = crate::nightly::date_of(tag) {
         return ReleaseOrder::Nightly(date.to_owned());
     }
@@ -327,7 +371,7 @@ pub fn latest(releases: &[Release]) -> Option<&Release> {
 
 /// The releases a launcher installs by itself: every one that is published as a release, so
 /// GitHub's latest when it comes out. The pre-releases of the old Alpha channel are left out.
-pub fn installable_updates(releases: &[Release]) -> Vec<Release> {
+pub(crate) fn installable_updates(releases: &[Release]) -> Vec<Release> {
     releases.iter().filter(|r| !r.prerelease).cloned().collect()
 }
 

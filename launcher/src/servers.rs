@@ -40,11 +40,8 @@ pub struct Entry {
 pub fn game_mode(dir: &Path) -> Option<String> {
     let text = fs::read_to_string(dir.join("server.toml")).ok()?;
     let config: toml::Value = toml::from_str(&text).ok()?;
-    config
-        .get("world")?
-        .get("game_mode")?
-        .as_str()
-        .map(str::to_string)
+    let (table, name) = Key::GameMode.path();
+    config.get(table)?.get(name)?.as_str().map(str::to_string)
 }
 
 fn list_file() -> PathBuf {
@@ -146,7 +143,7 @@ pub fn slug(name: &str) -> String {
 }
 
 /// A new folder for a server called `name`, under `servers/` in the data folder.
-pub fn new_folder(name: &str) -> PathBuf {
+fn new_folder(name: &str) -> PathBuf {
     let root = backend::data_dir().join("servers");
     let base = slug(name);
     let mut dir = root.join(&base);
@@ -185,7 +182,7 @@ pub const GAME_VERSION: &str = eclipse_core::version::VERSION_ID;
 /// Whether the servers' game files are there.
 pub fn game_files_ready() -> bool {
     game_files(&runtime_root(), GAME_VERSION)
-        .join("eclipse-resources.json")
+        .join(backend::RESOURCES_MANIFEST)
         .is_file()
 }
 
@@ -220,7 +217,7 @@ pub fn set_up(tag: &str) -> Result<(), String> {
 }
 
 /// [`set_up`] with its folders given (for tests).
-pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> Result<(), String> {
+fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> Result<(), String> {
     let releases = root.join("releases");
     fs::create_dir_all(&releases).map_err(|e| format!("{}: {e}", releases.display()))?;
     let release = releases.join(tag);
@@ -244,7 +241,7 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
         point(&root.join("current"), &release).map_err(|e| e.to_string())?;
     }
     // The game files: a copy (preparing again rewrites files in place), swapped in whole.
-    let from = version.join(".local/eclipse-client").join(game_version);
+    let from = backend::resources_in(version, game_version);
     let to = game_files(root, game_version);
     let fresh = to.with_extension("copying");
     let _ = fs::remove_dir_all(&fresh);
@@ -413,7 +410,7 @@ impl Problem {
         if busy.iter().any(|b| both.contains(b)) {
             let port = config(dir)
                 .and_then(|c| c["server"]["port"].as_u64())
-                .unwrap_or(25565) as u16;
+                .map_or(crate::server_list::DEFAULT_PORT, |p| p as u16);
             return Self {
                 message: format!(
                     "Port {port} is already used by another program (maybe another server). Use a free \
@@ -516,7 +513,7 @@ impl NewServer {
 }
 
 /// A port nobody listens on, from `from` up, and not one of `taken`.
-pub fn free_port(from: u16, taken: &[u16]) -> u16 {
+fn free_port(from: u16, taken: &[u16]) -> u16 {
     let bind = if cfg!(test) || std::env::var_os("ECLIPSE_TEST_LOOPBACK").is_some_and(|v| v == "1")
     {
         "127.0.0.1"
@@ -569,7 +566,7 @@ pub fn player_worlds() -> Vec<(String, PathBuf)> {
 }
 
 /// The `eclipse-server init` arguments for a new server.
-pub fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
+fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
     let mut args: Vec<String> = vec!["init".into(), "--yes".into()];
     if spec.eula {
         args.push("--eula".into());
@@ -598,15 +595,77 @@ pub fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
     args
 }
 
+/// A setting of eclipse-server's `server.toml` the launcher shows and sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Motd,
+    Port,
+    MaxPlayers,
+    ViewDistance,
+    SimulationDistance,
+    Whitelist,
+    OnlineMode,
+    WorldName,
+    GameMode,
+    Difficulty,
+    BackupsEvery,
+    BackupsKeep,
+    UpdatesKeep,
+}
+
+impl Key {
+    pub const ALL: [Key; 13] = [
+        Key::Motd,
+        Key::Port,
+        Key::MaxPlayers,
+        Key::ViewDistance,
+        Key::SimulationDistance,
+        Key::Whitelist,
+        Key::OnlineMode,
+        Key::WorldName,
+        Key::GameMode,
+        Key::Difficulty,
+        Key::BackupsEvery,
+        Key::BackupsKeep,
+        Key::UpdatesKeep,
+    ];
+
+    /// Its table and name in `server.toml`.
+    pub fn path(self) -> (&'static str, &'static str) {
+        match self {
+            Key::Motd => ("server", "motd"),
+            Key::Port => ("server", "port"),
+            Key::MaxPlayers => ("server", "max_players"),
+            Key::ViewDistance => ("server", "view_distance"),
+            Key::SimulationDistance => ("server", "simulation_distance"),
+            Key::Whitelist => ("server", "whitelist"),
+            Key::OnlineMode => ("server", "online_mode"),
+            Key::WorldName => ("world", "name"),
+            Key::GameMode => ("world", "game_mode"),
+            Key::Difficulty => ("world", "difficulty"),
+            Key::BackupsEvery => ("backups", "every"),
+            Key::BackupsKeep => ("backups", "keep"),
+            Key::UpdatesKeep => ("updates", "keep"),
+        }
+    }
+
+    /// `table.name`, as `eclipse-server config set` takes it.
+    pub fn dotted(self) -> String {
+        let (table, name) = self.path();
+        format!("{table}.{name}")
+    }
+}
+
 /// The `eclipse-server config set` arguments that finish a new server.
-pub fn settings_args(spec: &NewServer, panel_port: u16) -> Vec<String> {
+fn settings_args(spec: &NewServer, panel_port: u16) -> Vec<String> {
+    let set = |key: Key, value: &dyn std::fmt::Display| format!("{}={value}", key.dotted());
     vec![
         "config".into(),
         "set".into(),
-        format!("world.game_mode={}", spec.game_mode),
-        format!("world.difficulty={}", spec.difficulty),
-        format!("server.max_players={}", spec.max_players.clamp(1, 1000)),
-        format!("server.motd={}", spec.name.trim()),
+        set(Key::GameMode, &spec.game_mode),
+        set(Key::Difficulty, &spec.difficulty),
+        set(Key::MaxPlayers, &spec.max_players.clamp(1, 1000)),
+        set(Key::Motd, &spec.name.trim()),
         format!("panel.bind=127.0.0.1:{panel_port}"),
     ]
 }
@@ -660,7 +719,7 @@ pub fn create(spec: &NewServer, tag: Option<&str>, log: &dyn Fn(String)) -> Resu
         }
     };
     let taken = ports_taken();
-    let port = free_port(25565, &taken);
+    let port = free_port(crate::server_list::DEFAULT_PORT, &taken);
     let panel = free_port(8130, &taken);
     let undo = |p: Problem| {
         let _ = fs::remove_dir_all(&dir);
@@ -746,6 +805,41 @@ pub struct Backup {
     pub bytes: u64,
     #[serde(default)]
     pub modified: Option<u64>,
+}
+
+/// Why a backup was made, from its name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackupKind {
+    Auto,
+    Manual,
+    BeforeUpdate,
+    /// Before updating to this release.
+    BeforeRelease(String),
+    Other(String),
+}
+
+impl Backup {
+    /// When it was made and why, from its name (`2026-10-19_11-28-57-manual.zip`, UTC):
+    /// `2026-10-19 11:28:57 UTC`. None for a name eclipse-server didn't make.
+    pub fn made(&self) -> Option<(String, BackupKind)> {
+        let stem = self.name.trim_end_matches(".zip");
+        let when = stem.get(..19).filter(|_| stem.len() > 20)?;
+        let (date, time) = when.split_once('_').unwrap_or((when, ""));
+        let kind = match &stem[20..] {
+            "auto" => BackupKind::Auto,
+            "manual" => BackupKind::Manual,
+            "before-update" => BackupKind::BeforeUpdate,
+            // eclipse-server writes the tag with dashes (before-v2026-10-19-10).
+            k if k.starts_with("before-v")
+                && k[8..].chars().all(|c| c.is_ascii_digit() || c == '-') =>
+            {
+                BackupKind::BeforeRelease(k[7..].replace('-', "."))
+            }
+            k if k.starts_with("before-") => BackupKind::BeforeRelease(k[7..].to_string()),
+            k => BackupKind::Other(k.to_string()),
+        };
+        Some((format!("{date} {} UTC", time.replace('-', ":")), kind))
+    }
 }
 
 pub fn backups(dir: &Path) -> Result<Vec<Backup>, Problem> {
@@ -884,6 +978,24 @@ impl Api {
             .collect())
     }
 
+    /// Stops the server cleanly (it saves the world).
+    pub fn stop(&self) -> Result<(), String> {
+        self.call("POST", "/api/v1/stop", None).map(|_| ())
+    }
+
+    /// The world's `pvp` game rule, as the running game answers it.
+    pub fn pvp(&self) -> Option<bool> {
+        let out = self.command("gamerule pvp").ok()?.join(" ");
+        let out = out.trim_end();
+        if out.ends_with("true") {
+            Some(true)
+        } else if out.ends_with("false") {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// A one-time login link for the web panel.
     pub fn panel_link(&self) -> Result<String, String> {
         let v = self.call("POST", "/api/v1/panel/login", None)?;
@@ -972,9 +1084,30 @@ impl Status {
         self.phase != "stopped"
     }
 
+    /// What the supervisor is doing, from its `phase`.
+    pub fn phase(&self) -> Phase {
+        match self.phase.as_str() {
+            "running" => Phase::Running,
+            "starting" => Phase::Starting,
+            "restarting" => Phase::Restarting,
+            "stopping" => Phase::Stopping,
+            _ => Phase::Stopped,
+        }
+    }
+
     pub fn serving(&self) -> bool {
         self.phase == "running"
     }
+}
+
+/// The supervisor's phase.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Phase {
+    Starting,
+    Running,
+    Restarting,
+    Stopping,
+    Stopped,
 }
 
 /// The status of the server in `dir`: what its API says, or stopped.

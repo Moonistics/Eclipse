@@ -221,7 +221,7 @@ fn table(language: Language) -> &'static Table {
 }
 
 /// `en` in `language`, or `en` itself where the table lacks it.
-pub fn tr_in(language: Language, en: &str) -> &str {
+fn tr_in(language: Language, en: &str) -> &str {
     table(language).get(en).copied().unwrap_or(en)
 }
 

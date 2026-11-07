@@ -24,7 +24,7 @@ use eclipse_mods::index::native as hnmod;
 use sha2::{Digest, Sha256};
 use std::collections::BTreeMap;
 use std::fs;
-use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 
@@ -161,7 +161,8 @@ fn platform_for_game(base: &str) -> Result<BuildPlatform, String> {
         return Ok(BuildPlatform::default());
     }
     let executable = backend::version_dir(base).join(backend::CLIENT);
-    let machine = pe_machine(&executable).map_err(|error| unreadable(&executable, &error))?;
+    let machine =
+        backend::pe_machine(&executable).map_err(|error| unreadable(&executable, &error))?;
     windows_build_platform(machine, rust_toolchain::host().map(|host| host.target))
 }
 
@@ -214,27 +215,6 @@ fn windows_architecture(target: &str) -> &str {
         rust_toolchain::WINDOWS_ARM64_TARGET => "ARM64",
         other => other,
     }
-}
-
-/// Reads the COFF machine from a Windows PE executable after validating its two signatures.
-pub(crate) fn pe_machine(path: &Path) -> Result<u16, String> {
-    let mut file = fs::File::open(path).map_err(|error| error.to_string())?;
-    let mut dos = [0; 64];
-    file.read_exact(&mut dos)
-        .map_err(|error| error.to_string())?;
-    if &dos[..2] != b"MZ" {
-        return Err("missing DOS MZ signature".into());
-    }
-    let pe_offset = u32::from_le_bytes(dos[0x3c..0x40].try_into().unwrap()) as u64;
-    file.seek(SeekFrom::Start(pe_offset))
-        .map_err(|error| error.to_string())?;
-    let mut header = [0; 6];
-    file.read_exact(&mut header)
-        .map_err(|error| error.to_string())?;
-    if &header[..4] != b"PE\0\0" {
-        return Err("missing PE signature".into());
-    }
-    Ok(u16::from_le_bytes([header[4], header[5]]))
 }
 
 /// What a native build was made from, kept per profile in `native/built.json` after it compiled:
@@ -433,7 +413,7 @@ fn without_escapes(line: &str) -> String {
 
 /// Cargo's events in one line of its standard error. With `CARGO_TERM_PROGRESS_WHEN=always` the
 /// progress bar is redrawn with carriage returns, so a line holds several pieces.
-pub fn parse_cargo(line: &str) -> Vec<Cargo> {
+fn parse_cargo(line: &str) -> Vec<Cargo> {
     let mut out = Vec::new();
     for piece in without_escapes(line).split('\r') {
         let piece = piece.trim();
@@ -1508,7 +1488,7 @@ fn files_with_api(dir: &Path, api: Option<&str>) -> Result<Vec<(String, PathBuf)
 /// become: `native-<7 digits of the revision>-<12 hex digits>`. The two targets' keys never mix:
 /// a server build salts its hash, so it is another version than the client build of the same
 /// mods, and the client key is unchanged.
-pub fn version_for(
+fn version_for(
     revision: &str,
     mixins: &str,
     profile: Profile,
@@ -1738,7 +1718,7 @@ fn run_checked(
                 let _ = writeln!(log, "{kept}");
             }
             line(&text);
-            blocked |= rust_toolchain::blocked_by_app_control(&text);
+            blocked |= blocked_by_app_control(&text);
             if text.starts_with("error") && errors.len() < 4 {
                 errors.push(text.clone());
             }
@@ -1768,17 +1748,39 @@ fn run_checked(
     })
 }
 
+/// What to do when Windows' Smart App Control refused one of the build's programs (#5911). It
+/// lets only signed programs or ones Microsoft knows run, and a build runs programs it has just
+/// compiled (every crate's build script, horizon-mixins, the game) and the toolchain's own
+/// (`dlltool.exe`). Windows refuses them with os error 4551 ("An Application Control policy has
+/// blocked this file"). Nothing is checked before the build: with Smart App Control on, a build
+/// whose programs already ran before it was turned on still succeeds.
+fn smart_app_control() -> String {
+    crate::i18n::tr("Windows' Smart App Control is blocking the build (os error 4551). \
+It only lets signed programs run, and a native build runs programs no one has signed: the ones it \
+compiles on this computer and some of the compiler's own. To build native mods, turn it off in \
+Windows Security > App & browser control > Smart App Control settings, then build again. On some \
+Windows versions it can't be turned back on without reinstalling Windows. Content mods (.emod) need \
+no build and work with it on.")
+    .to_string()
+}
+
+/// Whether `text` (a build's output, or the error starting one of its programs) is Windows
+/// refusing a program under an Application Control policy, Smart App Control's.
+fn blocked_by_app_control(text: &str) -> bool {
+    text.contains("os error 4551")
+}
+
 /// `error` led by what to do when Windows' Smart App Control refused one of the build's
 /// programs (#5911): cargo's own lines only say a build script was "never executed".
 fn app_control(error: String) -> String {
-    match rust_toolchain::blocked_by_app_control(&error) {
+    match blocked_by_app_control(&error) {
         true => with_app_control(error),
         false => error,
     }
 }
 
 fn with_app_control(error: String) -> String {
-    format!("{}\n\n{error}", rust_toolchain::smart_app_control())
+    format!("{}\n\n{error}", smart_app_control())
 }
 
 /// [`run`]'s error: the `errors` lines not already among the last ones (`tail`), then those.
@@ -2320,10 +2322,7 @@ fn pipeline(
         left_out: left_out.clone(),
     };
     if !exists {
-        match target {
-            Target::Client => rust_toolchain::linker()?,
-            Target::Server => rust_toolchain::linker_server()?,
-        }
+        rust_toolchain::linker(target == Target::Client)?;
         let rust = rust_toolchain::install(|f| progress(Step::Rust(f)))?;
         let needs_mixins = mods.iter().any(|m| m.mixins_content);
         progress(Step::Source(revision.clone()));
@@ -2455,7 +2454,7 @@ fn pipeline(
             }
         })?;
         if let Some(expected) = platform.machine {
-            let actual = pe_machine(&game).map_err(|error| unreadable(&game, &error))?;
+            let actual = backend::pe_machine(&game).map_err(|error| unreadable(&game, &error))?;
             if actual != expected {
                 return Err(architecture_mismatch(
                     &format!("PE machine 0x{expected:04x}"),
@@ -2863,13 +2862,13 @@ mod tests {
         image[..2].copy_from_slice(b"MZ");
         image[0x3c..0x40].copy_from_slice(&64_u32.to_le_bytes());
         image[64..68].copy_from_slice(b"PE\0\0");
-        image[68..70].copy_from_slice(&rust_toolchain::WINDOWS_ARM64_MACHINE.to_le_bytes());
+        image[68..70].copy_from_slice(&backend::PE_ARM64.to_le_bytes());
         fs::write(&executable, &image).unwrap();
-        assert_eq!(pe_machine(&executable).unwrap(), 0xaa64);
+        assert_eq!(backend::pe_machine(&executable).unwrap(), 0xaa64);
 
         image[64] = b'X';
         fs::write(&executable, image).unwrap();
-        assert!(pe_machine(&executable)
+        assert!(backend::pe_machine(&executable)
             .unwrap_err()
             .contains("missing PE signature"));
         let _ = fs::remove_dir_all(dir);
@@ -2877,38 +2876,35 @@ mod tests {
 
     #[test]
     fn windows_build_platform_follows_the_selected_games_pe_machine() {
-        let x64 = windows_build_platform(
-            rust_toolchain::WINDOWS_X64_MACHINE,
-            Some(rust_toolchain::WINDOWS_X64_TARGET),
-        )
-        .unwrap();
+        let x64 = windows_build_platform(backend::PE_X64, Some(rust_toolchain::WINDOWS_X64_TARGET))
+            .unwrap();
         assert_eq!(x64.target, Some(rust_toolchain::WINDOWS_X64_TARGET));
-        assert_eq!(x64.machine, Some(rust_toolchain::WINDOWS_X64_MACHINE));
+        assert_eq!(x64.machine, Some(backend::PE_X64));
         assert_eq!(x64.cache_dir, None, "preserve the x64 cache layout");
 
         let arm64 = windows_build_platform(
-            rust_toolchain::WINDOWS_ARM64_MACHINE,
+            backend::PE_ARM64,
             Some(rust_toolchain::WINDOWS_ARM64_TARGET),
         )
         .unwrap();
         assert_eq!(arm64.target, Some(rust_toolchain::WINDOWS_ARM64_TARGET));
-        assert_eq!(arm64.machine, Some(rust_toolchain::WINDOWS_ARM64_MACHINE));
+        assert_eq!(arm64.machine, Some(backend::PE_ARM64));
         assert_eq!(arm64.cache_dir, Some(rust_toolchain::WINDOWS_ARM64_TARGET));
 
         assert!(windows_build_platform(
-            rust_toolchain::WINDOWS_X64_MACHINE,
+            backend::PE_X64,
             Some(rust_toolchain::WINDOWS_ARM64_TARGET),
         )
         .is_err());
         assert!(windows_build_platform(
-            rust_toolchain::WINDOWS_ARM64_MACHINE,
+            backend::PE_ARM64,
             Some(rust_toolchain::WINDOWS_X64_TARGET),
         )
         .is_err());
         assert!(
             windows_build_platform(0xa641, Some(rust_toolchain::WINDOWS_ARM64_TARGET)).is_err()
         );
-        assert!(windows_build_platform(rust_toolchain::WINDOWS_ARM64_MACHINE, None).is_err());
+        assert!(windows_build_platform(backend::PE_ARM64, None).is_err());
     }
 
     #[test]
@@ -4852,7 +4848,7 @@ mod tests {
             exit 101
         "#]);
         let e = run(cmd, "Building horizon-mixins", |_| {}).unwrap_err();
-        assert!(e.starts_with(&rust_toolchain::smart_app_control()), "{e}");
+        assert!(e.starts_with(&smart_app_control()), "{e}");
         assert!(e.contains("quote v1.0.47"), "{e}");
         // Another failure says nothing about it.
         let mut cmd = Command::new("sh");

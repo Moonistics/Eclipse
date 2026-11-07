@@ -45,13 +45,17 @@ pub struct Setup {
     rx: Option<Receiver<Event>>,
 }
 
+const WIDTH: f32 = 760.;
+
+const HEIGHT: f32 = 520.;
+
 /// Opens the setup window in place of the launcher's.
 pub fn open(mode: Mode, cx: &mut App) {
-    let bounds = Bounds::centered(None, size(px(760.), px(520.)), cx);
+    let bounds = Bounds::centered(None, size(px(WIDTH), px(HEIGHT)), cx);
     cx.open_window(
         WindowOptions {
             window_bounds: Some(WindowBounds::Windowed(bounds)),
-            window_min_size: Some(size(px(760.), px(520.))),
+            window_min_size: Some(size(px(WIDTH), px(HEIGHT))),
             titlebar: Some(titlebar::options()),
             app_id: Some("eclipse-launcher".into()),
             ..Default::default()
@@ -85,19 +89,12 @@ impl Setup {
             theme: Theme::for_appearance(settings.appearance, settings.accent, window.appearance()),
             scene: cx.new(|_| scene::Scene::new()),
             wake: None,
-            settings_stamp: Self::settings_stamp(),
+            settings_stamp: Settings::stamp(),
             options: Options::new(),
             update: installer::installed().is_some(),
             stage: Stage::Welcome,
             rx: None,
         }
-    }
-
-    /// The settings file's write time and size, to notice a change made in the launcher.
-    fn settings_stamp() -> Option<(std::time::SystemTime, u64)> {
-        let meta =
-            std::fs::metadata(eclipse_launcher::backend::data_dir().join("settings.json")).ok()?;
-        Some((meta.modified().ok()?, meta.len()))
     }
 
     fn wake_in(&mut self, after: Duration, cx: &mut Context<Self>) {
@@ -290,11 +287,7 @@ impl Setup {
                             ui::primary(
                                 "go",
                                 None,
-                                tr(&if self.update {
-                                    tr("Update").to_string()
-                                } else {
-                                    tr("Install").to_string()
-                                }),
+                                tr(if self.update { "Update" } else { "Install" }),
                                 ui::ButtonSize::Md,
                             )
                             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.start(cx))),
@@ -406,7 +399,7 @@ impl Render for Setup {
         // The launcher's Settings page writes Accent and Appearance into settings.json. Reading
         // its write time each frame applies a change on the next frame: the same cadence at which
         // the launcher's own window picks them up.
-        let stamp = Self::settings_stamp();
+        let stamp = Settings::stamp();
         if stamp != self.settings_stamp {
             self.settings_stamp = stamp;
             let settings = Settings::load();
@@ -420,10 +413,10 @@ impl Render for Setup {
         // metadata every frame for it.
         self.wake_in(Duration::from_millis(500), cx);
         let t = self.theme;
-        ui::begin_frame(&t, false, window, cx);
-        self.scene.update(cx, |scene, _| scene.set_look(&t.night));
-        let sky = self.scene.clone().into_any_element();
-        let card = self.card(cx);
+        let (sky, card) = ui::frame(&t, false, window, cx, |_, cx| {
+            self.scene.update(cx, |scene, _| scene.set_look(&t.night));
+            (self.scene.clone().into_any_element(), self.card(cx))
+        });
         div()
             .flex()
             .flex_col()

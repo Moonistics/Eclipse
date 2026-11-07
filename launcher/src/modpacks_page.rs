@@ -7,7 +7,6 @@ use eclipse_launcher::browser::eclipse::pack as eclipse_pack;
 use eclipse_launcher::modpacks::{self, Imported};
 use eclipse_port_pack::report::Status;
 use eclipse_theme::glass::{ink, space, step};
-use std::path::PathBuf;
 
 /// The report's filter: every row, or one status.
 pub(super) const FILTERS: [(Option<Status>, &str); 5] = [
@@ -31,7 +30,7 @@ pub(super) struct Modpacks {
     pub(super) open: Option<String>,
     pub(super) filter: Option<Status>,
     pub(super) busy: bool,
-    pub(super) log: VecDeque<String>,
+    pub(super) log: game_run::Log,
     pub(super) error: Option<String>,
 }
 
@@ -132,19 +131,6 @@ impl Launcher {
             }
         })
         .detach();
-    }
-
-    fn play_pack(&mut self, work: PathBuf) {
-        // The pack's instance plays its own version, if it has one.
-        let pack = self.instances.list.iter().find(|i| i.work == work);
-        let Some(tag) = pack.and_then(|i| self.version_of(i)).cloned() else {
-            return;
-        };
-        if !self.can_start(&tag) {
-            return;
-        }
-        self.game.pack = Some(work);
-        self.start_client(tag);
     }
 
     /// Reads the imported packs, once (the sidebar and the Modpacks tab both show them).

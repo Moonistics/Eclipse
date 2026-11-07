@@ -58,76 +58,6 @@ fn a_mac_app_runs_a_script_that_plays_its_instance() {
     assert_eq!(files[2].1, MAC_ICON);
 }
 
-/// Reads a Shell Link back by its spec: the header, the LinkInfo's paths, and the strings.
-fn read_lnk(b: &[u8]) -> (u32, String, String, Vec<String>) {
-    let u32_at = |at: usize| u32::from_le_bytes(b[at..at + 4].try_into().unwrap());
-    assert_eq!(u32_at(0), 0x4C);
-    assert_eq!(
-        &b[4..20],
-        &[1, 0x14, 2, 0, 0, 0, 0, 0, 0xC0, 0, 0, 0, 0, 0, 0, 0x46]
-    );
-    let flags = u32_at(20);
-    assert_eq!(u32_at(60), 1, "show normal");
-    let info = 76;
-    let size = u32_at(info) as usize;
-    assert_eq!(u32_at(info + 4), 0x24);
-    assert_eq!(u32_at(info + 8), 1);
-    let volume = info + u32_at(info + 12) as usize;
-    assert_eq!((u32_at(volume), u32_at(volume + 4)), (0x11, 3));
-    let cstr = |at: usize| {
-        let end = b[at..].iter().position(|&c| c == 0).unwrap();
-        String::from_utf8(b[at..at + end].to_vec()).unwrap()
-    };
-    let ansi = cstr(info + u32_at(info + 16) as usize);
-    assert_eq!(cstr(info + u32_at(info + 24) as usize), "");
-    let wide_at = info + u32_at(info + 28) as usize;
-    let wide: Vec<u16> = b[wide_at..]
-        .chunks(2)
-        .map(|c| u16::from_le_bytes([c[0], c[1]]))
-        .take_while(|&c| c != 0)
-        .collect();
-    let wide = String::from_utf16(&wide).unwrap();
-    assert_eq!(
-        ansi.replace('?', ""),
-        wide.replace(|c: char| !c.is_ascii(), "")
-    );
-    let mut at = info + size;
-    let mut strings = Vec::new();
-    for _ in 0..4 {
-        let n = u16::from_le_bytes([b[at], b[at + 1]]) as usize;
-        let units: Vec<u16> = b[at + 2..at + 2 + 2 * n]
-            .chunks(2)
-            .map(|c| u16::from_le_bytes([c[0], c[1]]))
-            .collect();
-        strings.push(String::from_utf16(&units).unwrap());
-        at += 2 + 2 * n;
-    }
-    assert_eq!(&b[at..], &[0, 0, 0, 0], "the terminal block ends it");
-    (flags, ansi, wide, strings)
-}
-
-#[test]
-fn a_windows_shortcut_is_a_shell_link_to_the_launcher() {
-    let exe = r"C:\Users\Zoé\AppData\Local\Eclipse\eclipse-launcher.exe";
-    let b = lnk(exe, &windows_args("port:atm"), "Play ATM in Eclipse");
-    let (flags, ansi, wide, strings) = read_lnk(&b);
-    assert_eq!(flags, 0x02 | 0x04 | 0x10 | 0x20 | 0x40 | 0x80);
-    assert_eq!(
-        ansi,
-        r"C:\Users\Zo?\AppData\Local\Eclipse\eclipse-launcher.exe"
-    );
-    assert_eq!(wide, exe);
-    assert_eq!(
-        strings,
-        [
-            "Play ATM in Eclipse",
-            r"C:\Users\Zoé\AppData\Local\Eclipse",
-            "play --instance \"port:atm\"",
-            exe,
-        ]
-    );
-}
-
 /// The shell-written shortcut keeps the instance's arguments, so an uninstall finds it: `plays`
 /// reads them from the file's Unicode strings.
 #[cfg(windows)]
@@ -168,7 +98,11 @@ fn shortcuts_are_made_found_renamed_and_removed() {
     } else {
         Path::new("/opt/eclipse-launcher")
     };
-    for system in [System::Linux, System::Mac, System::Windows] {
+    let systems = [System::Linux, System::Mac, System::Windows];
+    for system in systems
+        .into_iter()
+        .filter(|s| cfg!(windows) || *s != System::Windows)
+    {
         let made = make_in(
             system,
             &desktop,

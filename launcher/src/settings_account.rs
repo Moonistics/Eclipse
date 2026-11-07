@@ -41,7 +41,7 @@ impl Launcher {
     fn who_plays_card(&mut self, cx: &mut Context<Self>) -> Div {
         let now = self.accounts.player();
         let who = self.who_plays();
-        let (name, status) = (who.name, (who.tone, who.means));
+        let (name, status) = (who.name, (ui::Tone::Off, who.means));
         let head = ui::face(
             self.profile_heads.draw(Some(&who.face), HEAD, self.scale),
             HEAD,
@@ -327,11 +327,10 @@ impl Launcher {
                         ui::ButtonSize::Sm,
                     )
                     .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                        let mut accounts = Accounts::load();
-                        accounts.selected = None;
-                        if accounts.save().is_ok() {
-                            this.accounts = accounts;
-                        }
+                        let _ = this.change_accounts(|a| {
+                            a.selected = None;
+                            Ok(())
+                        });
                         cx.notify();
                     })),
                 );

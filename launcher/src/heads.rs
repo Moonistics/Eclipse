@@ -1,10 +1,10 @@
 //! Players' heads for the Servers page: the face of the skin the game shows for them. Without the skin
 //! service a player has vanilla's default skin for their UUID (`DefaultPlayerSkin.get`), read from the
 //! player's own prepared game files.
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 /// `DefaultPlayerSkin.get(UUID)`: the default skin by `UUID.hashCode` (as the game's tab list picks it).
-pub fn default_skin(uuid: u128) -> &'static str {
+fn default_skin(uuid: u128) -> &'static str {
     const SKINS: [&str; 18] = [
         "slim/alex",
         "slim/ari",
@@ -31,7 +31,7 @@ pub fn default_skin(uuid: u128) -> &'static str {
 }
 
 /// A UUID written with or without dashes.
-pub fn parse_uuid(text: &str) -> Option<u128> {
+fn parse_uuid(text: &str) -> Option<u128> {
     let hex: String = text.chars().filter(|c| *c != '-').collect();
     (hex.len() == 32).then(|| u128::from_str_radix(&hex, 16).ok())?
 }
@@ -75,10 +75,15 @@ fn profile_pixels(png: &[u8]) -> Option<Vec<[u8; 4]>> {
         .flatten()
 }
 
-/// The whole skin PNG `profile_face` kept for `url` in `cache`, if it fetched it.
-pub fn cached_skin(url: &str, cache: &Path) -> Option<Vec<u8>> {
-    use sha1::{Digest, Sha1};
-    std::fs::read(cache.join(format!("{:x}.png", Sha1::digest(url.as_bytes())))).ok()
+/// Where profiles' skins are kept for their faces ([`profile_face`]).
+pub fn cache_dir() -> PathBuf {
+    crate::backend::data_dir().join("profile-heads")
+}
+
+/// The key an offline name's head is kept under: its offline UUID, as the game makes it, whose
+/// default skin it wears without one of its own.
+pub fn offline_key(name: &str) -> String {
+    format!("{:032x}", eclipse_protocol::crypto::offline_uuid(name))
 }
 
 /// A signed-in profile's public skin, cached independently of its authentication tokens.

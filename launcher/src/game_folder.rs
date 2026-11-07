@@ -3,14 +3,14 @@ use std::path::{Path, PathBuf};
 
 pub const OPTIONS: &str = "options.txt";
 pub const GRAPHICS: &str = "eclipse-graphics.txt";
-pub const EXTRAS: &str = "eclipse-extras.txt";
-pub const CONTROLLER: &str = "eclipse-controller.txt";
+pub(crate) const EXTRAS: &str = "eclipse-extras.txt";
+const CONTROLLER: &str = "eclipse-controller.txt";
 pub const MODS_LIST: &str = "eclipse-mods.txt";
 pub const SERVERS: &str = "servers.dat";
-pub const PLAYER: &str = "eclipse-player.txt";
+const PLAYER: &str = "eclipse-player.txt";
 pub const BROWSER_LIST: &str = "mod-browser.json";
 pub const BROWSER_FILES: &str = "mod-browser";
-pub const BLUEMAP: &str = "eclipse-bluemap.txt";
+const BLUEMAP: &str = "eclipse-bluemap.txt";
 
 pub const RESOURCE_PACKS: &str = "resourcepacks";
 pub const SHADER_PACKS: &str = "shaderpacks";
@@ -19,12 +19,12 @@ pub const JAVA_MODS: &str = "mods";
 pub const CONFIG: &str = "config";
 pub const SAVES: &str = "saves";
 pub const SCREENSHOTS: &str = "screenshots";
-pub const LOGS: &str = "logs";
-pub const CRASH_REPORTS: &str = "crash-reports";
+pub(crate) const LOGS: &str = "logs";
+pub(crate) const CRASH_REPORTS: &str = "crash-reports";
 // Far terrain's copies of what servers sent, rebuilt as the instance plays.
-pub const SERVER_TERRAIN: &str = "server-terrain";
+const SERVER_TERRAIN: &str = "server-terrain";
 pub const SESSIONS: &str = "sessions";
-pub const TELEMETRY: &str = "telemetry";
+const TELEMETRY: &str = "telemetry";
 pub const CACHE: &str = ".eclipse-cache";
 pub const INSTANCES: &str = "instances";
 pub const PORTS: &str = "ports";
@@ -36,7 +36,7 @@ pub const CONTENT: [&str; 4] = [RESOURCE_PACKS, SHADER_PACKS, ECLIPSE_MODS, CONF
 pub const FROM_PLAYER: [&str; 2] = [OPTIONS, PLAYER];
 pub const REBUILT: [&str; 5] = [LOGS, CRASH_REPORTS, SERVER_TERRAIN, CACHE, BROWSER_FILES];
 pub const PRIVATE: [&str; 2] = [SESSIONS, TELEMETRY];
-pub const NESTED: [&str; 3] = [INSTANCES, PORTS, PACKS];
+const NESTED: [&str; 3] = [INSTANCES, PORTS, PACKS];
 // The browser removes and replaces the files its list names, and the game asks the map servers in
 // eclipse-bluemap.txt for tiles around the player: only the player and this launcher write them,
 // never a pack or another launcher.

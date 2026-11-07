@@ -172,7 +172,7 @@ pub struct Details {
 }
 
 /// The loaders a kind lists by default, when no loader is picked: Java mod loaders for mods.
-pub fn default_loaders(kind: Kind) -> Vec<&'static str> {
+pub(crate) fn default_loaders(kind: Kind) -> Vec<&'static str> {
     match kind {
         Kind::Mod => super::java::LOADERS.to_vec(),
         _ => Vec::new(),

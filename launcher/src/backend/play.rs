@@ -193,7 +193,7 @@ fn append_game_args(cmd: &mut Command, instance: &Instance) {
 /// window on old Mesa drivers): they belong to the launcher's own webview and must not reach the
 /// game, which picks its own backend. Inherited, they left the client on CPU rendering at 2-3 FPS
 /// (#7832).
-pub const LAUNCHER_RENDER_ENV: [&str; 4] = [
+pub(crate) const LAUNCHER_RENDER_ENV: [&str; 4] = [
     "LIBGL_ALWAYS_SOFTWARE",
     "GALLIUM_DRIVER",
     "WEBKIT_DISABLE_DMABUF_RENDERER",
@@ -258,7 +258,7 @@ pub fn server_command(tag: &str, folder: &Path) -> Command {
     cmd
 }
 
-pub fn eula_agreed(folder: &Path) -> bool {
+fn eula_agreed(folder: &Path) -> bool {
     fs::read_to_string(folder.join("eula.txt"))
         .is_ok_and(|s| s.lines().any(|l| l.trim() == "eula=true"))
 }

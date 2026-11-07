@@ -62,7 +62,7 @@ pub struct FileStore {
     path: PathBuf,
 }
 
-pub const SECRETS_FILE: &str = "account-secrets.json";
+const SECRETS_FILE: &str = "account-secrets.json";
 
 impl FileStore {
     pub fn new(path: PathBuf) -> Self {
@@ -508,7 +508,7 @@ fn set_item(items: &dyn Items, key: &str, secret: &str) -> Result<(), String> {
 /// the player's credential store is full (an undocumented limit of its total size). The Xbox app
 /// and the Minecraft Launcher are known to leave hundreds of items there (#4313, #4366).
 #[cfg(any(target_os = "windows", test))]
-pub const CREDENTIAL_MANAGER_FULL: &str = "Windows Credential Manager is full, so Eclipse can't \
+const CREDENTIAL_MANAGER_FULL: &str = "Windows Credential Manager is full, so Eclipse can't \
      keep your sign-in (Windows error 8; it isn't your computer's memory). Open Credential Manager \
      from the Start menu, go to Windows Credentials and remove entries you no longer use, then sign \
      in again. The Xbox app and the Minecraft Launcher often leave many XblGrts and Xbl| entries \
@@ -524,7 +524,7 @@ fn credential_manager_says(code: u32) -> Option<&'static str> {
 
 /// A running executable removed by an older macOS updater cannot create Keychain credentials.
 #[cfg(any(target_os = "macos", test))]
-pub const MACOS_LAUNCHER_RESTART: &str = "The launcher was updated while it was running. Restart the launcher, then sign in with Microsoft again.";
+const MACOS_LAUNCHER_RESTART: &str = "The launcher was updated while it was running. Restart the launcher, then sign in with Microsoft again.";
 
 #[cfg(any(target_os = "macos", test))]
 fn macos_keychain_says(code: i32) -> Option<&'static str> {
@@ -609,7 +609,7 @@ impl SecretStore for SystemStore {
     }
 }
 
-pub const NO_KEYCHAIN: &str =
+const NO_KEYCHAIN: &str =
     "Your sign-in can't be saved on this computer. You'll need to sign in again next time.";
 
 /// What the keychain answered when [`store`] fell back to memory.

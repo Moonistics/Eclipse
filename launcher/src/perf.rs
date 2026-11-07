@@ -23,7 +23,6 @@ pub fn process_started() -> Instant {
 
 /// Frames further apart than this are the UI resting, not UI frame times.
 const IDLE_GAP: Duration = Duration::from_millis(250);
-pub use eclipse_launcher::backend::GAME_FIRST_FRAME;
 
 pub struct Perf {
     report: Report,

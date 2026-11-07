@@ -19,6 +19,38 @@ const GLYPH_SQUARE: f32 = 10.;
 const GLYPH_STROKE: f32 = 1.;
 const GLYPH_INSET: f32 = (GLYPH - GLYPH_SQUARE) / 2.;
 const MARK: f32 = ui::IconSize::Px16.px();
+const RESIZE_EDGE: f32 = 5.;
+#[cfg(target_os = "linux")]
+const RESIZE_CORNER: f32 = 8.;
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn bar(theme: &Theme) -> Div {
+    use gpui::{div, px};
+    div()
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(px(BAR_HEIGHT))
+        .bg(theme.side)
+        .text_color(white(ink::MUTED))
+        .border_b_1()
+        .border_color(gpui::transparent_black())
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn drag_area(window: &Window) -> gpui::Stateful<Div> {
+    use gpui::{div, px, InteractiveElement};
+    div()
+        .id("window-drag")
+        .flex()
+        .flex_1()
+        .h_full()
+        .items_center()
+        .gap(px(space::SM))
+        .px(px(space::MD))
+        .child(mark(MARK, window.scale_factor()))
+        .child(wordmark())
+}
 
 #[derive(Clone, Copy, PartialEq)]
 enum Control {
@@ -125,24 +157,15 @@ pub fn render(_theme: &Theme, _window: &Window) -> Option<Div> {
 #[cfg(target_os = "linux")]
 pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
     use crate::ui::Press;
-    use gpui::{div, prelude::*, px, Decorations, MouseButton};
+    use gpui::{prelude::*, Decorations, MouseButton};
 
     if matches!(window.window_decorations(), Decorations::Server) {
         return None;
     }
 
     let controls = window.window_controls();
-    let drag = div()
-        .id("window-drag")
-        .flex()
-        .flex_1()
-        .h_full()
-        .items_center()
-        .gap(px(space::SM))
-        .px(px(space::MD))
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
-        .child(mark(MARK, window.scale_factor()))
-        .child(wordmark());
+    let drag = drag_area(window)
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move());
     let maximized = window.is_maximized();
     let shown = [
         (Control::Minimize, controls.minimize),
@@ -150,15 +173,7 @@ pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
         (Control::Close, true),
     ];
     Some(
-        div()
-            .flex()
-            .flex_none()
-            .items_center()
-            .h(px(BAR_HEIGHT))
-            .bg(theme.side)
-            .text_color(white(ink::MUTED))
-            .border_b_1()
-            .border_color(gpui::transparent_black())
+        bar(theme)
             .child(drag)
             .children(shown.into_iter().filter(|(_, on)| *on).map(|(control, _)| {
                 control_face(control, maximized)
@@ -206,23 +221,23 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
             .child(
                 handle("resize-left", ResizeEdge::Left, CursorStyle::ResizeLeft)
                     .left_0()
-                    .top(px(8.))
-                    .bottom(px(8.))
-                    .w(px(5.)),
+                    .top(px(RESIZE_CORNER))
+                    .bottom(px(RESIZE_CORNER))
+                    .w(px(RESIZE_EDGE)),
             )
             .child(
                 handle("resize-right", ResizeEdge::Right, CursorStyle::ResizeRight)
                     .right_0()
-                    .top(px(8.))
-                    .bottom(px(8.))
-                    .w(px(5.)),
+                    .top(px(RESIZE_CORNER))
+                    .bottom(px(RESIZE_CORNER))
+                    .w(px(RESIZE_EDGE)),
             )
             .child(
                 handle("resize-bottom", ResizeEdge::Bottom, CursorStyle::ResizeDown)
                     .bottom_0()
-                    .left(px(8.))
-                    .right(px(8.))
-                    .h(px(5.)),
+                    .left(px(RESIZE_CORNER))
+                    .right(px(RESIZE_CORNER))
+                    .h(px(RESIZE_EDGE)),
             )
             .child(
                 handle(
@@ -232,7 +247,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .left_0()
                 .top_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             )
             .child(
                 handle(
@@ -242,7 +257,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .right_0()
                 .top_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             )
             .child(
                 handle(
@@ -252,7 +267,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .left_0()
                 .bottom_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             )
             .child(
                 handle(
@@ -262,7 +277,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .right_0()
                 .bottom_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             ),
     )
 }
@@ -313,9 +328,7 @@ pub fn apply_appearance(_: &Window, _: Appearance) {}
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
-    use gpui::{div, prelude::*, px, Stateful, WindowControlArea};
-
-    const RESIZE_INSET: f32 = 5.;
+    use gpui::{prelude::*, px, Stateful, WindowControlArea};
 
     impl Control {
         fn area(self) -> WindowControlArea {
@@ -334,31 +347,13 @@ mod windows {
     }
 
     pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
-        let drag = div()
-            .id("window-drag")
-            .flex()
-            .flex_1()
-            .h_full()
-            .items_center()
-            .gap(px(space::SM))
-            .px(px(space::MD))
-            .window_control_area(WindowControlArea::Drag)
-            .child(mark(MARK, window.scale_factor()))
-            .child(wordmark());
+        let drag = drag_area(window).window_control_area(WindowControlArea::Drag);
         Some(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .h(px(BAR_HEIGHT))
+            bar(theme)
                 // Control hit tests run before native edge resizing in GPUI 0.2.2.
                 .when(!window.is_maximized(), |bar| {
-                    bar.pt(px(RESIZE_INSET)).px(px(RESIZE_INSET))
+                    bar.pt(px(RESIZE_EDGE)).px(px(RESIZE_EDGE))
                 })
-                .bg(theme.side)
-                .text_color(white(ink::MUTED))
-                .border_b_1()
-                .border_color(gpui::transparent_black())
                 .child(drag)
                 .children(
                     [Control::Minimize, Control::Maximize, Control::Close]

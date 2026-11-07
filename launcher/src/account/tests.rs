@@ -19,8 +19,6 @@ struct Mock {
     no_profile: bool,
     /// What `launcher/login` answers instead of a token (an older service, an outage).
     launcher_login_refused: Option<u16>,
-    /// Mojang's session server refuses `join` (the token was revoked since it was renewed).
-    join_refused: bool,
     /// Every request: method, path and body.
     log: Vec<(String, String, String)>,
 }
@@ -134,18 +132,6 @@ fn route(mock: &mut Mock, method: &str, path: &str, auth: &str, body: &str) -> (
                           {"id": "c2", "state": "ACTIVE", "url": "http://textures.minecraft.net/texture/cape2", "alias": "Vanilla"}],
             }),
         ),
-        ("POST", "/session/session/minecraft/join") => {
-            let v: Value = serde_json::from_str(body).unwrap();
-            if mock.join_refused {
-                return reply(403, json!({"error": "ForbiddenOperationException"}));
-            }
-            assert_eq!(v["accessToken"], "mc-token");
-            assert_eq!(
-                (v["selectedProfile"].as_str(), v["serverId"].as_str()),
-                (Some(UUID), Some("svc-42"))
-            );
-            (204, String::new())
-        }
         _ => reply(404, json!({"error": "NotFound"})),
     }
 }
@@ -979,14 +965,14 @@ fn offline_names_switch_with_accounts() {
     let (skin, cape) = crate::skins::files(&dir, "builder_1");
     std::fs::write(&skin, b"skin").unwrap();
     std::fs::write(&cape, b"cape").unwrap();
-    a.looks.insert(
-        "builder_1".into(),
-        crate::skins::Look {
-            skin: true,
-            cape: true,
-            ..crate::skins::Look::default()
-        },
-    );
+    let look = crate::skins::Look {
+        skin: true,
+        cape: true,
+        ..crate::skins::Look::default()
+    };
+    a.set_look("BUILDER_1", look.clone()).unwrap();
+    assert_eq!(a.look("builder_1"), look);
+    assert!(a.set_look("Stranger", look).is_err());
     a.remove_offline("BUILDER_1", &dir).unwrap();
     assert_eq!(a.player(), Player::GameName);
     assert!(a.looks.is_empty() && !skin.exists() && !cape.exists());
@@ -1591,39 +1577,4 @@ fn splitscreen_stops_renewing_other_accounts_once_out_of_time() {
         .unwrap()
         .contains("Sign in again"));
     let _ = std::fs::remove_dir_all(&dir);
-}
-
-/// A service's account check: the launcher renews the account, then tells Mojang's session server
-/// it joins the id the service gave.
-#[test]
-fn joining_a_service_id_tells_mojangs_session_server() {
-    let (m, ep) = mock(|_| {});
-    let session = ep.minecraft.replace("/mc", "/session");
-    let store = MemoryStore::default();
-    signed_in(&store, &secrets("mc-token", true));
-    session::join_server_with(
-        &ep,
-        &session,
-        Some("test-client"),
-        &store,
-        &notch(),
-        &nowhere(),
-        "svc-42",
-    )
-    .unwrap();
-    let log = m.lock().unwrap().log.clone();
-    let joins: Vec<_> = log.iter().filter(|(_, p, _)| p.contains("/join")).collect();
-    assert_eq!(joins.len(), 1);
-    // Mojang refuses: the error says to sign in again.
-    m.lock().unwrap().join_refused = true;
-    let refused = session::join_server_with(
-        &ep,
-        &session,
-        Some("test-client"),
-        &store,
-        &notch(),
-        &nowhere(),
-        "svc-42",
-    );
-    assert!(refused.unwrap_err().contains("Sign in again"));
 }

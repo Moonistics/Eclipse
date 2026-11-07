@@ -520,7 +520,7 @@ impl Launcher {
 
     /// Escape closes the Create dialog. Whether it did.
     pub(crate) fn servers_escape(&mut self) -> bool {
-        if self.page != Page::Servers || self.servers.create.is_none() || self.servers.creating {
+        if self.servers.create.is_none() || self.servers.creating {
             return false;
         }
         self.servers.create = None;
@@ -561,7 +561,7 @@ impl Launcher {
             _ => {
                 self.fields.invalid = Some((
                     Field::ServerPort,
-                    "Use a number from 1024 to 65535 (25565 is Minecraft's own).",
+                    Some("Use a number from 1024 to 65535 (25565 is Minecraft's own)."),
                 ))
             }
         }
@@ -574,7 +574,7 @@ impl Launcher {
         if !valid {
             self.fields.invalid = Some((
                 Field::ServerPlayer,
-                "A Minecraft name has 3 to 16 letters, digits or underscores.",
+                Some("A Minecraft name has 3 to 16 letters, digits or underscores."),
             ));
             return;
         }

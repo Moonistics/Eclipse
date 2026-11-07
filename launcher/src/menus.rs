@@ -55,7 +55,7 @@ impl Launcher {
     }
 
     pub(super) fn menu_open(&self) -> bool {
-        self.open_menu.is_some() || self.mod_detail_floats()
+        self.open_menu.is_some() || self.page_float_open()
     }
 
     pub(super) fn menu_is(&self, menu: &Menu) -> bool {
@@ -70,7 +70,7 @@ impl Launcher {
             self.opened_menu(window, cx);
         }
         if self.menu_is(&Menu::Account) {
-            self.accounts = Accounts::load();
+            self.reload_accounts();
             self.load_profile_heads();
         }
     }
@@ -129,12 +129,6 @@ impl Launcher {
         ))
     }
 
-    pub(super) fn mod_detail_floats(&self) -> bool {
-        self.page == Page::Mods
-            && self.mods.picked.is_some()
-            && self.window_width < layout::MODS_DETAIL_BESIDE
-    }
-
     pub(super) fn close_menu(&mut self) {
         self.open_menu = None;
         self.stop_asking(Asking::in_a_menu);
@@ -143,20 +137,8 @@ impl Launcher {
     pub(super) fn close_menus(&mut self, window: &mut Window, cx: &mut App) -> bool {
         let open = self.menu_open();
         self.close_menu();
-        if self.mod_detail_floats() {
-            self.close_mod_detail(window, cx);
-        }
+        self.close_page_float(window, cx);
         open
-    }
-
-    pub(super) fn close_mod_detail(&mut self, window: &mut Window, cx: &mut App) {
-        self.mods.picked = None;
-        self.asking = None;
-        let inside = ui::try_focus_for(crate::mods_page::DETAIL_FLOAT)
-            .is_some_and(|float| float.contains_focused(window, cx));
-        if let Some(results) = ui::options_focus("mods-results").filter(|_| inside) {
-            window.focus(&results, cx);
-        }
     }
 
     pub(super) fn drawn(&self, handle: &FocusHandle, window: &Window) -> bool {
@@ -257,17 +239,8 @@ impl Launcher {
                 }
             }
             "escape" if self.confirm_escape() => {}
-            "escape" if self.page == Page::Mods && self.mods.browse.show_filters => {
-                self.mods.browse.show_filters = false;
-                let toggle = opener_focus(crate::mods_project::FILTERS_TOGGLE);
-                Self::focus_if_removed(window.focused(cx), toggle, window, cx);
-            }
             "escape" if self.native_log_escape() => {}
-            "escape" if self.servers_escape() => {}
-            "escape" if self.instance_escape() => {}
-            "escape" if self.screenshot_escape() => {}
-            "left" if self.screenshot_step(false) => {}
-            "right" if self.screenshot_step(true) => {}
+            key if self.page_key(key, window, cx) => {}
             key if self.scroll_by_key(key, window, cx) => {}
             _ => return,
         }
@@ -275,7 +248,7 @@ impl Launcher {
         cx.notify();
     }
 
-    fn focus_if_removed(
+    pub(super) fn focus_if_removed(
         was: Option<FocusHandle>,
         to: Option<FocusHandle>,
         window: &mut Window,
@@ -298,14 +271,7 @@ impl Launcher {
         let on_page = window.focused(cx).is_none_or(|f| {
             f == self.root_focus || f == self.content_focus || f == self.side_focus
         });
-        let pane = match self.page {
-            Page::Settings => &self.settings_ui.pane.handle,
-            Page::InstanceEditor => match &self.instances.draft {
-                Some(d) => &d.scroll.handle,
-                None => &self.content_scroll.handle,
-            },
-            _ => &self.content_scroll.handle,
-        };
+        let pane = self.page_pane();
         let view = f32::from(pane.bounds().size.height);
         let max = f32::from(pane.max_offset().y);
         let at = -f32::from(pane.offset().y);

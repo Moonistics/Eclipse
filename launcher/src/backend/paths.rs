@@ -40,6 +40,11 @@ pub(super) fn linked_minecraft_dir() -> PathBuf {
     data_dir().join("linked-minecraft")
 }
 
+/// Where Export writes instances from the window.
+pub fn exports_dir() -> PathBuf {
+    data_dir().join("exports")
+}
+
 /// `path` spelled only in ASCII: what Windows' MinGW-w64 tools can open (they read paths
 /// through ANSI APIs, so a Cyrillic user name in %APPDATA% breaks them, #5189).
 pub(super) fn ascii(path: &Path) -> bool {
@@ -49,7 +54,7 @@ pub(super) fn ascii(path: &Path) -> bool {
 /// `path` as Windows' MinGW-w64 tools can take it: [`ascii`], and on Windows without a space.
 /// `windres` hands its include folders to the preprocessor unquoted, so a user name with a space
 /// in %APPDATA% splits there ("cc1.exe: fatal error: v\: No such file or directory").
-pub(super) fn tool_safe(path: &Path) -> bool {
+pub(crate) fn tool_safe(path: &Path) -> bool {
     ascii(path) && !(cfg!(windows) && path.as_os_str().to_str().is_some_and(|p| p.contains(' ')))
 }
 

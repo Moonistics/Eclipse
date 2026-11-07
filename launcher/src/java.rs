@@ -103,7 +103,7 @@ impl Runtime {
 }
 
 /// The version a Java home's `release` file names (`JAVA_VERSION="21.0.5"`), with its major.
-pub fn release_version(home: &Path) -> Option<(String, u32)> {
+fn release_version(home: &Path) -> Option<(String, u32)> {
     let text = fs::read_to_string(home.join("release")).ok()?;
     let version = text
         .lines()

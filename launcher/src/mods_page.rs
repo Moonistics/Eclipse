@@ -135,9 +135,8 @@ pub(super) struct Mods {
     pub(super) failed: Option<String>,
     pub(super) updates: HashMap<(SourceId, String), String>,
     /// Instances (ids) whose native mods the automatic update moved on: Play builds their game
-    /// first (`build_native`), then plays it when `play_after_build` is set.
+    /// first (`build_native`), then plays it.
     pub(super) rebuild: Vec<String>,
-    pub(super) play_after_build: bool,
     /// The project the detail card shows; the first result when none is.
     pub(super) picked: Option<String>,
     /// The project the detail card showed last.
@@ -207,12 +206,8 @@ impl Mods {
 
     pub(super) fn new() -> Self {
         let (tx, rx) = channel();
-        let page = std::env::var("ECLIPSE_LAUNCHER_PAGE");
-        let kind = match page.as_deref() {
-            Ok("modpacks") => PackKind::Modpack,
-            Ok("resourcepacks") => PackKind::ResourcePack,
-            Ok("shaders") => PackKind::Shader,
-            Ok("datapacks") => PackKind::DataPack,
+        let kind = match preview::preview() {
+            Some(preview::Preview::Mods(kind)) => kind,
             _ => PackKind::Mod,
         };
         Self {
@@ -247,7 +242,6 @@ impl Mods {
             native_files: Default::default(),
             updates: HashMap::new(),
             rebuild: Vec::new(),
-            play_after_build: false,
             picked: None,
             shown: None,
             float_at: Default::default(),
@@ -387,35 +381,39 @@ pub(super) fn licence_name(id: &str) -> String {
     }
 }
 
-/// A registry project's rating: five pixel stars, the mean's nearest whole number of them lit, the
-/// mean and how many; None while the ratings aren't known.
-pub(super) fn stars(id: &str) -> Option<Div> {
-    let row = div().flex().items_center().gap(px(space::XXS));
-    Some(ui::card_note(match eclipse::rating(id)? {
-        None => row.child(tr("No ratings yet")),
-        Some(r) => {
-            let lit = r.average.round() as usize;
-            row.children((0..5).map(|i| {
-                ui::icon(
-                    "star",
-                    ui::IconSize::Px16,
-                    if i < lit {
-                        ui::color(ui::look().mark)
-                    } else {
-                        white(ink::DIM)
-                    },
-                )
-            }))
-            .child(div().ml(px(space::XS)).child(format!(
-                "{:.1} ({})",
-                r.average,
-                count(r.count)
-            )))
-        }
-    }))
-}
-
 impl Launcher {
+    pub(super) fn mod_detail_floats(&self) -> bool {
+        self.mods.picked.is_some() && self.window_width < layout::MODS_DETAIL_BESIDE
+    }
+
+    pub(super) fn close_mod_detail(&mut self, window: &mut Window, cx: &mut App) {
+        self.mods.picked = None;
+        self.asking = None;
+        let inside =
+            ui::try_focus_for(DETAIL_FLOAT).is_some_and(|float| float.contains_focused(window, cx));
+        if let Some(results) = ui::options_focus(mods_view::RESULTS).filter(|_| inside) {
+            window.focus(&results, cx);
+        }
+    }
+
+    pub(super) fn mods_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
+        if !self.mods.browse.show_filters {
+            return false;
+        }
+        self.mods.browse.show_filters = false;
+        let toggle = menus::opener_focus(crate::mods_project::FILTERS_TOGGLE);
+        Self::focus_if_removed(window.focused(cx), toggle, window, cx);
+        true
+    }
+
+    pub(super) fn mods_scrolled(&mut self, window: &mut Window, cx: &mut Context<Self>) {
+        cx.on_next_frame(window, |this, _, cx| {
+            if this.mod_detail_floats() || this.mods_sticky.moved(&this.content_scroll.handle) {
+                cx.notify();
+            }
+        });
+    }
+
     /// Opens the Mods page on its Modpacks tab, with the pack `slug` open when given (the
     /// sidebar's packs and its + button).
     pub(super) fn show_modpack(&mut self, slug: Option<String>) {
@@ -514,20 +512,13 @@ impl Launcher {
                 }
             }
         }
-        // `ECLIPSE_LAUNCHER_PROJECT=<slug>` (with `ECLIPSE_LAUNCHER_PAGE=mods`): opens that
-        // project's page once a search finds it, for screenshots.
         if self.mods.browse.open.is_none() {
-            if let Ok(want) = std::env::var("ECLIPSE_LAUNCHER_PROJECT") {
-                if let Some(p) = self
-                    .mods
-                    .results
-                    .iter()
-                    .find(|p| p.id == want || p.slug == want)
-                    .cloned()
-                {
-                    std::env::remove_var("ECLIPSE_LAUNCHER_PROJECT");
-                    self.mods_open(p);
-                }
+            let wanted = preview::project().and_then(|want| {
+                (self.mods.results.iter()).find(|p| p.id == want || p.slug == want)
+            });
+            if let Some(p) = wanted.cloned() {
+                preview::project_opened();
+                self.mods_open(p);
             }
         }
         self.mods_check(to_check);
@@ -559,6 +550,7 @@ impl Launcher {
     /// so the page doesn't shrink (and the scroll doesn't jump to the top) while it waits.
     pub(super) fn mods_search_keeping(&mut self, offset: usize, keep: bool) {
         let text = self.fields.value(Field::ModsSearch).to_owned();
+        let instance = self.selected_instance().cloned();
         let m = &mut self.mods;
         m.search += 1;
         m.searching = true;
@@ -596,16 +588,13 @@ impl Launcher {
                 .ok_or_else(|| format!("{} isn't set up.", source.label()))
                 .and_then(|s| s.search(&query));
             let about: HashMap<String, Vec<String>> = match (&result, source) {
-                (Ok(found), SourceId::Eclipse) => {
-                    let instance = eclipse_launcher::instances::selected();
-                    found
-                        .iter()
-                        .map(|p| {
-                            let lines = eclipse::trust_and_capabilities(&p.id, Some(&instance));
-                            (p.id.clone(), lines)
-                        })
-                        .collect()
-                }
+                (Ok(found), SourceId::Eclipse) => found
+                    .iter()
+                    .map(|p| {
+                        let lines = eclipse::trust_and_capabilities(&p.id, instance.as_ref());
+                        (p.id.clone(), lines)
+                    })
+                    .collect(),
                 _ => HashMap::new(),
             };
             let _ = tx.send(Event::Found(search, offset, result));
@@ -1069,19 +1058,8 @@ impl Launcher {
             self.mods.failed = busy.clone().err();
             return busy;
         };
-        let trashed = self
-            .mods
-            .installed
-            .iter()
-            .find(|e| e.project == id && goes_to_trash(e.kind))
-            .and_then(|e| e.path(&home))
-            .filter(|path| path.exists())
-            .map_or(Ok(()), |path| {
-                eclipse_launcher::desktop_seams::to_trash(&path)
-                    .map_err(|e| format!("{}: {e}", path.display()))
-            });
-        let removed = trashed
-            .and_then(|()| installed::Game::of(self.mods.java.clone()).remove(&home, id))
+        let removed = installed::Game::of(self.mods.java.clone())
+            .remove(&home, id, &eclipse_launcher::desktop_seams::to_trash)
             .map(|e| match goes_to_trash(e.kind) {
                 true => trf("{name} moved to the trash", &[("name", &e.title)]),
                 false => trf("Removed {name}", &[("name", &e.title)]),
@@ -1210,6 +1188,12 @@ impl Launcher {
     /// Whether the selected instance has `p` (the palette's Install or Remove).
     pub(super) fn mods_has(&self, p: &Project) -> bool {
         self.mods.entry(p).is_some()
+    }
+
+    pub(super) fn mods_ask_remove(&mut self, id: String) {
+        self.show_mods(PackKind::Mod);
+        self.mods.picked = Some(id.clone());
+        self.asking = Some(menus::Asking::Mod(id));
     }
 
     pub(super) fn mods_page(&mut self, cx: &mut Context<Self>) -> Div {

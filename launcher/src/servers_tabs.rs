@@ -208,7 +208,8 @@ impl Launcher {
         let refused = self
             .fields
             .invalid
-            .and_then(|(f, e)| (f == Field::ServerPlayer).then(|| ui::error_note(tr(e))));
+            .and_then(|(f, e)| e.filter(|_| f == Field::ServerPlayer))
+            .map(|e| ui::error_note(tr(e)));
         tab = tab.child(ui::field_group(
             "server-join-title",
             tr("Who can join"),
@@ -536,7 +537,8 @@ impl Launcher {
                     ),
                     self.fields
                         .invalid
-                        .and_then(|(f, e)| (f == Field::ServerPort).then(|| tr(e).into())),
+                        .and_then(|(f, e)| e.filter(|_| f == Field::ServerPort))
+                        .map(|e| tr(e).into()),
                     port,
                 ),
             )

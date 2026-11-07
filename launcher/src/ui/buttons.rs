@@ -1,29 +1,16 @@
 use super::{
-    color, disabled, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected,
-    setting_text, tip, tip_on_focus, white, Hover, IconSize, Press, TipSide, LIST_INSET,
-    PANEL_INSET,
+    color, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected, tip,
+    tip_on_focus, value_key, white, Hover, IconSize, Press, TipSide, LIST_INSET, PANEL_INSET,
 };
 use eclipse_theme::glass::{
     fill, ink,
     pixel_text::{PAGE_TITLE, PRESS},
-    radius, space, step, ON_LIGHT, PAPER, SWITCH_EDGE_LIGHT,
+    radius, space, step, PAPER,
 };
 use gpui::{
     div, prelude::*, px, AnyElement, App, ClickEvent, ClipboardItem, Div, FontWeight, Hsla, Role,
     SharedString, Stateful, Toggled, Window,
 };
-
-pub const SWITCH_WIDTH: f32 = 40.;
-
-pub const SWITCH_HEIGHT: f32 = 24.;
-
-const SWITCH_EDGE: f32 = 1.;
-
-const SWITCH_KNOB: f32 = 18.;
-
-const KNOB_EDGE: f32 = 0.5;
-
-const KNOB_SHINE: f32 = 0.12;
 
 const BEVEL_SHINE: f32 = 0.3;
 
@@ -36,14 +23,6 @@ const BEVEL_SHADE_HEIGHT: f32 = 3.;
 const SPLIT_RULE: f32 = 0.2;
 
 const LINK_MIN_HEIGHT: f32 = 24.;
-
-const TAB_UNDERLINE: f32 = 4.;
-
-const NAV_ROW_LIST: f32 = 32.;
-
-const NAV_ROW_LIST_SHORT: f32 = 28.;
-
-const STEPPER_VALUE_WIDTH: f32 = 48.;
 
 const REMOVE_ICON: &str = "delete-02";
 
@@ -121,7 +100,7 @@ pub fn bevel<E: ParentElement>(d: E) -> E {
     shine(d, BEVEL_SHINE)
 }
 
-fn shine<E: ParentElement>(d: E, highlight: f32) -> E {
+pub(super) fn shine<E: ParentElement>(d: E, highlight: f32) -> E {
     d.child(
         div()
             .absolute()
@@ -657,167 +636,6 @@ pub fn copy_button(
     })
 }
 
-pub fn stepper(
-    id: impl Into<SharedString>,
-    value: i64,
-    range: std::ops::RangeInclusive<i64>,
-    on_step: impl Fn(i64, &mut Window, &mut App) + Clone + 'static,
-) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let side_button = |side: &str, icon_name: &'static str, to: i64| {
-        let label = crate::tr(if to < value { "Decrease" } else { "Increase" });
-        let b = icon_button(
-            format!("{id}-{side}"),
-            icon_name,
-            label,
-            ButtonKind::Ghost,
-            ButtonSize::Md,
-            false,
-        );
-        if range.contains(&to) && to != value {
-            let on_step = on_step.clone();
-            b.on_press(move |_, window, cx| on_step(to, window, cx))
-        } else {
-            disabled(b)
-        }
-    };
-    let (less, more) = (
-        side_button("less", "minus-sign", value - 1),
-        side_button("more", "plus-sign", value + 1),
-    );
-    div()
-        .id(id.clone())
-        .role(Role::SpinButton)
-        .aria_numeric_value(value as f64)
-        .aria_min_numeric_value(*range.start() as f64)
-        .aria_max_numeric_value(*range.end() as f64)
-        .flex()
-        .items_center()
-        .gap(px(space::XS))
-        .p(px(space::XS))
-        .rounded(px(radius::ROW))
-        .bg(inset())
-        .child(less)
-        .child(
-            super::text(step::LEAD, FontWeight::SEMIBOLD, ink::FULL)
-                .w(px(STEPPER_VALUE_WIDTH))
-                .flex()
-                .justify_center()
-                .child(value.to_string()),
-        )
-        .child(more)
-}
-
-pub fn toggle(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    switch_face(id, on)
-        .role(Role::Switch)
-        .aria_toggled(Toggled::from(on))
-}
-
-fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let inset = (SWITCH_HEIGHT - 2. * SWITCH_EDGE - SWITCH_KNOB) / 2.;
-    let travel = SWITCH_WIDTH - 2. * (SWITCH_EDGE + inset) - SWITCH_KNOB;
-    let knob = shine(
-        div()
-            .absolute()
-            .top(px(inset))
-            .size(px(SWITCH_KNOB))
-            .rounded(px(radius::BLOCK / 2.))
-            .overflow_hidden()
-            .bg(if on || super::light() {
-                color(PAPER)
-            } else {
-                white(ink::MUTED)
-            })
-            .when(super::light(), |d| {
-                d.border_1()
-                    .border_color(color(ON_LIGHT).opacity(KNOB_EDGE))
-            }),
-        KNOB_SHINE,
-    );
-    let knob = crate::motion::knob(&id, on, knob, inset, travel);
-    let rim = match (on, super::light()) {
-        (true, true) => color(ON_LIGHT).opacity(SWITCH_EDGE_LIGHT),
-        (true, false) => gpui::transparent_black(),
-        (false, _) => white(ink::DIM),
-    };
-    div()
-        .id(id)
-        .relative()
-        .flex_none()
-        .w(px(SWITCH_WIDTH))
-        .h(px(SWITCH_HEIGHT))
-        .rounded(px(radius::BLOCK))
-        .bg(if on {
-            color(look().accent)
-        } else {
-            white(fill::ACTIVE)
-        })
-        .border(px(SWITCH_EDGE))
-        .border_color(rim)
-        .cursor_pointer()
-        .child(knob)
-}
-
-pub fn toggle_row(
-    id: impl Into<SharedString>,
-    title: impl Into<SharedString>,
-    note: Option<SharedString>,
-    on: bool,
-) -> Stateful<Div> {
-    let (id, title): (SharedString, SharedString) = (id.into(), title.into());
-    let switch = switch_face(format!("{id}-switch"), on);
-    let described = note.clone();
-    let note = note.map(|n| div().child(n).into_any_element());
-    hoverable(id, radius::ROW, Hover::Row)
-        .role(Role::Switch)
-        .aria_toggled(Toggled::from(on))
-        .aria_label(title.clone())
-        .when_some(described, |d, note| d.aria_description(note))
-        .flex()
-        .items_center()
-        .gap(px(SETTING_ROW_GAP))
-        .p(px(super::SETTING_ROW_PADDING))
-        .rounded(px(radius::ROW))
-        .cursor_pointer()
-        .child(setting_text(title, note).relative())
-        .child(switch)
-}
-
-pub fn toggle_row_inset(
-    id: impl Into<SharedString>,
-    title: impl Into<SharedString>,
-    note: Option<SharedString>,
-    on: bool,
-) -> Stateful<Div> {
-    toggle_row(id, title, note, on).bg(inset())
-}
-
-pub const SETTING_ROW_GAP: f32 = space::XXL + space::SM;
-
-pub fn toggle_label(
-    id: impl Into<SharedString>,
-    label: impl Into<SharedString>,
-    on: bool,
-) -> Stateful<Div> {
-    let (id, label): (SharedString, SharedString) = (id.into(), label.into());
-    let switch = switch_face(format!("{id}-switch"), on);
-    let tone = if hover_is(&id) { ink::FULL } else { ink::BODY };
-    super::track_hover(div().id(id.clone()), id)
-        .role(Role::Switch)
-        .aria_toggled(Toggled::from(on))
-        .aria_label(label.clone())
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(space::MD))
-        .rounded(px(radius::CONTROL))
-        .cursor_pointer()
-        .child(switch)
-        .child(super::text(step::NOTE, FontWeight::NORMAL, tone).child(label))
-}
-
 /// A segmented control: options on a faint track, the chosen one raised.
 pub fn segments<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     id: impl Into<SharedString>,
@@ -891,204 +709,6 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
     })
 }
 
-pub fn value_key(value: &impl std::fmt::Debug) -> String {
-    let mut key = String::new();
-    let mut last = '-';
-    for c in format!("{value:?}").chars() {
-        let starts_word = c.is_uppercase() && (last.is_lowercase() || last.is_ascii_digit());
-        if (!c.is_alphanumeric() || starts_word) && !key.is_empty() && !key.ends_with('-') {
-            key.push('-');
-        }
-        if c.is_alphanumeric() {
-            key.extend(c.to_lowercase());
-        }
-        last = c;
-    }
-    key.trim_end_matches('-').to_string()
-}
-
-fn padded_tab(
-    id: impl Into<SharedString>,
-    text: impl Into<SharedString>,
-    open: bool,
-    pad: f32,
-) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let tone = if open || hover_is(&id) {
-        ink::FULL
-    } else {
-        ink::MUTED
-    };
-    let text: SharedString = text.into();
-    let d = super::track_hover(div().id(id.clone()), id)
-        .role(Role::Tab)
-        .aria_selected(open)
-        .aria_label(text.clone())
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(TAB_COUNT_GAP))
-        .h(px(ButtonSize::Md.height()))
-        .px(px(pad))
-        .rounded(px(radius::CONTROL))
-        .cursor_pointer()
-        .text_color(white(tone))
-        .when(open, |d| {
-            d.child(
-                div()
-                    .absolute()
-                    .left(px(pad))
-                    .right(px(pad))
-                    .bottom_0()
-                    .h(px(TAB_UNDERLINE))
-                    .bg(color(if super::light() {
-                        look().mark
-                    } else {
-                        look().accent
-                    })),
-            )
-        });
-    d.when(!text.is_empty(), |d| {
-        d.child(press_text().child(text.to_uppercase()))
-    })
-}
-
-pub const TAB_PAD: f32 = space::SM + space::XXS;
-
-const TAB_COUNT_GAP: f32 = space::SM;
-
-pub fn tab_width(label: &str, count: Option<usize>, pad: f32) -> f32 {
-    let count = count.map_or(0., |n| TAB_COUNT_GAP + press_width(&n.to_string()));
-    press_width(label) + count + 2. * pad
-}
-
-pub const TAB_PAD_TIGHT: f32 = space::SM;
-
-pub const TAB_STRIP_GAP: f32 = space::LG;
-
-pub fn tab_strip_padded(
-    id: impl Into<SharedString>,
-    pad: f32,
-    tabs: impl IntoIterator<Item = Stateful<Div>>,
-) -> Stateful<Div> {
-    div()
-        .id(id.into())
-        .role(Role::TabList)
-        .flex()
-        .items_center()
-        .mx(px(-pad))
-        .mb(px(TAB_STRIP_GAP))
-        .children(tabs)
-}
-
-/// A tab with a count after its label.
-pub fn count_tab(
-    id: impl Into<SharedString>,
-    label: impl Into<SharedString>,
-    count: Option<(usize, SharedString)>,
-    open: bool,
-    pad: f32,
-) -> Stateful<Div> {
-    let label: SharedString = label.into();
-    let shown = count.as_ref().map(|(n, _)| n.to_string());
-    padded_tab(id, label, open, pad)
-        .when_some(count.map(|(_, said)| said), |d, said| {
-            d.aria_description(said)
-        })
-        .children(shown.map(|n| press_text().text_color(white(ink::MUTED)).child(n)))
-}
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum NavDensity {
-    Sidebar,
-    List,
-}
-
-impl NavDensity {
-    fn height(self) -> f32 {
-        match self {
-            NavDensity::Sidebar if super::short_window() => NAV_ROW_SHORT,
-            NavDensity::Sidebar => NAV_ROW,
-            NavDensity::List if super::short_window() => NAV_ROW_LIST_SHORT,
-            NavDensity::List => NAV_ROW_LIST,
-        }
-    }
-
-    fn gap(self) -> f32 {
-        match self {
-            NavDensity::Sidebar => space::MD,
-            NavDensity::List => space::SM,
-        }
-    }
-}
-
-pub fn nav_row(
-    id: impl Into<SharedString>,
-    icon_name: &'static str,
-    text: impl Into<SharedString>,
-    current: bool,
-    density: NavDensity,
-) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let text: SharedString = text.into();
-    let tone = if current || hover_is(&id) {
-        ink::FULL
-    } else {
-        ink::BODY
-    };
-    let sidebar = density == NavDensity::Sidebar;
-    let row = hoverable(id, radius::ROW, Hover::Row)
-        .when(sidebar, |d| d.role(Role::Link))
-        .aria_selected(current)
-        .aria_label(text.clone())
-        .when(sidebar && current, |d| {
-            d.aria_description(crate::tr("Current page"))
-        })
-        .flex()
-        .flex_none()
-        .items_center()
-        .gap(px(density.gap()))
-        .h(px(density.height()))
-        .px(px(density.gap()))
-        .cursor_pointer()
-        .text_color(white(tone))
-        .child(icon(icon_name, IconSize::Px16, super::icon_tone(current)).relative())
-        .child(
-            press_text()
-                .relative()
-                .min_w_0()
-                .truncate()
-                .child(text.to_uppercase()),
-        );
-    super::side_selected(row, current)
-}
-
-pub fn nav_text_room(row_width: f32, pad: f32, density: NavDensity) -> f32 {
-    row_width - 2. * (pad + super::ROW_EDGE) - IconSize::Px16.px() - density.gap()
-}
-
-pub fn shown_on_focus(el: Stateful<Div>, shown: bool) -> Stateful<Div> {
-    if shown {
-        return el;
-    }
-    el.opacity(0.)
-        .focus_visible(|s| super::inset_ring(s).opacity(1.))
-}
-
-pub fn tip_when_clipped(
-    el: Stateful<Div>,
-    full: impl Into<SharedString>,
-    width: f32,
-    room: f32,
-) -> Stateful<Div> {
-    if width < room {
-        return el;
-    }
-    let full: SharedString = full.into();
-    tip_on_focus(el.tooltip(tip(full.clone())), full, TipSide::Below)
-}
-
 pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {
     let id: SharedString = id.into();
     let tone = if hover_is(&id) {
@@ -1111,10 +731,6 @@ pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stat
     .cursor_pointer()
     .child(label)
 }
-
-pub const NAV_ROW: f32 = 40.;
-
-pub const NAV_ROW_SHORT: f32 = 32.;
 
 pub fn chevron(open: bool) -> gpui::Svg {
     icon("arrow-down-01", IconSize::Px16, white(ink::MUTED)).with_transformation(
@@ -1202,7 +818,7 @@ fn dropdown_face(
         .border_1()
         .border_color(super::field_edge())
         .cursor_pointer()
-        .font_family(eclipse_theme::glass::FONT)
+        .font_family(crate::theme::FONT)
         .text_size(px(step::BODY.size))
         .text_color(white(ink::FULL))
         .children(leading.map(|l| div().relative().child(l)))
@@ -1215,173 +831,10 @@ pub fn translated<T: Copy>(options: &[(T, &str)]) -> Vec<(T, SharedString)> {
         .collect()
 }
 
-const SLIDER_HEIGHT: f32 = super::TILE_SM;
-
-const SLIDER_KNOB: f32 = IconSize::Px16.px();
-
-const SLIDER_PAGE: i32 = 10;
-
-const HUE_STEPS: usize = 60;
-
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub enum Track {
-    Fill,
-    Hues,
-}
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub enum SliderMove {
-    To(f32),
-    Step(i32),
-    Done,
-}
-
-thread_local! {
-    static SLIDERS: std::cell::RefCell<std::collections::HashMap<SharedString, gpui::Bounds<gpui::Pixels>>> =
-        std::cell::RefCell::default();
-    static DRAGGING: std::cell::RefCell<Option<SharedString>> = const { std::cell::RefCell::new(None) };
-}
-
-fn slider_at(id: &SharedString, x: gpui::Pixels) -> Option<f32> {
-    let bounds = SLIDERS.with_borrow(|s| s.get(id).copied())?;
-    let width: f32 = bounds.size.width.into();
-    let across: f32 = (x - bounds.origin.x).into();
-    (width > 0.).then(|| (across / width).clamp(0., 1.))
-}
-
-#[allow(clippy::too_many_arguments)]
-pub fn slider(
-    id: impl Into<SharedString>,
-    name: impl Into<SharedString>,
-    fraction: f32,
-    value: f64,
-    range: (f64, f64),
-    track: Track,
-    on_move: impl Fn(SliderMove, &mut Window, &mut App) + Clone + 'static,
-) -> Stateful<Div> {
-    let id: SharedString = id.into();
-    let fraction = fraction.clamp(0., 1.);
-    let width = crate::layout::FIELD_MD;
-    let measured = id.clone();
-    let bar = match track {
-        Track::Fill => div()
-            .h(px(super::BAR_HEIGHT))
-            .w_full()
-            .rounded_full()
-            .overflow_hidden()
-            .bg(white(fill::ACTIVE))
-            .child(
-                div()
-                    .h_full()
-                    .w(gpui::relative(fraction))
-                    .rounded_full()
-                    .bg(color(look().accent_soft)),
-            )
-            .into_any_element(),
-        Track::Hues => gpui::canvas(
-            |_, _, _| {},
-            |bounds, _, window, _| {
-                let step = f32::from(bounds.size.width) / HUE_STEPS as f32;
-                for i in 0..HUE_STEPS {
-                    let hue = i as f32 * 360. / HUE_STEPS as f32;
-                    let colour: Hsla = gpui::rgb(eclipse_launcher::themes::hue_colour(hue)).into();
-                    window.paint_quad(gpui::fill(
-                        gpui::Bounds::new(
-                            gpui::point(bounds.left() + px(step * i as f32), bounds.top()),
-                            gpui::size(px(step), bounds.size.height),
-                        ),
-                        colour,
-                    ));
-                }
-            },
-        )
-        .h(px(SLIDER_KNOB))
-        .w_full()
-        .rounded(px(radius::BLOCK))
-        .into_any_element(),
-    };
-    let knob = div()
-        .absolute()
-        .left(px(fraction * (width - SLIDER_KNOB)))
-        .size(px(SLIDER_KNOB))
-        .rounded_full()
-        .bg(super::paper())
-        .border_1()
-        .border_color(color(ON_LIGHT).opacity(KNOB_EDGE));
-    let (down, moved, up, out, keys) = (
-        on_move.clone(),
-        on_move.clone(),
-        on_move.clone(),
-        on_move.clone(),
-        on_move,
-    );
-    let (down_id, move_id) = (id.clone(), id.clone());
-    let el = div()
-        .id(id.clone())
-        .role(Role::Slider)
-        .aria_label(name.into())
-        .aria_numeric_value(value)
-        .aria_min_numeric_value(range.0)
-        .aria_max_numeric_value(range.1)
-        .relative()
-        .flex()
-        .flex_none()
-        .items_center()
-        .w(px(width))
-        .h(px(SLIDER_HEIGHT))
-        .cursor_pointer()
-        .child(
-            gpui::canvas(
-                move |bounds, _, _| {
-                    SLIDERS.with_borrow_mut(|s| s.insert(measured.clone(), bounds));
-                },
-                |_, _, _, _| {},
-            )
-            .absolute()
-            .size_full(),
-        )
-        .child(div().w_full().overflow_hidden().rounded_full().child(bar))
-        .child(knob);
-    super::focus_stop(el)
-        .on_key_down(move |ev: &gpui::KeyDownEvent, window, cx| {
-            let to = match ev.keystroke.key.as_str() {
-                "left" | "down" => SliderMove::Step(-1),
-                "right" | "up" => SliderMove::Step(1),
-                "pagedown" => SliderMove::Step(-SLIDER_PAGE),
-                "pageup" => SliderMove::Step(SLIDER_PAGE),
-                "home" => SliderMove::To(0.),
-                "end" => SliderMove::To(1.),
-                _ => return,
-            };
-            keys(to, window, cx);
-            if matches!(to, SliderMove::To(_)) {
-                keys(SliderMove::Done, window, cx);
-            }
-            cx.stop_propagation();
-        })
-        .on_mouse_down(gpui::MouseButton::Left, move |ev, window, cx| {
-            DRAGGING.set(Some(down_id.clone()));
-            if let Some(at) = slider_at(&down_id, ev.position.x) {
-                down(SliderMove::To(at), window, cx);
-            }
-        })
-        .on_mouse_move(move |ev: &gpui::MouseMoveEvent, window, cx| {
-            let dragging = DRAGGING.with_borrow(|d| d.as_ref() == Some(&move_id));
-            if !dragging || ev.pressed_button != Some(gpui::MouseButton::Left) {
-                return;
-            }
-            if let Some(at) = slider_at(&move_id, ev.position.x) {
-                moved(SliderMove::To(at), window, cx);
-            }
-        })
-        .on_mouse_up(gpui::MouseButton::Left, move |_, window, cx| {
-            if DRAGGING.take().is_some() {
-                up(SliderMove::Done, window, cx);
-            }
-        })
-        .on_mouse_up_out(gpui::MouseButton::Left, move |_, window, cx| {
-            if DRAGGING.take().is_some() {
-                out(SliderMove::Done, window, cx);
-            }
-        })
+pub fn shown_on_focus(el: Stateful<Div>, shown: bool) -> Stateful<Div> {
+    if shown {
+        return el;
+    }
+    el.opacity(0.)
+        .focus_visible(|s| super::inset_ring(s).opacity(1.))
 }

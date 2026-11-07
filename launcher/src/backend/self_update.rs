@@ -52,7 +52,7 @@ pub fn update_target() -> PathBuf {
 
 /// The launcher archive this build installs from: the AppImage's when it runs from one (a `.tar.gz`
 /// binary would be written inside the read-only mount), this platform's otherwise.
-pub fn launcher_asset() -> Option<&'static str> {
+pub(crate) fn launcher_asset() -> Option<&'static str> {
     launcher_asset_running_from(appimage_path().is_some())
 }
 
@@ -188,7 +188,7 @@ pub fn remove_replaced_binaries() {
 
 /// The app bundle the launcher runs from (`…/Eclipse.app` for `…/Eclipse.app/Contents/MacOS/
 /// eclipse-launcher`), or None for a bare binary, as launchers before the .app shipped.
-pub fn app_bundle(exe: &Path) -> Option<&Path> {
+pub(crate) fn app_bundle(exe: &Path) -> Option<&Path> {
     let macos = exe.parent()?;
     let contents = macos.parent()?;
     let app = contents.parent()?;
@@ -289,7 +289,7 @@ pub(crate) fn new_stage_folder(work: &Path) -> Result<PathBuf, String> {
 
 /// The stage folder directly under `work` that holds `payload`. None for a path anywhere else,
 /// which is not an update a launcher staged, and which nothing may delete or install.
-pub fn stage_folder(work: &Path, payload: &Path) -> Option<PathBuf> {
+fn stage_folder(work: &Path, payload: &Path) -> Option<PathBuf> {
     use std::path::Component;
     let mut inside = payload.strip_prefix(work).ok()?.components();
     let Component::Normal(name) = inside.next()? else {

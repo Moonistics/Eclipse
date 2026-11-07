@@ -5,7 +5,7 @@ use std::time::Duration;
 const GITHUB_API: &str = "https://api.github.com/";
 
 #[derive(Clone, Debug, PartialEq, Eq)]
-pub struct NetError {
+pub(crate) struct NetError {
     url: String,
     failure: Failure,
 }

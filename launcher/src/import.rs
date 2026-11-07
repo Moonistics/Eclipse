@@ -13,6 +13,7 @@
 //! Only what an instance holds is taken from a shared zip (`game_folder::SETTINGS`,
 //! `game_folder::CONTENT`, `saves/`), and every path is checked to stay inside its folder.
 use crate::browser::{download, FileRef};
+use crate::export::INDEX;
 use crate::game_folder::{self, CONTENT, SAVES, SETTINGS};
 use crate::instances::{self, Instance};
 use crate::packs;
@@ -20,7 +21,6 @@ use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-const INDEX: &str = "modrinth.index.json";
 /// The `.mrpack` folders copied into the game folder; `server-overrides/` is a server's.
 const OVERRIDES: [&str; 2] = ["overrides/", "client-overrides/"];
 
@@ -170,10 +170,10 @@ pub fn import_instance(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Inst
 /// The most a shared instance or a `.mrpack` may unpack to, all files together. A zip's sizes are its
 /// own claim, so [`fill`] counts the bytes actually inflated: a few kilobytes of zip bomb can't fill the
 /// disk.
-pub const MAX_IMPORT: u64 = 8 << 30;
+const MAX_IMPORT: u64 = 8 << 30;
 
 /// [`import_instance`] with the instance made by `create`.
-pub fn import_into(
+pub(crate) fn import_into(
     file: &Path,
     progress: &dyn Fn(&str, f32),
     create: &dyn Fn(&str) -> Result<Instance, String>,

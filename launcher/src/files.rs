@@ -1,4 +1,5 @@
 use serde::{de::DeserializeOwned, Serialize};
+use std::borrow::Cow;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
@@ -117,6 +118,15 @@ pub(crate) fn plain(path: PathBuf) -> PathBuf {
     match path.to_str().and_then(|p| p.strip_prefix(r"\\?\")) {
         Some(rest) if rest.as_bytes().get(1) == Some(&b':') => PathBuf::from(rest),
         _ => path,
+    }
+}
+
+/// A Windows path's text without its extended-length prefix (`\\?\` or `\\?\UNC\`), so the
+/// same folder spelled either way compares equal.
+pub(crate) fn without_verbatim(path: &str) -> Cow<'_, str> {
+    match path.strip_prefix(r"\\?\UNC\") {
+        Some(share) => Cow::Owned(format!(r"\\{share}")),
+        None => Cow::Borrowed(path.strip_prefix(r"\\?\").unwrap_or(path)),
     }
 }
 

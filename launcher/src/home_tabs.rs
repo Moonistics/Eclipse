@@ -18,24 +18,6 @@ pub(super) enum HomeTab {
     PatchNotes,
 }
 
-impl HomeTab {
-    /// `ECLIPSE_LAUNCHER_PAGE=worlds` (or `instance-mods`, `multiplayer`, `packs`, `screenshots`,
-    /// `console`, `patch-notes`) opens Home on that tab, for screenshots; otherwise Home opens
-    /// on the instance's first tab.
-    pub(super) fn from_env() -> Option<Self> {
-        match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
-            Ok("instance-mods") => Some(HomeTab::Mods),
-            Ok("worlds") => Some(HomeTab::Worlds),
-            Ok("multiplayer") => Some(HomeTab::Multiplayer),
-            Ok("packs") => Some(HomeTab::Packs),
-            Ok("screenshots") => Some(HomeTab::Screenshots),
-            Ok("console") => Some(HomeTab::Console),
-            Ok("patch-notes") => Some(HomeTab::PatchNotes),
-            _ => None,
-        }
-    }
-}
-
 impl Launcher {
     /// The tabs the selected instance has now, with how many things each holds (None: not known
     /// yet, or nothing to count). Console only once there is something to show, Patch notes last,

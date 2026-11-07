@@ -5,7 +5,7 @@
 use crate::cli_tools;
 use crate::game_tools::{self, GameTools};
 use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
-use eclipse_launcher::backend::{self, Job, Logged};
+use eclipse_launcher::backend::{self, Logged};
 use eclipse_launcher::instances;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -26,6 +26,10 @@ struct Session {
     sign_in: Option<SignIn>,
     /// The selected version's `eclipse-ctl mcp`, once a version is installed.
     game: Option<GameTools>,
+    /// The CLI's commands as tools (cli_tools.rs).
+    cli: Vec<cli_tools::Tool>,
+    /// The launcher's own tools, as `tools/list` describes them: the session's and the CLI's.
+    tools: Vec<Value>,
 }
 
 /// The tools the session runs itself, under their CLI names: they keep a process (the game, a
@@ -53,13 +57,6 @@ fn session_tools() -> Value {
         { "name": "account_list", "description": "The Microsoft accounts signed in to the launcher (names and UUIDs, never tokens), which one the game plays as (none = offline), and how a sign-in started with account_sign_in is going. CLI: eclipse-launcher account list", "inputSchema": none },
         { "name": "account_sign_in", "description": "Start signing in a Microsoft account: returns a link and a code the player enters in their browser. The sign-in finishes in the background; check it with account_list. Only when the player asks to sign in. CLI: eclipse-launcher account sign-in", "inputSchema": none },
     ])
-}
-
-/// Every launcher tool: the session's and the generated ones.
-fn tools() -> Vec<Value> {
-    let mut list = session_tools().as_array().cloned().unwrap_or_default();
-    list.extend(cli_tools::all().iter().map(cli_tools::Tool::describe));
-    list
 }
 
 fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
@@ -107,11 +104,8 @@ impl Session {
                     eprintln!("{}", notice.said());
                 }
                 let (started, vars) = (std::time::Instant::now(), launched.vars);
-                let client = Logged::start_then(Job::Client, launched.cmd, move |_| {
-                    if let Err(e) = instances::record_play(&played.id, started.elapsed()) {
-                        eprintln!("Play time not saved: {e}");
-                    }
-                    eclipse_launcher::launch::run_after_exit(&played.launch, &played.home, &vars);
+                let client = Logged::start_then(launched.cmd, move |_| {
+                    instances::game_ended(&played, started.elapsed(), &vars);
                 })?;
                 // Started once its control socket answers, as eclipse-ctl launch waits.
                 let deadline = std::time::Instant::now() + Duration::from_secs(120);
@@ -146,7 +140,7 @@ impl Session {
                     .get("accept_eula")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let server = Logged::start(Job::Server, backend::server(&tag, &dir, accept)?)?;
+                let server = Logged::start(backend::server(&tag, &dir, accept)?)?;
                 std::thread::sleep(Duration::from_secs(3));
                 let tail = server.tail(15).join("\n");
                 if let Some(result) = server.finished() {
@@ -250,7 +244,7 @@ impl Session {
                     _ => Err("Microsoft did not answer. Try again.".into()),
                 }
             }
-            _ => match cli_tools::all().into_iter().find(|t| t.name == name) {
+            _ => match self.cli.iter().find(|t| t.name == name) {
                 Some(tool) => tool.call(args),
                 None => Err(format!("Unknown tool {name}")),
             },
@@ -279,7 +273,7 @@ impl Session {
     fn handle(&mut self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
         match method {
             "tools/list" => {
-                let mut list = tools();
+                let mut list = self.tools.clone();
                 if let Some(game) = self.game() {
                     list.extend(game.tools().iter().cloned());
                 }
@@ -294,10 +288,8 @@ impl Session {
                     .get("name")
                     .and_then(Value::as_str)
                     .ok_or((-32602, "name is required".to_string()))?;
-                // The launcher's own tools first: game_args is one, not a game tool.
-                if name.starts_with(game_tools::PREFIX)
-                    && !tools().iter().any(|t| t["name"] == name)
-                {
+                let ours = self.tools.iter().any(|t| t["name"] == name);
+                if !ours && name.starts_with(game_tools::PREFIX) {
                     let args = params.get("arguments").cloned().unwrap_or(json!({}));
                     let game = self.game().ok_or((
                         -32602,
@@ -308,7 +300,7 @@ impl Session {
                     }
                     return game.call(name, &args).map_err(|e| (-32603, e));
                 }
-                if !tools().iter().any(|t| t["name"] == name) {
+                if !ours {
                     return Err((-32602, format!("Unknown tool {name}")));
                 }
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -324,11 +316,16 @@ impl Session {
 }
 
 pub fn serve() -> Result<(), String> {
+    let cli = cli_tools::all();
+    let mut tools = session_tools().as_array().cloned().unwrap_or_default();
+    tools.extend(cli.iter().map(cli_tools::Tool::describe));
     let mut session = Session {
         server: None,
         client: None,
         sign_in: None,
         game: None,
+        cli,
+        tools,
     };
     let served = server().serve(|method, params| session.handle(method, params));
     // The session is over: the server it started goes with it.

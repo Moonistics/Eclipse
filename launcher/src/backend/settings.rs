@@ -217,6 +217,12 @@ impl Settings {
         Self::update_at(&data_dir().join(FILE), change)
     }
 
+    /// The settings file's write time and size, to notice a change made in the launcher.
+    pub fn stamp() -> Option<(std::time::SystemTime, u64)> {
+        let meta = fs::metadata(data_dir().join(FILE)).ok()?;
+        Some((meta.modified().ok()?, meta.len()))
+    }
+
     /// Every key whose value this launcher can read; one it can't (a newer launcher's appearance, a
     /// language it doesn't have yet) is left at its default and the others stay.
     pub fn parse(text: &str) -> Result<Self, serde_json::Error> {
@@ -264,7 +270,9 @@ impl Settings {
     pub(super) fn save_to(&self, path: &Path) -> Result<(), String> {
         let _held = hold(path)?;
         Self::read(path)?;
-        crate::files::write_json(path, self)
+        crate::files::write_json(path, self)?;
+        crate::proxy::announce(self.proxy.clone());
+        Ok(())
     }
 
     pub(super) fn update_at<T>(
@@ -275,6 +283,7 @@ impl Settings {
         let mut settings = Self::read(path)?;
         let answer = change(&mut settings);
         crate::files::write_json(path, &settings)?;
+        crate::proxy::announce(settings.proxy.clone());
         Ok(answer)
     }
 

@@ -527,7 +527,7 @@ impl Launcher {
                 }))
                 .into_any_element(),
             ),
-            SelfUpdate::Stuck(_) if self.launcher_download_available() => {
+            SelfUpdate::Stuck(_) if !backend::package_managed_launcher() => {
                 let url = backend::download_page(&self.links.website);
                 Some(
                     ui::button(
@@ -647,6 +647,7 @@ impl Launcher {
                 .child(self.ai_features_row(cx))
                 .children(self.agents_section(cx)),
             SettingsSection::System => card
+                .children(self.data_folder_error())
                 .child(self.minecraft_folder_row(cx))
                 .child(folder_row(
                     "open-data",
@@ -671,11 +672,7 @@ impl Launcher {
 
 impl Launcher {
     fn minecraft_folder_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let dir = self
-            .settings
-            .minecraft_dir
-            .clone()
-            .unwrap_or_else(|| eclipse_prepare::artifacts::minecraft_dir(None));
+        let dir = self.minecraft_dir();
         let path = ui::mono(step::CAPTION, ink::MUTED)
             .child(short(&dir))
             .into_any_element();
@@ -766,7 +763,6 @@ impl Launcher {
                     let _ = this.update(cx, |this, cx| {
                         this.settings.appearance = choice;
                         this.save_settings();
-                        this.restyle();
                         cx.notify();
                     });
                 }
@@ -862,12 +858,10 @@ impl Launcher {
         ui::setting_row_stacked(tr("Proxy address"), detail, field.into_any_element())
     }
 
-    /// Keeps the Proxy field in `settings.json`, and tells the parts that build their own agents
-    /// (`eclipse-port-pack`) which proxy to use.
+    /// Keeps the Proxy field in `settings.json`.
     pub(super) fn save_proxy(&mut self) {
         let value = self.fields.value(Field::Proxy).trim().to_owned();
         self.settings.proxy = (!value.is_empty()).then_some(value);
         self.save_settings();
-        eclipse_launcher::proxy::announce(self.settings.proxy.clone());
     }
 }

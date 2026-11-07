@@ -56,21 +56,10 @@ fn current() -> Option<(String, u64, bool)> {
     line.as_ref().map(|l| (l.0.clone(), l.2, l.3))
 }
 
-/// `/Users/me/x` as `~/x`.
-pub(super) fn tilde(path: &Path) -> String {
-    let shown = path.display().to_string();
-    match std::env::var("HOME") {
-        Ok(home) if !home.is_empty() && shown.starts_with(&home) => {
-            format!("~{}", &shown[home.len()..])
-        }
-        _ => shown,
-    }
-}
-
 /// Opens `path` in the system's file manager (or its app), and says so.
 pub(super) fn open(cx: &mut App, path: &Path) {
     cx.open_with_system(path);
-    say(trf("Opened {path}", &[("path", &tilde(path))]));
+    say(trf("Opened {path}", &[("path", &short(path))]));
 }
 
 impl Launcher {

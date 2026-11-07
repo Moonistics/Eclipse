@@ -11,8 +11,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-/// The admin console: sign-in, keys, machines, the access controls.
-pub const ADMIN: &str = "https://login.tailscale.com/admin";
 /// Where an API access token is made.
 pub const KEYS: &str = "https://login.tailscale.com/admin/settings/keys";
 /// The access controls page.
@@ -32,7 +30,7 @@ pub fn install_url() -> &'static str {
 }
 
 /// The command that signs this computer in on Linux (it opens a link to finish in the browser).
-pub const LINUX_LOGIN: &str = "sudo tailscale up --operator=$USER";
+const LINUX_LOGIN: &str = "sudo tailscale up --operator=$USER";
 
 /// The `tailscale` command, wherever the installer put it.
 pub fn cli() -> Option<PathBuf> {
@@ -94,7 +92,7 @@ impl Node {
         } else {
             self.ipv4().unwrap_or_default()
         };
-        if port == 25565 {
+        if port == crate::server_list::DEFAULT_PORT {
             host.to_string()
         } else {
             format!("{host}:{port}")
@@ -121,7 +119,7 @@ pub fn status() -> State {
     status_of(cli())
 }
 
-pub fn status_of(cli: Option<PathBuf>) -> State {
+fn status_of(cli: Option<PathBuf>) -> State {
     let Some(cli) = cli else {
         return State::Missing;
     };
@@ -141,7 +139,7 @@ pub fn status_of(cli: Option<PathBuf>) -> State {
     }
 }
 
-pub fn parse_status(v: &Value) -> State {
+fn parse_status(v: &Value) -> State {
     let backend = v["BackendState"].as_str().unwrap_or_default();
     match backend {
         "Running" => {

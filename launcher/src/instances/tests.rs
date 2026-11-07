@@ -681,3 +681,34 @@ fn an_instance_without_its_own_game_arguments_uses_the_launchers() {
     assert_eq!(back.played, Duration::from_secs(60));
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn registry_mods_install_for_the_game_their_instance_plays() {
+    let instance = |id: &str, version: Option<&str>| Instance {
+        id: id.into(),
+        name: id.into(),
+        kind: Kind::Own,
+        work: PathBuf::from(id),
+        home: PathBuf::from(id),
+        icon: None,
+        group: None,
+        version: version.map(String::from),
+        played: Duration::ZERO,
+        last_played: None,
+        launch: Default::default(),
+        game_args: None,
+        java: None,
+    };
+    let list = [instance("eclipse", None), instance("old", Some("v1"))];
+    let installed = ["v2".to_string(), "v1".to_string()];
+    let selected = Some(&installed[0]);
+    let at = |home: &str| playing_at(&list, Path::new(home), selected, &installed).cloned();
+    assert_eq!(at("old").as_deref(), Some("v1"));
+    assert_eq!(at("eclipse").as_deref(), Some("v2"));
+    assert_eq!(at("elsewhere").as_deref(), Some("v2"));
+    let gone = [instance("gone", Some("v0"))];
+    assert_eq!(
+        playing_at(&gone, Path::new("gone"), selected, &installed),
+        None
+    );
+}

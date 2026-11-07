@@ -100,7 +100,7 @@ fn replace_word(text: &str, word: &str, with: &str) -> String {
 }
 
 /// The end of the log that fits what mclo.gs keeps.
-pub fn fit(text: &str) -> &str {
+fn fit(text: &str) -> &str {
     let mut start = 0;
     let lines: Vec<usize> = text.match_indices('\n').map(|(i, _)| i + 1).collect();
     if lines.len() > MAX_LINES {
@@ -145,6 +145,13 @@ pub fn share(text: &str) -> Result<Shared, String> {
             field("error").unwrap_or_else(|| "no reason given".into())
         )),
     }
+}
+
+/// Shares `text`, a log of the game that played in `home`, without the player's names and
+/// home folder: what [`share`] says.
+pub fn share_private(text: &str, home: &Path) -> Result<Shared, String> {
+    let names = names(&[home, &crate::backend::game_home()]);
+    share(&private(text, dirs::home_dir().as_deref(), &names))
 }
 
 /// Deletes a log shared from here.

@@ -12,10 +12,15 @@ pub fn resources(tag: &str) -> PathBuf {
 }
 
 pub(super) fn resources_at(dir: &Path) -> PathBuf {
-    dir.join(".local/eclipse-client").join(game_version_at(dir))
+    resources_in(dir, &game_version_at(dir))
 }
 
-pub(super) const RESOURCES_MANIFEST: &str = "eclipse-resources.json";
+/// The resources of the version folder `dir` for Minecraft `game_version`.
+pub(crate) fn resources_in(dir: &Path, game_version: &str) -> PathBuf {
+    dir.join(".local/eclipse-client").join(game_version)
+}
+
+pub(crate) const RESOURCES_MANIFEST: &str = "eclipse-resources.json";
 
 pub fn is_prepared(tag: &str) -> bool {
     resources(tag).join(RESOURCES_MANIFEST).exists()
@@ -31,23 +36,6 @@ pub fn has_sounds(tag: &str) -> bool {
 pub(super) fn sounds_in(resources: &Path) -> bool {
     // What the game's sound registry reads (eclipse-client sound_events.rs).
     resources.join("assets/minecraft/sounds.json").is_file()
-}
-
-/// What the Play page says of a version's resources.
-pub fn resources_summary(prepared: bool, sounds: bool, version: &str) -> String {
-    use crate::i18n::trf;
-    match (prepared, sounds) {
-        (false, _) => trf(
-            "Not prepared yet. Eclipse needs your copy of Minecraft {version}.",
-            &[("version", version)],
-        ),
-        (true, true) => trf("Prepared for Minecraft {version}", &[("version", version)]),
-        (true, false) => trf(
-            "Prepared for Minecraft {version}, without its sounds: the game will be silent. \
-             Prepare again to copy them from your Minecraft install.",
-            &[("version", version)],
-        ),
-    }
 }
 
 /// Whether the resources `from` prepared are the ones preparing `to` would make: both pin the same
@@ -140,6 +128,9 @@ pub(super) const LEGACY_EXPORTERS: [&str; 18] = [
     "VanillaPlayerHealthOracle.java",
 ];
 
+/// Where a version's parity exporters are: the Java the resources were made with.
+const PARITY: &str = "mods/eclipse/src/test/java/dev/eclipselab/parity";
+
 /// A version folder's preparer as the launchers before `OUTPUT_VERSION` compared it: the digest
 /// of its sources (`eclipse_prepare::sources_sha256`) and of the exporters it ran, line endings
 /// as checked out ignored.
@@ -149,7 +140,7 @@ pub(super) fn legacy_fingerprint(dir: &Path) -> Option<String> {
     let mut hash = sha2::Sha256::new();
     hash.update(sources.as_bytes());
     for name in LEGACY_EXPORTERS {
-        let path = format!("mods/eclipse/src/test/java/dev/eclipselab/parity/{name}");
+        let path = format!("{PARITY}/{name}");
         let data: Vec<u8> = fs::read(dir.join(&path))
             .ok()?
             .into_iter()
@@ -188,9 +179,7 @@ fn same_preparer(from: &Path, to: &Path, manifest: &serde_json::Value) -> bool {
     if !preparer.iter().all(|p| same_or_absent(p)) {
         return false;
     }
-    let mut sources = vec![
-        "mods/eclipse/src/test/java/dev/eclipselab/parity/VanillaHeightmapOracle.java".to_string(),
-    ];
+    let mut sources = vec![format!("{PARITY}/VanillaHeightmapOracle.java")];
     for (_, value) in fields
         .iter()
         .filter(|(key, _)| key.ends_with("_exporters_sha256"))
@@ -402,7 +391,7 @@ const COMPLETIONS: [Completion; 5] = [
 /// one before (`reuse_prepared`), which may come from a preparer that left them out. Without them
 /// in any Minecraft folder, one line each in the log, once per launcher run, and the version plays
 /// as before. Nothing is prepared again.
-pub fn complete_assets(tag: &str) {
+pub(crate) fn complete_assets(tag: &str) {
     complete_assets_in(&versions_dir(), tag, minecraft_folders, &|line| {
         eprintln!("{line}")
     });
@@ -469,10 +458,9 @@ pub(super) fn complete_assets_in(
     for (what, _, copy) in lacking {
         let mut first_error = None;
         let added = folders.iter().any(|folder| {
-            let copied = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let copied = super::prepare::caught("the copy stopped unexpectedly", || {
                 copy(&root, Some(folder), &|line| log(line.to_string()))
-            }))
-            .unwrap_or_else(|_| Err("the copy stopped unexpectedly".into()));
+            });
             copied.map_err(|e| first_error.get_or_insert(e)).is_ok()
         });
         if !added {

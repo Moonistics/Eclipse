@@ -610,7 +610,7 @@ fn gap_ring_shadows(gap: f32) -> Vec<gpui::BoxShadow> {
     ]
 }
 
-pub fn gap_ring(s: StyleRefinement) -> StyleRefinement {
+pub(super) fn gap_ring(s: StyleRefinement) -> StyleRefinement {
     s.shadow(gap_ring_shadows(SPLIT_RING_GAP))
 }
 
@@ -888,7 +888,7 @@ fn first_row(menu: &FocusHandle, window: &mut Window, cx: &mut App) {
     window.focus_next(cx);
 }
 
-pub fn modal_focus(id: &SharedString) -> FocusHandle {
+pub(super) fn modal_focus(id: &SharedString) -> FocusHandle {
     focus_for(format!("modal-{id}"))
 }
 

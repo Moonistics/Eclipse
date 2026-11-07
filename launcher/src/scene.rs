@@ -24,6 +24,10 @@ const SMALLEST_HIGH_SUN: f32 = 0.6;
 const LARGEST_HIGH_SUN: f32 = 7.;
 const SETTING_RADIUS: f32 = 12.;
 const CLEAR_UNDER_HOME_HEAD: f32 = 310.;
+
+fn home_bottom(head: f32) -> f32 {
+    crate::layout::CONTENT_INSET + head + CLEAR_UNDER_HOME_HEAD
+}
 const HILLS_HIGHEST: f32 = 0.62;
 const SETTING_ACROSS: (f32, f32) = (0.6, 0.95);
 const SETTING_AT: f32 = 0.84;
@@ -1001,9 +1005,7 @@ impl Scene {
     }
 
     fn home_bottom(&self) -> f32 {
-        self.home_head.map_or(0., |head| {
-            crate::layout::CONTENT_INSET + head + CLEAR_UNDER_HOME_HEAD
-        })
+        self.home_head.map_or(0., home_bottom)
     }
 
     fn wake(&mut self, cx: &mut Context<Self>) {
@@ -1185,7 +1187,7 @@ mod tests {
         } else {
             192.
         };
-        crate::layout::CONTENT_INSET + head + CLEAR_UNDER_HOME_HEAD
+        super::home_bottom(head)
     }
 
     fn window(width: f32, height: f32, look: Look) -> Picture {

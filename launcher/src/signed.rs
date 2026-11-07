@@ -7,7 +7,7 @@ use crate::backend::REPO;
 use eclipse_release_sign::{PublicKey, SIGNATURE, SIGNATURE_V2, SUMS};
 
 /// Where a release's attached file downloads from (GitHub's fixed address for it).
-pub fn asset_url(tag: &str, name: &str) -> String {
+fn asset_url(tag: &str, name: &str) -> String {
     format!("https://github.com/{REPO}/releases/download/{tag}/{name}")
 }
 

@@ -62,7 +62,7 @@ pub struct Found {
 
 /// `ECLIPSE_LAUNCHER_LINUX_TOOLS=gamemode,mangohud,gpu,nvidia`: what [`Found::here`] says is
 /// installed, on any system (for tests and screenshots).
-pub const TOOLS_ENV: &str = "ECLIPSE_LAUNCHER_LINUX_TOOLS";
+const TOOLS_ENV: &str = "ECLIPSE_LAUNCHER_LINUX_TOOLS";
 
 fn on_path(program: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| {
@@ -136,7 +136,7 @@ fn switch_programs(launch: &Launch, found: &Found) -> Vec<OsString> {
 
 /// The variables the dedicated GPU switch sets: NVIDIA's offload variables with its driver,
 /// else Mesa's `DRI_PRIME`. The player's own variables come after and win.
-pub fn switch_env(launch: &Launch, found: &Found) -> Vec<(&'static str, &'static str)> {
+fn switch_env(launch: &Launch, found: &Found) -> Vec<(&'static str, &'static str)> {
     match (launch.dedicated_gpu && found.two_gpus, found.nvidia) {
         (false, _) => vec![],
         (true, true) => vec![
@@ -265,15 +265,7 @@ pub fn after_exit(
         return None;
     }
     let mut cmd = if cfg!(windows) {
-        let mut c = Command::new("cmd.exe");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            c.raw_arg(format!("/D /S /C \"{line}\""));
-        }
-        #[cfg(not(windows))]
-        c.args(["/D", "/S", "/C", line]);
-        c
+        cmd_line(line)
     } else {
         let mut c = Command::new("/bin/sh");
         c.arg("-c").arg(line);
@@ -406,17 +398,7 @@ pub fn wrap(cmd: Command, launch: &Launch) -> Command {
             c.arg("-c").arg(script).arg("eclipse").args(words);
             c
         }
-        Plan::Cmd { line } => {
-            let mut c = Command::new("cmd.exe");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                c.raw_arg(format!("/D /S /C \"{line}\""));
-            }
-            #[cfg(not(windows))]
-            c.args(["/D", "/S", "/C", &line]);
-            c
-        }
+        Plan::Cmd { line } => cmd_line(&line),
     };
     if let Some(dir) = cmd.get_current_dir() {
         out.current_dir(dir);
@@ -430,6 +412,19 @@ pub fn wrap(cmd: Command, launch: &Launch) -> Command {
     out.envs(switch_env(launch, &found));
     out.envs(&launch.env);
     out
+}
+
+/// `cmd /D /S /C "<line>"`: `line` as cmd reads it, passed whole so cmd's own quoting holds.
+fn cmd_line(line: &str) -> Command {
+    let mut c = Command::new("cmd.exe");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.raw_arg(format!("/D /S /C \"{line}\""));
+    }
+    #[cfg(not(windows))]
+    c.args(["/D", "/S", "/C", line]);
+    c
 }
 
 #[cfg(test)]

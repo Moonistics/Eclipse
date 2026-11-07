@@ -8,8 +8,10 @@ impl Launcher {
     /// Whether the screen covers the window: no owner, and either Play was refused or the player
     /// hasn't read it yet. The data question comes first.
     pub(crate) fn asking_owner(&self) -> bool {
-        (self.owner_shown() == Some(false) || sign_in_preview())
-            && (self.owner_screen_open || !self.settings.owner_notice_seen || sign_in_preview())
+        (self.owner_shown() == Some(false) || preview::shows(preview::Preview::SignIn))
+            && (self.owner_screen_open
+                || !self.settings.owner_notice_seen
+                || preview::shows(preview::Preview::SignIn))
             && !self.asking_consent()
     }
 
@@ -45,7 +47,9 @@ impl Launcher {
         let configured = account::client_id().is_some();
         // The screenshot preview shows a code without asking Microsoft for one.
         let state = match &self.accounts_ui.sign_in_state {
-            _ if sign_in_preview() => Shown::Code("https://www.microsoft.com/link", "K7Q-4MXR"),
+            _ if preview::shows(preview::Preview::SignIn) => {
+                Shown::Code("https://www.microsoft.com/link", "K7Q-4MXR")
+            }
             _ if !configured => Shown::Unavailable,
             Some(SignInState::Starting) => Shown::Starting(tr("Asking Microsoft…")),
             Some(SignInState::Working(phase)) => Shown::Starting(tr(phase.label())),
@@ -179,13 +183,6 @@ enum Shown<'a> {
     /// The page and the code to enter there.
     Code(&'a str, &'a str),
     Error(&'a str),
-}
-
-/// `ECLIPSE_LAUNCHER_PAGE=sign-in` opens the sheet with a made-up code, for screenshots: nothing
-/// asks Microsoft, and the gate itself is as it was (no account, no Play).
-pub(super) fn sign_in_preview() -> bool {
-    static PREVIEW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *PREVIEW.get_or_init(|| std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("sign-in"))
 }
 
 /// `https://www.microsoft.com/link` as `microsoft.com/link`.

@@ -16,7 +16,7 @@ use std::path::{Path, PathBuf};
 /// Where the checks are kept, under the game folder. Its name changes when the check finds
 /// more, so older answers are checked again.
 const CHECKS: &str = "mod-browser/checks-2";
-pub const MODS_DIR: &str = game_folder::ECLIPSE_MODS;
+pub(crate) const MODS_DIR: &str = game_folder::ECLIPSE_MODS;
 /// How deep required mods are followed.
 const MAX_DEPTH: usize = 3;
 
@@ -58,7 +58,7 @@ pub fn cached(home: &Path, file: &FileRef) -> Option<Check> {
 
 /// Checks `file`: the cached answer, else its jar downloaded, carried over and read. The jar
 /// itself isn't kept; the carry is, when something of it ports, for the install to copy.
-pub fn check_file(
+fn check_file(
     home: &Path,
     source: &dyn Source,
     file: &FileRef,

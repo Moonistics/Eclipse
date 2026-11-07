@@ -1,7 +1,8 @@
 use super::*;
 use super::{
-    architecture::*, game_output::*, links::*, minecraft::*, paths::*, platform::*, play::*,
-    prepare::*, releases::*, resources::*, self_update::*, settings::*, updates::*, versions::*,
+    architecture::*, game_output::*, links::*, minecraft::*, net::*, paths::*, platform::*,
+    play::*, prepare::*, releases::*, resources::*, self_update::*, settings::*, updates::*,
+    versions::*,
 };
 use crate::{account, sources};
 use std::cmp::Ordering::*;
@@ -319,18 +320,6 @@ fn resources_without_sounds_are_reported() {
     fs::write(dir.join("assets/minecraft/sounds.json"), "{}").unwrap();
     assert!(sounds_in(&dir));
     fs::remove_dir_all(&dir).unwrap();
-
-    assert_eq!(
-        resources_summary(true, true, "26.3"),
-        "Prepared for Minecraft 26.3"
-    );
-    let silent = resources_summary(true, false, "26.3");
-    assert!(silent.contains("without its sounds") && silent.contains("Prepare again"));
-    // Not prepared says only that, sounds or not.
-    assert_eq!(
-        resources_summary(false, false, "26.3"),
-        resources_summary(false, true, "26.3")
-    );
 }
 
 #[test]
@@ -2528,7 +2517,7 @@ fn a_logged_process_says_how_it_ended_once_it_has() {
     let (tx, rx) = std::sync::mpsc::channel();
     let mut cmd = Command::new("sh");
     cmd.args(["-c", "echo done; exit 3"]);
-    let logged = Logged::start_then(Job::Client, cmd, move |result| {
+    let logged = Logged::start_then(cmd, move |result| {
         let _ = tx.send(result.clone());
     })
     .unwrap();
@@ -2536,4 +2525,82 @@ fn a_logged_process_says_how_it_ended_once_it_has() {
     assert!(told.is_err(), "{told:?}");
     assert_eq!(logged.wait(), told);
     assert_eq!(logged.tail(1), ["done"]);
+}
+
+#[test]
+fn a_server_jar_that_isnt_mojangs_is_refused_and_not_kept() {
+    let dir = std::env::temp_dir().join(format!("eclipse-server-jar-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&dir);
+    fs::create_dir_all(&dir).unwrap();
+    let manifest = dir.join("26.3.json");
+    let sha1 = sources::sha1_hex(b"mojang's server");
+    fs::write(
+        &manifest,
+        serde_json::json!({ "downloads": { "server": { "url": "https://piston-data.mojang.com/server.jar", "sha1": sha1 } } })
+            .to_string(),
+    )
+    .unwrap();
+    let jar = dir.join("server-jars/26.3.jar");
+    let swapped = |_: &str| Ok(b"someone else's server".to_vec());
+    let refused = server_jar(&manifest, "26.3", &jar, &swapped, &|_| {}).unwrap_err();
+    assert!(
+        refused.contains("isn't") || refused.contains("is not"),
+        "{refused}"
+    );
+    assert!(!jar.exists());
+
+    let mojang = |_: &str| Ok(b"mojang's server".to_vec());
+    server_jar(&manifest, "26.3", &jar, &mojang, &|_| {}).unwrap();
+    assert_eq!(fs::read(&jar).unwrap(), b"mojang's server");
+
+    fs::write(&jar, b"cut short").unwrap();
+    server_jar(&manifest, "26.3", &jar, &mojang, &|_| {}).unwrap();
+    assert_eq!(fs::read(&jar).unwrap(), b"mojang's server");
+
+    let offline = |_: &str| Err("offline".to_string());
+    server_jar(&manifest, "26.3", &jar, &offline, &|_| {}).unwrap();
+    fs::remove_dir_all(dir).unwrap();
+}
+
+#[test]
+fn an_install_moves_the_selection_by_why_it_ran() {
+    let newer = "nightly-2026-11-01-4aa6854";
+    let older = "nightly-2026-10-20-1b2c3d4";
+    let selects = |tag, why, selected| install_selects(tag, why, selected);
+    assert!(selects(older, InstallWhy::Added, None));
+    assert!(selects(newer, InstallWhy::Added, Some(older)));
+    assert!(!selects(older, InstallWhy::Added, Some(newer)));
+    assert!(!selects(newer, InstallWhy::ForInstance, Some(older)));
+    assert!(selects(newer, InstallWhy::ForInstance, None));
+    assert!(selects(older, InstallWhy::Picked, Some(newer)));
+    let update = |select| InstallWhy::Update { select };
+    assert!(selects(newer, update(true), Some(older)));
+    assert!(!selects(newer, update(false), Some(older)));
+}
+
+#[test]
+fn a_release_body_becomes_its_notes_without_refs_thanks_or_footer() {
+    let notes = |body: &str| {
+        Release {
+            tag: "v2026.10.13".into(),
+            name: String::new(),
+            body: body.into(),
+            date: String::new(),
+            time: String::new(),
+            asset: None,
+            prerelease: false,
+            nightly: None,
+        }
+        .notes()
+    };
+    let body = "<h1>Want to play?</h1>\n\n### New\n- Native mods: export a headless engine (#6462)\n\n### Fixed\n- Play with friends: any port (#6363, fixes #6342)\n- Keep (this) aside\n\n### Contributors\nThanks to @a.\n\nYour launcher updates itself. New here?\n\n---\nNot an official Minecraft product.";
+    assert_eq!(
+        notes(body),
+        "### New\n- Native mods: export a headless engine\n\n### Fixed\n- Play with friends: any port\n- Keep (this) aside"
+    );
+    assert_eq!(
+        notes("Rebuilt from the latest main.\n\n---\nNot official."),
+        "Rebuilt from the latest main."
+    );
+    assert_eq!(notes("### Contributors\nThanks to @a."), "");
 }

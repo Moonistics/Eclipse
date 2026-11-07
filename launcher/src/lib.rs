@@ -41,7 +41,6 @@ pub mod other_launchers;
 pub mod packs;
 pub mod process;
 pub mod proxy;
-pub mod relocation;
 pub mod rust_toolchain;
 pub mod screenshots;
 pub mod secrets;

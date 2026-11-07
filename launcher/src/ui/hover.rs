@@ -85,7 +85,7 @@ pub fn hover_within(id: &SharedString) -> bool {
 
 /// Records that `id` is now hovered or not, for [`hover_fade`]: an element whose own hover
 /// listener does more calls it.
-pub fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
+pub(super) fn note_hover(id: &SharedString, hovered: bool, window: &mut Window) {
     let hovered = hovered && !OFF.with_borrow(|off| off.contains(id));
     INSIDE.with_borrow_mut(|inside| {
         if hovered {
@@ -148,7 +148,7 @@ pub(super) fn forget_disabled() {
     OFF.with_borrow_mut(HashSet::clear);
 }
 
-pub fn end_frame(window: &mut Window, cx: &mut gpui::App) {
+pub(super) fn end_frame(window: &mut Window, cx: &mut gpui::App) {
     super::return_from_modals(window, cx);
     if LEFT_DISABLED.take() {
         window.request_animation_frame();

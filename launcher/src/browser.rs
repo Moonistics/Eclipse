@@ -16,7 +16,8 @@ pub mod java_instance;
 pub mod lock;
 pub mod modrinth;
 
-pub use lock::{lock_home, try_lock_home, HomeLockGuard};
+pub(crate) use lock::lock_home;
+pub use lock::{try_lock_home, HomeLockGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -66,6 +67,23 @@ impl Kind {
             Kind::Shader => Some(crate::game_folder::SHADER_PACKS),
             Kind::Modpack | Kind::Mod | Kind::DataPack => None,
         }
+    }
+
+    /// Where the browser looks for this kind first: Eclipse's registry for the mods and shader
+    /// packs of an instance that plays Eclipse, Modrinth for the rest.
+    pub fn first_source(self, eclipse: bool) -> SourceId {
+        match self {
+            Kind::Mod | Kind::Shader if eclipse => SourceId::Eclipse,
+            Kind::Mod | Kind::Shader | Kind::ResourcePack | Kind::Modpack | Kind::DataPack => {
+                SourceId::Modrinth
+            }
+        }
+    }
+
+    /// Whether the player picks this kind's source: every kind is on Eclipse's registry and
+    /// Modrinth, but Eclipse's shader packs are on its registry only.
+    pub fn picks_source(self) -> bool {
+        self != Kind::Shader
     }
 }
 
@@ -158,7 +176,7 @@ impl Project {
 
     /// The project as a data pack, for a search of data packs or an install into a world;
     /// its page is Modrinth's data pack page.
-    pub fn as_datapack(self) -> Project {
+    fn into_datapack(self) -> Project {
         Project {
             page: match self.source {
                 SourceId::Modrinth => format!("https://modrinth.com/datapack/{}", self.slug),
@@ -276,13 +294,10 @@ pub trait Source: Send + Sync {
     }
 }
 
-pub const DATAPACK_LOADER: &str = "datapack";
+const DATAPACK_LOADER: &str = "datapack";
 
 /// What the launcher says wherever CurseForge would be.
 pub const CURSEFORGE_SOON: &str = "CurseForge support is coming soon.";
-/// What another source answers for shader packs: Eclipse's own are on its registry only.
-pub const SHADERS_ON_ECLIPSE: &str =
-    "Shader packs come from Eclipse. Switch the source to Eclipse.";
 
 /// The sources this launcher uses: Modrinth and Eclipse's registry. CurseForge support is coming
 /// soon: its API needs a paid key, so no search or install goes to it.
@@ -350,7 +365,7 @@ pub const DATAPACK_SUPPORT: &str =
 
 /// A Minecraft version whose mods port-pack carries over: 1.21 and later (the data folders
 /// took their current names in 1.21).
-pub fn portable_version(v: &str) -> bool {
+fn portable_version(v: &str) -> bool {
     let parts: Vec<u32> = v.split('.').map_while(|p| p.parse().ok()).collect();
     match parts.as_slice() {
         [1, minor, ..] => *minor >= 21 && v.split('.').count() == parts.len(),
@@ -424,7 +439,7 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
 
 /// A file name from a source, kept only when it is one plain name: no folders, no `..`, no
 /// hidden file, nothing a file system would read as something else.
-pub fn safe_name(name: &str) -> Option<&str> {
+fn safe_name(name: &str) -> Option<&str> {
     let ok = !name.is_empty()
         && name.len() <= 200
         && !name.starts_with('.')

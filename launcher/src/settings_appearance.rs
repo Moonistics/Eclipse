@@ -11,20 +11,6 @@ const SWATCH_FILL: f32 = ui::TILE_SM;
 const HUE_KEY_STEP: f32 = 5.;
 
 impl Launcher {
-    /// The theme Settings ask for, under the window's own light or dark: the player's look,
-    /// under the launcher theme's sky if they picked one.
-    pub(super) fn settings_theme(&self, window: &Window) -> Theme {
-        let theme = Theme::for_appearance(
-            self.settings.appearance,
-            self.settings.accent,
-            window.appearance(),
-        );
-        match themes::theme(self.settings.theme.as_deref()) {
-            Some(picked) => theme.with_sky(picked.sky),
-            None => theme,
-        }
-    }
-
     /// Settings' sky colours: the night sky or Daybreak, free for everyone.
     pub(super) fn launcher_theme_row(&mut self, cx: &mut Context<Self>) -> Div {
         let current = themes::theme(self.settings.theme.as_deref()).map(|th| th.id);
@@ -41,7 +27,6 @@ impl Launcher {
                 let _ = this.update(cx, |this, cx| {
                     this.settings.theme = id.map(str::to_owned);
                     this.save_settings();
-                    this.restyle();
                     cx.notify();
                 });
             },
@@ -117,7 +102,6 @@ impl Launcher {
                 Some(Some(accent)) => {
                     this.settings.accent = *accent;
                     this.save_settings();
-                    this.restyle();
                 }
                 Some(None) => this.settings_ui.accent_strip = !this.settings_ui.accent_strip,
                 None => {}
@@ -194,7 +178,6 @@ impl Launcher {
                     crate::motion::set_reduce_motion(None);
                     this.settings_ui.accent_strip = false;
                     this.background_error = None;
-                    this.restyle();
                     crate::toast::say(tr("Appearance is back to its defaults"));
                     cx.notify();
                 }))
@@ -218,7 +201,6 @@ impl Launcher {
         if let Some(accent) = Accent::parse(&hex).filter(|a| *a != self.settings.accent) {
             self.settings.accent = accent;
             self.save_settings();
-            self.restyle();
             cx.notify();
         }
     }
@@ -260,7 +242,6 @@ impl Launcher {
         let hue = self.settings.accent.hue().unwrap_or(0.);
         self.settings.accent = Accent::custom((hue + by).rem_euclid(360.));
         self.save_settings();
-        self.restyle();
     }
 
     fn pick_hue(&mut self, at: f32) {
@@ -270,7 +251,6 @@ impl Launcher {
             return;
         }
         self.settings.accent = accent;
-        self.restyle();
     }
 
     fn choose_background(&mut self, cx: &mut Context<Self>) {

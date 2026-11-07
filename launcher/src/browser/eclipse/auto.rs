@@ -17,9 +17,10 @@
 //! worlds): the notice says which. The file an update replaces is kept in
 //! `mod-browser/replaced/` until the next start: an update cut short (a crash between moving the
 //! file and saving the list) is rolled back from it then.
-use super::{install_version_guarded, needs_port, Index};
+use super::{install_version, needs_port, Index};
 use crate::browser::{installed, Kind, SourceId, GAME};
 use crate::i18n::trf;
+use crate::instances::{self, Instance};
 use eclipse_mods::index;
 use serde::{Deserialize, Serialize};
 use std::cell::RefCell;
@@ -33,7 +34,7 @@ const KEPT: &str = "mod-browser/replaced.json";
 
 /// What happens to one installed project.
 #[derive(Debug, PartialEq)]
-pub enum Decision<'a> {
+enum Decision<'a> {
     Update(&'a index::Version),
     /// Not updated automatically, or nothing newer.
     Skip,
@@ -80,7 +81,7 @@ pub fn in_pack(home: &Path) -> bool {
 }
 
 /// Whether `entry` updates automatically, and to what.
-pub fn decide<'a>(index: &'a Index, entry: &installed::Entry, ctx: &Context) -> Decision<'a> {
+fn decide<'a>(index: &'a Index, entry: &installed::Entry, ctx: &Context) -> Decision<'a> {
     let native = crate::native_status::is_native_file(&entry.file);
     let skip_native = native && !ctx.natives;
     if entry.source != SourceId::Eclipse
@@ -110,7 +111,7 @@ pub fn decide<'a>(index: &'a Index, entry: &installed::Entry, ctx: &Context) -> 
 }
 
 /// The blocks, items, entities, effects, menus and creative tabs a content mod adds.
-pub fn content_ids(path: &Path) -> Result<BTreeSet<String>, String> {
+fn content_ids(path: &Path) -> Result<BTreeSet<String>, String> {
     let manifest = eclipse_mods::Package::read(path)?.manifest;
     let c = eclipse_mods::Content::read(path, &manifest)?;
     let ids = c.blocks.iter().map(|b| format!("block {}", b.id));
@@ -128,7 +129,7 @@ pub fn content_ids(path: &Path) -> Result<BTreeSet<String>, String> {
 }
 
 /// What the content mod at `old` has that the one at `new` lacks.
-pub fn dropped(old: &Path, new: &Path) -> Result<Vec<String>, String> {
+fn dropped(old: &Path, new: &Path) -> Result<Vec<String>, String> {
     let new = content_ids(new)?;
     Ok(content_ids(old)?.difference(&new).cloned().collect())
 }
@@ -192,7 +193,7 @@ fn restore(home: &Path, kept: &Kept) -> Result<(), String> {
 
 /// At start: each file an earlier launcher replaced is dropped when its update finished, put back
 /// when it didn't.
-pub fn recover(home: &Path) {
+fn recover(home: &Path) {
     let _lock = crate::browser::lock_home(home);
     let me = std::process::id();
     let (mine, earlier): (Vec<Kept>, Vec<Kept>) =
@@ -229,6 +230,52 @@ fn keep(home: &Path, entry: &installed::Entry) -> Result<Kept, String> {
     list.push(kept.clone());
     save_kept(home, &list)?;
     Ok(kept)
+}
+
+/// An instance whose registry projects may update: the mod API level of the game it plays, and
+/// whether its native mods may ([`Context`]).
+pub struct Target {
+    pub instance: Instance,
+    pub level: Option<u32>,
+    pub natives: bool,
+}
+
+/// Whether `instance` keeps a Nightly, or a native build made on one: its native mods stay as
+/// they are, built for that Eclipse.
+pub fn pinned_to_nightly(instance: &Instance) -> bool {
+    let nightly = |v: &str| crate::nightly::date_of(v).is_some();
+    instance.version.as_deref().is_some_and(|v| {
+        nightly(v) || crate::native_mods::about(v).is_some_and(|a| nightly(&a.base))
+    })
+}
+
+/// Updates the registry projects of `targets`: Eclipse's own instances only, never a modpack's
+/// profile, whose pack pins its mods. What happened, for the notice, and the instances whose
+/// native mods were updated.
+pub fn update_all(targets: &[Target]) -> (Vec<String>, Vec<String>) {
+    let (mut lines, mut rebuild) = (Vec::new(), Vec::new());
+    for t in targets {
+        let i = &t.instance;
+        let pack = matches!(
+            i.kind,
+            instances::Kind::Port { .. } | instances::Kind::Pack { .. }
+        );
+        let (false, None, Some(level)) = (pack, &i.java, t.level) else {
+            continue;
+        };
+        let ctx = Context {
+            in_pack: in_pack(&i.home),
+            level,
+            natives: t.natives,
+        };
+        if let Some(report) = run(&i.home, &ctx, &|_, _| {}) {
+            lines.extend(report.lines());
+            if report.rebuild {
+                rebuild.push(i.id.clone());
+            }
+        }
+    }
+    (lines, rebuild)
 }
 
 /// Updates every installed registry project of game folder `home` that [`decide`] says, by the
@@ -313,7 +360,7 @@ fn update(
         Some(_) => Some(keep(home, entry)?),
         None => None,
     };
-    match install_version_guarded(index, local, p, v, home, &guard, progress) {
+    match install_version(index, local, p, v, home, &guard, progress) {
         Ok(_) => Ok(None),
         Err(e) => {
             if let Some(kept) = &kept {

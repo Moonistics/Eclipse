@@ -317,3 +317,57 @@ fn a_server_list_that_cant_be_read_is_never_saved_over() {
     assert_eq!(fs::read_to_string(&file).unwrap(), "[{\"name\": \"Mine\"");
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn a_backup_says_when_and_why_it_was_made() {
+    let made = |name: &str| {
+        Backup {
+            name: name.into(),
+            bytes: 0,
+            modified: None,
+        }
+        .made()
+    };
+    let at = "2026-10-19 11:28:57 UTC".to_string();
+    assert_eq!(
+        made("2026-10-19_11-28-57-manual.zip"),
+        Some((at.clone(), BackupKind::Manual))
+    );
+    assert_eq!(
+        made("2026-10-19_11-28-57-auto.zip"),
+        Some((at.clone(), BackupKind::Auto))
+    );
+    assert_eq!(
+        made("2026-10-19_11-28-57-before-v2026-10-19-10.zip"),
+        Some((
+            at.clone(),
+            BackupKind::BeforeRelease("v2026.10.19.10".into())
+        ))
+    );
+    assert_eq!(
+        made("2026-10-19_11-28-57-before-nightly.zip"),
+        Some((at, BackupKind::BeforeRelease("nightly".into())))
+    );
+    assert_eq!(made("my-copy.zip"), None);
+}
+
+#[test]
+fn settings_are_named_as_server_toml_has_them() {
+    assert_eq!(Key::MaxPlayers.dotted(), "server.max_players");
+    assert_eq!(Key::GameMode.dotted(), "world.game_mode");
+    let args = settings_args(&NewServer::default(), 8080);
+    assert!(
+        args.contains(&"world.game_mode=survival".to_string()),
+        "{args:?}"
+    );
+    let phase = |p: &str| {
+        Status {
+            phase: p.into(),
+            ..Status::default()
+        }
+        .phase()
+    };
+    assert_eq!(phase("running"), Phase::Running);
+    assert_eq!(phase("restarting"), Phase::Restarting);
+    assert_eq!(phase("gone"), Phase::Stopped);
+}

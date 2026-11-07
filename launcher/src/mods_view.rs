@@ -24,7 +24,7 @@ const DETAIL_CLOSE: &str = "mods-detail-close";
 const FLOAT_MIN_HEIGHT: f32 = ui::TILE_LG + 2. * ui::CARD_PADDING;
 const SEARCH_FIELD_MIN: f32 = 200.;
 
-const RESULTS: &str = "mods-results";
+pub(super) const RESULTS: &str = "mods-results";
 const TOOLBAR_INSET: f32 = ui::CARD_PADDING - ui::LIST_INSET;
 const ROW_PLATE_INSET: f32 = space::MD - ui::LIST_INSET;
 const ROW_CONTENT_INSET: f32 = ui::CARD_PADDING - space::MD - ui::ROW_EDGE;
@@ -1214,12 +1214,6 @@ impl Launcher {
                     )
                     .mt(px(space::XS))
                     .child(by.join(" · ")),
-                )
-                .children(
-                    (p.source == SourceId::Eclipse)
-                        .then(|| stars(&p.id))
-                        .flatten()
-                        .map(|s| s.mt(px(space::SM))),
                 )
                 .child(
                     ui::text(

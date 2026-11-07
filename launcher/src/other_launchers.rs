@@ -41,12 +41,10 @@
 use crate::game_folder::{self, CONFIG, JAVA_MODS, OPTIONS, RESOURCE_PACKS, SAVES};
 use crate::instances::{self, Instance};
 use crate::loaders;
-use crate::sources::{self, Folders, Os};
+use crate::sources::{self, Folders, Os, OFFICIAL};
 use serde_json::Value;
 use std::fs;
 use std::path::{Path, PathBuf};
-
-const OFFICIAL: &str = "the official launcher";
 
 /// A mod loader and its version, as the other launcher names it.
 #[derive(Clone, Debug, PartialEq, Eq)]
@@ -141,7 +139,7 @@ fn ini_value(text: &str, key: &str) -> Option<String> {
 }
 
 /// One Prism or MultiMC instance folder.
-pub fn prism_instance(dir: &Path, launcher: &'static str) -> Option<Found> {
+fn prism_instance(dir: &Path, launcher: &'static str) -> Option<Found> {
     let pack: Value =
         serde_json::from_str(&fs::read_to_string(dir.join("mmc-pack.json")).ok()?).ok()?;
     let components = pack["components"].as_array()?;
@@ -181,7 +179,7 @@ pub fn prism_instance(dir: &Path, launcher: &'static str) -> Option<Found> {
 }
 
 /// Every instance in a Prism or MultiMC folder (its root, or its `instances/` itself).
-pub fn prism_instances(root: &Path, launcher: &'static str) -> Vec<Found> {
+fn prism_instances(root: &Path, launcher: &'static str) -> Vec<Found> {
     let instances = if root.join("instances").is_dir() {
         root.join("instances")
     } else {
@@ -228,7 +226,7 @@ fn official_version(root: &Path, id: &str) -> (String, Option<Loader>) {
 }
 
 /// The official launcher's profiles in its folder `root`.
-pub fn official_profiles(root: &Path) -> Vec<Found> {
+fn official_profiles(root: &Path) -> Vec<Found> {
     let Some(text) = fs::read_to_string(root.join("launcher_profiles.json")).ok() else {
         return Vec::new();
     };
@@ -301,7 +299,7 @@ fn game_folders(dir: &Path, launcher: &'static str) -> Vec<Found> {
 }
 
 /// The CurseForge app's instances: in its modding folder's `Instances/`.
-pub fn curseforge_instances(root: &Path) -> Vec<Found> {
+fn curseforge_instances(root: &Path) -> Vec<Found> {
     game_folders(&root.join("Instances"), CURSEFORGE)
         .into_iter()
         .map(with_curseforge_target)
@@ -325,7 +323,7 @@ fn with_curseforge_target(mut found: Found) -> Found {
 }
 
 /// The Modrinth App's instances: in its folder's `profiles/`.
-pub fn modrinth_app_profiles(root: &Path) -> Vec<Found> {
+fn modrinth_app_profiles(root: &Path) -> Vec<Found> {
     game_folders(&root.join("profiles"), MODRINTH_APP)
 }
 
@@ -347,7 +345,7 @@ fn atlauncher_loader(launcher: &Value) -> Option<Loader> {
 
 /// An ATLauncher instance: the folder holding an `instance.json` that has an `id` (the Minecraft
 /// version) and a `launcher` object. The folder is the game folder.
-pub fn atlauncher_instance(dir: &Path) -> Option<Found> {
+fn atlauncher_instance(dir: &Path) -> Option<Found> {
     let text = fs::read_to_string(dir.join("instance.json")).ok()?;
     let json: Value = serde_json::from_str(&text).ok()?;
     let minecraft = json.get("id")?.as_str()?.trim();
@@ -374,7 +372,7 @@ pub fn atlauncher_instance(dir: &Path) -> Option<Found> {
 
 /// The ATLauncher instances under `root`: in its `instances` folder (any capitalisation) when it
 /// has one, else directly in `root`.
-pub fn atlauncher_instances(root: &Path) -> Vec<Found> {
+fn atlauncher_instances(root: &Path) -> Vec<Found> {
     let children = |dir: &Path| -> Vec<PathBuf> {
         fs::read_dir(dir)
             .into_iter()
@@ -472,7 +470,7 @@ pub fn scan(os: Os, folders: &Folders) -> Vec<Found> {
 }
 
 /// The CurseForge app's default modding folder on `os`.
-pub fn curseforge_folders(os: Os, folders: &Folders) -> Vec<PathBuf> {
+fn curseforge_folders(os: Os, folders: &Folders) -> Vec<PathBuf> {
     match os {
         Os::Windows => vec![folders.home.join("curseforge/minecraft")],
         Os::MacOs | Os::Linux => vec![folders.home.join("Documents/curseforge/minecraft")],
@@ -482,7 +480,7 @@ pub fn curseforge_folders(os: Os, folders: &Folders) -> Vec<PathBuf> {
 /// Copies `found`'s game folder into `to`: all of it from an instance's own folder but its
 /// logs, and only what an instance holds from a folder shared with the launcher. Nothing in
 /// the other launcher's folder changes.
-pub fn copy_game(found: &Found, to: &Path) -> std::io::Result<()> {
+fn copy_game(found: &Found, to: &Path) -> std::io::Result<()> {
     fs::create_dir_all(to)?;
     let Ok(entries) = fs::read_dir(&found.game) else {
         return Ok(());

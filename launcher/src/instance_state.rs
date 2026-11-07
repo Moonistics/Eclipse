@@ -116,6 +116,14 @@ pub(super) struct Instances {
     pub(super) versions: instance_state::VersionList,
 }
 
+pub(super) fn takes_mods(instance: &Instance) -> bool {
+    instance.java.as_ref().is_none_or(|j| j.loader.is_some())
+}
+
+pub(super) fn duplicable(instance: &Instance) -> bool {
+    matches!(instance.kind, InstanceKind::Default | InstanceKind::Own)
+}
+
 impl Launcher {
     pub(super) fn reload_instances(&mut self) {
         self.instances.list = instances::list();
@@ -282,8 +290,7 @@ impl Launcher {
 
     /// Escape closes the page. Whether it did.
     pub(super) fn instance_escape(&mut self) -> bool {
-        let open = self.page == Page::InstanceEditor
-            && self.instances.draft.as_ref().is_some_and(|d| !d.busy);
+        let open = self.instances.draft.as_ref().is_some_and(|d| !d.busy);
         if open && self.draft_changed() {
             self.asking = Some(menus::Asking::DiscardDraft);
         } else if open {
@@ -517,8 +524,18 @@ impl Launcher {
         self.open_at_launch_options(instance);
     }
 
+    pub(super) fn delete_block(&self, instance: &Instance) -> Option<&'static str> {
+        if instance.kind == InstanceKind::Default {
+            Some(tr("Eclipse's own instance can't be deleted"))
+        } else if self.game.active() {
+            Some(tr("Close the game first"))
+        } else {
+            None
+        }
+    }
+
     pub(super) fn can_delete_instance(&self, instance: &Instance) -> bool {
-        instance.kind != InstanceKind::Default && !self.game.active()
+        self.delete_block(instance).is_none()
     }
 
     pub(super) fn ask_delete_instance(&mut self, id: String, window: &Window, cx: &App) {
@@ -794,6 +811,17 @@ mod tests {
         assert_eq!(choice.minecraft(None), None);
         choice.version = Some("1.20.1".into());
         assert_eq!(choice.minecraft(None).as_deref(), Some("1.20.1"));
+    }
+
+    #[test]
+    fn a_modpack_instance_is_not_offered_for_duplicating() {
+        let of = |kind| crate::game_run::test_instance("pack", kind);
+        assert!(duplicable(&of(InstanceKind::Default)));
+        assert!(duplicable(&of(InstanceKind::Own)));
+        assert!(!duplicable(&of(InstanceKind::Port {
+            slug: "pack".into()
+        })));
+        assert!(!duplicable(&of(InstanceKind::Pack { id: "pack".into() })));
     }
 
     #[test]

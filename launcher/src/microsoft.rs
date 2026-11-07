@@ -15,25 +15,11 @@ const SQUARES: [(f32, f32, u32); 4] = [
     (11., 11., 0xffb900),
 ];
 
-/// Microsoft's four-square symbol, 21 pixels square.
-pub(super) fn symbol() -> Div {
-    div()
-        .relative()
-        .flex_none()
-        .size(px(21.))
-        .children(SQUARES.map(|(x, y, colour)| {
-            div()
-                .absolute()
-                .left(px(x))
-                .top(px(y))
-                .size(px(9.))
-                .bg(gpui::rgb(colour))
-        }))
-}
+const SYMBOL: f32 = 21.;
 
 /// The symbol at `size` pixels square (the sign-in buttons draw it at 18).
 pub(super) fn logo(size: f32) -> Div {
-    let u = size / 21.;
+    let u = size / SYMBOL;
     div()
         .relative()
         .flex_none()
@@ -64,7 +50,7 @@ pub(super) fn white_button(id: &'static str) -> Stateful<Div> {
             d.border_1().border_color(ui::white(fill::ACTIVE))
         })
         .cursor_pointer()
-        .font_family(eclipse_theme::glass::FONT)
+        .font_family(crate::theme::FONT)
         .text_size(px(step::LEAD.size))
         .font_weight(FontWeight::SEMIBOLD)
         .text_color(ui::color(ON_LIGHT))
@@ -92,7 +78,7 @@ pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
         .bg(gpui::rgb(fill))
         .when_some(border, |d, b| d.border_1().border_color(gpui::rgb(b)))
         .cursor_pointer()
-        .child(symbol().relative())
+        .child(logo(SYMBOL).relative())
         .child(
             div()
                 .relative()

@@ -209,7 +209,7 @@ fn updates_holds_and_keeps_the_replaced_file_until_the_next_start() {
     let v3 = ruby(&dir, "1.2.0", &["lamp"], &[]);
     let first = index_of(&[("1.0.0", GAME, &v1)]);
     let p = first.project("ruby").unwrap();
-    install_version_guarded(
+    install_version(
         &first,
         true,
         p,
@@ -283,7 +283,7 @@ fn an_update_cut_short_is_rolled_back_at_the_next_start() {
     let v1 = ruby(&dir, "1.0.0", &["lamp"], &[]);
     let index = index_of(&[("1.0.0", GAME, &v1)]);
     let p = index.project("ruby").unwrap();
-    install_version_guarded(
+    install_version(
         &index,
         true,
         p,
@@ -338,7 +338,7 @@ fn auto_update_and_manual_mutation_do_not_race_or_lose_entries() {
 
     // Start with Ruby 1.0.0 installed.
     let p_ruby = index.project("ruby").unwrap();
-    install_version_guarded(
+    install_version(
         &index,
         true,
         p_ruby,
@@ -376,7 +376,7 @@ fn auto_update_and_manual_mutation_do_not_race_or_lose_entries() {
     let index_manual = index.clone();
     let manual_thread = std::thread::spawn(move || {
         let p_coords = index_manual.project("coords_hud").unwrap();
-        install_version_guarded(
+        install_version(
             &index_manual,
             true,
             p_coords,
@@ -427,7 +427,7 @@ fn auto_update_does_not_revive_concurrently_removed_mod() {
     let index = Arc::new(index_of(&[("1.1.0", GAME, &v2), ("1.0.0", GAME, &v1)]));
 
     let p_ruby = index.project("ruby").unwrap();
-    install_version_guarded(
+    install_version(
         &index,
         true,
         p_ruby,
@@ -438,7 +438,7 @@ fn auto_update_does_not_revive_concurrently_removed_mod() {
     )
     .unwrap();
     let p_coords = index.project("coords_hud").unwrap();
-    install_version_guarded(
+    install_version(
         &index,
         true,
         p_coords,
@@ -490,4 +490,28 @@ fn auto_update_does_not_revive_concurrently_removed_mod() {
     assert_eq!(ruby_entry.version, "1.1.0");
 
     fs::remove_dir_all(&dir).unwrap();
+}
+
+#[test]
+fn an_instance_on_a_nightly_keeps_its_native_mods() {
+    let on = |version: Option<&str>| {
+        pinned_to_nightly(&Instance {
+            id: "pinned".into(),
+            name: "Pinned".into(),
+            kind: instances::Kind::Own,
+            work: PathBuf::from("pinned"),
+            home: PathBuf::from("pinned"),
+            icon: None,
+            group: None,
+            version: version.map(String::from),
+            played: std::time::Duration::ZERO,
+            last_played: None,
+            launch: Default::default(),
+            game_args: None,
+            java: None,
+        })
+    };
+    assert!(on(Some("nightly-2026-10-28-0c02067")));
+    assert!(!on(Some("v2026.10.13")));
+    assert!(!on(None));
 }

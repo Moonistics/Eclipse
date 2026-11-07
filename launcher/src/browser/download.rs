@@ -14,14 +14,13 @@ const HOSTS: [&str; 5] = [
     "https://edge.forgecdn.net/",
     "https://mediafilez.forgecdn.net/",
     eclipse_mods::index::FILE_HOST,
-    // The registry's files at their address before the move to Moonistics (GitHub redirects it).
-    "https://github.com/ludovic111/horizon-mods/releases/download/",
+    super::eclipse::MOVED_FILES,
 ];
 /// `https://github.com/<owner>/<repo>/releases/download/<tag>/<name>`: a release asset of a mod's
 /// own repository, which the registry's index lists once its release passed the registry's checks
 /// (docs/api/mod-index.md). Only the address is vouched for here; the index's SHA-256 is what
 /// pins the bytes, and [`save`] refuses any other.
-pub fn github_release_asset(url: &str) -> bool {
+fn github_release_asset(url: &str) -> bool {
     let Some(rest) = url.strip_prefix("https://github.com/") else {
         return false;
     };

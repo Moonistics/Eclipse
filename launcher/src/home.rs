@@ -11,7 +11,7 @@ impl Launcher {
     /// How long the download under way has left, from its pace since it was first seen: none
     /// for its first seconds, or without one.
     pub(super) fn download_left(&mut self) -> Option<Duration> {
-        if getting_ready_preview() {
+        if preview::shows(preview::Preview::GettingReady) {
             return Some(Duration::from_secs(70));
         }
         let Some((done, total)) = eclipse_launcher::mojang::progress() else {
@@ -97,31 +97,10 @@ impl Launcher {
     }
 }
 
-/// `ECLIPSE_LAUNCHER_PAGE=getting-ready` opens Home as if Play had been pressed on a version that
-/// downloads from Mojang, a third of the way through: for screenshots, nothing runs.
-pub(super) fn getting_ready_preview() -> bool {
-    static PREVIEW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    *PREVIEW
-        .get_or_init(|| std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("getting-ready"))
-}
-
-fn crash_preview() -> Option<Crash> {
-    static PREVIEW: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
-    PREVIEW
-        .get_or_init(|| std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() == Ok("crash"))
-        .then(|| Crash {
-            report: Some(
-                backend::game_home().join("crash-reports/crash-2026-11-06_20.14.03-client.txt"),
-            ),
-            summary: "java.lang.IllegalStateException: Rendersystem called from wrong thread"
-                .into(),
-            home: backend::game_home(),
-        })
-}
-
 /// The download under way, files done of how many.
 fn download_progress() -> Option<(usize, usize)> {
-    eclipse_launcher::mojang::progress().or_else(|| getting_ready_preview().then_some((1754, 5160)))
+    eclipse_launcher::mojang::progress()
+        .or_else(|| preview::shows(preview::Preview::GettingReady).then_some((1754, 5160)))
 }
 
 /// The time `total - done` files take at the pace of `done - from` in `spent`: none for the
@@ -181,7 +160,7 @@ impl Launcher {
         if let Some(problem) = self.shown_game_problem().cloned() {
             page = page.child(self.game_problem(problem, cx));
         }
-        if let Some(crash) = self.shown_crash().cloned().or_else(crash_preview) {
+        if let Some(crash) = self.shown_crash().cloned().or_else(preview::crash) {
             page = page.child(self.crash_notice(crash, cx));
         }
         page.children(self.export_panel(cx))

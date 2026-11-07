@@ -11,8 +11,11 @@
 //! shortcuts go).
 use std::path::{Path, PathBuf};
 
-pub const TRASH_ENV: &str = "ECLIPSE_LAUNCHER_TRASH";
-pub const CLIPBOARD_ENV: &str = "ECLIPSE_LAUNCHER_CLIPBOARD";
+pub(crate) const TRASH_ENV: &str = "ECLIPSE_LAUNCHER_TRASH";
+const CLIPBOARD_ENV: &str = "ECLIPSE_LAUNCHER_CLIPBOARD";
+
+/// Moves a file or folder out of the way, where the player can get it back.
+pub type Trash<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
 /// Moves a file or folder to the system's trash, where the player can still get it back, or
 /// into `ECLIPSE_LAUNCHER_TRASH` when it is set.
@@ -24,7 +27,7 @@ pub fn to_trash(path: &Path) -> Result<(), String> {
 }
 
 /// Moves `path` into `dir` under a free name: the trash of a test run.
-pub fn to_folder(path: &Path, dir: &Path) -> Result<(), String> {
+pub(crate) fn to_folder(path: &Path, dir: &Path) -> Result<(), String> {
     std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let name = path.file_name().ok_or("Nothing to move")?.to_string_lossy();
     let target = (1..)

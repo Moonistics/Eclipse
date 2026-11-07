@@ -4,15 +4,23 @@
 mod buttons;
 mod hover;
 mod items;
+mod nav;
 mod press;
+mod sliders;
 mod surfaces;
+mod switches;
+mod tabs;
 mod tiles;
 
 pub use buttons::*;
 pub use hover::*;
 pub use items::*;
+pub use nav::*;
 pub use press::*;
+pub use sliders::*;
 pub use surfaces::*;
+pub use switches::*;
+pub use tabs::*;
 pub use tiles::*;
 
 use crate::theme::Theme;
@@ -86,7 +94,20 @@ pub const TILE_MD: f32 = 36.;
 
 pub const TILE_LG: f32 = 48.;
 
-pub fn begin_frame(theme: &Theme, short: bool, window: &Window, cx: &mut App) {
+pub fn frame<C: std::ops::DerefMut<Target = App>, T>(
+    theme: &Theme,
+    short: bool,
+    window: &mut Window,
+    cx: &mut C,
+    draw: impl FnOnce(&mut Window, &mut C) -> T,
+) -> T {
+    begin_frame(theme, short, window, cx);
+    let drawn = draw(window, cx);
+    end_frame(window, cx);
+    drawn
+}
+
+fn begin_frame(theme: &Theme, short: bool, window: &Window, cx: &mut App) {
     LOOK.set(theme.look);
     LIGHT.set(!theme.dark);
     SHORT.set(short);
@@ -125,7 +146,7 @@ pub fn color(c: u32) -> Hsla {
 }
 
 /// A solid control's fill (the sliders' knob): white, or the ink in light.
-pub fn paper() -> Hsla {
+pub(super) fn paper() -> Hsla {
     if light() {
         color(INK)
     } else {
@@ -170,7 +191,7 @@ pub fn icon_tone(selected: bool) -> Hsla {
 
 pub fn text(step: TextStep, weight: FontWeight, a: f32) -> Div {
     div()
-        .font_family(eclipse_theme::glass::FONT)
+        .font_family(crate::theme::FONT)
         .text_size(px(step.size))
         .line_height(px(step.line))
         .font_weight(weight)
@@ -378,7 +399,7 @@ pub fn tone_colour(tone: Tone) -> Hsla {
     }
 }
 
-pub fn dot(tone: Tone) -> Div {
+pub(super) fn dot(tone: Tone) -> Div {
     div()
         .flex_none()
         .size(px(DOT))
@@ -472,7 +493,7 @@ fn bar_fill() -> Div {
         .bg(color(look().accent_soft))
 }
 
-pub struct Tip(SharedString);
+pub(super) struct Tip(SharedString);
 
 impl gpui::Render for Tip {
     fn render(&mut self, _: &mut Window, _: &mut gpui::Context<Self>) -> impl IntoElement {

@@ -63,6 +63,11 @@ fn inner(size: f32) -> f32 {
 }
 
 impl Launcher {
+    pub(super) fn instance_icon(&mut self, i: &Instance, size: f32) -> AnyElement {
+        let spec = self.icon_spec(i);
+        self.icon_for(spec, size)
+    }
+
     pub(super) fn icon_spec(&self, i: &Instance) -> IconSpec {
         let own = i.kind == InstanceKind::Default && i.icon.is_none();
         IconSpec {

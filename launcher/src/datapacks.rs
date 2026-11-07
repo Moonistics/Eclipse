@@ -37,9 +37,14 @@ fn disabled(settings: &serde_json::Value) -> Vec<String> {
 }
 
 /// The data packs of the world folder `world`, by name.
+/// The folder of the data packs of the world `world`.
+pub fn folder(world: &Path) -> PathBuf {
+    world.join(DATAPACKS)
+}
+
 pub fn list(world: &Path) -> Vec<DataPack> {
     let off = disabled(&settings(world));
-    let mut packs: Vec<DataPack> = fs::read_dir(world.join(DATAPACKS))
+    let mut packs: Vec<DataPack> = fs::read_dir(folder(world))
         .into_iter()
         .flatten()
         .flatten()
@@ -93,7 +98,7 @@ fn check(file: &Path) -> Result<(), String> {
 /// the next time the world opens (or on `/reload`).
 pub fn add(world: &Path, file: &Path) -> Result<DataPack, String> {
     check(file)?;
-    let dir = world.join(DATAPACKS);
+    let dir = folder(world);
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let name = file.file_name().ok_or("A pack file has a name")?;
     let stem = Path::new(name)
@@ -141,12 +146,7 @@ pub fn find(world: &Path, query: &str) -> Result<DataPack, String> {
     list(world)
         .into_iter()
         .find(|p| p.file == query || p.file.strip_suffix(".zip") == Some(query))
-        .ok_or_else(|| {
-            format!(
-                "No data pack {query} in {}",
-                world.join(DATAPACKS).display()
-            )
-        })
+        .ok_or_else(|| format!("No data pack {query} in {}", folder(world).display()))
 }
 
 /// Moves the data pack to the system's trash and forgets it in `datapacks.json`.
@@ -157,7 +157,7 @@ pub fn remove(world: &Path, pack: &DataPack) -> Result<(), String> {
 }
 
 /// What of a data pack the game reads today (its `DataStore`): `data/<namespace>/<kind>/`.
-pub const READ: [&str; 4] = ["function", "function tag", "predicate", "item_modifier"];
+const READ: [&str; 4] = ["function", "function tag", "predicate", "item_modifier"];
 
 /// A data pack's files by kind (`function`, `worldgen`, `item tag`...), with how many each.
 #[derive(Clone, Debug, Default, PartialEq)]
