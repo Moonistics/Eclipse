@@ -1,5 +1,5 @@
 //! Home's head: the instance's icon and name, how long it was played, then Play with its menu,
-//! the version, the instance's folder, and joining a friend on the right.
+//! the version, Edit, the instance's folder, and joining a friend on the right.
 use super::*;
 use crate::menus::Menu;
 use crate::ui::{self};
@@ -9,6 +9,7 @@ const PLAY: f32 = 240.;
 const PLAY_WIDE: f32 = 280.;
 const PICKER: f32 = 280.;
 const INVITE_MIN: f32 = 360.;
+const ICON_BUTTONS: f32 = 2.;
 const ICON: f32 = ui::TILE_LG;
 
 /// Play, the version and the big icons are this tall.
@@ -34,6 +35,7 @@ impl Launcher {
             .gap(px(space::MD))
             .child(play)
             .children(java.is_none().then(|| self.version_picker(cx)))
+            .children(self.edit_button(cx))
             .children(self.folder_button())
             .children(invite);
         div()
@@ -43,7 +45,7 @@ impl Launcher {
             .min_w_0()
             .pt(px(ui::page_top()))
             .child(self.home_title(cx))
-            .child(self.played_text(tag, prepared))
+            .children(self.played_text(tag, prepared))
             .child(actions)
             .child(scene::track_home_head(&self.scene))
     }
@@ -63,6 +65,7 @@ impl Launcher {
             this.open_instance_page(Some(edit.clone()));
             cx.notify();
         }));
+        let icon = ui::skipped_by_tab(icon);
         div()
             .flex()
             .items_center()
@@ -74,22 +77,28 @@ impl Launcher {
 
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
-    fn played_text(&self, tag: &str, prepared: bool) -> Div {
+    fn played_text(&self, tag: &str, prepared: bool) -> Option<Div> {
         let line = match (self.game.run().map(|r| r.since), self.selected_instance()) {
             (Some(since), _) => trf(
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
             ),
+            (None, Some(_)) if self.cant_sign_in_to_play() => tr(
+                "Playing needs Microsoft sign-in, which this copy of the launcher can't do yet.",
+            )
+            .into(),
             (None, Some(i)) if i.java.is_none() && !prepared => {
-                if self.shown_prepare_error().is_some() {
-                    return ui::page_note("home-played", "");
-                }
                 let version = backend::game_version(tag);
+                let said_below = self
+                    .shown_prepare_error()
+                    .is_some_and(|e| home::minecraft_missing(e, &version));
                 if self.owner == Some(true) {
                     trf(
                         "The first Play downloads Minecraft {version} from Mojang.",
                         &[("version", &version)],
                     )
+                } else if said_below {
+                    return None;
                 } else {
                     trf(
                         "Before your first game, play Minecraft {version} once in your Minecraft launcher.",
@@ -113,9 +122,9 @@ impl Launcher {
                     None => played,
                 }
             }
-            (None, None) => String::new(),
+            (None, None) => return None,
         };
-        ui::page_note("home-played", line)
+        Some(ui::page_note("home-played", line))
     }
 
     /// Play and its ⋯ menu: Stop while the game runs, Update when the launcher's version has a
@@ -126,18 +135,20 @@ impl Launcher {
         let update = self.play_update(tag);
         let busy = state.busy();
         let open = self.menu_is(&Menu::Play) && !tag.is_empty();
-        let kind = if running && busy.is_none() {
+        let no_sign_in = self.why_no_sign_in();
+        let held = no_sign_in.filter(|_| busy.is_none() && !running && update.is_none());
+        let kind = if (running && busy.is_none()) || held.is_some() {
             ButtonKind::Secondary
         } else {
             ButtonKind::Primary
         };
         let focus = self.play_focus.clone();
-        let main = match busy {
-            Some((label, progress)) => ui::keep_focus(
+        let main = match (busy, held) {
+            (Some((label, progress)), _) => ui::keep_focus(
                 ui::primary_busy("play", label, progress, ui::ButtonSize::Hero),
                 &focus,
             ),
-            None if running => ui::keep_focus(
+            (None, _) if running => ui::keep_focus(
                 ui::button(
                     "play",
                     Some("stop"),
@@ -153,7 +164,11 @@ impl Launcher {
                 }
                 cx.notify();
             })),
-            None => {
+            (None, Some(why)) => {
+                ui::keep_focus_for("play", &focus);
+                ui::primary_unavailable("play", Some("play"), tr("Play"), ui::ButtonSize::Hero, why)
+            }
+            (None, None) => {
                 let (label, icon) = match &update {
                     Some(_) => (tr("Update"), "download-04"),
                     None => (tr("Play"), "play"),
@@ -196,42 +211,51 @@ impl Launcher {
         let mut wrap = div().relative().child(play);
         if open {
             let locked = running || busy.is_some();
-            let mut items: Vec<(&'static str, &'static str, &'static str, bool, PlayItem)> =
-                Vec::new();
+            let wait = self.busy_reason().filter(|_| locked);
+            let set_up: SharedString = if backend::is_prepared(tag) {
+                tr("Repair game files").into()
+            } else {
+                trf(
+                    "Set up Minecraft {version}",
+                    &[("version", &backend::game_version(tag))],
+                )
+                .into()
+            };
+            let mut items = Vec::new();
             if update.is_some() {
-                items.push((
-                    "play-skip",
-                    "play",
-                    tr("Play without updating"),
+                items.push(PlayRow {
+                    key: "play-skip",
+                    icon: "play",
+                    label: tr("Play without updating").into(),
                     locked,
-                    PlayItem::Play,
-                ));
+                    why: no_sign_in.map(String::from).or_else(|| wait.clone()),
+                    what: PlayItem::Play,
+                });
             }
-            items.push((
-                "play-prepare",
-                crate::icons::VERSION,
-                tr(if backend::is_prepared(tag) {
-                    "Prepare game files again"
-                } else {
-                    "Prepare game files"
-                }),
+            items.push(PlayRow {
+                key: "play-prepare",
+                icon: crate::icons::VERSION,
+                label: set_up,
                 locked,
-                PlayItem::Prepare,
-            ));
-            items.push((
-                "play-minecraft-folder",
-                "folder-01",
-                tr("Choose Minecraft folder…"),
-                false,
-                PlayItem::MinecraftFolder,
-            ));
+                why: wait,
+                what: PlayItem::Prepare,
+            });
+            items.push(PlayRow {
+                key: "play-minecraft-folder",
+                icon: "folder-01",
+                label: tr("Choose Minecraft folder…").into(),
+                locked: false,
+                why: None,
+                what: PlayItem::MinecraftFolder,
+            });
             let mut menu = self.menu_popover("play-menu", tr("Play options"), cx);
-            for (key, icon, label, locked, what) in items {
-                let row = ui::menu_row(key, icon, label, false);
-                menu = menu.child(if locked {
-                    ui::disabled(row)
-                } else {
-                    row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            for item in items {
+                let row = ui::menu_row(item.key, item.icon, item.label, false);
+                let what = item.what;
+                menu = menu.child(match item.why {
+                    Some(why) => ui::unavailable(row, why),
+                    None if item.locked => ui::disabled(row),
+                    None => row.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                         this.close_menu();
                         match what {
                             PlayItem::Prepare => {
@@ -241,7 +265,7 @@ impl Launcher {
                             PlayItem::MinecraftFolder => this.choose_folder(cx),
                         }
                         cx.notify();
-                    }))
+                    })),
                 });
             }
             wrap = wrap.child(ui::menu_under(tall(), ui::Align::Start, menu));
@@ -330,6 +354,24 @@ impl Launcher {
         wrap
     }
 
+    fn edit_button(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let instance = self.selected_instance()?.clone();
+        Some(
+            ui::icon_button(
+                "home-edit",
+                "pencil-edit-02",
+                tr("Edit instance"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Hero,
+                false,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.open_instance_page(Some(instance.clone()));
+                cx.notify();
+            })),
+        )
+    }
+
     fn folder_button(&self) -> Option<Stateful<Div>> {
         let home = self.selected_instance()?.home.clone();
         Some(
@@ -374,15 +416,18 @@ impl Launcher {
     fn invite_width(&self, tag: &str) -> Option<f32> {
         let room = layout::content_width(self.window_width);
         let pair = self.play_width(self.play_update(tag).is_some()) + space::MD + PICKER;
-        let row = pair + space::MD + tall();
+        let icon = space::MD + tall();
+        let row = pair + ICON_BUTTONS * icon;
         if row + space::MD + INVITE_MIN <= room {
             None
         } else if row <= room {
             Some(row)
+        } else if pair + icon <= room {
+            Some(pair)
         } else if pair <= room {
-            Some(pair - tall() - space::MD)
+            Some(pair - ICON_BUTTONS * icon)
         } else {
-            Some(PICKER + space::MD + tall())
+            Some(PICKER + ICON_BUTTONS * icon)
         }
     }
 
@@ -399,13 +444,15 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        let join = if can {
+        let join = if !valid {
+            ui::unavailable(join, tr("Paste a friend's invite code first"))
+        } else if let Some(why) = self.why_no_sign_in() {
+            ui::unavailable(join, why)
+        } else if can {
             join.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.join_friend();
                 cx.notify();
             }))
-        } else if !valid {
-            ui::unavailable(join, tr("Paste a friend's invite code first"))
         } else {
             ui::unavailable(join, self.why_not_start())
         };
@@ -442,4 +489,13 @@ enum PlayItem {
     Prepare,
     Play,
     MinecraftFolder,
+}
+
+struct PlayRow {
+    key: &'static str,
+    icon: &'static str,
+    label: SharedString,
+    locked: bool,
+    why: Option<String>,
+    what: PlayItem,
 }

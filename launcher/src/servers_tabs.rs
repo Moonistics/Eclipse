@@ -9,6 +9,7 @@ impl Launcher {
     ) -> Div {
         let running = status.running();
         let idle = self.servers.busy.is_none();
+        let stopped = (!running).then(|| SharedString::from(tr("Start the server first")));
         let ops = servers::names(dir, "ops.json");
         let whitelist = servers::entries(dir, "whitelist.json");
         let banned = servers::entries(dir, "banned-players.json");
@@ -32,6 +33,7 @@ impl Launcher {
                         tr("Make operator")
                     },
                     idle,
+                    None,
                     cx,
                     move |this| {
                         let verb = if op { "deop" } else { "op" };
@@ -44,14 +46,16 @@ impl Launcher {
                 .child(self.player_action(
                     format!("online-kick-{}", p.name),
                     tr("Kick"),
-                    running,
+                    true,
+                    stopped.clone(),
                     cx,
                     move |this| this.api_command(format!("kick {n2}")),
                 ))
                 .child(self.player_action(
                     format!("online-ban-{}", p.name),
                     tr("Ban"),
-                    running,
+                    true,
+                    stopped.clone(),
                     cx,
                     move |this| this.api_command(format!("ban {n3}")),
                 ));
@@ -142,6 +146,7 @@ impl Launcher {
                             tr("Make operator")
                         },
                         idle,
+                        None,
                         cx,
                         move |this| {
                             let verb = if op { "deop" } else { "op" };
@@ -225,7 +230,8 @@ impl Launcher {
                 let unban = self.player_action(
                     format!("unban-{name}"),
                     tr("Unban"),
-                    running,
+                    true,
+                    stopped.clone(),
                     cx,
                     move |this| this.api_command(format!("pardon {n}")),
                 );
@@ -291,9 +297,13 @@ impl Launcher {
         about: String,
         on: bool,
         press: Option<impl Fn(&ClickEvent, &mut Window, &mut App) + 'static>,
+        why: Option<SharedString>,
     ) -> AnyElement {
         let Some(press) = press else {
-            let switch = ui::disabled(ui::toggle(id, on));
+            let switch = match why {
+                Some(why) => ui::unavailable(ui::toggle(id, on), why),
+                None => ui::disabled(ui::toggle(id, on)),
+            };
             return self
                 .server_setting_row(name, about, switch.into_any_element())
                 .into_any_element();
@@ -426,6 +436,7 @@ impl Launcher {
                     cx.notify();
                 })
             }),
+            (!running).then(|| tr("Start the server first").into()),
         );
         let accounts = self
             .servers
@@ -467,6 +478,7 @@ impl Launcher {
                 this.set_setting(ServerKey::OnlineMode, (!accounts).to_string());
                 cx.notify();
             })),
+            None,
         );
         div()
             .flex()
@@ -545,15 +557,15 @@ impl Launcher {
             && !self.servers.applying
             && self.servers.queued.is_empty()
             && self.servers.service == Some(false);
-        let hint = if status.running() {
+        let blocked = if status.running() {
             Some(tr("Stop the server before deleting it."))
         } else if self.servers.service == Some(true) {
             Some(tr("Turn off running in the background before deleting it."))
-        } else if !ready {
-            Some(tr("Wait for the current operation to finish."))
         } else {
             None
         };
+        let hint =
+            blocked.or_else(|| (!ready).then(|| tr("Wait for the current operation to finish.")));
         let mut controls = div()
             .flex()
             .flex_col()
@@ -590,13 +602,13 @@ impl Launcher {
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
-            let delete = if ready {
-                delete.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            let delete = match blocked {
+                Some(why) => ui::unavailable(delete, why),
+                None if ready => delete.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.asking = Some(Asking::ServerDelete);
                     cx.notify();
-                }))
-            } else {
-                ui::disabled(delete)
+                })),
+                None => ui::disabled(delete),
             };
             controls = controls.child(delete);
         }
@@ -639,6 +651,7 @@ impl Launcher {
                     cx.notify();
                 })
             }),
+            None,
         )
     }
 

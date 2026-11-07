@@ -8,8 +8,6 @@ pub(super) struct Shortcuts {
     /// The instance last looked at, and whether it has a shortcut: read again only when the
     /// selection changes or a button is pressed, not on every frame.
     seen: Option<(String, bool)>,
-    /// What the last press did, for that instance.
-    note: Option<(String, Result<String, String>)>,
 }
 
 impl Launcher {
@@ -28,11 +26,14 @@ impl Launcher {
         let has = self.has_shortcut(&id);
         let done = match has {
             false => shortcut::make(&backend::update_target(), &id, &name)
-                .map(|_| trf("Added a desktop shortcut for {name}.", &[("name", &name)])),
+                .map(|_| trf("Added a desktop shortcut for {name}", &[("name", &name)])),
             true => shortcut::remove(&id)
-                .map(|_| trf("{name}'s shortcut is in the trash.", &[("name", &name)])),
+                .map(|_| trf("{name}'s shortcut is in the trash", &[("name", &name)])),
         };
         self.shortcuts.seen = None;
-        self.shortcuts.note = Some((id, done));
+        match done {
+            Ok(said) => crate::toast::say(said),
+            Err(e) => crate::toast::say_error(e),
+        }
     }
 }

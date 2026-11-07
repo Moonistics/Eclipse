@@ -240,7 +240,7 @@ impl Launcher {
                     s.open = None;
                 }
                 match result {
-                    Ok(()) => s.note = Some(trf("{name} moved to the trash.", &[("name", &name)])),
+                    Ok(()) => s.note = Some(trf("{name} moved to the trash", &[("name", &name)])),
                     Err(e) => s.problem = Some(Problem::plain(e)),
                 }
             }
@@ -425,16 +425,11 @@ impl Launcher {
         let worlds = servers::player_worlds();
         // The dialog starts with an empty name (its placeholder says the default) and the player
         // as the first friend.
-        let own = own_name(&self.accounts).unwrap_or_default();
+        let own = own_name(&self.accounts).filter(|name| !name.is_empty());
         self.fields.text(Field::NewServerName).set(String::new());
         self.fields.selected = None;
         self.fields.text(Field::NewServerSeed).set(String::new());
         self.fields.text(Field::NewServerFriend).set(String::new());
-        let friends = if own.is_empty() {
-            Vec::new()
-        } else {
-            vec![own]
-        };
         let details = eclipse_launcher::worlds::list(&backend::game_home())
             .into_iter()
             .map(|w| {
@@ -453,12 +448,12 @@ impl Launcher {
             mode: GameMode::Survival,
             difficulty: "normal",
             max_players: start.max_players,
-            friends_only: start.friends_only,
+            friends_only: start.friends_only && own.is_some(),
             check_accounts: start.check_accounts,
             offline,
             eula: false,
             eula_missing: false,
-            friends,
+            friends: own.into_iter().collect(),
             details,
         });
     }
@@ -604,18 +599,19 @@ impl Launcher {
         &self,
         id: impl Into<SharedString>,
         label: impl Into<SharedString>,
-        enabled: bool,
+        idle: bool,
+        why: Option<SharedString>,
         cx: &mut Context<Self>,
         action: impl Fn(&mut Self) + 'static,
     ) -> Stateful<Div> {
         let b = ui::button(id, None, label, ButtonKind::Secondary, ui::ButtonSize::Sm);
-        if enabled {
-            b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+        match why {
+            Some(why) => ui::unavailable(b, why),
+            None if idle => b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 action(this);
                 cx.notify();
-            }))
-        } else {
-            ui::disabled(b)
+            })),
+            None => ui::disabled(b),
         }
     }
 

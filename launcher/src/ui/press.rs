@@ -112,9 +112,13 @@ pub fn skipped_by_tab(mut el: Stateful<Div>) -> Stateful<Div> {
 
 pub fn keep_focus(mut el: Stateful<Div>, handle: &FocusHandle) -> Stateful<Div> {
     if let Some(id) = element_name(&mut el) {
-        KEPT.with_borrow_mut(|kept| kept.insert(id, handle.clone()));
+        keep_focus_for(id, handle);
     }
     el.track_focus(handle)
+}
+
+pub fn keep_focus_for(id: impl Into<SharedString>, handle: &FocusHandle) {
+    KEPT.with_borrow_mut(|kept| kept.insert(id.into(), handle.clone()));
 }
 
 pub(super) fn press_handle(el: &mut Stateful<Div>, again: bool) -> Option<FocusHandle> {
@@ -644,7 +648,12 @@ pub fn hand_back_at_ends(pane: Stateful<Div>, handle: &ScrollHandle) -> Stateful
 }
 
 pub fn scroll_list_to(id: impl Into<SharedString>, index: usize) {
-    LISTS.with_borrow_mut(|l| l.entry(id.into()).or_default().handle.scroll_to_item(index));
+    LISTS.with_borrow_mut(|l| {
+        l.entry(id.into())
+            .or_default()
+            .handle
+            .scroll_to_top_of_item(index)
+    });
 }
 
 fn reveal(pane: &ScrollHandle, bounds: Bounds<Pixels>, margin: Pixels) {

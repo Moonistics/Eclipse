@@ -51,6 +51,15 @@ impl Launcher {
         self.owner_shown() == Some(false) && account::client_id().is_none()
     }
 
+    pub(super) fn why_no_sign_in(&self) -> Option<&'static str> {
+        self.cant_sign_in_to_play()
+            .then(|| tr("This copy of the launcher can't sign in yet."))
+    }
+
+    pub(super) fn cant_sign_in_note() -> &'static str {
+        tr("Every instance needs a Microsoft account that owns Minecraft: Java Edition, and this copy of the launcher can't sign in yet.")
+    }
+
     pub(super) fn open_sign_in(&mut self) {
         self.start_sign_in();
         self.show_settings(settings_page::SettingsSection::Account);

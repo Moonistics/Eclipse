@@ -121,7 +121,7 @@ impl Launcher {
         );
         let mut worlds = div().flex().flex_col().gap(px(space::MD));
         if panel.worlds.is_empty() {
-            worlds = worlds.child(ui::card_note(tr("No worlds to put in.")));
+            worlds = worlds.child(ui::card_note(tr("No worlds to include.")));
         }
         for (folder, name, on) in &panel.worlds {
             let key = folder.clone();

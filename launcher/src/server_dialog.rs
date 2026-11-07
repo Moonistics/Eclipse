@@ -697,19 +697,16 @@ impl Launcher {
             );
             return foot;
         }
+        let label = set_up_label(&self.servers_minecraft());
         foot.extend(fix.map(|fix| {
-            ui::button(
+            let button = ui::button(
                 "create-fix",
                 None,
-                tr("Prepare game files"),
+                label,
                 ButtonKind::Secondary,
                 ui::DIALOG_BUTTON,
-            )
-            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.fix(fix.clone(), cx);
-                cx.notify();
-            }))
-            .into_any_element()
+            );
+            self.fix_button(button, fix, cx).into_any_element()
         }));
         let cancel = cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.servers.create = None;

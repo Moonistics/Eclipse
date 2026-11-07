@@ -178,7 +178,11 @@ impl Launcher {
         let path = native_mods::log_path();
         // Rendering clones only the preview lines' shared text handles.
         let loaded = &self.native_log.loaded;
-        let gone = self.native_log.reset.is_some() || matches!(loaded, Some(Err(Missing::None)));
+        let gone = match (&self.native_log.reset, loaded) {
+            (Some(_), _) => Some(tr("The log file is from an earlier build")),
+            (None, Some(Err(Missing::None))) => Some(tr("No build log yet")),
+            _ => None,
+        };
         let open = path.clone();
         let reveal = path.clone();
         let copy = {
@@ -202,7 +206,11 @@ impl Launcher {
                     this.native_log.note = Some(tr("Copied build log.").into());
                     cx.notify();
                 })),
-                _ => ui::disabled(b),
+                None => ui::disabled(b),
+                Some(Err(Missing::None)) => ui::unavailable(b, tr("No build log yet")),
+                Some(Err(Missing::Failed(_))) => {
+                    ui::unavailable(b, tr("The build log couldn't be read"))
+                }
             }
         };
         let mut actions = div()
@@ -219,10 +227,9 @@ impl Launcher {
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
-                if gone {
-                    ui::disabled(b)
-                } else {
-                    b.on_press(move |_, _, cx| crate::toast::open(cx, &open))
+                match gone {
+                    Some(why) => ui::unavailable(b, why),
+                    None => b.on_press(move |_, _, cx| crate::toast::open(cx, &open)),
                 }
             })
             .child({
@@ -233,10 +240,9 @@ impl Launcher {
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
-                if gone {
-                    ui::disabled(b)
-                } else {
-                    b.on_press(move |_, _, cx| cx.reveal_path(&reveal))
+                match gone {
+                    Some(why) => ui::unavailable(b, why),
+                    None => b.on_press(move |_, _, cx| cx.reveal_path(&reveal)),
                 }
             })
             .child(

@@ -33,10 +33,12 @@ pub const DAYBREAK: Theme = Theme {
     sky: [0x0b1030, 0x1a2660, 0x2a3778, 0x7f78c0, 0xe2a0b0, 0xffd6a0],
 };
 
-/// The launcher themes past Eclipse's own sky.
+/// The launcher themes past the night sky.
 pub const THEMES: [Theme; 1] = [DAYBREAK];
 
-/// The theme named `id` (`Settings::theme`); None for Eclipse's own sky or a name this launcher
+pub const DEFAULT_SKY_NAME: &str = "Night";
+
+/// The theme named `id` (`Settings::theme`); None for the night sky or a name this launcher
 /// doesn't know.
 pub fn theme(id: Option<&str>) -> Option<&'static Theme> {
     let id = id?;

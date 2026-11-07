@@ -3,10 +3,11 @@
 //! More tabs for those that don't fit).
 
 use super::*;
-use crate::game_run::InstallState;
 use crate::tab_strip::{Strip, StripTab};
 use crate::ui::{self, white};
 use eclipse_theme::glass::{ink, radius, space, step};
+use std::cell::Cell;
+use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub(super) enum SettingsSection {
@@ -18,7 +19,7 @@ pub(super) enum SettingsSection {
     Network,
     Game,
     Ai,
-    Folders,
+    System,
     Developer,
     DataCollection,
 }
@@ -32,7 +33,7 @@ impl SettingsSection {
         SettingsSection::Network,
         SettingsSection::Game,
         SettingsSection::Ai,
-        SettingsSection::Folders,
+        SettingsSection::System,
         SettingsSection::Developer,
         SettingsSection::DataCollection,
     ];
@@ -57,7 +58,7 @@ impl SettingsSection {
             SettingsSection::Network => "network",
             SettingsSection::Game => "game",
             SettingsSection::Ai => "ai",
-            SettingsSection::Folders => "folders",
+            SettingsSection::System => "system",
             SettingsSection::Developer => "developer",
             SettingsSection::DataCollection => "data-collection",
         }
@@ -76,7 +77,7 @@ impl SettingsSection {
             SettingsSection::Network => tr("Network"),
             SettingsSection::Game => tr("Game"),
             SettingsSection::Ai => tr("AI"),
-            SettingsSection::Folders => tr("Folders"),
+            SettingsSection::System => tr("System"),
             SettingsSection::Developer => tr("Developer"),
             SettingsSection::DataCollection => tr("Data collection"),
         }
@@ -91,7 +92,7 @@ impl SettingsSection {
             SettingsSection::Network => crate::icons::NETWORK,
             SettingsSection::Game => crate::icons::GAME,
             SettingsSection::Ai => crate::icons::AI,
-            SettingsSection::Folders => crate::icons::FOLDERS,
+            SettingsSection::System => crate::icons::FOLDERS,
             SettingsSection::Developer => crate::icons::DEVELOPER,
             SettingsSection::DataCollection => crate::icons::DATA_COLLECTION,
         }
@@ -127,6 +128,26 @@ fn update_row(
         .children(action.map(|a| div().flex_none().child(a)))
 }
 
+fn track_content_beside(
+    scene: &gpui::Entity<scene::Scene>,
+    rail_end: Rc<Cell<f32>>,
+) -> impl IntoElement {
+    let scene = scene.clone();
+    gpui::canvas(
+        move |bounds, _, cx| {
+            let bottom = f32::from(bounds.bottom()).max(rail_end.get());
+            cx.defer(move |cx| {
+                scene.update(cx, |scene, cx| scene.set_content_bottom(bottom, cx));
+            });
+        },
+        |_, _, _, _| {},
+    )
+    .absolute()
+    .top_0()
+    .left_0()
+    .size_full()
+}
+
 fn folder_row(
     id: &'static str,
     name: SharedString,
@@ -148,7 +169,10 @@ impl Launcher {
         } else {
             shown[0]
         };
-        let card = self.settings_card(open, cx);
+        let rail_end = Rc::new(Cell::new(0.));
+        let card = self
+            .settings_card(open, cx)
+            .child(track_content_beside(&self.scene, rail_end.clone()));
         if std::mem::take(&mut self.settings_ui.entering) && ui::keyboard_input() {
             self.settings_ui.enter = ui::try_focus_for(format!("settings-{}", open.id()));
         }
@@ -245,7 +269,10 @@ impl Launcher {
                         cx.notify();
                     });
                 },
-            );
+            )
+            .child(ui::measure(move |bounds| {
+                rail_end.set(f32::from(bounds.bottom()))
+            }));
             div()
                 .flex()
                 .gap(px(layout::CARD_GAP))
@@ -389,32 +416,30 @@ impl Launcher {
             .iter()
             .find(|i| i.kind == instances::Kind::Default)
             .cloned();
-        let busy = own.as_ref().and_then(|i| self.play_state(i).busy_line());
-        let install = own
+        let installing = own
             .as_ref()
-            .map_or(InstallState::NotInstalled, |i| self.install_state(i));
-        let names_version = !matches!(
-            install,
-            InstallState::Ready { pinned: Some(_) } | InstallState::Built(_)
-        );
-        let version = own
-            .as_ref()
-            .and_then(|i| self.plays(i))
-            .and_then(|plays| plays.tag)
-            .filter(|_| names_version)
+            .map(|i| self.play_state(i))
+            .filter(|state| matches!(state, PlayState::Updating(_) | PlayState::Installing(_)))
+            .and_then(PlayState::busy_line);
+        let version = self
+            .default_version()
             .map(|tag| eclipse_launcher::nightly::display_name(tag));
-        let (tone, line) = match busy {
-            Some(line) => (ui::Tone::Busy, line),
-            None => install.line(),
-        };
-        let current = !matches!(
-            install,
-            InstallState::NotInstalled | InstallState::UpdateReady(_)
-        );
-        let line = if current && self.update_check.clean() {
-            format!("{line} · {}", tr("Up to date"))
-        } else {
-            line
+        let installed = version.is_some();
+        let (tone, line) = match (installing, &self.updates.eclipse) {
+            (Some(line), _) => (ui::Tone::Busy, line),
+            (None, Some(update)) => (
+                ui::Tone::Accent(ui::look().accent_soft),
+                trf(
+                    "{version} available",
+                    &[(
+                        "version",
+                        &eclipse_launcher::nightly::display_name(&update.tag),
+                    )],
+                ),
+            ),
+            (None, None) if !installed => (ui::Tone::Off, tr("Not installed").into()),
+            (None, None) if self.update_check.clean() => (ui::Tone::Off, tr("Up to date").into()),
+            (None, None) => (ui::Tone::Off, tr("Not checked").into()),
         };
         let install = self
             .updates
@@ -482,9 +507,9 @@ impl Launcher {
             SelfUpdate::Idle => match &self.updates.launcher {
                 Some(r) => available(backend::launcher_version(&r.tag).unwrap_or_default()),
                 None if self.update_check.clean() => {
-                    ui::state_line(ui::Tone::Live, tr("Up to date")).into_any_element()
+                    ui::state_line(ui::Tone::Off, tr("Up to date")).into_any_element()
                 }
-                None => div().into_any_element(),
+                None => ui::state_line(ui::Tone::Off, tr("Not checked")).into_any_element(),
             },
         };
         let action = match &self.self_update {
@@ -616,19 +641,16 @@ impl Launcher {
             SettingsSection::Network => card.child(self.proxy_row(cx)),
             SettingsSection::Game => card
                 .child(self.while_playing_row(cx))
-                .when(cfg!(target_os = "linux"), |d| {
-                    d.child(self.menu_entry_row(cx))
-                })
                 .child(self.game_architecture_row(cx))
                 .child(self.game_args_row(cx)),
             SettingsSection::Ai => card
                 .child(self.ai_features_row(cx))
                 .children(self.agents_section(cx)),
-            SettingsSection::Folders => card
+            SettingsSection::System => card
                 .child(self.minecraft_folder_row(cx))
                 .child(folder_row(
                     "open-data",
-                    tr("Data folder").into(),
+                    tr("Launcher data folder").into(),
                     tr("Open data folder").into(),
                     backend::data_dir(),
                 ))
@@ -637,7 +659,10 @@ impl Launcher {
                     tr("Logs folder").into(),
                     tr("Open logs folder").into(),
                     backend::logs_dir(),
-                )),
+                ))
+                .when(cfg!(target_os = "linux"), |d| {
+                    d.child(self.menu_entry_row(cx))
+                }),
             SettingsSection::Developer => card.child(self.dev_offline_row(cx)),
             SettingsSection::DataCollection => card.child(self.collection_section(cx)),
         }
@@ -805,7 +830,11 @@ impl Launcher {
             )
             .w_full()
             .max_w(px(layout::FIELD_XL));
-        ui::setting_row_stacked(tr("Eclipse game arguments"), None, field.into_any_element())
+        ui::setting_row_stacked(
+            tr("Default Eclipse game arguments"),
+            None,
+            field.into_any_element(),
+        )
     }
 
     /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in
@@ -830,7 +859,7 @@ impl Launcher {
             (false, Some(why)) => Some(ui::error_note(why).into_any_element()),
             _ => None,
         };
-        ui::setting_row_stacked(tr("Proxy"), detail, field.into_any_element())
+        ui::setting_row_stacked(tr("Proxy address"), detail, field.into_any_element())
     }
 
     /// Keeps the Proxy field in `settings.json`, and tells the parts that build their own agents

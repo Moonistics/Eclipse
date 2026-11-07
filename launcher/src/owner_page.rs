@@ -62,11 +62,12 @@ impl Launcher {
         use crate::ui::{self};
         use eclipse_theme::glass::{ink, space};
         let panel = || ui::well().mt(px(space::XL));
-        let ask = match state {
-            Shown::Unavailable => tr(
-                "Vanilla and modded instances need Microsoft sign-in, which this copy of the launcher doesn't have yet.",
+        let (title, ask) = match state {
+            Shown::Unavailable => (tr("Microsoft sign-in needed"), Self::cant_sign_in_note()),
+            _ => (
+                tr("Sign in to play"),
+                tr("Sign in with the Microsoft account that owns Minecraft: Java Edition."),
             ),
-            _ => tr("Sign in with the Microsoft account that owns Minecraft: Java Edition."),
         };
         let mut card = div().flex().flex_col().child(
             ui::text(
@@ -152,7 +153,7 @@ impl Launcher {
             card = card.child(ui::card_note(tr("Waiting for Microsoft…")).mt(px(space::MD)));
         }
         let foot = vec![ui::dialog_foot(later, main).into_any_element()];
-        ui::modal("owner-gate", tr("Sign in to play"), None)
+        ui::modal("owner-gate", title, None)
             .flex()
             .items_center()
             .justify_center()
@@ -160,7 +161,7 @@ impl Launcher {
             .child(ui::dialog(
                 "owner-card",
                 Some(tr("Microsoft account").into()),
-                tr("Sign in to play"),
+                title,
                 ui::DialogWidth::Narrow,
                 card,
                 foot,

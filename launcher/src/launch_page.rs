@@ -1,19 +1,40 @@
-//! Launch… on Home's Instance row: what runs around the selected instance's game
-//! (`eclipse_launcher::launch`): a command before it, a wrapper, and environment variables.
+//! Edit instance's launch options (`eclipse_launcher::launch`): a command before the game, a
+//! wrapper, environment variables, a command after it, the Linux switches and, for an Eclipse
+//! instance, its own game arguments. Save changes keeps them with the rest of the page.
 use super::fields::Field;
 use super::*;
 use crate::ui;
+use eclipse_launcher::instances::Instance;
 use eclipse_launcher::launch;
-use eclipse_theme::glass::{ink, space, step};
-use gpui::FontWeight;
+use eclipse_theme::glass::space;
+use instance_state::NewKind;
 
 pub(super) struct LaunchPanel {
-    /// The instance it is for: picking another closes it.
+    /// The instance whose options the fields hold, as Edit opened it.
     instance: String,
-    /// What Save did: Ok with the summary of what runs (None when nothing runs), or Err with reason.
-    saved: Option<Result<Option<String>, String>>,
-    /// What this computer has for the Linux switches, looked at when the panel opens.
+    switches: Switches,
+    /// What this computer has for the Linux switches, looked at when Edit opens.
     found: launch::Found,
+    /// Why Save refused the environment variables.
+    env_error: Option<String>,
+    reveal: bool,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq)]
+struct Switches {
+    gamemode: bool,
+    mangohud: bool,
+    dedicated_gpu: bool,
+}
+
+impl Switches {
+    fn of(launch: &launch::Launch) -> Self {
+        Switches {
+            gamemode: launch.gamemode,
+            mangohud: launch.mangohud,
+            dedicated_gpu: launch.dedicated_gpu,
+        }
+    }
 }
 
 /// What saving the memory slider did, kept to show under the slider in the active language.
@@ -25,7 +46,7 @@ pub(super) enum MemorySaved {
     Error(String),
 }
 
-/// The memory row on Home. What it shows comes from the selected instance, except during a drag.
+/// Edit instance's memory row. What it shows comes from the instance, except during a drag.
 #[derive(Default)]
 pub(super) struct MemorySlider {
     /// The computer's memory in MiB, read once: the slider's top.
@@ -49,8 +70,6 @@ impl MemorySlider {
     }
 }
 
-const FIELD_WIDTH: f32 = 520.;
-
 /// A Linux switch: which one, its label, and what it does.
 #[derive(Clone, Copy, Debug)]
 enum Toggle {
@@ -60,74 +79,150 @@ enum Toggle {
 }
 
 impl Launcher {
-    pub(super) fn toggle_launch(&mut self) {
-        if self.launch.take().is_some() {
-            return;
-        }
-        let Some(i) = self.selected_instance().cloned() else {
-            return;
-        };
-        self.fields
-            .text(Field::PreLaunch)
-            .set(i.launch.pre_launch.clone());
+    fn load_launch_options(&mut self, instance: &Instance, reveal: bool) {
+        let l = &instance.launch;
+        self.fields.text(Field::PreLaunch).set(l.pre_launch.clone());
         self.fields
             .text(Field::LaunchWrapper)
-            .set(i.launch.wrapper.clone());
+            .set(l.wrapper.clone());
         self.fields
             .text(Field::LaunchEnv)
-            .set(launch::env_line(&i.launch.env));
+            .set(launch::env_line(&l.env));
+        self.fields.text(Field::PostExit).set(l.post_exit.clone());
         self.fields
-            .text(Field::PostExit)
-            .set(i.launch.post_exit.clone());
+            .text(Field::InstanceGameArgs)
+            .set(instance.game_args.clone().unwrap_or_default());
+        self.fields.set_field_invalid(Field::LaunchEnv, false);
         self.launch = Some(LaunchPanel {
-            instance: i.id,
-            saved: None,
+            instance: instance.id.clone(),
+            switches: Switches::of(l),
             found: launch::Found::here(),
+            env_error: None,
+            reveal,
         });
     }
 
-    pub(super) fn save_launch(&mut self) {
-        let Some(id) = self.launch.as_ref().map(|p| p.instance.clone()) else {
-            return;
-        };
-        let pre = self.fields.value(Field::PreLaunch).trim().to_string();
-        let wrapper = self.fields.value(Field::LaunchWrapper).trim().to_string();
-        let post_exit = self.fields.value(Field::PostExit).trim().to_string();
-        let saved = launch::parse_env(self.fields.value(Field::LaunchEnv)).and_then(|env| {
-            instances::edit(&id, |m| {
-                m.launch = launch::Launch {
-                    pre_launch: pre,
-                    wrapper,
-                    env,
-                    post_exit,
-                    ..m.launch.clone()
-                }
-            })
-        });
-        let saved = saved.map(|i| {
-            self.reload_instances();
-            i.launch.summary()
-        });
-        if let Some(p) = &mut self.launch {
-            p.saved = Some(saved);
+    pub(super) fn open_at_launch_options(&mut self, instance: &Instance) {
+        self.load_launch_options(instance, true);
+        self.focus_page = false;
+        self.fields.focus_soon = Some(Field::PreLaunch);
+    }
+
+    pub(super) fn sync_launch_options(&mut self, editing: &Instance, opening: bool) {
+        let filled = self
+            .launch
+            .as_ref()
+            .filter(|p| p.instance == editing.id)
+            .is_some_and(|p| p.reveal || !opening);
+        if !filled {
+            self.load_launch_options(editing, false);
         }
     }
 
-    /// Flips a Linux switch, saved at once.
+    pub(super) fn reveal_launch_options(&mut self, settled: bool) -> bool {
+        let Some(panel) = &mut self.launch else {
+            return false;
+        };
+        let reveal = panel.reveal;
+        panel.reveal &= !settled;
+        reveal
+    }
+
+    fn edits_game_args(&self) -> bool {
+        self.instances
+            .draft
+            .as_ref()
+            .is_some_and(|d| d.java.kind == NewKind::Eclipse)
+    }
+
+    fn typed(&self, f: Field) -> &str {
+        self.fields.value(f).trim()
+    }
+
+    fn launch_instance(&self) -> Option<&Instance> {
+        let id = &self.launch.as_ref()?.instance;
+        let editing = self.instances.draft.as_ref()?.editing.as_ref()?;
+        (id == editing)
+            .then(|| self.instances.list.iter().find(|i| &i.id == id))
+            .flatten()
+    }
+
+    pub(super) fn launch_options_changed(&self) -> bool {
+        let (Some(panel), Some(i)) = (&self.launch, self.launch_instance()) else {
+            return false;
+        };
+        let l = &i.launch;
+        self.typed(Field::PreLaunch) != l.pre_launch.trim()
+            || self.typed(Field::LaunchWrapper) != l.wrapper.trim()
+            || self.typed(Field::LaunchEnv) != launch::env_line(&l.env)
+            || self.typed(Field::PostExit) != l.post_exit.trim()
+            || panel.switches != Switches::of(l)
+            || (self.edits_game_args()
+                && self.typed(Field::InstanceGameArgs) != i.game_args.as_deref().unwrap_or(""))
+    }
+
+    pub(super) fn save_launch_options(&mut self) -> bool {
+        if !self.launch_options_changed() {
+            return true;
+        }
+        let Some(panel) = &self.launch else {
+            return true;
+        };
+        let (id, switches) = (panel.instance.clone(), panel.switches);
+        let env = match launch::parse_env(self.fields.value(Field::LaunchEnv)) {
+            Ok(env) => env,
+            Err(e) => {
+                self.fields.set_field_invalid(Field::LaunchEnv, true);
+                if let Some(panel) = &mut self.launch {
+                    panel.env_error = Some(e);
+                }
+                return false;
+            }
+        };
+        let pre_launch = self.typed(Field::PreLaunch).to_string();
+        let wrapper = self.typed(Field::LaunchWrapper).to_string();
+        let post_exit = self.typed(Field::PostExit).to_string();
+        let args = self.edits_game_args().then(|| {
+            Some(self.typed(Field::InstanceGameArgs).to_string()).filter(|a| !a.is_empty())
+        });
+        let saved = instances::edit(&id, |m| {
+            m.launch = launch::Launch {
+                pre_launch,
+                wrapper,
+                env,
+                post_exit,
+                gamemode: switches.gamemode,
+                mangohud: switches.mangohud,
+                dedicated_gpu: switches.dedicated_gpu,
+            };
+            if let Some(args) = args {
+                m.game_args = args;
+            }
+        });
+        match saved {
+            Ok(_) => {
+                self.reload_instances();
+                true
+            }
+            Err(e) => {
+                if let Some(d) = &mut self.instances.draft {
+                    d.error = Some(e);
+                }
+                false
+            }
+        }
+    }
+
     fn flip(&mut self, toggle: Toggle) {
         let Some(panel) = &mut self.launch else {
             return;
         };
-        let saved = instances::edit(&panel.instance, |m| {
-            let on = match toggle {
-                Toggle::GameMode => &mut m.launch.gamemode,
-                Toggle::MangoHud => &mut m.launch.mangohud,
-                Toggle::Gpu => &mut m.launch.dedicated_gpu,
-            };
-            *on = !*on;
-        });
-        panel.saved = Some(saved.map(|i| i.launch.summary()));
-        self.reload_instances();
+        let on = match toggle {
+            Toggle::GameMode => &mut panel.switches.gamemode,
+            Toggle::MangoHud => &mut panel.switches.mangohud,
+            Toggle::Gpu => &mut panel.switches.dedicated_gpu,
+        };
+        *on = !*on;
     }
 
     /// The Java instance being edited, or the selected Java instance on Home.
@@ -318,8 +413,8 @@ impl Launcher {
     /// The Linux switches this computer can use: GameMode and MangoHud when installed, the
     /// dedicated GPU with two cards.
     fn linux_switches(&self, cx: &mut Context<Self>) -> Option<Div> {
-        let found = self.launch.as_ref()?.found;
-        let now = self.selected_instance()?.launch.clone();
+        let panel = self.launch.as_ref()?;
+        let (found, now) = (panel.found, panel.switches);
         let mut list = div().flex().flex_col().gap(px(space::MD));
         for (toggle, shown, on, label, about) in [
             (
@@ -369,124 +464,107 @@ impl Launcher {
                     .children(about.map(|about| ui::card_note(tr(about)))),
             );
         }
-        found
-            .any()
-            .then(|| ui::field_group("launch-found-title", tr("On this computer"), None, list))
-    }
-
-    /// The Launch card on Home, while open for the selected instance.
-    pub(super) fn launch_panel(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let selected = self.selected_instance().map(|i| i.id.clone());
-        if self.launch.as_ref().map(|p| &p.instance) != selected.as_ref() {
-            self.launch = None;
-        }
-        let saved = self.launch.as_ref()?.saved.clone();
-        let row = |this: &mut Self,
-                   cx: &mut Context<Self>,
-                   label: &'static str,
-                   field: Field,
-                   placeholder: &'static str,
-                   about: Option<&'static str>| {
+        found.any().then(|| {
             div()
                 .flex()
                 .flex_col()
                 .gap(px(space::SM))
-                .child(ui::label(tr(label)))
-                .child(
-                    this.field(field, tr(placeholder), FIELD_WIDTH, ui::ButtonSize::Md, cx)
-                        .max_w_full(),
-                )
-                .children(about.map(|about| ui::card_note(tr(about))))
+                .child(ui::label(tr("On this computer")))
+                .child(list)
+        })
+    }
+
+    fn launch_field(
+        &mut self,
+        f: Field,
+        label: &'static str,
+        placeholder: &'static str,
+        note: Option<AnyElement>,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let field = self
+            .field(f, tr(placeholder), layout::FIELD_XL, ui::ButtonSize::Md, cx)
+            .w_full()
+            .max_w(px(layout::FIELD_XL));
+        ui::labelled_field(tr(label), field).children(note)
+    }
+
+    fn game_args_note(&self) -> Option<AnyElement> {
+        let default = self.settings.game_args.trim();
+        if default.is_empty() {
+            return None;
+        }
+        let args = [("args", default)];
+        let said = if self.typed(Field::InstanceGameArgs).is_empty() {
+            trf("The default applies: {args}", &args)
+        } else {
+            trf("Used instead of the default: {args}", &args)
         };
-        let pre = row(
-            self,
-            cx,
-            "Command before the game",
-            Field::PreLaunch,
-            "For example ./backup.sh",
-            Some("The game starts only if this command succeeds."),
+        Some(ui::card_note(said).into_any_element())
+    }
+
+    pub(super) fn launch_card(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let before = Some(
+            ui::card_note(tr("The game starts only if this command succeeds.")).into_any_element(),
         );
-        let wrapper = row(
-            self,
+        let pre = self.launch_field(
+            Field::PreLaunch,
+            "Command before the game",
+            "For example ./backup.sh",
+            before,
             cx,
-            "Run the game through",
+        );
+        let wrapper = self.launch_field(
             Field::LaunchWrapper,
+            "Run the game through",
             "For example nice -n 5",
             None,
-        );
-        let env = row(
-            self,
             cx,
-            "Environment variables",
+        );
+        let refused = self
+            .launch
+            .as_ref()
+            .and_then(|p| p.env_error.clone())
+            .filter(|_| {
+                self.fields
+                    .invalid
+                    .is_some_and(|(f, _)| f == Field::LaunchEnv)
+            })
+            .map(|e| ui::error_note(e).into_any_element());
+        let env = self.launch_field(
             Field::LaunchEnv,
+            "Environment variables",
             "For example NAME=value OTHER=\"two words\"",
-            None,
-        );
-        let post = row(
-            self,
+            refused,
             cx,
-            "Command after the game",
+        );
+        let post = self.launch_field(
             Field::PostExit,
+            "Command after the game",
             "For example ./backup.sh",
             None,
+            cx,
         );
-        let save = ui::button(
-            "launch-save",
-            None,
-            tr("Save"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.save_launch();
-            cx.notify();
-        }));
-        let result = saved.map(|s| match s {
-            Ok(Some(what)) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
-                .child(trf("Saved: the next Play {what}.", &[("what", &what)])),
-            Ok(None) => ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(tr("Saved.")),
-            Err(e) => ui::error_note(e),
+        let args = self.edits_game_args().then(|| {
+            let note = self.game_args_note();
+            self.launch_field(
+                Field::InstanceGameArgs,
+                "Eclipse game arguments",
+                "For example --server-thread",
+                note,
+                cx,
+            )
         });
-        let close = ui::icon_button(
-            "launch-close",
-            "cancel-01",
-            tr("Close"),
-            ButtonKind::Ghost,
-            ui::ButtonSize::Sm,
-            false,
-        )
-        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.launch = None;
-            cx.notify();
-        }));
-        Some(
-            ui::card()
-                .flex()
-                .flex_col()
-                .gap(px(space::LG))
-                .p(px(ui::CARD_PADDING))
-                .child(
-                    div()
-                        .flex()
-                        .items_center()
-                        .justify_between()
-                        .child(ui::section_title("launch-title", tr("Launch options")))
-                        .child(close),
-                )
-                .child(pre)
-                .child(wrapper)
-                .child(env)
-                .child(post)
-                .children(self.linux_switches(cx))
-                .child(
-                    div()
-                        .flex()
-                        .flex_wrap()
-                        .items_center()
-                        .gap(px(space::MD))
-                        .child(save)
-                        .children(result),
-                ),
-        )
+        let body = div()
+            .flex()
+            .flex_col()
+            .gap(px(space::LG))
+            .child(pre)
+            .child(wrapper)
+            .child(env)
+            .child(post)
+            .children(args)
+            .children(self.linux_switches(cx));
+        ui::section_card("instance-launch", tr("Launch options"), None, body)
     }
 }

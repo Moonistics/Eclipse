@@ -9,7 +9,7 @@
 //!   source lists for the kind.
 //! - Icons and gallery images come from the source's image servers at run time, cached on disk;
 //!   a placeholder stands in until one arrives.
-use super::mods_page::{Checking, Event};
+use super::mods_page::{licence_name, Checking, Event};
 use super::*;
 use crate::tab_strip::{Strip, StripTab};
 use crate::ui::{self, white};
@@ -690,7 +690,7 @@ impl Launcher {
             }
         }
         if !p.license.is_empty() {
-            meta.push(p.license.clone());
+            meta.push(licence_name(&p.license));
         }
         if let Some(source) = p.source.shown_for(&p.id) {
             meta.push(trf("from {source}", &[("source", source)]));
@@ -767,18 +767,8 @@ impl Launcher {
             }
             action = action.child(install);
         } else if let Some(minecraft) = vanilla {
-            action = action.child(
-                ui::primary(
-                    "mods-page-new-fabric",
-                    Some("plus-sign"),
-                    tr("Create a Fabric instance…"),
-                    ui::ButtonSize::Md,
-                )
-                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.mods_new_fabric(minecraft.clone(), cx);
-                    cx.notify();
-                })),
-            );
+            action =
+                action.child(self.mods_new_fabric_button("mods-page-new-fabric", minecraft, cx));
         }
         let head = div()
             .flex()

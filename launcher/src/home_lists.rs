@@ -41,13 +41,13 @@ impl Launcher {
             None => None,
         };
         let mut body = div().flex().flex_col();
-        let open = ui::open_folder_button(
-            "worlds-folder",
-            tr("Open saves folder"),
-            home.join("saves"),
-            ui::ButtonSize::Md,
-        );
         if list.is_empty() {
+            let open = ui::open_folder_button(
+                "worlds-folder",
+                tr("Open saves folder"),
+                home.join("saves"),
+                ui::ButtonSize::Md,
+            );
             return Some(body.children(done).child(ui::empty_state(
                 "worlds-empty",
                 crate::icons::WORLD,
@@ -56,14 +56,27 @@ impl Launcher {
                 vec![open],
             )));
         }
-        body = body
-            .child(ui::list_head(SharedString::default()).child(open))
-            .children(done);
+        body = body.children(done);
         for w in list {
             let row = self.world_row(&w, cx);
             body = body.child(row).children(self.world_packs_panel(&w, cx));
         }
         Some(body)
+    }
+
+    pub(super) fn worlds_folder(&self) -> Option<(Stateful<Div>, f32)> {
+        let saves = self.selected_instance()?.home.join("saves");
+        let size = ui::ButtonSize::Md;
+        let open = ui::icon_button(
+            "worlds-folder",
+            "folder-01",
+            tr("Open saves folder"),
+            ButtonKind::Ghost,
+            size,
+            false,
+        )
+        .on_press(move |_, _, cx| ui::open_folder(&saves, cx));
+        (!self.worlds.list.is_empty()).then_some((open, size.height()))
     }
 
     fn world_row(&mut self, w: &World, cx: &mut Context<Self>) -> Div {
@@ -72,12 +85,13 @@ impl Launcher {
         let menu_open = self.menu_is(&Menu::WorldRow(w.folder.clone()));
         let busy = self.worlds.busy.is_some();
         let this_busy = self.worlds.busy.as_ref() == Some(&w.folder);
-        let can_play = self.can_start_selected() && !busy;
+        let no_sign_in = self.why_no_sign_in();
+        let can_play = no_sign_in.is_none() && self.can_start_selected() && !busy;
         let why_not = (!can_play && !busy).then(|| {
             if self.selected_instance().is_some_and(|i| i.java.is_some()) {
                 tr("Start it from the game's menu").to_string()
             } else {
-                self.why_not_start()
+                no_sign_in.map_or_else(|| self.why_not_start(), String::from)
             }
         });
         let mut facts = vec![tr(w.mode).to_string()];
@@ -291,7 +305,7 @@ impl Launcher {
                 vec![add],
             )));
         }
-        body = body.child(if adding {
+        body = body.children(adding.then(|| {
             div()
                 .flex()
                 .items_center()
@@ -299,18 +313,7 @@ impl Launcher {
                 .px(px(space::MD))
                 .pb(px(space::SM))
                 .child(ui::section_title("server-form-title", tr("Add a server")))
-        } else {
-            ui::list_head(SharedString::default()).child(
-                ui::button(
-                    "server-add",
-                    Some("plus-sign"),
-                    tr("Add server"),
-                    ButtonKind::Secondary,
-                    ui::ButtonSize::Md,
-                )
-                .on_press(toggle_add(cx)),
-            )
-        });
+        }));
         if let Some(e) = self.multiplayer.error.clone() {
             body = body.child(ui::error_line_for(
                 "multiplayer-failed",
@@ -390,6 +393,23 @@ impl Launcher {
         Some(body)
     }
 
+    pub(super) fn add_server_button(&self, cx: &mut Context<Self>) -> Option<(Stateful<Div>, f32)> {
+        if self.multiplayer.list.is_empty() || self.multiplayer.adding {
+            return None;
+        }
+        let (label, size) = (tr("Add server"), ui::ButtonSize::Md);
+        let add = ui::button(
+            "server-add",
+            Some("plus-sign"),
+            label,
+            ButtonKind::Secondary,
+            size,
+        )
+        .on_press(toggle_add(cx));
+        let width = ui::button_width(label, true, ButtonKind::Secondary, size);
+        Some((add, width))
+    }
+
     fn server_row(
         &mut self,
         server: eclipse_launcher::server_list::Server,
@@ -434,6 +454,8 @@ impl Launcher {
         );
         let join = if offline {
             ui::unavailable(join, tr("The server is offline"))
+        } else if let Some(why) = self.why_no_sign_in() {
+            ui::unavailable(join, why)
         } else if self.can_join_selected() {
             join.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.quick_play(QuickPlay::Server(ip.clone()));

@@ -598,11 +598,26 @@ pub fn error_state_told(
     extra: Vec<Stateful<Div>>,
     retry: ButtonKind,
 ) -> Stateful<Div> {
+    let again = crate::tr("Try again");
+    error_state_again(id, title, cause, error, again, on_retry, extra, retry)
+}
+
+#[allow(clippy::too_many_arguments)]
+pub fn error_state_again(
+    id: impl Into<SharedString>,
+    title: impl Into<StateTitle>,
+    cause: impl Into<SharedString>,
+    error: &str,
+    again: impl Into<SharedString>,
+    on_retry: impl Fn(&ClickEvent, &mut Window, &mut App) + 'static,
+    extra: Vec<Stateful<Div>>,
+    retry: ButtonKind,
+) -> Stateful<Div> {
     let id: SharedString = id.into();
     let retry = super::any_button(
         format!("{id}-retry"),
         Some(crate::icons::RETRY),
-        crate::tr("Try again"),
+        again,
         retry,
         ButtonSize::Md,
     )

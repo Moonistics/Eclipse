@@ -126,7 +126,11 @@ impl Launcher {
         let hovered = ui::hover_within(&key);
         let which = (pack.kind, pack.file.clone());
         let confirming = self.is_asking(&Asking::GamePack(which.0, which.1.clone()));
-        let running = self.selected_play_state().playing();
+        let held = self
+            .selected_play_state()
+            .playing()
+            .then(|| self.busy_reason())
+            .flatten();
         let mut note = vec![match (pack.kind, pack.enabled) {
             (PackKind::Resource, true) => tr("Resource pack · on"),
             (PackKind::Resource, false) => tr("Resource pack · off"),
@@ -138,23 +142,23 @@ impl Launcher {
             note.push(pack.description.clone());
         }
         let toggle = ui::toggle(SharedString::from(format!("{key}-toggle")), pack.enabled);
-        let toggle = if running {
-            ui::disabled(toggle)
+        let toggle = if let Some(why) = held.clone() {
+            ui::unavailable(toggle, why)
         } else {
             let flip = pack.clone();
             toggle.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 let flip = flip.clone();
                 this.pack_action(move |home| {
                     packs::set_enabled(home, &flip, !flip.enabled).map(|()| match flip.enabled {
-                        true => trf("{name} is off.", &[("name", &flip.title)]),
-                        false => trf("{name} is on.", &[("name", &flip.title)]),
+                        true => trf("{name} is off", &[("name", &flip.title)]),
+                        false => trf("{name} is on", &[("name", &flip.title)]),
                     })
                 });
                 cx.notify();
             }))
         };
         let remove = SharedString::from(format!("{key}-remove"));
-        let end = if confirming && !running {
+        let end = if confirming && held.is_none() {
             let gone = pack.clone();
             ui::confirm(
                 remove,
@@ -167,15 +171,15 @@ impl Launcher {
                     let gone = gone.clone();
                     this.pack_action(move |home| {
                         packs::remove(home, &gone)
-                            .map(|()| trf("{name} moved to the trash.", &[("name", &gone.title)]))
+                            .map(|()| trf("{name} moved to the trash", &[("name", &gone.title)]))
                     });
                     cx.notify();
                 }),
             )
         } else {
             let ask = ui::remove_button(remove, tr("Delete…"), ui::ButtonSize::Md);
-            let ask = if running {
-                ui::disabled(ask)
+            let ask = if let Some(why) = held {
+                ui::unavailable(ask, why)
             } else {
                 ask.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.asking = Some(Asking::GamePack(which.0, which.1.clone()));

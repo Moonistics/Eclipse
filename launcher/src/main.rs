@@ -175,15 +175,19 @@ impl Page {
         }
     }
 
+    fn tracks_own_content(self) -> bool {
+        matches!(self, Page::Settings | Page::InstanceEditor)
+    }
+
     fn icon(self) -> &'static str {
         match self {
             Page::Home => crate::icons::HOME,
-            Page::Mods => "puzzle",
+            Page::Mods => crate::icons::MODS,
             Page::Servers => crate::icons::SERVER,
             Page::Versions => crate::icons::VERSION,
             Page::Notes => crate::icons::NOTES,
             Page::Settings => crate::icons::SETTINGS,
-            Page::InstanceEditor => "plus-sign",
+            Page::InstanceEditor => crate::icons::NEW_INSTANCE,
         }
     }
 }
@@ -324,6 +328,7 @@ struct Launcher {
     download_seen: Option<(Instant, usize)>,
     /// The tab open under Home's head (`home_tabs.rs`).
     home_tab: home_tabs::HomeTab,
+    home_tabs_drawn: Option<Vec<home_tabs::HomeTab>>,
     /// The selected instance's mods, for Home's Mods tab (`instance_mods.rs`).
     instance_mods: instance_mods::InstanceMods,
     /// Modrinth projects' icon URLs (`instance_mods.rs`).
@@ -478,6 +483,7 @@ impl Launcher {
             perf: perf::Perf::new("session"),
             download_seen: None,
             home_tab: home_tabs::HomeTab::from_env(),
+            home_tabs_drawn: None,
             instance_mods: Default::default(),
             project_icons: Default::default(),
             bench: perf::Bench::from_env(),
@@ -1599,7 +1605,9 @@ impl Render for Launcher {
             // Let the page shrink inside the padded flex row so long notices can wrap.
             .min_w_0()
             .child(content)
-            .child(scene::track_content(&self.scene))
+            .when(!self.page.tracks_own_content(), |d| {
+                d.child(scene::track_content(&self.scene))
+            })
             .with_animation(
                 ElementId::named_usize("page", self.switches),
                 motion::eased(motion::ARRIVE),
@@ -1657,9 +1665,10 @@ impl Render for Launcher {
                                                     return;
                                                 }
                                                 cx.on_next_frame(window, |this, _, cx| {
-                                                    if this
-                                                        .mods_sticky
-                                                        .moved(&this.content_scroll.handle)
+                                                    if this.mod_detail_floats()
+                                                        || this
+                                                            .mods_sticky
+                                                            .moved(&this.content_scroll.handle)
                                                     {
                                                         cx.notify();
                                                     }

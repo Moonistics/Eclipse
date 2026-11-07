@@ -1,4 +1,4 @@
-//! Settings' AI rows: the Show AI features switch (`eclipse_core::no_ai`, shared with the game)
+//! Settings' AI rows: the Show AI agent tools switch (`eclipse_core::no_ai`, shared with the game)
 //! and "Connect an AI agent": a one-click add where the client has a CLI (run only on that click),
 //! else its ready-made MCP config with a Copy button, and a test that starts the MCP server. With
 //! AI features hidden, only the switch shows.
@@ -25,10 +25,10 @@ pub(crate) struct AgentsUi {
 }
 
 impl Launcher {
-    /// The Show AI features row: always shown, so they can be shown again.
+    /// The Show AI agent tools row: always shown, so they can be shown again.
     pub(crate) fn ai_features_row(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let shown = !backend::no_ai();
-        ui::toggle_row("ai-features", tr("Show AI features"), None, shown).on_press(cx.listener(
+        ui::toggle_row("ai-features", tr("Show AI agent tools"), None, shown).on_press(cx.listener(
             move |this, _: &ClickEvent, _, cx| {
                 this.agents.status = backend::set_no_ai(shown).err().map(|e| (false, e));
                 cx.notify();
@@ -101,7 +101,9 @@ impl Launcher {
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             );
-            let add = if running.is_some() {
+            let add = if running == Some(AgentJob::Test) {
+                ui::unavailable(add, tr("The connection test is still running"))
+            } else if running.is_some() {
                 ui::disabled(add)
             } else {
                 add.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -151,7 +153,12 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        let test = if running.is_some() {
+        let test = if running == Some(AgentJob::Add) {
+            ui::unavailable(
+                test,
+                trf("Still adding to {client}", &[("client", client.name)]),
+            )
+        } else if running.is_some() {
             ui::disabled(test)
         } else {
             test.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {

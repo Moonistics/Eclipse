@@ -28,11 +28,12 @@ pub(super) enum Field {
     MultiplayerAddress,
     /// Home's Console's search (`console_page.rs`).
     ConsoleSearch,
-    /// The Launch panel's (`launch_page.rs`).
+    /// Edit instance's launch options (`launch_page.rs`).
     PreLaunch,
     LaunchWrapper,
     LaunchEnv,
     PostExit,
+    InstanceGameArgs,
     /// Edit instance's memory row (`launch_page.rs`).
     MemoryLimit,
     /// Settings' new offline name (`settings_account.rs`).
@@ -68,14 +69,15 @@ impl Field {
             Field::LaunchWrapper => tr("Run the game through"),
             Field::LaunchEnv => tr("Environment variables"),
             Field::PostExit => tr("Command after the game"),
+            Field::InstanceGameArgs => tr("Eclipse game arguments"),
             Field::MemoryLimit => tr("Maximum memory"),
             Field::OfflineName => tr("Offline name"),
             Field::AccentHex => tr("Accent colour (hex)"),
             Field::InviteCode => tr("Invite code"),
             Field::ModsSearch => tr("Search mods"),
             Field::GithubLink => tr("GitHub repository link"),
-            Field::GameArgs => tr("Eclipse game arguments"),
-            Field::Proxy => tr("Proxy"),
+            Field::GameArgs => tr("Default Eclipse game arguments"),
+            Field::Proxy => tr("Proxy address"),
             Field::PaletteSearch => tr("Search commands"),
         }
     }
@@ -87,7 +89,7 @@ impl Field {
     fn empty(self) -> LineEdit {
         let max = match self {
             Field::InviteCode | Field::Proxy => 256,
-            Field::GameArgs => 1024,
+            Field::GameArgs | Field::InstanceGameArgs => 1024,
             Field::ModsSearch => 100,
             Field::GithubLink => 300,
             Field::PaletteSearch => 80,
@@ -349,7 +351,13 @@ impl Launcher {
             | Field::ServerPort => self.server_field_enter(f),
             Field::TailscaleToken => self.save_token(),
             Field::FriendEmail => self.invite_friend(),
-            Field::InstanceName | Field::InstanceGroup => self.save_instance(cx),
+            Field::InstanceName
+            | Field::InstanceGroup
+            | Field::PreLaunch
+            | Field::LaunchWrapper
+            | Field::LaunchEnv
+            | Field::PostExit
+            | Field::InstanceGameArgs => self.save_instance(cx),
             Field::VersionSearch
             | Field::InstanceModsFilter
             | Field::ConsoleSearch
@@ -357,9 +365,6 @@ impl Launcher {
             | Field::GameArgs
             | Field::Proxy => {}
             Field::PaletteSearch => self.palette_enter(window, cx),
-            Field::PreLaunch | Field::LaunchWrapper | Field::LaunchEnv | Field::PostExit => {
-                self.save_launch()
-            }
             Field::MemoryLimit => self.memory_enter(),
             Field::OfflineName => self.offline_name_enter(),
             Field::MultiplayerName | Field::MultiplayerAddress => self.add_server(),

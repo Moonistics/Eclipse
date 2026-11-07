@@ -293,10 +293,12 @@ impl Launcher {
     }
 
     pub(super) fn draft_changed(&self) -> bool {
-        self.instances
-            .draft
-            .as_ref()
-            .is_some_and(|d| d.opened.is_some() && d.opened != self.draft_shape())
+        self.launch_options_changed()
+            || self
+                .instances
+                .draft
+                .as_ref()
+                .is_some_and(|d| d.opened.is_some() && d.opened != self.draft_shape())
     }
 
     pub(super) fn remember_draft(&mut self) {
@@ -327,6 +329,9 @@ impl Launcher {
     /// Creates or changes the instance as the page says. A copy can be gigabytes of worlds, so
     /// the work runs in the background.
     pub(super) fn save_instance(&mut self, cx: &mut Context<Self>) {
+        if !self.save_launch_options() {
+            return;
+        }
         let selected = self.selected_instance().map(|i| i.id.clone());
         let name = self.fields.value(Field::InstanceName).trim().to_string();
         let group = Some(self.fields.value(Field::InstanceGroup).to_string());
@@ -506,9 +511,9 @@ impl Launcher {
     }
 
     pub(super) fn show_launch_options(&mut self, instance: &Instance) {
-        self.show_on_home(instance);
-        self.launch = None;
-        self.toggle_launch();
+        self.close_menu();
+        self.open_instance_page(Some(instance.clone()));
+        self.open_at_launch_options(instance);
     }
 
     pub(super) fn can_delete_instance(&self, instance: &Instance) -> bool {

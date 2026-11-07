@@ -131,6 +131,10 @@ fn time_left(spent: Duration, from: usize, done: usize, total: usize) -> Option<
         .then(|| spent.mul_f64(total.saturating_sub(done) as f64 / (done - from) as f64))
 }
 
+pub(super) fn minecraft_missing(error: &str, version: &str) -> bool {
+    error.starts_with(&eclipse_launcher::sources::not_found_line(version))
+}
+
 impl Launcher {
     pub(super) fn home_page(&mut self, cx: &mut Context<Self>) -> Div {
         // A Java instance plays Mojang's game: no Eclipse version, nothing of Eclipse's to prepare.
@@ -181,16 +185,18 @@ impl Launcher {
             page = page.child(self.crash_notice(crash, cx));
         }
         page.children(self.export_panel(cx))
-            .children(self.launch_panel(cx))
             .child(self.home_tab_card(cx))
     }
 
     fn prepare_failed(&self, error: &str, version: &str, cx: &mut Context<Self>) -> Stateful<Div> {
         let again = cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.press_play();
+            match this.cant_sign_in_to_play() {
+                true => this.prepare(backend::MinecraftFrom::Install, false),
+                false => this.press_play(),
+            }
             cx.notify();
         });
-        if !error.starts_with(&eclipse_launcher::sources::not_found_line(version)) {
+        if !minecraft_missing(error, version) {
             let tag = self.selected_version().cloned().unwrap_or_default();
             let eclipse = eclipse_launcher::nightly::display_name(&tag);
             let known = self.versions.release(&tag).is_some();
@@ -219,21 +225,28 @@ impl Launcher {
                     cx.notify();
                 }))
             });
-            let cause = if known {
+            let home = self
+                .selected_instance()
+                .map_or_else(backend::game_home, |i| i.home.clone());
+            let logs = ui::open_folder_button(
+                "prepare-failed-logs",
+                tr("Open logs folder"),
+                backend::logs_dir_in(&home),
+                ui::ButtonSize::Md,
+            );
+            let cause = ui::told_cause(error).unwrap_or_else(|| {
                 trf(
-                    "Reinstall {eclipse} or copy the details to report it.",
-                    &[("eclipse", &eclipse)],
+                    "Eclipse couldn't get Minecraft {version} ready.",
+                    &[("version", version)],
                 )
-            } else {
-                tr("Copy the details to report it.").to_string()
-            };
+            });
             return ui::error_state_told(
                 "prepare-failed",
                 tr("Couldn't set up the game"),
                 cause,
                 error,
                 again,
-                reinstall.into_iter().chain([versions]).collect(),
+                reinstall.into_iter().chain([versions, logs]).collect(),
                 ButtonKind::Secondary,
             );
         }
@@ -318,9 +331,15 @@ impl Launcher {
     }
 
     fn sign_in_to_play_state(&self, cx: &mut Context<Self>) -> Stateful<Div> {
-        let cause = match account::client_id() {
-            Some(_) => format!("{}.", tr(account::NEEDS_OWNER)),
-            None => tr("Vanilla and modded instances need Microsoft sign-in, which this copy of the launcher doesn't have yet.").into(),
+        let (title, cause) = match account::client_id() {
+            Some(_) => (
+                tr("Sign in to play"),
+                format!("{}.", tr(account::NEEDS_OWNER)),
+            ),
+            None => (
+                tr("Microsoft sign-in needed"),
+                Self::cant_sign_in_note().to_string(),
+            ),
         };
         let sign_in = self.can_sign_in().then(|| {
             microsoft::white_button("play-sign-in-microsoft").on_press(cx.listener(
@@ -343,8 +362,8 @@ impl Launcher {
         }));
         ui::empty_state(
             "play-sign-in",
-            "user",
-            tr("Sign in to play"),
+            crate::icons::ACCOUNT,
+            title,
             cause,
             sign_in.into_iter().chain([dismiss]).collect(),
         )
@@ -484,7 +503,7 @@ impl Launcher {
             ui::button(
                 "crash-open",
                 None,
-                tr("Open report"),
+                tr("Open crash report"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
@@ -507,11 +526,12 @@ impl Launcher {
             this.game.crash = None;
             cx.notify();
         }));
-        ui::empty_card(ui::error_state_told(
+        ui::empty_card(ui::error_state_again(
             "crash",
             title,
             cause,
             &details,
+            tr("Play again"),
             again,
             open.into_iter().chain([logs, dismiss]).collect(),
             ButtonKind::Secondary,

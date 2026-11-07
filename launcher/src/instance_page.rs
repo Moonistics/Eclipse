@@ -1,10 +1,11 @@
 //! The New instance page: its name and group, what the instance plays, its version and its icon
-//! in cards; at the foot the instance as it will be, with Cancel and Create.
+//! in cards (on Edit, its memory and launch options too); at the foot the instance as it will be,
+//! with Cancel and Create.
 use super::*;
 use crate::ui;
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
-use eclipse_theme::glass::{ink, space};
+use eclipse_theme::glass::space;
 use fields::Field;
 use instance_state::{NewKind, VersionList};
 
@@ -20,7 +21,6 @@ const COLOURS: [u32; 7] = [
 const PREVIEW_ICON: f32 = ui::TILE_LG;
 const PREVIEW_ICON_SHORT: f32 = ui::TILE_MD;
 const CHOICE_ICON: f32 = ui::TILE_MD;
-const ECLIPSE_LIST: f32 = 248.;
 const CHOICE_NOTE_LINES: usize = 2;
 const KINDS: [NewKind; 3] = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
 const CHOICE_MIN_WIDTH: f32 = 2. * space::MD + ui::TILE_LG + space::LG + layout::FIELD_SM;
@@ -56,6 +56,11 @@ fn icon_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
 
 impl Launcher {
     pub(super) fn instance_page(&mut self, cx: &mut Context<Self>) -> Div {
+        let opening = self
+            .instances
+            .draft
+            .as_ref()
+            .is_some_and(|d| d.opened.is_none());
         self.remember_draft();
         let Some(d) = self.instances.draft.as_ref() else {
             return div();
@@ -67,6 +72,24 @@ impl Launcher {
             .and_then(|id| self.instances.list.iter().find(|i| &i.id == id))
             .cloned();
         let kind = d.java.kind;
+        if let Some(i) = &editing {
+            self.sync_launch_options(i, opening);
+        }
+        let laid_out = scroll.handle.bounds().size.height > px(0.);
+        let settled = laid_out
+            && match kind {
+                NewKind::Eclipse => !matches!(self.versions.releases, Load::Loading),
+                _ => matches!(
+                    self.instances.versions,
+                    VersionList::Ready(_) | VersionList::Failed(_)
+                ),
+            };
+        let at_launch = editing.is_some() && self.reveal_launch_options(settled);
+        if at_launch {
+            if let Some(d) = &mut self.instances.draft {
+                d.reveal_version = false;
+            }
+        }
         let running = editing
             .as_ref()
             .is_some_and(|i| self.play_state(i) == PlayState::Running);
@@ -100,7 +123,8 @@ impl Launcher {
             cards.push(self.loader_choice(cx).into_any_element());
         }
         if kind == NewKind::Eclipse {
-            cards.push(self.eclipse_versions(cx).into_any_element());
+            let reveal = opening && !at_launch;
+            cards.push(self.eclipse_versions(reveal, cx).into_any_element());
         } else {
             self.load_versions(cx);
             cards.push(self.minecraft_versions(cx).into_any_element());
@@ -118,6 +142,22 @@ impl Launcher {
                     .child(row)
                     .into_any_element()
             }));
+            if at_launch && laid_out {
+                scroll.handle.scroll_to_top_of_item(cards.len());
+            } else if at_launch {
+                cx.notify();
+            }
+            cards.push(self.launch_card(cx).into_any_element());
+        }
+        if let Some(last) = cards.pop() {
+            cards.push(
+                div()
+                    .relative()
+                    .flex_none()
+                    .child(last)
+                    .child(scene::track_content(&self.scene))
+                    .into_any_element(),
+            );
         }
         let foot = self.instance_foot(editing.as_ref(), kind, switching, cx);
         let scrolled = ui::scrolled(&scroll.handle);
@@ -297,10 +337,7 @@ impl Launcher {
             return div().into_any_element();
         };
         let picture = match &d.picture {
-            Some(Some(chosen)) => instance_icons::Picture::Picked {
-                png: chosen.png.clone(),
-                plated: d.logo.is_some_and(instance_icons::has_plate),
-            },
+            Some(Some(chosen)) => instance_icons::Picture::Picked(chosen.png.clone()),
             Some(None) => instance_icons::Picture::None,
             None => editing.map_or(instance_icons::Picture::None, |i| {
                 instance_icons::Picture::Saved(Box::new(i.clone()))
@@ -352,6 +389,10 @@ impl Launcher {
         // One made in the launcher can switch what it plays; the game's home and modpacks
         // play what they were made with.
         let switches = editing.is_none_or(|i| i.kind == instances::Kind::Own);
+        let kept = match editing.map(|i| &i.kind) {
+            Some(instances::Kind::Default) => tr("This instance always plays Eclipse"),
+            _ => tr("A modpack plays the game it was made for"),
+        };
         let mut cards = Vec::new();
         for k in KINDS {
             let (id, title, note) = match k {
@@ -361,9 +402,9 @@ impl Launcher {
             };
             let icon = match k {
                 NewKind::Modded if self.choices_stacked() => ui::tile(ui::TILE_MD)
-                    .child(self.modded_mark(ui::TILE_SM))
+                    .child(instance_icons::modded_mark())
                     .into_any_element(),
-                NewKind::Modded => ui::mark_tile(self.modded_mark(ui::MARK)).into_any_element(),
+                NewKind::Modded => ui::mark_tile(instance_icons::modded_mark()).into_any_element(),
                 _ => self.choice_icon(Self::auto_mark(k, loader), title),
             };
             let card = self.choice_row(
@@ -376,8 +417,10 @@ impl Launcher {
             cards.push((
                 if switches {
                     card
+                } else if k == kind {
+                    card.cursor_default()
                 } else {
-                    card.cursor_default().when(k != kind, ui::disabled)
+                    ui::unavailable(card, kept)
                 },
                 title.into(),
                 k == kind,
@@ -534,10 +577,12 @@ impl Launcher {
             button,
         );
         let label = match (editing.is_some(), busy) {
-            (true, _) => tr("Save changes"),
-            (false, true) if duplicate => tr("Duplicating…"),
+            (true, false) => tr("Save changes"),
+            (true, true) => tr("Saving"),
+            (false, true) if duplicate => tr("Duplicating"),
             (false, false) if duplicate => tr("Duplicate"),
-            (false, _) => tr("Create instance"),
+            (false, true) => tr("Creating"),
+            (false, false) => tr("Create instance"),
         };
         let creates = editing.is_none() && !duplicate;
         let unchanged = editing.is_some() && !self.draft_changed();
@@ -602,7 +647,7 @@ impl Launcher {
             return foot(switching, row);
         }
         let buttons = if busy {
-            let busy = ui::primary_busy("instance-save", label.trim_end_matches('…'), None, button);
+            let busy = ui::primary_busy("instance-save", label, None, button);
             ui::dialog_foot(ui::disabled(cancel), Some(busy.into_any_element()))
         } else {
             let cancel = cancel.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
@@ -642,7 +687,7 @@ impl Launcher {
 
     /// Eclipse's versions, the newest first: picking the one the launcher plays lets the
     /// instance follow it; any other is kept, and installed on Create when it isn't yet.
-    fn eclipse_versions(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+    fn eclipse_versions(&mut self, reveal: bool, cx: &mut Context<Self>) -> Stateful<Div> {
         let soft = ui::look().accent_soft;
         let follows = self.followed_version();
         let chosen = self.draft_eclipse();
@@ -654,40 +699,26 @@ impl Launcher {
                 let newest = i == 0;
                 let on = chosen.as_ref() == Some(tag);
                 let label = eclipse_launcher::nightly::display_name(tag);
-                let row = ui::list_choice(format!("eclipse-version-{tag}"), on)
-                    .py(px(space::MD))
-                    .child(
-                        ui::text(
-                            eclipse_theme::glass::step::LEAD,
-                            FontWeight::SEMIBOLD,
-                            ink::FULL,
-                        )
-                        .flex_none()
-                        .w(px(layout::FIELD_MD))
-                        .truncate()
-                        .child(label.clone()),
-                    )
-                    .child(
-                        ui::text(
-                            eclipse_theme::glass::step::NOTE,
-                            FontWeight::NORMAL,
-                            ink::FULL,
-                        )
-                        .flex_1()
-                        .min_w_0()
-                        .children(
-                            newest.then(|| ui::state_line(ui::Tone::Accent(soft), tr("Newest"))),
-                        ),
-                    )
-                    .child(ui::tick_slot(on));
+                let note = newest.then(|| ui::state_line(ui::Tone::Accent(soft), tr("Newest")));
+                let row = instance_versions::version_row(
+                    format!("eclipse-version-{tag}"),
+                    label.clone(),
+                    div().children(note),
+                    on,
+                );
                 (row, SharedString::from(label), on)
             })
             .collect();
+        if reveal {
+            if let Some(at) = tags.iter().position(|t| chosen.as_ref() == Some(t)) {
+                instance_versions::reveal_version_row("eclipse-versions", at);
+            }
+        }
         let list = match (&self.versions.releases, rows.is_empty()) {
             (_, false) => {
                 let this = cx.entity().downgrade();
                 let list = ui::options(
-                    ui::list_box("eclipse-versions", ECLIPSE_LIST),
+                    ui::list_box("eclipse-versions", instance_versions::version_list_height()),
                     tr("Eclipse version"),
                     rows,
                     true,

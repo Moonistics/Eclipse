@@ -7,7 +7,7 @@ use crate::ui::{self, white, Tone};
 use eclipse_theme::glass::{ink, pixel_text, space, step, TextStep};
 
 /// The right column's width.
-const SIDE: f32 = 320.;
+const SIDE: f32 = 380.;
 
 const LIST_ROW_PAD: f32 = space::SM + space::XXS;
 
@@ -68,13 +68,20 @@ impl Launcher {
                 .gap(px(layout::CARD_GAP))
                 .child(list)
                 .child(addresses)
-        } else {
+        } else if content >= 2. * SIDE + layout::CARD_GAP {
             div()
                 .flex()
                 .items_start()
                 .gap(px(layout::CARD_GAP))
                 .child(list.flex_1().min_w_0())
                 .child(addresses.flex_1().min_w_0())
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(layout::CARD_GAP))
+                .child(list)
+                .child(addresses)
         };
         let columns = if beside {
             div()
@@ -152,17 +159,18 @@ impl Launcher {
             .join(" · ")
         };
 
-        let panel = ui::icon_button(
-            "server-panel",
-            crate::icons::SERVER_PANEL,
-            tr("Server panel"),
-            ButtonKind::Ghost,
-            ui::ButtonSize::Sm,
-            false,
-        );
+        let (panel_icon, panel_label) = (crate::icons::SERVER_PANEL, tr("Open the web panel"));
         let panel = if running {
             let d = dir.to_path_buf();
-            panel.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            ui::icon_button(
+                "server-panel",
+                panel_icon,
+                panel_label,
+                ButtonKind::Ghost,
+                ui::ButtonSize::Sm,
+                false,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 match servers::Api::open(&d).map(|a| a.panel_link()) {
                     Some(Ok(url)) => cx.open_url(&url),
                     Some(Err(e)) => this.servers.problem = Some(Problem::plain(e)),
@@ -171,7 +179,13 @@ impl Launcher {
                 cx.notify();
             }))
         } else {
-            ui::disabled(panel)
+            ui::icon_button_unavailable(
+                "server-panel",
+                panel_icon,
+                panel_label,
+                ui::ButtonSize::Sm,
+                tr("Start the server first"),
+            )
         };
         let folder = dir.to_path_buf();
         let folder = ui::icon_button(
@@ -323,24 +337,18 @@ impl Launcher {
             if let Some(fix) = p.fix {
                 let label = match &fix {
                     Fix::UsePort(port) => trf("Use port {port}", &[("port", &port.to_string())]),
-                    Fix::Prepare => tr("Prepare game files").into(),
+                    Fix::Prepare => set_up_label(&self.servers_minecraft()),
                     Fix::AgreeEula => tr("I agree to the EULA").into(),
                     Fix::ShowLog => tr("Open the logs").into(),
                 };
-                actions.push(
-                    ui::button(
-                        "problem-fix",
-                        None,
-                        label,
-                        ButtonKind::Secondary,
-                        ui::ButtonSize::Sm,
-                    )
-                    .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.fix(fix.clone(), cx);
-                        cx.notify();
-                    }))
-                    .into_any_element(),
+                let button = ui::button(
+                    "problem-fix",
+                    None,
+                    label,
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Sm,
                 );
+                actions.push(self.fix_button(button, fix, cx).into_any_element());
             }
             actions.push(
                 ui::button(
@@ -450,7 +458,7 @@ impl Launcher {
                 cx.notify();
             }))
         } else {
-            ui::disabled(send)
+            ui::unavailable(send, tr("Type a command first"))
         };
         let slash = div()
             .text_color(white(ink::DIM))
@@ -482,12 +490,13 @@ impl Launcher {
         }
         let game_files = matches!(needs, Some(Needs::GameFiles { .. }));
         if let Some(bar) = self.servers_preparing().filter(|_| game_files) {
+            let title = trf(
+                "Setting up Minecraft {version}",
+                &[("version", &self.servers_minecraft())],
+            );
             return ui::empty_card(
-                ui::loading_state(
-                    "servers-preparing",
-                    ui::page_only(tr("Preparing game files")),
-                )
-                .child(bar.mt(px(space::LG))),
+                ui::loading_state("servers-preparing", ui::page_only(title))
+                    .child(bar.mt(px(space::LG))),
             );
         }
         if let Some(e) = self.shown_prepare_error().cloned().filter(|_| game_files) {
@@ -506,23 +515,7 @@ impl Launcher {
                 cx.notify();
             })),
         };
-        let add = ui::button(
-            "server-import-empty",
-            Some("folder-01"),
-            tr("Import a server…"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        );
-        let add = if self.servers.creating {
-            ui::disabled(add)
-        } else if let Some(need) = needs.as_ref().filter(|_| servers::program().is_none()) {
-            ui::unavailable(add, need.line())
-        } else {
-            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.add_server_folder(cx);
-                cx.notify();
-            }))
-        };
+        let add = self.server_import_button("server-import-empty", cx);
         let problem = self
             .servers
             .problem
@@ -552,7 +545,7 @@ impl Launcher {
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let size = ui::ButtonSize::Md;
-        let button = |id: String, icon, label| match kind {
+        let button = |id: String, icon, label: SharedString| match kind {
             ButtonKind::Primary => ui::primary(id, icon, label, size),
             _ => ui::button(id, icon, label, kind, size),
         };
@@ -560,7 +553,7 @@ impl Launcher {
             Needs::Eclipse if self.updates.eclipse.is_some() => button(
                 format!("{prefix}-install-eclipse"),
                 Some("download-04"),
-                tr("Install Eclipse"),
+                tr("Install Eclipse").into(),
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.install_update();
@@ -569,7 +562,7 @@ impl Launcher {
             Needs::Eclipse => button(
                 format!("{prefix}-choose-version"),
                 None,
-                tr("Choose a version"),
+                tr("Choose a version").into(),
             )
             .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.servers.create = None;
@@ -577,24 +570,68 @@ impl Launcher {
                 this.go(Page::Versions);
                 cx.notify();
             })),
-            Needs::GameFiles { .. } => {
-                button(format!("{prefix}-prepare"), None, tr("Prepare game files")).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.fix(Fix::Prepare, cx);
-                        cx.notify();
-                    }),
+            Needs::GameFiles { minecraft } => {
+                let label = set_up_label(&minecraft).into();
+                self.fix_button(
+                    button(format!("{prefix}-prepare"), None, label),
+                    Fix::Prepare,
+                    cx,
                 )
             }
-            Needs::ServerProgram { .. } => {
-                button(format!("{prefix}-versions"), None, tr("Manage versions")).on_press(
-                    cx.listener(|this, _: &ClickEvent, _, cx| {
-                        this.servers.create = None;
-                        this.servers.problem = None;
-                        this.go(Page::Versions);
-                        cx.notify();
-                    }),
-                )
-            }
+            Needs::ServerProgram { .. } => button(
+                format!("{prefix}-versions"),
+                None,
+                tr("Manage versions").into(),
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.servers.create = None;
+                this.servers.problem = None;
+                this.go(Page::Versions);
+                cx.notify();
+            })),
+        }
+    }
+
+    fn server_import_button(&mut self, id: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let add = ui::button(
+            id,
+            Some("folder-01"),
+            tr("Import a server…"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
+        let needs = self.server_needs().filter(|_| servers::program().is_none());
+        if self.servers.creating {
+            ui::disabled(add)
+        } else if let Some(need) = needs {
+            ui::unavailable(add, need.line())
+        } else {
+            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.add_server_folder(cx);
+                cx.notify();
+            }))
+        }
+    }
+
+    pub(super) fn servers_minecraft(&self) -> String {
+        self.selected_version().map_or_else(
+            || servers::GAME_VERSION.to_string(),
+            |tag| backend::game_version(tag),
+        )
+    }
+
+    pub(super) fn fix_button(
+        &self,
+        button: Stateful<Div>,
+        fix: Fix,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        match self.busy_reason().filter(|_| fix == Fix::Prepare) {
+            Some(why) => ui::unavailable(button, why),
+            None => button.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.fix(fix.clone(), cx);
+                cx.notify();
+            })),
         }
     }
 
@@ -732,24 +769,7 @@ impl Launcher {
             this.open_create(cx);
             cx.notify();
         }));
-        let add = ui::button(
-            "server-import",
-            Some("folder-01"),
-            tr("Import a server…"),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        );
-        let needs = self.server_needs().filter(|_| servers::program().is_none());
-        let add = if self.servers.creating {
-            ui::disabled(add)
-        } else if let Some(need) = needs {
-            ui::unavailable(add, need.line())
-        } else {
-            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                this.add_server_folder(cx);
-                cx.notify();
-            }))
-        };
+        let add = self.server_import_button("server-import", cx);
         list.child(
             div()
                 .flex()

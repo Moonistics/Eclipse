@@ -25,10 +25,11 @@ impl Launcher {
         }
     }
 
-    /// Settings' sky colours: Eclipse's own sky or Daybreak, free for everyone.
+    /// Settings' sky colours: the night sky or Daybreak, free for everyone.
     pub(super) fn launcher_theme_row(&mut self, cx: &mut Context<Self>) -> Div {
         let current = themes::theme(self.settings.theme.as_deref()).map(|th| th.id);
-        let mut options: Vec<(Option<&'static str>, &'static str)> = vec![(None, "Eclipse")];
+        let mut options: Vec<(Option<&'static str>, &'static str)> =
+            vec![(None, themes::DEFAULT_SKY_NAME)];
         options.extend(themes::THEMES.iter().map(|th| (Some(th.id), th.name)));
         let this = cx.entity().downgrade();
         let picker = ui::segments(

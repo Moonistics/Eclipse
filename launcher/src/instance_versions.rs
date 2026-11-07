@@ -14,11 +14,57 @@ use instance_state::{JavaChoice, NewKind, VersionList};
 const ROWS: usize = 60;
 const LIST: f32 = 206.;
 const LIST_SHORT: f32 = 180.;
-const VERSION_COLUMN: f32 = 160.;
+const VERSION_COLUMN: f32 = layout::FIELD_MD;
 const LOADER_COLUMNS: u16 = 2;
 
 fn released(time: &str) -> String {
     dates::published(time.get(..10).unwrap_or_default(), "")
+}
+
+pub(super) fn version_list_height() -> f32 {
+    if ui::short_window() {
+        LIST_SHORT
+    } else {
+        LIST
+    }
+}
+
+pub(super) fn reveal_version_row(list: &str, at: usize) {
+    ui::scroll_list_to(list, at.saturating_sub(1));
+    ui::set_options_cursor(list, at);
+}
+
+pub(super) fn version_row(
+    id: String,
+    name: impl Into<SharedString>,
+    note: impl IntoElement,
+    on: bool,
+) -> Stateful<Div> {
+    ui::list_choice(id, on)
+        .py(px(space::SM))
+        .child(
+            ui::text(
+                eclipse_theme::glass::step::LEAD,
+                FontWeight::SEMIBOLD,
+                ink::FULL,
+            )
+            .w(px(VERSION_COLUMN))
+            .flex_none()
+            .truncate()
+            .child(name.into()),
+        )
+        .child(
+            ui::text(
+                eclipse_theme::glass::step::NOTE,
+                FontWeight::NORMAL,
+                ink::MUTED,
+            )
+            .flex_1()
+            .min_w_0()
+            .truncate()
+            .child(note),
+        )
+        .child(ui::tick_slot(on))
 }
 
 impl Launcher {
@@ -65,7 +111,7 @@ impl Launcher {
             )
             .w_full()
             .mb(px(space::SM));
-        let height = if ui::short_window() { LIST_SHORT } else { LIST };
+        let height = version_list_height();
         let list = match &self.instances.versions {
             VersionList::NotAsked | VersionList::Loading => {
                 ui::with_scrollbar(ui::list_box("mc-versions", height).child(ui::loading_state(
@@ -104,26 +150,12 @@ impl Launcher {
                             VersionKind::OldBeta => "Beta",
                             VersionKind::OldAlpha => "Alpha",
                         };
-                        let row = ui::list_choice(format!("mc-{}", v.id), on)
-                            .py(px(space::SM))
-                            .child(
-                                ui::text(
-                                    eclipse_theme::glass::step::LEAD,
-                                    FontWeight::SEMIBOLD,
-                                    ink::FULL,
-                                )
-                                .w(px(VERSION_COLUMN))
-                                .flex_none()
-                                .truncate()
-                                .child(v.id.clone()),
-                            )
-                            .child(
-                                ui::card_note(format!("{} · {}", tr(kind), released(&v.released)))
-                                    .flex_1()
-                                    .min_w_0()
-                                    .truncate(),
-                            )
-                            .child(ui::tick_slot(on));
+                        let row = version_row(
+                            format!("mc-{}", v.id),
+                            v.id.clone(),
+                            ui::card_note(format!("{} · {}", tr(kind), released(&v.released))),
+                            on,
+                        );
                         (row, SharedString::from(v.id.clone()), on)
                     })
                     .collect();
@@ -139,7 +171,7 @@ impl Launcher {
                         .take(ROWS)
                         .position(|v| chosen.as_deref() == Some(v.id.as_str()));
                     if let Some(at) = at {
-                        ui::scroll_list_to("mc-versions", at);
+                        reveal_version_row("mc-versions", at);
                     }
                 }
                 if rows.is_empty() {

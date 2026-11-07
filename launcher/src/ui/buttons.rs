@@ -45,6 +45,8 @@ const NAV_ROW_LIST_SHORT: f32 = 28.;
 
 const STEPPER_VALUE_WIDTH: f32 = 48.;
 
+const REMOVE_ICON: &str = "delete-02";
+
 #[derive(Clone, Copy, PartialEq)]
 pub enum ButtonKind {
     Primary,
@@ -349,12 +351,32 @@ fn icon_button_tipped(
     tip_on_focus(d, label, TipSide::Beside)
 }
 
+pub fn icon_button_unavailable(
+    id: impl Into<SharedString>,
+    name: &'static str,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    why: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let button = icon_button_tipped(id, name, label, ButtonKind::Ghost, size, false, false);
+    super::unavailable(button, why)
+}
+
 pub fn remove_button(
     id: impl Into<SharedString>,
     label: impl Into<SharedString>,
     size: ButtonSize,
 ) -> Stateful<Div> {
-    icon_button(id, "delete-02", label, ButtonKind::Ghost, size, false)
+    icon_button(id, REMOVE_ICON, label, ButtonKind::Ghost, size, false)
+}
+
+pub fn remove_button_unavailable(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    why: impl Into<SharedString>,
+) -> Stateful<Div> {
+    icon_button_unavailable(id, REMOVE_ICON, label, size, why)
 }
 
 pub fn more_button(

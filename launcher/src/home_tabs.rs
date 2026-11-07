@@ -88,11 +88,30 @@ impl HomeTab {
             (HomeTab::PatchNotes | HomeTab::Console, _) => count,
         }
     }
+
+    fn comes_and_goes(self) -> bool {
+        matches!(self, HomeTab::Console | HomeTab::PatchNotes)
+    }
 }
 
 impl Launcher {
     pub(super) fn home_tab_card(&mut self, cx: &mut Context<Self>) -> Div {
         let tabs = self.home_tab_list(cx);
+        let kept: Vec<HomeTab> = tabs
+            .iter()
+            .map(|(tab, _)| *tab)
+            .filter(|tab| !tab.comes_and_goes())
+            .collect();
+        if self
+            .home_tabs_drawn
+            .as_ref()
+            .is_some_and(|drawn| *drawn != kept)
+        {
+            if let Some((first, _)) = tabs.first() {
+                self.home_tab = *first;
+            }
+        }
+        self.home_tabs_drawn = Some(kept);
         if tabs.is_empty() {
             return div();
         }
@@ -119,11 +138,18 @@ impl Launcher {
                 count: count.filter(|n| *n > 0).map(|n| (n, tab.counted(n).into())),
             })
             .collect();
+        let aside = match open {
+            HomeTab::Worlds => self.worlds_folder(),
+            HomeTab::Multiplayer => self.add_server_button(cx),
+            _ => None,
+        };
+        let room = layout::content_width(self.window_width)
+            - aside.as_ref().map_or(0., |(_, width)| width + space::MD);
         let (strip, panel) = self.tab_strip(
             Strip::Home,
             tabs,
             open,
-            layout::content_width(self.window_width),
+            room,
             |this, tab, _| this.home_tab = tab,
             cx,
         );
@@ -136,7 +162,14 @@ impl Launcher {
             HomeTab::Screenshots => self.screenshots_tab(cx).map(IntoElement::into_any_element),
             HomeTab::Console => self.console_tab(cx).map(IntoElement::into_any_element),
         };
-        div().flex().flex_col().child(strip).child(
+        let head = div()
+            .flex()
+            .items_start()
+            .justify_between()
+            .gap(px(space::MD))
+            .child(strip)
+            .children(aside.map(|(button, _)| button));
+        div().flex().flex_col().child(head).child(
             panel.child(
                 ui::card()
                     .flex()

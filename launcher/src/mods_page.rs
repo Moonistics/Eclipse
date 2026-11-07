@@ -142,8 +142,9 @@ pub(super) struct Mods {
     pub(super) picked: Option<String>,
     /// The project the detail card showed last.
     pub(super) shown: Option<Project>,
-    float_top: std::rc::Rc<std::cell::Cell<f32>>,
+    float_at: std::rc::Rc<std::cell::Cell<(f32, f32)>>,
     float_scroll: gpui::ScrollHandle,
+    float_for: Option<String>,
     /// A native mod's Install waiting for the one-time trust notice (`native_status::NOTICE`).
     native_notice: Option<(SourceId, String, Option<Project>)>,
     /// The selected instance's native build state, and the `native_status::fingerprint` it was
@@ -249,8 +250,9 @@ impl Mods {
             play_after_build: false,
             picked: None,
             shown: None,
-            float_top: Default::default(),
+            float_at: Default::default(),
             float_scroll: Default::default(),
+            float_for: None,
             checks: HashMap::new(),
             about: HashMap::new(),
             browse: Default::default(),
@@ -365,7 +367,7 @@ fn switched_line(name: &str, on: bool) -> String {
 }
 
 fn installed_line(done: &[installed::Entry]) -> String {
-    trf("Installed {names}.", &[("names", &titles(done))])
+    trf("Installed {names}", &[("names", &titles(done))])
 }
 
 /// `51404735` → `51.4M`.
@@ -374,6 +376,14 @@ fn count(n: u64) -> String {
         0..1_000 => n.to_string(),
         1_000..1_000_000 => format!("{:.1}k", n as f64 / 1e3),
         _ => format!("{:.1}M", n as f64 / 1e6),
+    }
+}
+
+pub(super) fn licence_name(id: &str) -> String {
+    match id.strip_prefix("LicenseRef-") {
+        Some("" | "Custom") => tr("Custom licence").to_string(),
+        Some(words) => words.replace('-', " "),
+        None => id.to_string(),
     }
 }
 
@@ -820,18 +830,15 @@ impl Launcher {
                     Err(e) => failed.push(format!("{title}: {e}")),
                 }
             }
-            let updated = match done.is_empty() {
-                true => String::new(),
-                false => trf("Updated {names}.", &[("names", &done.join(", "))]),
-            };
-            let result = match failed.is_empty() {
-                true => Ok(updated),
-                false => Err(trf(
-                    "{updated} Not updated: {failed}",
-                    &[("updated", &updated), ("failed", &failed.join("; "))],
-                )
-                .trim()
-                .to_string()),
+            let (names, failed) = (done.join(", "), failed.join("; "));
+            let result = match (done.is_empty(), failed.is_empty()) {
+                (true, true) => Ok(String::new()),
+                (false, true) => Ok(trf("Updated {names}", &[("names", &names)])),
+                (true, false) => Err(trf("Not updated: {failed}", &[("failed", &failed)])),
+                (false, false) => Err(trf(
+                    "Updated {names}. Not updated: {failed}",
+                    &[("names", &names), ("failed", &failed)],
+                )),
             };
             let _ = tx.send(Event::Done(result, None));
         });
@@ -913,7 +920,7 @@ impl Launcher {
                             installed::install_datapack(&*source, &p, everything, &world, &into)?;
                         }
                         return Ok(trf(
-                            "Added {title} to {world}.",
+                            "Added {title} to {world}",
                             &[("title", &p.title), ("world", &name)],
                         ));
                     }
@@ -931,7 +938,7 @@ impl Launcher {
                         }
                         pack = Some(installed.work);
                         return Ok(trf(
-                            "Installed {pack} as a new instance.",
+                            "Installed {pack} as a new instance",
                             &[("pack", &installed.name)],
                         ));
                     }
@@ -951,7 +958,7 @@ impl Launcher {
                         }
                         pack = Some(imported.work.clone());
                         return Ok(trf(
-                            "Installed {pack} as a new instance.",
+                            "Installed {pack} as a new instance",
                             &[("pack", imported.title())],
                         ));
                     }
@@ -1076,8 +1083,8 @@ impl Launcher {
         let removed = trashed
             .and_then(|()| installed::Game::of(self.mods.java.clone()).remove(&home, id))
             .map(|e| match goes_to_trash(e.kind) {
-                true => trf("{name} moved to the trash.", &[("name", &e.title)]),
-                false => trf("Removed {name}.", &[("name", &e.title)]),
+                true => trf("{name} moved to the trash", &[("name", &e.title)]),
+                false => trf("Removed {name}", &[("name", &e.title)]),
             });
         if let Ok(said) = &removed {
             crate::toast::say(said.clone());
@@ -1141,13 +1148,38 @@ impl Launcher {
         })
     }
 
-    pub(super) fn mods_new_fabric(&mut self, minecraft: String, cx: &mut Context<Self>) {
-        self.open_instance_page(None);
+    pub(super) fn mods_new_fabric_button(
+        &self,
+        id: &'static str,
+        minecraft: String,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        ui::primary(
+            id,
+            Some("plus-sign"),
+            tr("Create a Fabric instance…"),
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.open_instance_page(None);
+            this.pick_kind(instance_state::NewKind::Modded, cx);
+            this.change(|j| {
+                j.loader = eclipse_launcher::loaders::Kind::Fabric;
+                j.version = Some(minecraft.clone());
+            });
+            cx.notify();
+        }))
+    }
+
+    pub(super) fn mods_add_fabric(&mut self, cx: &mut Context<Self>) {
+        let Some(instance) = self.selected_instance().cloned() else {
+            return;
+        };
+        self.open_instance_page(Some(instance.clone()));
+        self.sync_launch_options(&instance, true);
+        self.remember_draft();
         self.pick_kind(instance_state::NewKind::Modded, cx);
-        self.change(|j| {
-            j.loader = eclipse_launcher::loaders::Kind::Fabric;
-            j.version = Some(minecraft);
-        });
+        self.change(|j| j.loader = eclipse_launcher::loaders::Kind::Fabric);
     }
 
     pub(super) fn mods_vanilla_target(&self) -> Option<String> {
@@ -1380,6 +1412,16 @@ pub(super) fn switches(kind: PackKind) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn licences_read_as_words() {
+        assert_eq!(licence_name("MIT"), "MIT");
+        assert_eq!(
+            licence_name("LicenseRef-Polyform-Shield-1.0.0"),
+            "Polyform Shield 1.0.0"
+        );
+        assert_eq!(licence_name("LicenseRef-Custom"), "Custom licence");
+    }
 
     #[test]
     fn counts_read_short() {

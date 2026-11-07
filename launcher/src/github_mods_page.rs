@@ -496,7 +496,7 @@ impl Launcher {
                     } else {
                         std::fs::remove_file(home.join(&row.file)).map_err(|e| e.to_string())
                     };
-                    this.mods_said(result.map(|_| trf("Removed {name}.", &[("name", &row.id)])));
+                    this.mods_said(result.map(|_| trf("Removed {name}", &[("name", &row.id)])));
                     this.github.reread(&home);
                     this.asking = None;
                     this.instance_mods_changed();

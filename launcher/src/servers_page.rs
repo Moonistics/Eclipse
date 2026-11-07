@@ -178,6 +178,10 @@ impl Needs {
     }
 }
 
+fn set_up_label(minecraft: &str) -> String {
+    trf("Set up Minecraft {version}", &[("version", minecraft)])
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum ServerKey {
     Motd,

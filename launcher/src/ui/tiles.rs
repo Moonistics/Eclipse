@@ -6,8 +6,6 @@ use gpui::{
 
 const LETTER_SHARE: f32 = 0.5;
 
-pub const MARK: f32 = 32.;
-
 pub const FACE_XL: f32 = 80.;
 
 const BULLET: f32 = 5.;

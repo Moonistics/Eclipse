@@ -253,7 +253,7 @@ impl Launcher {
         let check = ui::button(
             "ts-check",
             None,
-            tr("Check again"),
+            tr("Check for Tailscale again"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         )

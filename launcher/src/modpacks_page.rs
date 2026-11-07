@@ -304,11 +304,7 @@ impl Launcher {
                             },
                         )),
                     )
-                    .child(self.pack_delete_opener(
-                        ui::remove_button(remove_id, tr("Delete…"), ui::ButtonSize::Md),
-                        key,
-                        cx,
-                    ))
+                    .child(self.pack_delete_opener(remove_id, true, key, cx))
             };
             let detail = trf(
                 "{version} from Eclipse · {mods}",
@@ -328,13 +324,26 @@ impl Launcher {
 
     fn pack_delete_opener(
         &self,
-        opener: Stateful<Div>,
+        id: SharedString,
+        bin: bool,
         key: Asking,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
+        let (label, size) = (tr("Delete…"), ui::ButtonSize::Md);
         if self.game.active() {
-            return ui::unavailable(opener, tr("Close the game first"));
+            let why = tr("Close the game first");
+            return match bin {
+                true => ui::remove_button_unavailable(id, label, size, why),
+                false => ui::unavailable(
+                    ui::button(id, None, label, ButtonKind::Secondary, size),
+                    why,
+                ),
+            };
         }
+        let opener = match bin {
+            true => ui::remove_button(id, label, size),
+            false => ui::button(id, None, label, ButtonKind::Secondary, size),
+        };
         opener.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
             this.asking = Some(key.clone());
             cx.notify();
@@ -419,8 +428,12 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        if !p.can_play() || !can_play || self.modpacks.busy {
+        if self.modpacks.busy {
             play = ui::disabled(play);
+        } else if !p.can_play() {
+            play = ui::unavailable(play, tr("Port its mods first"));
+        } else if !can_play {
+            play = ui::unavailable(play, self.why_not_start());
         } else {
             let work = p.work.clone();
             play = play.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -458,16 +471,20 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        if self.modpacks.busy || !p.can_port() {
+        if self.modpacks.busy {
             port = ui::disabled(port);
             from = ui::disabled(from);
+        } else if !p.can_port() {
+            let why = tr("Nothing in this pack can be ported yet");
+            port = ui::unavailable(port, why);
+            from = ui::unavailable(from, why);
         } else {
             port = port.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.port_pack(false, cx);
                 cx.notify();
             }));
             if p.portable == 0 {
-                from = ui::disabled(from);
+                from = ui::unavailable(from, tr("None of its mods can be ported yet"));
             } else {
                 from = from.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                     this.port_pack(true, cx);
@@ -492,14 +509,8 @@ impl Launcher {
             )
             .into_any_element()
         } else {
-            let opener = ui::button(
-                "pack-remove",
-                None,
-                tr("Delete…"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Md,
-            );
-            self.pack_delete_opener(opener, key, cx).into_any_element()
+            self.pack_delete_opener("pack-remove".into(), false, key, cx)
+                .into_any_element()
         };
         buttons = buttons.child(play).child(port).child(from).child(remove);
         let mut notes = vec![trf(

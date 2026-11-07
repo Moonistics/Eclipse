@@ -54,7 +54,7 @@ impl Launcher {
             .collect();
         self.world_packs = WorldPacks {
             list: datapacks::list(&world),
-            note: Some(added.map(|names| trf("Added {names}.", &[("names", &names.join(", "))]))),
+            note: Some(added.map(|names| trf("Added {names}", &[("names", &names.join(", "))]))),
             open: Some(world),
         };
     }
@@ -168,7 +168,7 @@ impl Launcher {
                     }),
                     cx.listener(move |this, _: &ClickEvent, _, cx| {
                         let note = datapacks::remove(&world, &gone)
-                            .map(|()| trf("{name} moved to the trash.", &[("name", &gone.file)]));
+                            .map(|()| trf("{name} moved to the trash", &[("name", &gone.file)]));
                         this.world_packs.list = datapacks::list(&world);
                         this.world_packs.note = Some(note);
                         this.asking = None;

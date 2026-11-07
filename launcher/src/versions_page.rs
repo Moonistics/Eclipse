@@ -9,26 +9,17 @@ use crate::ui::{self, Tone};
 use eclipse_theme::glass::space;
 
 impl Launcher {
-    /// The Versions page; `on_disk` and `used` as `versions_page` measured them.
+    /// The Versions page; `on_disk` as `versions_page` measured it.
     pub(super) fn versions_view(
         &self,
         on_disk: &dyn Fn(&String) -> Option<u64>,
-        used: u64,
         cx: &mut Context<Self>,
     ) -> Div {
         let import = self
             .import_build_button("import-build", cx)
             .into_any_element();
         let head = ui::page_head_with(Page::Versions.title(), None, Some(import));
-        let mut page = div().flex().flex_col().child(head).when(used > 0, |d| {
-            d.child(
-                ui::card_note(trf(
-                    "Installed versions use {size}.",
-                    &[("size", &megabytes(used))],
-                ))
-                .mb(px(space::MD)),
-            )
-        });
+        let mut page = div().flex().flex_col().child(head);
         let native = self.local_builds(
             "versions-native",
             tr("Builds with mods").into(),
@@ -123,6 +114,8 @@ impl Launcher {
         );
         grouped |= unlisted.is_some();
         page = page.children(unlisted);
+        let listed: u64 = releases.iter().filter_map(|r| on_disk(&r.tag)).sum();
+        grouped |= listed > 0;
         let keep = |i: usize| {
             let tag = &releases[i].tag;
             self.versions.installing(tag).is_some()
@@ -151,15 +144,15 @@ impl Launcher {
             true => page.child(ui::field_group(
                 "versions-all-title",
                 tr("All versions"),
-                None,
+                on_disk_aside(listed),
                 list,
             )),
             false => page.child(list),
         }
     }
 
-    /// One version's card: its name (Newest on the first, In use on the one in use), `line`
-    /// with who plays it, and `right`.
+    /// One version's card: its name (Newest on the first), `line` with who plays it, and
+    /// `right`.
     fn version_card(
         &self,
         tag: &str,
@@ -171,7 +164,6 @@ impl Launcher {
     ) -> Div {
         let look = ui::look();
         let installed = self.versions.installed.iter().any(|v| v == tag);
-        let in_use = self.selected_version().map(String::as_str) == Some(tag);
         let used_by: Vec<&str> = self
             .instances
             .list
@@ -185,6 +177,7 @@ impl Launcher {
             }
             line.push_str(&part);
         };
+        let in_use = used_by.is_empty() && self.selected_version().map(String::as_str) == Some(tag);
         if !used_by.is_empty() {
             add(trf("used by {names}", &[("names", &used_by.join(", "))]));
         } else if installed {
@@ -254,8 +247,8 @@ impl Launcher {
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
                 );
-                if self.versions.installing.is_some() {
-                    return ui::disabled(b).into_any_element();
+                if let Some(why) = self.install_wait() {
+                    return ui::unavailable(b, why).into_any_element();
                 }
                 let release = release.clone();
                 return b
@@ -283,8 +276,8 @@ impl Launcher {
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
         );
-        if self.versions.installing.is_some() {
-            ui::disabled(b).into_any_element()
+        if let Some(why) = self.install_wait() {
+            ui::unavailable(b, why).into_any_element()
         } else {
             let release = release.clone();
             b.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -293,6 +286,15 @@ impl Launcher {
             }))
             .into_any_element()
         }
+    }
+
+    fn install_wait(&self) -> Option<String> {
+        let install = self.versions.installing.as_ref()?;
+        let name = eclipse_launcher::nightly::display_name(&install.tag);
+        Some(trf(
+            "Wait for {name} to finish installing",
+            &[("name", &name)],
+        ))
     }
 
     fn removing_bar(&self) -> Div {
@@ -385,6 +387,7 @@ impl Launcher {
             .cloned()
             .collect();
         (!tags.is_empty()).then(|| {
+            let total = tags.iter().filter_map(on_disk).sum();
             let mut d =
                 div()
                     .flex()
@@ -412,7 +415,8 @@ impl Launcher {
                 };
                 d = d.child(self.version_card(&tag, title, &mut line, false, on_disk, right));
             }
-            ui::field_group(format!("{id}-title"), title, None, d).mb(px(layout::CARD_GAP))
+            ui::field_group(format!("{id}-title"), title, on_disk_aside(total), d)
+                .mb(px(layout::CARD_GAP))
         })
     }
 }
@@ -437,7 +441,12 @@ impl Launcher {
                 .filter(|_| self.versions.installed.contains(tag))
                 .map(|(_, n)| *n)
         };
-        let used: u64 = self.versions.installed.iter().filter_map(on_disk).sum();
-        self.versions_view(&on_disk, used, cx)
+        self.versions_view(&on_disk, cx)
     }
+}
+
+fn on_disk_aside(total: u64) -> Option<AnyElement> {
+    (total > 0).then(|| {
+        ui::card_note(trf("{size} on disk", &[("size", &megabytes(total))])).into_any_element()
+    })
 }

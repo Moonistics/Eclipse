@@ -32,16 +32,11 @@ const SMALL_MARK: [&str; 12] = [
     "...occcco...",
     "....oooo....",
 ];
-const MODDED_GAP: f32 = 2.;
 const PIXEL_ART_MAX: u32 = 256;
 const SHARP_FILL: f32 = 0.75;
 
 const MARK_SHARE: f32 = 2. / 3.;
 const ICON_GRID: f32 = 8.;
-
-pub(super) fn has_plate(loader: &str) -> bool {
-    matches!(loader, "quilt" | "neoforge" | "forge")
-}
 
 #[derive(Clone, PartialEq, Debug)]
 pub(super) enum Mark {
@@ -53,7 +48,7 @@ pub(super) enum Mark {
 pub(super) enum Picture {
     None,
     Saved(Box<Instance>),
-    Picked { png: Vec<u8>, plated: bool },
+    Picked(Vec<u8>),
 }
 
 pub(super) struct IconSpec {
@@ -91,33 +86,27 @@ impl Launcher {
     }
 
     /// An instance's icon on a `size` tile: its picture, else the block or colour chosen for it,
-    /// else its mark, a share of the tile on the icon grid (a loader logo with its own plate fills
-    /// the tile); its initial on its colour (the accent when none was chosen) when none of these
-    /// can be drawn.
+    /// else its mark, a share of the tile on the icon grid; its initial on its colour (the accent
+    /// when none was chosen) when none of these can be drawn.
     pub(super) fn icon_for(&mut self, spec: IconSpec, size: f32) -> AnyElement {
         let inner = inner(size);
         let tile = ui::tile(size);
         let scale = self.scale;
         let picture = match spec.picture {
             Picture::None => None,
-            Picture::Saved(i) => self.instance_picture(&i, inner).map(|p| (p, false)),
-            Picture::Picked { png, plated } => {
+            Picture::Saved(i) => self.instance_picture(&i, inner),
+            Picture::Picked(png) => {
                 use std::hash::{Hash, Hasher};
                 let mut h = std::collections::hash_map::DefaultHasher::new();
                 png.hash(&mut h);
-                let side = if plated { size } else { inner };
-                self.icon_image(format!("chosen:{:x}", h.finish()), side, false, || {
+                self.icon_image(format!("chosen:{:x}", h.finish()), inner, false, || {
                     Some(png)
                 })
-                .map(|p| (p, plated))
             }
         };
         let mut colour = ui::look().accent;
         match (picture, &spec.icon) {
-            (Some((image, true)), _) => return ui::image_tile(image, size),
-            (Some((image, false)), _) => {
-                return tile.child(centred(image, inner, scale)).into_any_element()
-            }
+            (Some(image), _) => return tile.child(centred(image, inner, scale)).into_any_element(),
             (None, Some(instances::Icon::Colour(hex))) => {
                 colour = u32::from_str_radix(hex.trim_start_matches('#'), 16).unwrap_or(colour);
             }
@@ -129,13 +118,6 @@ impl Launcher {
                 }
             }
             (None, None) => {
-                if let Mark::Loader(loader) = &spec.mark {
-                    if has_plate(loader) {
-                        if let Some(logo) = self.loader_logo(loader, size) {
-                            return ui::image_tile(logo, size);
-                        }
-                    }
-                }
                 if let Some(mark) = self.mark(&spec.mark, inner) {
                     return tile.child(mark).into_any_element();
                 }
@@ -199,29 +181,6 @@ impl Launcher {
             .entry(("mark:eclipse".into(), (size * scale) as u32))
             .or_insert_with(|| Some(pixel_mark(size, scale)))
             .clone()
-    }
-
-    pub(super) fn modded_mark(&mut self, size: f32) -> AnyElement {
-        let cell = ((size - MODDED_GAP) / 2.).floor();
-        let [fabric, quilt, forge, neoforge] = LOADERS.map(|loader| self.loader_logo(loader, cell));
-        let scale = self.scale;
-        let row = |left: Option<Arc<RenderImage>>, right: Option<Arc<RenderImage>>| {
-            div()
-                .flex()
-                .gap(px(MODDED_GAP))
-                .children(left.map(|image| centred(image, cell, scale)))
-                .children(right.map(|image| centred(image, cell, scale)))
-        };
-        div()
-            .flex()
-            .flex_col()
-            .flex_none()
-            .justify_center()
-            .gap(px(MODDED_GAP))
-            .size(px(size))
-            .child(row(fabric, quilt))
-            .child(row(neoforge, forge))
-            .into_any_element()
     }
 
     /// A mod loader's logo by its id (`fabric`, `quilt`, `forge`, `neoforge`): None for another
@@ -316,6 +275,14 @@ fn pixel_mark(size: f32, scale: f32) -> Arc<RenderImage> {
         })
         .collect();
     art::bake(&texels, rows.len(), rows.len(), cell / scale, scale)
+}
+
+pub(super) fn modded_mark() -> gpui::Svg {
+    ui::icon(
+        crate::icons::MODS,
+        ui::IconSize::Px24,
+        ui::color(ui::look().mark),
+    )
 }
 
 /// A loader's logo file by its id.

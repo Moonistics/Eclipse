@@ -283,8 +283,8 @@ impl Launcher {
         let said = match (browser::try_lock_home(&home), jar) {
             (None, _) => Err(tr("Wait for the current operation to finish.").into()),
             (Some(_lock), Some(jar)) => eclipse_launcher::desktop_seams::to_trash(&jar.path)
-                .map(|()| trf("{name} moved to the trash.", &[("name", &row.name)])),
-            (Some(_), None) => Ok(trf("Removed {name}.", &[("name", &row.name)])),
+                .map(|()| trf("{name} moved to the trash", &[("name", &row.name)])),
+            (Some(_), None) => Ok(trf("Removed {name}", &[("name", &row.name)])),
         };
         self.mods_said(said);
         self.stop_asking(|a| matches!(a, Asking::ModFile(_)));

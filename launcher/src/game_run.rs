@@ -190,7 +190,7 @@ pub(super) enum PlayState {
 pub(super) enum InstallState {
     NotInstalled,
     UpdateReady(String),
-    NotSetUp,
+    NotSetUp { minecraft: String },
     Built(eclipse_launcher::native_status::Build),
     Ready { pinned: Option<String> },
 }
@@ -230,7 +230,10 @@ impl InstallState {
                     &[("version", &eclipse_launcher::nightly::display_name(tag))],
                 ),
             ),
-            InstallState::NotSetUp => (Tone::Off, tr("Not set up").into()),
+            InstallState::NotSetUp { minecraft } => (
+                Tone::Off,
+                trf("Needs Minecraft {version}", &[("version", minecraft)]),
+            ),
             InstallState::Built(build) => (
                 Tone::Live,
                 trf(
@@ -267,7 +270,9 @@ impl Launcher {
             return InstallState::UpdateReady(update.tag.clone());
         }
         if !backend::is_prepared(tag) {
-            return InstallState::NotSetUp;
+            return InstallState::NotSetUp {
+                minecraft: backend::game_version(tag),
+            };
         }
         match self.native_build_of(tag) {
             Some(build) => InstallState::Built(build),
