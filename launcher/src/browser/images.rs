@@ -1,6 +1,6 @@
 //! Project icons and gallery images, fetched at run time from the sources' image servers and
 //! kept on disk: nothing of a project's art is in the launcher. A URL is fetched only over HTTPS
-//! from Modrinth's or CurseForge's CDN, at most [`MAX_DOWNLOAD`] bytes, decoded (PNG, JPEG, WebP,
+//! from [`HOSTS`], at most [`MAX_DOWNLOAD`] bytes, decoded (PNG, JPEG, WebP,
 //! GIF), scaled down and stored as a PNG the UI draws; the cache is kept under [`MAX_CACHE`] by
 //! dropping the oldest files. After [`FRESH`] an image is asked for again with its server's
 //! validators (`If-None-Match`, `If-Modified-Since`): unchanged, it costs one small answer.
@@ -18,31 +18,33 @@ const HOSTS: [&str; 7] = [
     "https://files.minecraftforge.net/static/images/",
     "https://media.forgecdn.net/",
     "https://edge.forgecdn.net/",
-    // Eclipse's registry's icons (its GitHub Pages), and the mirror kept at the address it had
-    // before the repositories moved to the Moonistics organization.
-    "https://horizon-rust.github.io/horizon-mods/",
-    "https://ludovic111.github.io/horizon-mods/",
+    super::eclipse::PAGES,
+    super::eclipse::MOVED_PAGES,
 ];
 /// The most an image may weigh before decoding.
-pub const MAX_DOWNLOAD: u64 = 8 << 20;
+const MAX_DOWNLOAD: u64 = 8 << 20;
 /// The most the cache keeps on disk.
-pub const MAX_CACHE: u64 = 128 << 20;
+const MAX_CACHE: u64 = 128 << 20;
 /// Pixels: an icon's side, a gallery image's longest side.
 pub const ICON: u32 = 128;
 pub const GALLERY: u32 = 960;
 /// A list row's icon: 40 points, drawn at twice that on a Retina screen.
 pub const ROW: u32 = 80;
 /// How long a cached image is used without asking its server whether it changed.
-pub const FRESH: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
+const FRESH: std::time::Duration = std::time::Duration::from_secs(7 * 24 * 3600);
 
 fn dir(home: &Path) -> PathBuf {
     home.join("mod-browser/images")
 }
 
-/// Why `url` is never fetched.
+/// The icons of the projects Home's Mods tab found on Modrinth, by file.
+pub fn project_icons() -> PathBuf {
+    crate::backend::data_dir().join("mod-browser/project-icons.json")
+}
+
 pub fn refuse(url: &str) -> Option<&'static str> {
     if !HOSTS.iter().any(|h| url.starts_with(h)) {
-        return Some("not on Modrinth's or CurseForge's image servers over HTTPS");
+        return Some("not on a known image server over HTTPS");
     }
     if url.len() > 2048 || url.contains(char::is_whitespace) {
         return Some("not a plain URL");
@@ -50,7 +52,6 @@ pub fn refuse(url: &str) -> Option<&'static str> {
     None
 }
 
-/// Where the image of `url` scaled to `size` is kept.
 pub fn path(home: &Path, url: &str, size: u32) -> PathBuf {
     let hash: String = Sha1::digest(url.as_bytes())
         .iter()
@@ -59,7 +60,6 @@ pub fn path(home: &Path, url: &str, size: u32) -> PathBuf {
     dir(home).join(format!("{hash}-{size}.png"))
 }
 
-/// The image if it is cached already.
 pub fn cached(home: &Path, url: &str, size: u32) -> Option<PathBuf> {
     let p = path(home, url, size);
     p.is_file().then_some(p)
@@ -102,7 +102,9 @@ pub fn fetch(home: &Path, url: &str, size: u32) -> Result<PathBuf, String> {
             request = request.set("If-Modified-Since", modified);
         }
     }
-    let response = request.call().map_err(|e| format!("{url}: {e}"))?;
+    let response = request
+        .call()
+        .map_err(|e| crate::backend::network_error(url, e))?;
     if cached && response.status() == 304 {
         // Unchanged: fresh for another while.
         let _ = fs::File::options()
@@ -130,7 +132,6 @@ pub fn fetch(home: &Path, url: &str, size: u32) -> Result<PathBuf, String> {
     Ok(stored)
 }
 
-/// Decodes `bytes`, scales them to fit `size` and writes the PNG.
 pub fn store(home: &Path, url: &str, size: u32, bytes: &[u8]) -> Result<PathBuf, String> {
     let mut reader = image::ImageReader::new(std::io::Cursor::new(bytes))
         .with_guessed_format()
@@ -158,7 +159,6 @@ pub fn store(home: &Path, url: &str, size: u32, bytes: &[u8]) -> Result<PathBuf,
     Ok(target)
 }
 
-/// Drops the oldest files until the folder holds at most `max` bytes.
 fn prune(folder: &Path, max: u64) {
     let mut files: Vec<(std::time::SystemTime, u64, PathBuf)> = fs::read_dir(folder)
         .into_iter()
@@ -187,11 +187,7 @@ const MAX_JAR_ICON: u64 = 2 << 20;
 /// The icon a mod's jar names for itself: Fabric's `fabric.mod.json` and Quilt's `quilt.mod.json`
 /// (`"icon"`: a path, or paths by size, the largest taken), Forge's and NeoForge's `mods.toml`
 /// (`logoFile`). The path inside the jar.
-pub fn jar_icon_name(
-    fabric: Option<&str>,
-    quilt: Option<&str>,
-    toml: Option<&str>,
-) -> Option<String> {
+fn jar_icon_name(fabric: Option<&str>, quilt: Option<&str>, toml: Option<&str>) -> Option<String> {
     let pick = |icon: &serde_json::Value| -> Option<String> {
         match icon {
             serde_json::Value::String(s) => Some(s.clone()),

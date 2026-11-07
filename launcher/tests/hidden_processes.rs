@@ -3,7 +3,7 @@
 
 mod support;
 use eclipse_launcher::{
-    backend::{self, Job, Msg},
+    backend::{self, Output},
     process,
 };
 use std::{fs, path::Path, sync::mpsc, time::Duration};
@@ -15,14 +15,16 @@ fn logged_child(fail: bool) -> (Vec<String>, Result<(), String>) {
     if fail {
         command.arg("--fail");
     }
-    let mut child = backend::spawn(Job::Prepare, command, sender).unwrap();
+    let mut child = backend::spawn(command, move |out| {
+        let _ = sender.send(out);
+    })
+    .unwrap();
     child.send("input reaches the child");
     let mut lines = Vec::new();
     loop {
         match receiver.recv_timeout(Duration::from_secs(10)).unwrap() {
-            Msg::Line(Job::Prepare, line) => lines.push(line),
-            Msg::Exit(Job::Prepare, result) => return (lines, result),
-            _ => panic!("unexpected job message"),
+            Output::Line(line) => lines.push(line),
+            Output::Exit(result) => return (lines, result.map_err(|e| e.to_string())),
         }
     }
 }

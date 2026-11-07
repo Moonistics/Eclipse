@@ -10,12 +10,11 @@
 //!   `pickedShaderPack` in `eclipse-graphics.txt`.
 //!
 //! Every other line of both files is written back as it was.
+use crate::game_folder::{self, setting, GRAPHICS, OPTIONS};
 use std::fs;
 use std::io::Read;
 use std::path::{Path, PathBuf};
 
-const OPTIONS: &str = "options.txt";
-const GRAPHICS: &str = "eclipse-graphics.txt";
 const SHADER_MANIFEST: &str = "eclipse-shaders.toml";
 const SHADER_PACKAGE: &str = "eshader";
 
@@ -28,8 +27,8 @@ pub enum Kind {
 impl Kind {
     pub fn folder(self) -> &'static str {
         match self {
-            Kind::Resource => "resourcepacks",
-            Kind::Shader => "shaderpacks",
+            Kind::Resource => game_folder::RESOURCE_PACKS,
+            Kind::Shader => game_folder::SHADER_PACKS,
         }
     }
 }
@@ -70,13 +69,14 @@ fn enabled(home: &Path, kind: Kind) -> Vec<String> {
             .into_iter()
             .filter_map(|id| id.strip_prefix("file/").map(str::to_string))
             .collect(),
-        Kind::Shader => line_value(
-            &fs::read_to_string(home.join(GRAPHICS)).unwrap_or_default(),
-            "pickedShaderPack",
-        )
-        .filter(|v| !v.is_empty())
-        .into_iter()
-        .collect(),
+        Kind::Shader => {
+            let graphics = fs::read_to_string(home.join(GRAPHICS)).unwrap_or_default();
+            setting(&graphics, "pickedShaderPack")
+                .filter(|v| !v.is_empty())
+                .map(str::to_string)
+                .into_iter()
+                .collect()
+        }
     }
 }
 
@@ -173,45 +173,11 @@ pub(crate) fn plain(component: &serde_json::Value) -> String {
     out.trim().to_string()
 }
 
-/// `key:value` in a `key:value` per line file.
-fn line_value(text: &str, key: &str) -> Option<String> {
-    text.lines()
-        .find_map(|l| l.strip_prefix(key)?.strip_prefix(':'))
-        .map(str::to_string)
-}
-
 /// `resourcePacks:["vanilla","file/x.zip"]` in options.txt.
 fn option_list(options: &str) -> Vec<String> {
-    line_value(options, "resourcePacks")
-        .and_then(|v| serde_json::from_str(&v).ok())
+    setting(options, "resourcePacks")
+        .and_then(|v| serde_json::from_str(v).ok())
         .unwrap_or_default()
-}
-
-/// Sets `key:value` in the file, or adds the line; every other line stays.
-fn set_line(path: &Path, key: &str, value: &str) -> Result<(), String> {
-    let text = fs::read_to_string(path).unwrap_or_default();
-    let mut found = false;
-    let mut out: Vec<String> = text
-        .lines()
-        .map(
-            |l| match l.strip_prefix(key).and_then(|r| r.strip_prefix(':')) {
-                Some(_) if !found => {
-                    found = true;
-                    format!("{key}:{value}")
-                }
-                _ => l.to_string(),
-            },
-        )
-        .collect();
-    if !found {
-        out.push(format!("{key}:{value}"));
-    }
-    let mut text = out.join("\n");
-    text.push('\n');
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
 /// Turns a pack on or off. A resource pack turned on goes on top; a shader pack turned on
@@ -231,24 +197,21 @@ pub fn set_enabled(home: &Path, pack: &Pack, on: bool) -> Result<(), String> {
                 list.push(id.clone());
             } else {
                 // The game's "use it anyway" answer goes with it.
-                let mut incompatible: Vec<String> = line_value(&text, "incompatibleResourcePacks")
-                    .and_then(|v| serde_json::from_str(&v).ok())
+                let mut incompatible: Vec<String> = setting(&text, "incompatibleResourcePacks")
+                    .and_then(|v| serde_json::from_str(v).ok())
                     .unwrap_or_default();
                 if incompatible.contains(&id) {
                     incompatible.retain(|i| *i != id);
                     let value = serde_json::to_string(&incompatible).unwrap();
-                    set_line(&options, "incompatibleResourcePacks", &value)?;
+                    game_folder::set_setting(&options, "incompatibleResourcePacks", Some(&value))?;
                 }
             }
-            set_line(
-                &options,
-                "resourcePacks",
-                &serde_json::to_string(&list).unwrap(),
-            )
+            let list = serde_json::to_string(&list).unwrap();
+            game_folder::set_setting(&options, "resourcePacks", Some(&list))
         }
         Kind::Shader => {
             let value = if on { pack.file.as_str() } else { "" };
-            set_line(&home.join(GRAPHICS), "pickedShaderPack", value)
+            game_folder::set_setting(&home.join(GRAPHICS), "pickedShaderPack", Some(value))
         }
     }
 }
@@ -340,5 +303,4 @@ pub fn remove(home: &Path, pack: &Pack) -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "packs/tests.rs"]
 mod tests;

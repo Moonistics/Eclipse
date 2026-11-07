@@ -11,23 +11,10 @@ it has its own Cargo workspace and is not part of the game's builds.
 
 - **Versions**: lists the published builds of Moonistics/Eclipse (the current Nightly, the last
   week's, then the releases from before), installs the build for this platform into its own
-  folder, and removes it again. **Import a game build…** takes a `eclipse-client` you have (one
+  folder, and removes it again. **Import a version from file…** takes a `eclipse-client` you have (one
   built on your fork's Actions, or the zip holding it) and installs it as `imported-<date>-<sha>`:
   a copy of the selected release or Nightly's folder, game files included, with that program as the
   game. Imported builds are listed apart as unsigned, and no update replaces them.
-- **Move data to another drive**: Settings → Data folder → Move… copies the launcher's
-  installations, downloads and account files, the game's worlds and instances, and managed native
-  build data to an empty folder. Close games and servers and wait for active jobs first. The launcher
-  exits while the copy is verified, switches its location only after success, then reopens. Old folders
-  remain as recovery copies and still use disk space; verify your worlds and instances before removing
-  them yourself. External Minecraft/server folders and paths embedded in custom launch commands stay
-  unchanged. Links/junctions and overlapping roots are refused; Windows build destinations need ASCII
-  characters without spaces. Copy or commit failure leaves the original location selected.
-  The location pointer is independent of the moved folders, at the platform config directory's
-  `eclipse-launcher-location/location.json`. `ECLIPSE_LAUNCHER_LOCATION_FILE` selects an alternative
-  absolute pointer file for portable installations. Nonempty `ECLIPSE_LAUNCHER_HOME` and `ECLIPSE_HOME`
-  still override their respective roots; remove these overrides before using Move. A missing destination
-  fails explicitly instead of silently creating empty data in the default location.
 - **Play**: prepares resources as `PLAY.txt` describes (your launcher's 26.3 install, the
   26.3 server jar from that version's own json, and Java 25) and copies its sounds from your
   launcher's asset store (`eclipse-prepare sounds`; a launcher install without them only
@@ -43,14 +30,13 @@ it has its own Cargo workspace and is not part of the game's builds.
   libraries.minecraft.net, resources.download.minecraft.net; never a mirror) into `minecraft/`
   in its data folder, in the official launcher's layout: the version file, the client jar, this
   system's libraries, the asset index and the assets. Every file must have the size and sha1
-  Mojang lists. The Play page shows how far it is and has Cancel; files already whole are kept,
-  so the next try goes on from there. **From my install** prepares from the player's own launcher
-  instead, and an install that lacks the version falls back to the download. **Play** on a version
-  not prepared yet does it all for an owner, as the official launcher does: it prepares from the
-  install when there is one, else downloads (with Mojang's Java when no Java 25 is installed), then
-  starts the game. With no install on the computer the Play page offers the download alone and the
-  Minecraft folder row says none is needed. Without an owner,
-  the Play page asks to sign in first. `eclipse-launcher prepare --download`.
+  Mojang lists. Home shows how far it is under Play; files already whole are kept, so the next
+  try goes on from there. **Play** on a version not prepared yet does it all for an owner, as the
+  official launcher does: it prepares from the player's own launcher install when there is one
+  (**Choose Minecraft folder…** in Play's menu, or Settings' Minecraft folder, picks another),
+  else downloads (with Mojang's Java when no Java 25 is installed), then starts the game; an
+  install that lacks the version falls back to the download. Without an owner, Play asks to sign
+  in first. `eclipse-launcher prepare --download`.
 - **Mods**: tabs for Mods, Modpacks, Resource packs, Shader packs and Data packs. Mods, Modpacks,
   Resource packs and Data packs (into the world picked there) search Eclipse's own registry, with
   its categories as filters, or Modrinth (CurseForge support is coming soon); Shader packs search
@@ -76,9 +62,9 @@ it has its own Cargo workspace and is not part of the game's builds.
   and your agreement to the Minecraft EULA; with the defaults (tick the EULA, press Create) you get
   a friends-only survival world with you as its operator. Each server then has **Start**, **Stop** and **Restart**, its state (also
   when it crashed and was restarted), players online with their heads, TPS, MSPT and RAM, the
-  address friends on your network type with **Copy**, a console that takes commands, **Open the
-  web panel**, and four tabs: **Overview**; **Players** (online players with Make operator, Kick
-  and Ban; who may join, with Friends only, Let in and Remove; Unban); **Settings** (the message
+  address friends on your network type with **Copy the address**, a console that takes commands,
+  **Open the web panel**, and three tabs: **Players** (online players with Make operator, Kick
+  and Ban; who can join, with Friends only and its list; Unban); **Settings** (the message
   in the server list, game mode, difficulty, PvP, most players, view and simulation distance,
   port, account checks, **Run in the background and at login**); **Backups** (Back up now, the
   list with dates and sizes, Restore with a confirmation, Back up automatically, and **Updates**:
@@ -90,9 +76,10 @@ it has its own Cargo workspace and is not part of the game's builds.
   `update` and `service` there, and talks to a running server through its control API. Problems
   are said in plain words, with a button when there's a fix (another port, the game files, the
   EULA).
-  **Friends over the internet** (on Overview) uses Tailscale: it says whether Tailscale is
-  installed and signed in (with Install, Sign in and Check again; signing in is always yours, in
-  Tailscale's own app or page), shows this computer's Tailscale name and address with **Copy**,
+  **Over the internet** uses Tailscale: it says whether Tailscale is installed and signed in (with
+  Install Tailscale, Sign in to Tailscale and Check for Tailscale again; signing in is always
+  yours, in Tailscale's own app or page), shows this computer's Tailscale name and address with
+  **Copy the address**,
   and invites a friend to this one computer: in the admin console, or here with an access token
   you make there (kept in the system keychain), which also lists invitations with Withdraw /
   Stop sharing and offers **Limit them to Minecraft**: when your tailnet has Tailscale's default
@@ -106,14 +93,14 @@ it has its own Cargo workspace and is not part of the game's builds.
   sign-in sessions, logs or data collection state). Names, icons (a block or item texture from the
   player's prepared files, or a colour) and groups are kept in `instances.json` in the launcher's
   data folder, so renaming moves nothing. Every instance follows the launcher's data collection
-  answer and No AI. In the window, **+** beside Instances makes one, the sidebar lists them by
-  group (click one to play it), and Home's Instance row has Edit (name, group, icon), Copy and
-  Open folder. The Instance row shows its play time and when it was last played: every run started
-  from the window or `eclipse-launcher play` adds to it (`instance list` shows it too). Each
-  instance plays the launcher's version, which follows updates, unless the Play page's version
-  picker keeps it on another installed one (to keep an old world on the version it was made
-  with); picking the version marked "auto-update" lets it follow again.
-- **Export**: Home's Instance row has **Export…**: the selected instance (or a port) as a `.mrpack`
+  answer and No AI. In the window, **New instance** in the sidebar makes one, the sidebar lists
+  them by group (click one to play it), and each one's menu (⋯) has **Edit…** (name, group, icon),
+  **Duplicate…** and **Open instance folder**. Home shows its play time and when it was last
+  played: every run started from the window or `eclipse-launcher play` adds to it (`instance list`
+  shows it too). Each instance plays the launcher's version, which follows updates, unless Home's
+  Version list keeps it on another installed one (to keep an old world on the version it was made
+  with); picking **Always the newest** lets it follow again.
+- **Export**: an instance's menu has **Export…**: the instance (or a port) as a `.mrpack`
   (Modrinth's modpack format: resource packs the browser installed from Modrinth are listed by
   their download, the rest is in `overrides/`) or a `.zip` of the game folder's layout, with the
   worlds switched on. It is written to `exports/` in the launcher's data folder (**Show in
@@ -132,8 +119,9 @@ it has its own Cargo workspace and is not part of the game's builds.
   `eclipse-launcher instance import <file>`.
 - **Maximum memory** (Java instances): set the Java heap limit (`-Xmx`) with the slider or
   a value such as `4096` or `4gb`. Leave the box empty to restore the default (4096 MB).
-  Find it on Home in the classic layout, or in the instance’s Edit dialog in the glass layout.
-- **Launch options**: Home's Instance row has **Launch…**: per instance, a shell command run in its
+  It is on the instance's Edit page.
+- **Launch options**: on an instance's Edit page (its menu's **Launch options…** opens it there):
+  per instance, a shell command run in its
   folder before the game (the game starts only if it succeeds), a wrapper the game runs through
   (`nice -n 5`), and environment variables (`NAME=value OTHER="two words"`), kept in
   `instances.json` (`eclipse_launcher::launch`). The game stays one process the launcher follows:
@@ -141,21 +129,21 @@ it has its own Cargo workspace and is not part of the game's builds.
   through `"$@"` untouched; on Windows `cmd /C` runs `<command> && <game>`. Both the window's Play
   and `play` use them. `eclipse-launcher instance launch <instance> [--pre-launch …]
   [--wrapper …] [--env …]` (an MCP agent needs `confirm: true`: it sets commands Play runs).
-  On Linux the panel also has switches for what the computer has: **GameMode** (`gamemoderun`
+  On Linux the section also has switches for what the computer has: **GameMode** (`gamemoderun`
   on the PATH), **MangoHud** (`mangohud`), and, with two graphics cards under
   `/sys/class/drm`, the **dedicated graphics card** (`DRI_PRIME=1`, or NVIDIA's
   `__NV_PRIME_RENDER_OFFLOAD`, `__VK_LAYER_NV_optimus` and `__GLX_VENDOR_LIBRARY_NAME` when its
   driver is loaded). A switch whose tool is gone does nothing. `instance launch --gamemode
   on|off --mangohud on|off --dedicated-gpu on|off`; `ECLIPSE_LAUNCHER_LINUX_TOOLS` makes any
   system show them, for tests.
-- **Desktop shortcut**: Home's Instance row has **Shortcut**: a shortcut on the desktop that plays
-  the selected instance without opening the launcher (`eclipse-launcher play --instance <id>`).
+- **Desktop shortcut**: an instance's menu has **Create a desktop shortcut**: a shortcut on the
+  desktop that plays the instance without opening the launcher (`eclipse-launcher play --instance <id>`).
   A `.desktop` file on Linux (also put in the applications menu, and marked trusted with `gio`
   where it exists), a small app with Eclipse's icon on macOS, a `.lnk` on Windows
-  (`eclipse_launcher::shortcut`). **Remove shortcut** moves it to the trash; it is found by the
+  (`eclipse_launcher::shortcut`). **Remove the desktop shortcut** moves it to the trash; it is found by the
   instance id inside it, so a rename doesn't lose it. `eclipse-launcher instance shortcut
   [instance] [--remove]`; `ECLIPSE_LAUNCHER_DESKTOP` points it at another folder.
-- **Accounts and quick switch**: the top bar's account chip opens a menu of everyone who can play:
+- **Accounts and quick switch**: the account at the top of the sidebar opens a menu of everyone who can play:
   each signed-in Microsoft account, the offline names the player keeps, and the name the game
   made up (`eclipse-player.txt`). Picking one plays as it from the next Play. Offline names play
   only while an account that owns the game is signed in ([Microsoft accounts](#microsoft-accounts));
@@ -165,43 +153,44 @@ it has its own Cargo workspace and is not part of the game's builds.
   Share log takes the names out of the log too. `eclipse-launcher account offline
   [NAME]`, `account select <name>` (an account or an offline name), `account forget-offline
   <name>`.
-- **Accent and Home background**: on top of Dark, Light or System, Settings > Launcher picks an
-  accent (Eclipse's violet, blue, teal, green, amber, red or pink, any hue, or any colour typed as
-  hex in the dark look) and a picture of the player's own behind Home (PNG, JPEG or WebP, cropped
-  to fill; **Landscape** brings Eclipse's back). The dark look wears the colour as is, as the
-  mockup does; in the light look an accent turns the violet tokens to its hue, then darkens or
-  lightens them just enough to keep white on the Play button at 4.5:1 and the accent at 3:1 on
-  every background (a test holds every accent in both looks to it). The picture is copied into the
-  data folder. `eclipse-launcher settings accent NAME|#rrggbb|DEGREES`,
+- **Accent and Home background**: on top of Dark, Light or System, Settings > Appearance picks an
+  accent (Eclipse's amber, blue, teal, green, violet, red or pink, any hue, or any colour typed as
+  hex) and a picture of the player's own behind Home (PNG, JPEG or WebP, cropped to fill; **Default
+  background** brings Eclipse's back). The dark look wears the colour as is; the light look keeps
+  it as the fill and darkens it for icons and ticks until they read at 3:1, and for links and the
+  focus ring until they read at 4.5:1, on every light background. The label on the accent turns
+  dark when the accent is light (tests hold every accent the picker makes to it). The picture is
+  copied into the data folder. `eclipse-launcher settings accent NAME|#rrggbb|DEGREES`,
   `settings background PATH|default`.
-- **Language**: English, French, Russian, German, Simplified Chinese, Spanish, Ukrainian and Polish.
-  The window follows the system's language unless the player picks one in Settings > Launcher
-  (each named in itself); a string a table lacks shows in English. The tables are
-  `launcher/lang/<code>.json`, English text to its translation, Eclipse's own; a test fails when
-  the code asks `tr("…")` for a string a table lacks, or a table keeps one the code dropped.
-  `eclipse-launcher settings language system|en|fr|ru|de|zh|es|uk|pl`.
-- **Skin and cape**: each offline name's **Skin…** in Settings > Account shows the front of its
+- **Language**: English and every language with a table in `launcher/lang/<code>.json` (English
+  text to its translation, Eclipse's own). The window follows the system's language unless the
+  player picks one in Settings > Language (each named in itself); a string a table lacks shows in
+  English. A test fails when the code asks `tr("…")` for a string a table lacks, or a table keeps
+  one the code dropped. `eclipse-launcher settings language system|<code>`.
+- **Skin and cape**: each offline name's **Change skin** in Settings > Account shows the front of its
   skin and cape, takes a skin PNG (64×64, or the older 64×32) and a cape PNG (64×32), and picks
   classic or slim arms. The launcher keeps copies in its `skins/` folder and gives the game
   `ECLIPSE_OFFLINE_SKIN`, `ECLIPSE_OFFLINE_SKIN_MODEL` and `ECLIPSE_OFFLINE_CAPE` when that name
   plays; the game draws the default skins until it reads them. A Microsoft account's skin and
   cape: coming soon, with sign-in. `eclipse-launcher account skin <name> [FILE] [--model
   classic|slim] [--cape FILE] [--no-skin] [--no-cape]`.
-- **Console**: Home's Console shows the game's output of this run as it comes: a search (every
-  word, any case), Follow to keep the newest line in view, Copy, and Open logs folder. Warnings
+- **Console**: Home's Console shows the game's output of this run as it comes: **Search the log**
+  (every word, any case), **Auto-scroll** to keep the newest line in view, **Copy log**, and **Open
+  logs folder**. Warnings
   and errors stand out. **Share log…** uploads the log to [mclo.gs](https://mclo.gs), a paste
   service for Minecraft logs, only after the player confirms; the home folder, the user name and
-  the account names are taken out first (`eclipse_launcher::game_log`), and **Delete it** removes
+  the account names are taken out first (`eclipse_launcher::game_log`), and **Delete upload** removes
   the paste. `eclipse-launcher share-log [--instance]` and `unshare-log <id:token>`;
   `ECLIPSE_LAUNCHER_PASTE_URL` points it at a test server.
 - **Worlds**: Home lists the selected instance's worlds (picture, mode, version, last played,
-  size). **Back up** zips one into the instance's `backups/` as the game's Make Backup does
-  (`<date>_<time>_<folder>.zip`); **Copy** puts "<name> (1)" beside it; **Delete** moves it to the
-  system's trash after a confirmation; **Open folder**. The same from the command line:
+  size). **Back up world** zips one into the instance's `backups/` as the game's Make Backup does
+  (`<date>_<time>_<folder>.zip`); **Duplicate world** puts "<name> (1)" beside it; **Delete…**
+  moves it to the system's trash after a confirmation; **Open world folder**. The same from the
+  command line:
   `eclipse-launcher worlds [list|backup|copy|delete] [--instance <name>]`.
-  **Play** on a world starts the game straight into it. **Data packs** opens the world's
+  **Play** on a world starts the game straight into it. **Show data packs** opens the world's
   `datapacks/` under its row: what is there (and which the game has turned off), **Add data pack…**,
-  and **Remove** (to the trash); a data pack `.zip` dropped on a world goes into it. The game turns
+  and **Delete…** (to the trash); a data pack `.zip` dropped on a world goes into it. The game turns
   a new one on when the world opens. From the command line: `eclipse-launcher worlds
   datapack-list|datapack-add|datapack-remove <world> …`. The Mods page's **Data packs**
   tab finds them on Modrinth and installs one into the world picked there (`mods search --kind
@@ -209,14 +198,14 @@ it has its own Cargo workspace and is not part of the game's builds.
 - **Packs**: Home lists the selected instance's resource packs and shader packs, each with a switch.
   The choice is the game's own: `resourcePacks` in options.txt (a pack turned on goes on top, as
   the game's Resource Packs screen does) and `pickedShaderPack` in `eclipse-graphics.txt` (one shader
-  pack at a time). **Add pack…** or a `.zip` / `.eshader` dropped on the section copies it into the
-  right folder; **Remove** turns it off and moves it to the trash after a confirmation. From the
+  pack at a time). **Add from file…** or a `.zip` / `.eshader` dropped on the section copies it into
+  the right folder; **Delete…** turns it off and moves it to the trash after a confirmation. From the
   command line: `eclipse-launcher packs [list|add|on|off|remove] [--kind resource|shader]
   [--instance <name>]`.
 - **Screenshots**: Home shows the selected instance's newest screenshots (what F2 saves in its
   `screenshots/` folder) and all of them on request. Clicking one opens it over the window (← and →
   step through) with **Copy** (the picture, to the clipboard), **Open**, **Show in folder** and
-  **Delete** (to the trash, after a confirmation). From the command line:
+  **Delete…** (to the trash, after a confirmation). From the command line:
   `eclipse-launcher screenshots [list|delete] [--instance <name>]`.
 - **Java** (for the Minecraft: Java Edition instances to come): the runtime a version's JSON asks for
   (`javaVersion`: its major exactly, Java 8 before that field), found among Mojang's runtimes Eclipse
@@ -226,7 +215,7 @@ it has its own Cargo workspace and is not part of the game's builds.
   `eclipse-launcher java [list|install]`.
 - **Multiplayer**: Home lists the selected instance's servers, the game's own Multiplayer list
   (`servers.dat`, each with the picture the game last saw). **Join** starts the game straight into
-  one; **Add server** and **Remove** (after a confirmation) change the file the game reads,
+  one; **Add server** and **Remove…** (after a confirmation) change the file the game reads,
   keeping every field the launcher doesn't show and the servers joined with Direct Connection. The
   same from the command line: `eclipse-launcher multiplayer [list|add|remove] [--instance <name>]`
   and `eclipse-launcher play --server <address or name>`.
@@ -266,9 +255,8 @@ page `servers.json` (the list), `servers/<name>/` (the servers created there) an
   game starts. `eclipse-launcher game-args "<line>"` sets them too, and `play --arg <ARG>` passes
   one for a single run.
 - **Proxy**: when the internet here needs one (a school's, an office's, a country where a host is
-  unreachable), Settings' Proxy takes the `http://host:port` or `socks5://host:port` address your
-  proxy app listens on, and
-  every download goes through it: Eclipse's releases and the launcher's own update, Minecraft's
+  unreachable), Settings > Network's Proxy address takes the `http://host:port` or
+  `socks5://host:port` address your proxy app listens on, and every download goes through it: Eclipse's releases and the launcher's own update, Minecraft's
   files and Java from Mojang, Modrinth, CurseForge, Eclipse's mod registry, pictures, Microsoft
   sign-in, and the jars a modpack import fetches. It is kept as `proxy` in `settings.json`, and
   `eclipse-launcher settings proxy http://127.0.0.1:7890` sets it too ("default" removes it).
@@ -336,7 +324,7 @@ set `ECLIPSE_LAUNCHER_NO_SELF_UPDATE=1` to keep launcher updates with the packag
 
 Launcher releases are automatic (docs/release-flow.md in the repository): when main changes the
 launcher, `eclipse-prepare` or `eclipse-theme`, the `launcher` workflow builds Linux, macOS, Windows x64 and
-Windows ARM64 and publishes `launcher-vX.Y.Z` (the next patch, or the next minor after a pull request
+Windows ARM64 and publishes `launcher@X.Y.Z` (the next patch, or the next minor after a pull request
 labelled `feature`) with `eclipse-launcher-linux-x86_64.tar.gz`,
 `eclipse-launcher-linux-x86_64.AppImage`, `eclipse-launcher-macos-arm64.zip`,
 `eclipse-launcher-macos-x64.zip` (Intel Macs), `eclipse-launcher-windows-x64.zip` and
@@ -376,67 +364,9 @@ and PowerShell don't wait for a windowed program: they show the prompt again bef
 and don't set `%ERRORLEVEL%` / `$LASTEXITCODE`. Scripts that need the exit code use
 `start /wait eclipse-launcher …` or `Start-Process -Wait`, or read its output through a pipe.
 
-    eclipse-launcher versions [--installed]       releases on GitHub, or what is installed (* = selected)
-    eclipse-launcher install <tag|latest>
-    eclipse-launcher remove <tag>
-    eclipse-launcher import-build <path> [--version <tag>] --trust-unsigned   a game program you have, as its own version
-    eclipse-launcher prepare [--minecraft <dir>] [--version <tag>]
-    eclipse-launcher play [--version <tag>] [--instance <name>] [--arg <ARG>]...   start the client; --arg passes an extra argument through (repeatable)
-    eclipse-launcher server [--dir <dir>] [--version <tag>] [--accept-eula]
-    eclipse-launcher notes [<tag>]                  patch notes as plain text
-    eclipse-launcher links                          the Discord, sponsor and website links
-    eclipse-launcher game-args [<line>]             show or set the extra arguments the game starts with
-    eclipse-launcher update [--check]               Eclipse and the launcher
-    eclipse-launcher logs [--lines N] [--crash]     the end of the game's log, or its newest crash report
-    eclipse-launcher account [list]                 the Microsoft accounts signed in (* = plays)
-    eclipse-launcher account sign-in                sign in in your browser with a code
-    eclipse-launcher account sign-out <name>
-    eclipse-launcher account select <name>          play as this account
-    eclipse-launcher account offline                play without an account
-    eclipse-launcher instance [list]                the instances and their game folders (* = Play starts it)
-    eclipse-launcher instance create <name> [--copy <instance>]   empty, or a copy of one's worlds, options and packs
-    eclipse-launcher instance create <name> --minecraft <1.21.4|latest|latest-snapshot>   a Minecraft: Java Edition instance
-    eclipse-launcher instance versions [--snapshots] [--old]   the Java Edition versions, from Mojang's list (kept for offline)
-    eclipse-launcher instance java <instance> [--home <dir>|--auto] [--memory <MiB>] [--args "<jvm args>"]
-    eclipse-launcher instance rename|icon|group <instance> <value>  icon: a block or item name, #rrggbb or none
-    eclipse-launcher instance select <instance>     make Play start it
-    eclipse-launcher instance version <instance> <tag|latest>   keep it on one installed version, or follow updates
-    eclipse-launcher worlds [list] [--instance <name>]        an instance's worlds
-    eclipse-launcher worlds backup|copy|delete <world> [--instance <name>]   delete moves it to the trash
-    eclipse-launcher packs [list] [--kind resource|shader] [--instance <name>]   resource and shader packs, on or off
-    eclipse-launcher packs add <file> | on|off|remove <pack> [--kind shader]
-    eclipse-launcher screenshots [list] [--instance <name>]   an instance's screenshots, the newest first
-    eclipse-launcher screenshots delete <name> [--instance <name>]   moves it to the trash
-    eclipse-launcher java [list]          Java runtimes: Mojang's (downloaded by Eclipse) and installed ones
-    eclipse-launcher java install <21|java-runtime-delta>   downloads Mojang's runtime, each file sha1-checked
-    eclipse-launcher multiplayer [list] [--instance <name>]   the servers in an instance's Multiplayer list
-    eclipse-launcher multiplayer add <address> [--name <name>] | remove <server>
-    eclipse-launcher modpack [list]                 the imported packs and their coverage
-    eclipse-launcher modpack import <pack>          a .mrpack, CurseForge zip or instance folder
-    eclipse-launcher modpack port <pack> [--from <dir>] [--version <tag>]   get the jars and carry them over
-    eclipse-launcher modpack play <pack> [--version <tag>]                 play it as its own profile
-    eclipse-launcher modpack remove <pack>
-    eclipse-launcher mods [list]                    what the mod browser installed (docs/mod-browser.md)
-    eclipse-launcher mods search <text> [--kind resource|shader|modpack] [--everything] [--source modrinth]
-    eclipse-launcher mods install <id or slug>      checksum checked, with what it needs; a modpack is imported
-    eclipse-launcher mods update [<pack>] [--check]
-    eclipse-launcher mods remove <pack>
-    eclipse-launcher servers [list]                 the servers hosted from the launcher, and whether they run
-    eclipse-launcher servers create [--name N] [--seed S | --copy-world DIR] [--mode M] [--difficulty D]
-                     [--max-players N] [--open] [--offline] [--player NAME]... --accept-eula
-    eclipse-launcher servers set-up [--version <tag>]   copy a prepared version's programs and game files for servers
-    eclipse-launcher servers run <server> -- <eclipse-server command>   for example: servers run "My server" -- start
-    eclipse-launcher servers forget <server>        take it off the list (its folder stays)
-    eclipse-launcher benchmark [--repeats N]        measure the launcher (see Performance log)
-    eclipse-launcher data [status]                  what data collection is allowed, the install ID, what waits
-    eclipse-launcher data allow|deny <kinds|all>    performance, crashes, bugs, benchmarks
-    eclipse-launcher data show                      exactly what would be sent
-    eclipse-launcher data delete                    delete what was sent and what waits; new install ID
-    eclipse-launcher data bug "<text>" [--log]      a bug report, printed for you to confirm first
-    eclipse-launcher data benchmark <report.json>   upload a benchmark report, printed first
-
-`--json` prints JSON where there is something to report (`versions`, `install`, `notes`,
-`next`, `links`, `game-args`, `update --check`, `logs`, `account`, `benchmark`, `data`, `modpack`). Errors go to stderr with exit code 1. `server` runs in the terminal,
+Every command, its arguments and its MCP tool are in [docs/launcher-commands.md](../docs/launcher-commands.md),
+generated from the CLI's definition (a test fails when it is out of date). `--json` prints JSON where
+there is something to report. Errors go to stderr with exit code 1. `server` runs in the terminal,
 so lines you type reach its console. `ECLIPSE_LAUNCHER_HOME` replaces the data folder (for
 scripts and tests). Test runs also set `ECLIPSE_LAUNCHER_TRASH=<folder>` and
 `ECLIPSE_LAUNCHER_CLIPBOARD=<file>` inside their scratch folders: what Delete would move to the
@@ -475,14 +405,14 @@ error saying to call `play`.
 feature: `mcp` and `agent-config` refuse, the game opens no control socket and `eclipse-ctl`
 refuses. Every other command keeps working.
 
-The window, the command line and the MCP server all call the same core, `src/backend.rs`.
+The window, the command line and the MCP server all call the same library (`src/lib.rs`).
 
 ## Microsoft accounts
 
 The launcher starts the game only while a Microsoft account that owns Minecraft: Java Edition is
 signed in, as other launchers do: without one, Play (Home, instances, `eclipse-launcher play`, the
 MCP's `play`) says "Sign in with a Microsoft account that owns Minecraft: Java Edition to play"
-and starts nothing. Settings → Accounts signs in: the launcher shows a code, you enter it at
+and starts nothing. Settings → Account signs in: the launcher shows a code, you enter it at
 microsoft.com/link, and the launcher checks that the account owns the game. It asks again at every
 Play, with the token renewal; with no network the last answer stands, and a "doesn't own" blocks
 at once. The account also plays online-mode servers under your own name and skin; offline names
@@ -506,7 +436,7 @@ The game writes its log to `logs/latest.log` in the game folder (`ECLIPSE_HOME`,
 `~/.local/share/eclipse`, `~/Library/Application Support/eclipse` or `%APPDATA%\eclipse`), and
 archives the previous one at start as `logs/<date>-<n>.log.gz`, as Minecraft does. When it
 crashes it writes `crash-reports/crash-<date>_<time>-client.txt` beside them. When a game the
-launcher started crashes, the Play page says so, with buttons to open or copy the report, open the
+launcher started crashes, Home says so, with buttons to open or copy the report, open the
 logs folder and report it on Discord; Settings has the logs folder too. A crash report leaves the
 machine only if you turn on crash reports (below).
 
@@ -564,6 +494,6 @@ bundled so the type is the same on every platform.
 
 ![Mods](docs/mods.png)
 ![Servers](docs/servers.png)
-![Versions](docs/versions.png)
-![Patch notes](docs/patch-notes.png)
 ![Settings](docs/settings.png)
+![New instance](docs/new-instance.png)
+![Home in the light appearance](docs/home-light.png)

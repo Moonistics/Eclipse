@@ -1,57 +1,38 @@
 //! The launcher's view of Eclipse's design tokens (`crates/eclipse-theme`): the Corona look
 //! (`eclipse_theme::glass`) in Geist, with Geist Mono for paths and codes. The light appearance
 //! draws it over the dawn sky (`eclipse_theme::night::DAWN`).
-use eclipse_launcher::backend::Appearance;
-use eclipse_launcher::themes::Accent;
+use eclipse_launcher::backend::{Appearance, Settings};
+use eclipse_launcher::themes::{self, Accent};
 use eclipse_theme as tokens;
 use gpui::{rgb, Hsla, WindowAppearance};
 use std::time::Duration;
 
-pub use tokens::night::{self, Night};
-pub use tokens::{Step, CAPTION, DISPLAY, HEADING, LABEL, MICRO, TITLE, UI};
+use tokens::night::{self, Night};
 pub const FONT: &str = tokens::FONT;
-pub const DISPLAY_FONT: &str = night::DISPLAY_FONT;
 pub const MONO: &str = tokens::MONO;
 
-/// Shapes and controls, shared with the game's menus and the website.
-pub use tokens::{DISABLED, FIELD, ROW};
+pub use tokens::DISABLED;
 
-pub const PAGE_GUTTER: f32 = 32.;
-pub const PAGE_MAX: f32 = 1120.;
-
-/// Motion: short and eased out, never bouncy.
 pub const QUICK: Duration = tokens::QUICK.duration();
-pub const MOVE: Duration = tokens::MOVE.duration();
+
+pub type Inputs = (Appearance, Accent, Option<String>, WindowAppearance);
+
+pub fn inputs(settings: &Settings, system: WindowAppearance) -> Inputs {
+    (
+        settings.appearance,
+        settings.accent,
+        settings.theme.clone(),
+        system,
+    )
+}
 
 #[derive(Clone, Copy)]
 pub struct Theme {
-    /// The look's colours for the accent.
     pub look: tokens::glass::Glass,
-    /// The page behind everything the sky doesn't cover.
-    pub page: Hsla,
-    /// Hover plates, fields and the console.
-    pub plate_soft: Hsla,
-    /// Pressed plates, a switch that is off: the button colour.
-    pub plate: Hsla,
-    pub rule: Hsla,
-    pub ink: Hsla,
-    pub ink_soft: Hsla,
-    pub muted: Hsla,
-    pub accent: Hsla,
-    pub danger: Hsla,
-    pub success: Hsla,
-    pub warn: Hsla,
     pub side: Hsla,
-    /// The sky the light appearance draws (`sky.rs`) and the screens still in its colours.
+    /// The scene's colours (`scene.rs`).
     pub night: Night,
     pub dark: bool,
-}
-
-/// The light appearance's look: the soft accent (links, ticks, the sliders) is the accent
-/// itself, which reads on white where the dark look's half-white mix would not.
-fn light_look(mut look: tokens::glass::Glass) -> tokens::glass::Glass {
-    look.accent_soft = look.accent;
-    look
 }
 
 fn c(hex: u32) -> Hsla {
@@ -75,55 +56,31 @@ pub fn pinned_dark(choice: Appearance) -> Option<bool> {
 
 impl Theme {
     /// This look under another sky (a launcher theme from Settings), top to bottom.
-    pub fn with_sky(mut self, sky: [u32; 6]) -> Self {
+    fn with_sky(mut self, sky: [u32; 6]) -> Self {
         self.night.sky = sky;
         self
     }
 
-    /// The look with the player's Glass (how much white the plates take, 0 to 1) and Blur (px).
-    pub fn with_glass(mut self, tint: f32, blur: f32) -> Self {
-        self.look = tokens::glass::Glass::new(self.look.accent, tint, blur);
-        if !self.dark {
-            self.look = light_look(self.look);
+    pub fn for_settings(settings: &Settings, system: WindowAppearance) -> Self {
+        let theme = Self::for_appearance(settings.appearance, settings.accent, system);
+        match themes::theme(settings.theme.as_deref()) {
+            Some(picked) => theme.with_sky(picked.sky),
+            None => theme,
         }
-        self
     }
 
-    /// The pinned appearance (`pinned_dark`), the system's when the player asked to follow it, in
-    /// the player's accent.
     pub fn for_appearance(choice: Appearance, accent: Accent, system: WindowAppearance) -> Self {
-        use tokens::glass::{
-            fill, ink, Glass, BASE, BLUR, DANGER, DANGER_LIGHT, LIVE, LIVE_LIGHT, ON_LIGHT, TINT,
-            WARN, WARN_LIGHT,
-        };
+        use tokens::glass::{Glass, BASE};
         let system_dark = !matches!(
             system,
             WindowAppearance::Light | WindowAppearance::VibrantLight
         );
         let dark = pinned_dark(choice).unwrap_or(system_dark);
         let night = if dark { night::NIGHT } else { night::DAWN };
-        let white = |a: f32| {
-            if dark {
-                gpui::white().opacity(a)
-            } else {
-                c(ON_LIGHT).opacity(a)
-            }
-        };
-        let look = Glass::new(accent.rgb(), TINT, BLUR);
-        let look = if dark { look } else { light_look(look) };
+        let look = Glass::new(accent.rgb());
+        let look = if dark { look } else { look.light() };
         Self {
             look,
-            page: c(night.page),
-            plate_soft: white(fill::HOVER),
-            plate: white(fill::BUTTON),
-            rule: white(fill::BUTTON),
-            ink: white(ink::FULL),
-            ink_soft: white(ink::BODY),
-            muted: white(ink::MUTED),
-            accent: c(look.accent_soft),
-            danger: c(if dark { DANGER } else { DANGER_LIGHT }),
-            success: c(if dark { LIVE } else { LIVE_LIGHT }),
-            warn: c(if dark { WARN } else { WARN_LIGHT }),
             side: c(if dark { BASE } else { night.side }),
             night,
             dark,
@@ -131,30 +88,114 @@ impl Theme {
     }
 }
 
-/// How strongly a selected suggestion in a text field is tinted with the accent.
-pub const SELECTION: f32 = 0.22;
-
 #[cfg(test)]
 mod tests {
-    use super::SELECTION;
+    use eclipse_launcher::themes::Accent;
     use eclipse_theme::contrast;
-    use eclipse_theme::glass::{Glass, DANGER, FIELD_BG, FLOAT};
+    use eclipse_theme::glass::{fill, ink, light_ink, light_surfaces, Glass, ON_LIGHT, PAPER};
     use eclipse_theme::night::over;
 
-    /// What the dark look draws besides text: the keyboard focus ring and the border of a
-    /// refused field on every surface (WCAG 1.4.11 asks 3:1), and text over a selected
-    /// suggestion.
     #[test]
-    fn marks_and_selections_read_clearly() {
-        let look = Glass::default_look();
-        for (name, bg) in [("plate", look.plate), ("float", FLOAT), ("field", FIELD_BG)] {
-            let ring = contrast(look.accent_soft, bg);
-            assert!(ring >= 3.0, "focus ring on {name}: {ring:.2}");
-            let refused = contrast(DANGER, bg);
-            assert!(refused >= 3.0, "refused field on {name}: {refused:.2}");
+    fn a_light_switch_that_is_on_shows_its_edge() {
+        use eclipse_theme::glass::SWITCH_EDGE_LIGHT;
+        let hues = (0..360).map(|hue| Accent::custom(hue as f32));
+        for accent in Accent::ALL.into_iter().chain(hues) {
+            let look = Glass::new(accent.rgb()).light();
+            let rim = over(ON_LIGHT, SWITCH_EDGE_LIGHT, look.accent);
+            for bg in light_surfaces() {
+                let ratio = contrast(rim, bg);
+                assert!(
+                    ratio >= 3.0,
+                    "{}: on switch on #{bg:06x}: {ratio:.2}",
+                    accent.name()
+                );
+            }
         }
-        let selection = over(look.accent_soft, SELECTION, FLOAT);
-        let ratio = contrast(0xffffff, selection);
-        assert!(ratio >= 4.5, "text on a selection: {ratio:.2}");
+    }
+
+    #[test]
+    fn light_marks_read_for_every_accent_the_picker_makes() {
+        let hues = (0..360).map(|hue| Accent::custom(hue as f32));
+        for accent in Accent::ALL.into_iter().chain(hues) {
+            let look = Glass::new(accent.rgb()).light();
+            let name = accent.name();
+            for bg in light_surfaces() {
+                let icon = contrast(look.mark, bg);
+                assert!(icon >= 3.0, "{name}: icon on #{bg:06x}: {icon:.2}");
+                let ring = contrast(look.accent_soft, bg);
+                assert!(ring >= 4.5, "{name}: link and ring on #{bg:06x}: {ring:.2}");
+            }
+            let selection = over(look.accent_soft, fill::TEXT_SELECTION, PAPER);
+            let ratio = contrast(ON_LIGHT, selection);
+            assert!(ratio >= 4.5, "{name}: text on a selection: {ratio:.2}");
+        }
+    }
+
+    #[test]
+    fn a_busy_label_reads_on_its_track() {
+        let hues = (0..360).map(|hue| Accent::custom(hue as f32));
+        for accent in Accent::ALL.into_iter().chain(hues) {
+            let dark = Glass::new(accent.rgb());
+            for (look, light) in [(dark, false), (dark.light(), true)] {
+                let track = look.busy_track(light);
+                let ratio = contrast(look.on_accent, track);
+                let full = contrast(look.on_accent, look.accent).min(4.5);
+                assert!(
+                    ratio >= full,
+                    "{}: busy label on #{track:06x}: {ratio:.2}",
+                    accent.name()
+                );
+            }
+        }
+    }
+
+    #[test]
+    fn text_and_marks_read_on_every_launcher_theme_sky() {
+        use eclipse_launcher::themes::THEMES;
+        let look = Glass::default_look();
+        let light = look.light();
+        for theme in THEMES {
+            for (stop, &sky) in theme.sky[..3].iter().enumerate() {
+                for level in ink::LEVELS {
+                    if level == ink::DIM && stop == 2 {
+                        continue;
+                    }
+                    let ratio = contrast(over(0xffffff, level, sky), sky);
+                    assert!(
+                        ratio >= 4.5,
+                        "{} stop {stop}, ink {level}: {ratio:.2}",
+                        theme.id
+                    );
+                }
+                let mark = contrast(look.mark, sky);
+                assert!(mark >= 3., "{} stop {stop}, mark: {mark:.2}", theme.id);
+            }
+            for sky in theme
+                .sky
+                .map(|c| over(0xffffff, crate::scene::THEME_SKY_WASH, c))
+            {
+                for level in ink::LEVELS {
+                    let a = light_ink(level);
+                    let ratio = contrast(over(ON_LIGHT, a, sky), sky);
+                    assert!(
+                        ratio >= 4.5,
+                        "{} by day #{sky:06x}, ink {a}: {ratio:.2}",
+                        theme.id
+                    );
+                }
+                let mark = contrast(light.mark, sky);
+                assert!(
+                    mark >= 3.,
+                    "{} by day #{sky:06x}, mark: {mark:.2}",
+                    theme.id
+                );
+                let link = contrast(light.accent_soft, sky);
+                assert!(
+                    link >= 4.5,
+                    "{} by day #{sky:06x}, link: {link:.2}",
+                    theme.id
+                );
+            }
+        }
     }
 }

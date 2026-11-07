@@ -25,11 +25,7 @@ pub fn aside_dirs(install: &str, temp: &str) -> Vec<String> {
 /// None for a relative path: its volume is unknown.
 fn volume(path: &str) -> Option<String> {
     let path = path.replace('/', "\\");
-    let path = if let Some(unc) = path.strip_prefix(r"\\?\UNC\") {
-        format!(r"\\{unc}")
-    } else {
-        path.strip_prefix(r"\\?\").unwrap_or(&path).to_string()
-    };
+    let path = crate::files::without_verbatim(&path);
     if let Some(rest) = path.strip_prefix(r"\\") {
         let mut parts = rest.split('\\').filter(|p| !p.is_empty());
         let (server, share) = (parts.next()?, parts.next()?);

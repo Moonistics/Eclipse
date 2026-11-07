@@ -2,13 +2,11 @@
 //! the same support module as another mod) is left out, with the mods that need it, and the
 //! build runs again without them: the player still gets a game with the others, and is told
 //! which mods were left out and why.
-use super::dependencies::Dependency;
-use super::Bundle;
+use super::manifest::Bundle;
+use super::mixins::Diagnostic;
 use crate::i18n::trf;
 use std::collections::BTreeSet;
-use std::fs;
 
-/// Why a mod was left out of a build.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Why {
     /// It doesn't apply to, or compile on, the Eclipse the build uses.
@@ -19,8 +17,9 @@ pub enum Why {
     Needs(String),
 }
 
-/// A mod left out of a build.
-#[derive(Clone, Debug, PartialEq, Eq)]
+/// A mod left out of a build, kept in its `native-mods.json` as `{id, version, why, with}`.
+#[derive(Clone, Debug, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+#[serde(into = "Kept", try_from = "Kept")]
 pub struct LeftOut {
     pub id: String,
     pub version: String,
@@ -53,46 +52,48 @@ impl LeftOut {
             ),
         }
     }
+}
 
-    /// How a build's `native-mods.json` keeps it (`left_out`).
-    pub(super) fn to_json(&self) -> serde_json::Value {
-        let (why, with) = match &self.why {
+/// How a [`LeftOut`] is kept: a reason a later launcher adds reads as [`Why::OtherVersion`].
+#[derive(serde::Serialize, serde::Deserialize)]
+struct Kept {
+    id: String,
+    version: String,
+    why: String,
+    with: Option<String>,
+}
+
+impl From<LeftOut> for Kept {
+    fn from(left: LeftOut) -> Self {
+        let (why, with) = match left.why {
             Why::OtherVersion => ("other-version", None),
             Why::Clash(other) => ("clash", Some(other)),
             Why::Needs(other) => ("needs", Some(other)),
         };
-        serde_json::json!({"id": self.id, "version": self.version, "why": why, "with": with})
+        Self {
+            id: left.id,
+            version: left.version,
+            why: why.into(),
+            with,
+        }
     }
+}
 
-    pub(super) fn from_json(value: &serde_json::Value) -> Option<Self> {
-        let with = || value["with"].as_str().map(str::to_owned);
-        Some(Self {
-            id: value["id"].as_str()?.to_owned(),
-            version: value["version"].as_str()?.to_owned(),
-            why: match value["why"].as_str()? {
+impl TryFrom<Kept> for LeftOut {
+    type Error = &'static str;
+
+    fn try_from(kept: Kept) -> Result<Self, Self::Error> {
+        let with = || kept.with.clone().ok_or("no other mod named");
+        Ok(Self {
+            why: match kept.why.as_str() {
                 "clash" => Why::Clash(with()?),
                 "needs" => Why::Needs(with()?),
                 _ => Why::OtherVersion,
             },
+            id: kept.id,
+            version: kept.version,
         })
     }
-}
-
-/// The support modules a bundle declares, as (destination file, module name).
-fn modules(bundle: &Bundle) -> Vec<(String, String)> {
-    let text = fs::read_to_string(bundle.dir.join(super::MANIFEST)).unwrap_or_default();
-    let table: toml::Table = text.parse().unwrap_or_default();
-    let entries = table.get("module").and_then(|m| m.as_array());
-    entries
-        .into_iter()
-        .flatten()
-        .filter_map(|m| {
-            Some((
-                m.get("file")?.as_str()?.into(),
-                m.get("name")?.as_str()?.into(),
-            ))
-        })
-        .collect()
 }
 
 /// The mod of `mods` (in build order) a horizon-mixins diagnostic at the end of its `output`
@@ -101,21 +102,21 @@ fn modules(bundle: &Bundle) -> Vec<(String, String)> {
 /// e8cd0aa) but the module (`support module 'x' collides …`) or its destination (`file`, which
 /// this Eclipse may not have); between two mods, neither: the later one is left out.
 pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
-    let value: serde_json::Value = serde_json::from_str(&output[output.find('{')?..]).ok()?;
-    let message = value["message"].as_str().unwrap_or_default();
-    let declared: Vec<(&Bundle, Vec<(String, String)>)> =
-        mods.iter().map(|b| (b, modules(b))).collect();
+    let found = Diagnostic::read(output)?;
+    let message = found.message.as_deref().unwrap_or_default();
+    let declared: Vec<(&Bundle, &[(String, String)])> =
+        mods.iter().map(|b| (b, b.modules.as_slice())).collect();
     // The first mod declaring the same module as `bundle`, other than itself.
     let clash = |bundle: &Bundle| {
-        let own = modules(bundle);
         declared
             .iter()
-            .find(|(other, theirs)| other.id != bundle.id && theirs.iter().any(|m| own.contains(m)))
+            .find(|(other, theirs)| {
+                other.id != bundle.id && theirs.iter().any(|m| bundle.modules.contains(m))
+            })
             .map(|(other, _)| other.id.clone())
     };
-    let named = value["mod_id"]
-        .as_str()
-        .or_else(|| value["file"].as_str().and_then(super::mod_id_from_file))
+    let named = found
+        .mod_id()
         .and_then(|id| mods.iter().find(|b| b.id == id))
         .or_else(|| {
             let name = message
@@ -129,7 +130,7 @@ pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
                 .map(|(b, _)| *b)
         })
         .or_else(|| {
-            let file = value["file"].as_str()?;
+            let file = found.file.as_deref()?;
             let mut declaring = declared
                 .iter()
                 .filter(|(_, theirs)| theirs.iter().any(|(f, _)| f == file));
@@ -139,22 +140,21 @@ pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
             }
         });
     if let Some(bundle) = named {
-        let why = match value["code"].as_str() {
+        let why = match found.code.as_deref() {
             Some("E_MODULE_CONFLICT") => clash(bundle).map_or(Why::OtherVersion, Why::Clash),
             _ => Why::OtherVersion,
         };
         return Some(LeftOut::new(bundle, why));
     }
-    if value["code"].as_str() != Some("E_MODULE_CONFLICT") {
+    if found.code.as_deref() != Some("E_MODULE_CONFLICT") {
         return None;
     }
     // Two mods' modules: the later of the first pair declaring the same one.
-    let later = declared.iter().enumerate().find_map(|(i, (bundle, _))| {
+    declared.iter().enumerate().find_map(|(i, (bundle, _))| {
         clash(bundle)
             .filter(|first| declared[..i].iter().any(|(b, _)| b.id == *first))
             .map(|first| LeftOut::new(bundle, Why::Clash(first)))
-    });
-    later
+    })
 }
 
 /// The mods the compiler's errors were traced to (`owners`, as `id version`), among `mods`.
@@ -167,12 +167,15 @@ pub(super) fn from_compiler(owners: &[String], mods: &[Bundle]) -> Vec<LeftOut> 
 
 /// `left` and, after them, every mod of `mods` that needs one of them (not optionally),
 /// transitively, each once.
-pub(super) fn with_dependents(left: &[LeftOut], mods: &[(&Bundle, &[Dependency])]) -> Vec<LeftOut> {
+pub(super) fn with_dependents(left: &[LeftOut], mods: &[Bundle]) -> Vec<LeftOut> {
     let mut out = left.to_vec();
     let mut gone: BTreeSet<String> = left.iter().map(|l| l.id.clone()).collect();
     loop {
-        let next = mods.iter().find_map(|(bundle, deps)| {
-            let needed = deps.iter().find(|d| !d.optional && gone.contains(&d.id))?;
+        let next = mods.iter().find_map(|bundle| {
+            let needed = bundle
+                .dependencies
+                .iter()
+                .find(|d| !d.optional && gone.contains(&d.id))?;
             (!gone.contains(&bundle.id))
                 .then(|| LeftOut::new(bundle, Why::Needs(needed.id.clone())))
         });
@@ -186,7 +189,9 @@ pub(super) fn with_dependents(left: &[LeftOut], mods: &[(&Bundle, &[Dependency])
 
 #[cfg(test)]
 mod tests {
+    use super::super::dependencies::Dependency;
     use super::*;
+    use std::fs;
     use std::path::Path;
 
     fn bundle(root: &Path, id: &str, modules: &[(&str, &str)]) -> Bundle {
@@ -198,18 +203,8 @@ mod tests {
                 "[[module]]\nid = \"m\"\nfile = \"{file}\"\nname = \"{name}\"\nsource = \"m.rs\"\n"
             );
         }
-        fs::write(dir.join(super::super::MANIFEST), text).unwrap();
-        Bundle {
-            id: id.into(),
-            version: "1.0.0".into(),
-            dir,
-            eclipse: None,
-            mixins: None,
-            hooks: None,
-            api: None,
-            mixins_content: true,
-            injections: Vec::new(),
-        }
+        fs::write(dir.join(super::super::manifest::MANIFEST), text).unwrap();
+        super::super::bundles(&dir).unwrap().remove(0)
     }
 
     #[test]
@@ -305,12 +300,16 @@ mod tests {
             [dep("addon", false)],
             [dep("lib", true)],
         );
-        let mods: Vec<(&Bundle, &[Dependency])> = vec![
-            (&extra, &on_addon),
-            (&lib, &[]),
-            (&addon, &on_lib),
-            (&maybe, &maybe_lib),
-            (&other, &[]),
+        let needing = |bundle: &Bundle, dependencies: &[Dependency]| Bundle {
+            dependencies: dependencies.to_vec(),
+            ..bundle.clone()
+        };
+        let mods = [
+            needing(&extra, &on_addon),
+            lib.clone(),
+            needing(&addon, &on_lib),
+            needing(&maybe, &maybe_lib),
+            other,
         ];
         let left = with_dependents(&[LeftOut::new(&lib, Why::OtherVersion)], &mods);
         let ids: Vec<&str> = left.iter().map(|l| l.id.as_str()).collect();
@@ -320,8 +319,7 @@ mod tests {
             "extra was left out: it needs addon, which was left out"
         );
         // What a build's record keeps reads back the same.
-        for l in &left {
-            assert_eq!(LeftOut::from_json(&l.to_json()).as_ref(), Some(l));
-        }
+        let kept = serde_json::to_string(&left).unwrap();
+        assert_eq!(serde_json::from_str::<Vec<LeftOut>>(&kept).unwrap(), left);
     }
 }

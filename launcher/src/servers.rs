@@ -9,10 +9,10 @@
 //! launcher prepared: nothing of Mojang's is downloaded or shipped.
 
 use crate::backend;
+use crate::game_folder;
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::fs;
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::time::Duration;
@@ -26,8 +26,6 @@ const PROGRAM: &str = if cfg!(windows) {
 /// The Minecraft EULA a server owner agrees to.
 pub const EULA_URL: &str = "https://aka.ms/MinecraftEULA";
 
-// ----- The list of servers -----------------------------------------------------------------------
-
 /// One server the launcher knows: its name and its folder.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -40,55 +38,41 @@ pub struct Entry {
 pub fn game_mode(dir: &Path) -> Option<String> {
     let text = fs::read_to_string(dir.join("server.toml")).ok()?;
     let config: toml::Value = toml::from_str(&text).ok()?;
-    config
-        .get("world")?
-        .get("game_mode")?
-        .as_str()
-        .map(str::to_string)
+    let (table, name) = Key::GameMode.path();
+    config.get(table)?.get(name)?.as_str().map(str::to_string)
 }
 
 fn list_file() -> PathBuf {
     backend::data_dir().join("servers.json")
 }
 
-/// The servers, in the order they were added; folders that are gone are left out.
-pub fn list() -> Vec<Entry> {
-    let entries: Vec<Entry> = fs::read_to_string(list_file())
-        .ok()
-        .and_then(|t| serde_json::from_str(&t).ok())
-        .unwrap_or_default();
-    entries.into_iter().filter(|e| e.dir.is_dir()).collect()
+fn read_list(file: &Path) -> Result<Vec<Entry>, String> {
+    let entries: Vec<Entry> = crate::files::read_json(file)?.unwrap_or_default();
+    Ok(entries.into_iter().filter(|e| e.dir.is_dir()).collect())
 }
 
-fn save_list(entries: &[Entry]) -> Result<(), String> {
-    let path = list_file();
-    fs::create_dir_all(backend::data_dir()).map_err(|e| e.to_string())?;
-    let text = serde_json::to_string_pretty(entries).map_err(|e| e.to_string())?;
-    // A torn write would drop every server from the sidebar: write beside
-    // the list, flush it, and rename it into place. Without the flush a
-    // power cut can leave a file of the right length full of zeros.
-    let partial = path.with_extension("json.tmp");
-    let mut file = fs::File::create(&partial).map_err(|e| e.to_string())?;
-    file.write_all(text.as_bytes())
-        .and_then(|()| file.sync_all())
-        .map_err(|e| e.to_string())?;
-    drop(file);
-    fs::rename(&partial, &path).map_err(|e| e.to_string())
+/// The servers, in the order they were added; folders that are gone are left out.
+pub fn list() -> Vec<Entry> {
+    read_list(&list_file()).unwrap_or_default()
+}
+
+fn change_list(file: &Path, change: impl FnOnce(&mut Vec<Entry>)) -> Result<(), String> {
+    let mut all = read_list(file)?;
+    change(&mut all);
+    crate::files::write_json(file, &all)
 }
 
 /// Adds a server folder to the list (once).
 pub fn add(entry: Entry) -> Result<(), String> {
-    let mut all = list();
-    all.retain(|e| e.dir != entry.dir);
-    all.push(entry);
-    save_list(&all)
+    change_list(&list_file(), |all| {
+        all.retain(|e| e.dir != entry.dir);
+        all.push(entry);
+    })
 }
 
 /// Takes a server off the list; its folder stays.
 pub fn forget(dir: &Path) -> Result<(), String> {
-    let mut all = list();
-    all.retain(|e| e.dir != dir);
-    save_list(&all)
+    change_list(&list_file(), |all| all.retain(|e| e.dir != dir))
 }
 
 /// Removes a registered, stopped server, retaining its files in the system trash.
@@ -157,7 +141,7 @@ pub fn slug(name: &str) -> String {
 }
 
 /// A new folder for a server called `name`, under `servers/` in the data folder.
-pub fn new_folder(name: &str) -> PathBuf {
+fn new_folder(name: &str) -> PathBuf {
     let root = backend::data_dir().join("servers");
     let base = slug(name);
     let mut dir = root.join(&base);
@@ -168,8 +152,6 @@ pub fn new_folder(name: &str) -> PathBuf {
     }
     dir
 }
-
-// ----- The programs: an installed Eclipse version, laid out as install.sh does ---------------------
 
 pub fn runtime_root() -> PathBuf {
     backend::data_dir().join("server-runtime")
@@ -191,10 +173,11 @@ pub fn game_files(root: &Path, game_version: &str) -> PathBuf {
     root.join("game-files/eclipse-client").join(game_version)
 }
 
-/// Whether the servers' game files are there.
+pub const GAME_VERSION: &str = eclipse_core::version::VERSION_ID;
+
 pub fn game_files_ready() -> bool {
-    game_files(&runtime_root(), "26.3")
-        .join("eclipse-resources.json")
+    game_files(&runtime_root(), GAME_VERSION)
+        .join(backend::RESOURCES_MANIFEST)
         .is_file()
 }
 
@@ -229,7 +212,7 @@ pub fn set_up(tag: &str) -> Result<(), String> {
 }
 
 /// [`set_up`] with its folders given (for tests).
-pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> Result<(), String> {
+fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> Result<(), String> {
     let releases = root.join("releases");
     fs::create_dir_all(&releases).map_err(|e| format!("{}: {e}", releases.display()))?;
     let release = releases.join(tag);
@@ -237,7 +220,8 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
         if !release.join(PROGRAM).is_file() {
             let scratch = releases.join(format!(".{tag}.copying"));
             let _ = fs::remove_dir_all(&scratch);
-            copy_release(version, &scratch).map_err(|e| format!("copying {tag}: {e}"))?;
+            crate::files::copy_dir(version, &scratch, &LAUNCHER_FILES)
+                .map_err(|e| format!("copying {tag}: {e}"))?;
             let _ = fs::remove_dir_all(&release);
             fs::rename(&scratch, &release).map_err(|e| e.to_string())?;
         }
@@ -252,11 +236,12 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
         point(&root.join("current"), &release).map_err(|e| e.to_string())?;
     }
     // The game files: a copy (preparing again rewrites files in place), swapped in whole.
-    let from = version.join(".local/eclipse-client").join(game_version);
+    let from = backend::resources_in(version, game_version);
     let to = game_files(root, game_version);
     let fresh = to.with_extension("copying");
     let _ = fs::remove_dir_all(&fresh);
-    copy_dir(&from, &fresh).map_err(|e| format!("copying the game files: {e}"))?;
+    crate::files::copy_dir(&from, &fresh, &[])
+        .map_err(|e| format!("copying the game files: {e}"))?;
     let old = to.with_extension("old");
     let _ = fs::remove_dir_all(&old);
     if to.exists() {
@@ -267,40 +252,13 @@ pub fn set_up_in(root: &Path, version: &Path, tag: &str, game_version: &str) -> 
     Ok(())
 }
 
-/// A release folder without the launcher's own files (its prepared copy, install marker and the
-/// game's macOS app bundle).
-fn copy_release(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == ".local" || name == ".installed" || name == "Eclipse.app" {
-            continue;
-        }
-        let target = to.join(&name);
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            fs::copy(entry.path(), &target)?;
-        }
-    }
-    Ok(())
-}
-
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        let kind = entry.file_type()?;
-        if kind.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else if kind.is_file() {
-            fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
+/// What a release folder holds of the launcher's own and isn't copied for the servers: its
+/// prepared copy, install marker and the game's macOS app bundle.
+const LAUNCHER_FILES: [&str; 3] = [
+    ".local",
+    crate::backend::INSTALL_MARK,
+    crate::backend::GAME_APP,
+];
 
 /// Makes `link` point at the folder `target`, as install.sh (a symbolic link) and install.ps1 (a
 /// junction, which needs no admin rights) do.
@@ -318,8 +276,6 @@ fn point(link: &Path, target: &Path) -> std::io::Result<()> {
         crate::sources::junction(target, link)
     }
 }
-
-// ----- Running eclipse-server -------------------------------------------------------------------
 
 /// `eclipse-server --dir <dir> <args>`.
 pub fn command(dir: &Path, args: &[&str]) -> Result<Command, String> {
@@ -404,7 +360,7 @@ pub fn run_streamed(dir: &Path, args: &[&str], line: &dyn Fn(String)) -> Result<
 pub enum Fix {
     /// The port is taken: use this free one.
     UsePort(u16),
-    /// The game files are missing: prepare them (Play page) and copy them for the servers.
+    /// The game files are missing: prepare them (Home) and copy them for the servers.
     Prepare,
     /// The EULA isn't agreed to.
     AgreeEula,
@@ -447,7 +403,7 @@ impl Problem {
         if busy.iter().any(|b| both.contains(b)) {
             let port = config(dir)
                 .and_then(|c| c["server"]["port"].as_u64())
-                .unwrap_or(25565) as u16;
+                .map_or(crate::server_list::DEFAULT_PORT, |p| p as u16);
             return Self {
                 message: format!(
                     "Port {port} is already used by another program (maybe another server). Use a free \
@@ -473,7 +429,7 @@ impl Problem {
         }
         if has("isn't up after") || has("the server stopped") {
             return Self {
-                message: "The game didn't start. Its log below says why.".into(),
+                message: "The server didn't start.".into(),
                 fix: Some(Fix::ShowLog),
             };
         }
@@ -490,19 +446,9 @@ impl Problem {
                     .map(str::to_string)
             })
             .unwrap_or_else(|| "The server stopped without saying why".into());
-        Self::plain(capitalised(&said))
+        Self::plain(crate::i18n::capitalised(&said))
     }
 }
-
-fn capitalised(s: &str) -> String {
-    let mut c = s.chars();
-    match c.next() {
-        Some(f) => f.to_uppercase().chain(c).collect(),
-        None => String::new(),
-    }
-}
-
-// ----- Creating a server ------------------------------------------------------------------------
 
 /// The world a new server starts with.
 #[derive(Clone, Debug, PartialEq)]
@@ -523,9 +469,7 @@ pub struct NewServer {
     pub max_players: u32,
     /// Only listed players (and operators) may join.
     pub friends_only: bool,
-    /// Check players' Minecraft accounts: they must sign in with Microsoft. On by default; an offline
-    /// server is a security risk, so it is turned off only per server (`--offline`, or the server's
-    /// settings page).
+    /// Check players' Minecraft accounts: they must sign in with Microsoft.
     pub check_accounts: bool,
     /// Who may join first (whitelisted), and the first of them becomes an operator.
     pub players: Vec<String>,
@@ -550,8 +494,17 @@ impl Default for NewServer {
     }
 }
 
+impl NewServer {
+    pub fn for_owner(offline: bool) -> Self {
+        Self {
+            check_accounts: !offline,
+            ..Self::default()
+        }
+    }
+}
+
 /// A port nobody listens on, from `from` up, and not one of `taken`.
-pub fn free_port(from: u16, taken: &[u16]) -> u16 {
+fn free_port(from: u16, taken: &[u16]) -> u16 {
     let bind = if cfg!(test) || std::env::var_os("ECLIPSE_TEST_LOOPBACK").is_some_and(|v| v == "1")
     {
         "127.0.0.1"
@@ -580,30 +533,8 @@ fn ports_taken() -> Vec<u16> {
     out
 }
 
-/// The player's worlds (the game home's `saves/`), newest first: their name and folder.
-pub fn player_worlds() -> Vec<(String, PathBuf)> {
-    let saves = backend::game_home().join("saves");
-    let mut worlds: Vec<(std::time::SystemTime, String, PathBuf)> = fs::read_dir(saves)
-        .into_iter()
-        .flatten()
-        .flatten()
-        .filter(|e| e.path().join("level.dat").is_file())
-        .map(|e| {
-            let when = e
-                .path()
-                .join("level.dat")
-                .metadata()
-                .and_then(|m| m.modified())
-                .unwrap_or(std::time::UNIX_EPOCH);
-            (when, e.file_name().to_string_lossy().into_owned(), e.path())
-        })
-        .collect();
-    worlds.sort_by_key(|w| std::cmp::Reverse(w.0));
-    worlds.into_iter().map(|(_, n, p)| (n, p)).collect()
-}
-
 /// The `eclipse-server init` arguments for a new server.
-pub fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
+fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
     let mut args: Vec<String> = vec!["init".into(), "--yes".into()];
     if spec.eula {
         args.push("--eula".into());
@@ -632,15 +563,77 @@ pub fn init_args(spec: &NewServer, world: &str, port: u16) -> Vec<String> {
     args
 }
 
+/// A setting of eclipse-server's `server.toml` the launcher shows and sets.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum Key {
+    Motd,
+    Port,
+    MaxPlayers,
+    ViewDistance,
+    SimulationDistance,
+    Whitelist,
+    OnlineMode,
+    WorldName,
+    GameMode,
+    Difficulty,
+    BackupsEvery,
+    BackupsKeep,
+    UpdatesKeep,
+}
+
+impl Key {
+    pub const ALL: [Key; 13] = [
+        Key::Motd,
+        Key::Port,
+        Key::MaxPlayers,
+        Key::ViewDistance,
+        Key::SimulationDistance,
+        Key::Whitelist,
+        Key::OnlineMode,
+        Key::WorldName,
+        Key::GameMode,
+        Key::Difficulty,
+        Key::BackupsEvery,
+        Key::BackupsKeep,
+        Key::UpdatesKeep,
+    ];
+
+    /// Its table and name in `server.toml`.
+    pub fn path(self) -> (&'static str, &'static str) {
+        match self {
+            Key::Motd => ("server", "motd"),
+            Key::Port => ("server", "port"),
+            Key::MaxPlayers => ("server", "max_players"),
+            Key::ViewDistance => ("server", "view_distance"),
+            Key::SimulationDistance => ("server", "simulation_distance"),
+            Key::Whitelist => ("server", "whitelist"),
+            Key::OnlineMode => ("server", "online_mode"),
+            Key::WorldName => ("world", "name"),
+            Key::GameMode => ("world", "game_mode"),
+            Key::Difficulty => ("world", "difficulty"),
+            Key::BackupsEvery => ("backups", "every"),
+            Key::BackupsKeep => ("backups", "keep"),
+            Key::UpdatesKeep => ("updates", "keep"),
+        }
+    }
+
+    /// `table.name`, as `eclipse-server config set` takes it.
+    pub fn dotted(self) -> String {
+        let (table, name) = self.path();
+        format!("{table}.{name}")
+    }
+}
+
 /// The `eclipse-server config set` arguments that finish a new server.
-pub fn settings_args(spec: &NewServer, panel_port: u16) -> Vec<String> {
+fn settings_args(spec: &NewServer, panel_port: u16) -> Vec<String> {
+    let set = |key: Key, value: &dyn std::fmt::Display| format!("{}={value}", key.dotted());
     vec![
         "config".into(),
         "set".into(),
-        format!("world.game_mode={}", spec.game_mode),
-        format!("world.difficulty={}", spec.difficulty),
-        format!("server.max_players={}", spec.max_players.clamp(1, 1000)),
-        format!("server.motd={}", spec.name.trim()),
+        set(Key::GameMode, &spec.game_mode),
+        set(Key::Difficulty, &spec.difficulty),
+        set(Key::MaxPlayers, &spec.max_players.clamp(1, 1000)),
+        set(Key::Motd, &spec.name.trim()),
         format!("panel.bind=127.0.0.1:{panel_port}"),
     ]
 }
@@ -684,15 +677,17 @@ pub fn create(spec: &NewServer, tag: Option<&str>, log: &dyn Fn(String)) -> Resu
                 .map(|n| slug(&n.to_string_lossy()))
                 .unwrap_or_else(|| "world".into());
             log(format!("Copying the world {}", from.display()));
-            copy_world(from, &dir.join(&world)).map_err(|e| {
-                let _ = fs::remove_dir_all(&dir);
-                Problem::plain(format!("Couldn't copy the world: {e}"))
-            })?;
+            crate::files::copy_dir(from, &dir.join(&world), &[game_folder::world::LOCK]).map_err(
+                |e| {
+                    let _ = fs::remove_dir_all(&dir);
+                    Problem::plain(format!("Couldn't copy the world: {e}"))
+                },
+            )?;
             world
         }
     };
     let taken = ports_taken();
-    let port = free_port(25565, &taken);
+    let port = free_port(crate::server_list::DEFAULT_PORT, &taken);
     let panel = free_port(8130, &taken);
     let undo = |p: Problem| {
         let _ = fs::remove_dir_all(&dir);
@@ -711,27 +706,6 @@ pub fn create(spec: &NewServer, tag: Option<&str>, log: &dyn Fn(String)) -> Resu
     add(entry.clone()).map_err(Problem::plain)?;
     Ok(entry)
 }
-
-/// A copy of a world folder, without the lock a running game holds.
-fn copy_world(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if name == "session.lock" {
-            continue;
-        }
-        let target = to.join(&name);
-        if entry.file_type()?.is_dir() {
-            copy_world(&entry.path(), &target)?;
-        } else {
-            fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
-}
-
-// ----- A server's files --------------------------------------------------------------------------
 
 /// The settings, as `eclipse-server config --json` prints them (`None` before `init`, or from a
 /// `eclipse-server` older than the command).
@@ -767,12 +741,9 @@ pub fn set_config(dir: &Path, changes: &[(&str, String)]) -> Result<Applied, Pro
 
 /// A list file's names (`whitelist.json`, `ops.json`, `banned-players.json`), as vanilla writes them.
 pub fn names(dir: &Path, file: &str) -> Vec<String> {
-    fs::read_to_string(dir.join(file))
-        .ok()
-        .and_then(|t| serde_json::from_str::<Vec<Value>>(&t).ok())
-        .unwrap_or_default()
-        .iter()
-        .filter_map(|e| e["name"].as_str().map(str::to_string))
+    entries(dir, file)
+        .into_iter()
+        .map(|(name, _)| name)
         .collect()
 }
 
@@ -797,6 +768,41 @@ pub struct Backup {
     pub bytes: u64,
     #[serde(default)]
     pub modified: Option<u64>,
+}
+
+/// Why a backup was made, from its name.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum BackupKind {
+    Auto,
+    Manual,
+    BeforeUpdate,
+    /// Before updating to this release.
+    BeforeRelease(String),
+    Other(String),
+}
+
+impl Backup {
+    /// When it was made and why, from its name (`2026-10-19_11-28-57-manual.zip`, UTC):
+    /// `2026-10-19 11:28:57 UTC`. None for a name eclipse-server didn't make.
+    pub fn made(&self) -> Option<(String, BackupKind)> {
+        let stem = self.name.trim_end_matches(".zip");
+        let when = stem.get(..19).filter(|_| stem.len() > 20)?;
+        let (date, time) = when.split_once('_').unwrap_or((when, ""));
+        let kind = match &stem[20..] {
+            "auto" => BackupKind::Auto,
+            "manual" => BackupKind::Manual,
+            "before-update" => BackupKind::BeforeUpdate,
+            // eclipse-server writes the tag with dashes (before-v2026-10-19-10).
+            k if k.starts_with("before-v")
+                && k[8..].chars().all(|c| c.is_ascii_digit() || c == '-') =>
+            {
+                BackupKind::BeforeRelease(k[7..].replace('-', "."))
+            }
+            k if k.starts_with("before-") => BackupKind::BeforeRelease(k[7..].to_string()),
+            k => BackupKind::Other(k.to_string()),
+        };
+        Some((format!("{date} {} UTC", time.replace('-', ":")), kind))
+    }
 }
 
 pub fn backups(dir: &Path) -> Result<Vec<Backup>, Problem> {
@@ -858,8 +864,6 @@ fn service_suffix(dir: &Path) -> String {
         clean.into()
     }
 }
-
-// ----- The running server: its control API -------------------------------------------------------
 
 /// The running supervisor's control API (`.eclipse/api.json`: its address and token).
 #[derive(Clone, Debug)]
@@ -935,6 +939,24 @@ impl Api {
             .collect())
     }
 
+    /// Stops the server cleanly (it saves the world).
+    pub fn stop(&self) -> Result<(), String> {
+        self.call("POST", "/api/v1/stop", None).map(|_| ())
+    }
+
+    /// The world's `pvp` game rule, as the running game answers it.
+    pub fn pvp(&self) -> Option<bool> {
+        let out = self.command("gamerule pvp").ok()?.join(" ");
+        let out = out.trim_end();
+        if out.ends_with("true") {
+            Some(true)
+        } else if out.ends_with("false") {
+            Some(false)
+        } else {
+            None
+        }
+    }
+
     /// A one-time login link for the web panel.
     pub fn panel_link(&self) -> Result<String, String> {
         let v = self.call("POST", "/api/v1/panel/login", None)?;
@@ -957,7 +979,7 @@ pub struct Player {
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Status {
     /// starting, running, stopping or restarting (stopped when nothing answers).
-    pub phase: String,
+    pub phase: Phase,
     pub uptime: Option<u64>,
     pub crashes: u64,
     pub last_crash: Option<String>,
@@ -980,17 +1002,14 @@ pub struct Status {
 
 impl Status {
     pub fn stopped() -> Self {
-        Self {
-            phase: "stopped".into(),
-            ..Self::default()
-        }
+        Self::default()
     }
 
     pub fn parse(v: &Value) -> Self {
         let game = &v["sample"]["game"];
         let update = &v["update"];
         Self {
-            phase: v["phase"].as_str().unwrap_or("stopped").to_string(),
+            phase: Phase::parse(v["phase"].as_str().unwrap_or_default()),
             uptime: v["engine_uptime_seconds"].as_u64(),
             crashes: v["crashes"].as_u64().unwrap_or(0),
             last_crash: v["last_crash"].as_str().map(str::to_string),
@@ -1020,7 +1039,46 @@ impl Status {
     }
 
     pub fn running(&self) -> bool {
-        self.phase != "stopped"
+        self.phase != Phase::Stopped
+    }
+
+    pub fn serving(&self) -> bool {
+        self.phase == Phase::Running
+    }
+}
+
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Phase {
+    Starting,
+    Running,
+    Restarting,
+    Stopping,
+    #[default]
+    Stopped,
+}
+
+impl Phase {
+    const NAMES: [(Phase, &'static str); 5] = [
+        (Phase::Starting, "starting"),
+        (Phase::Running, "running"),
+        (Phase::Restarting, "restarting"),
+        (Phase::Stopping, "stopping"),
+        (Phase::Stopped, "stopped"),
+    ];
+
+    /// What the supervisor is doing, from its `phase`.
+    pub fn parse(name: &str) -> Phase {
+        Self::NAMES
+            .iter()
+            .find(|(_, n)| *n == name)
+            .map_or(Phase::Stopped, |(phase, _)| *phase)
+    }
+
+    pub fn name(self) -> &'static str {
+        Self::NAMES
+            .iter()
+            .find(|(phase, _)| *phase == self)
+            .map_or("stopped", |(_, n)| n)
     }
 }
 
@@ -1032,5 +1090,4 @@ pub fn status(dir: &Path) -> Status {
 }
 
 #[cfg(test)]
-#[path = "servers/tests.rs"]
 mod tests;

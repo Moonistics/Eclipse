@@ -11,8 +11,6 @@ use std::path::PathBuf;
 use std::process::Command;
 use std::time::Duration;
 
-/// The admin console: sign-in, keys, machines, the access controls.
-pub const ADMIN: &str = "https://login.tailscale.com/admin";
 /// Where an API access token is made.
 pub const KEYS: &str = "https://login.tailscale.com/admin/settings/keys";
 /// The access controls page.
@@ -32,7 +30,7 @@ pub fn install_url() -> &'static str {
 }
 
 /// The command that signs this computer in on Linux (it opens a link to finish in the browser).
-pub const LINUX_LOGIN: &str = "sudo tailscale up --operator=$USER";
+const LINUX_LOGIN: &str = "sudo tailscale up --operator=$USER";
 
 /// The `tailscale` command, wherever the installer put it.
 pub fn cli() -> Option<PathBuf> {
@@ -94,7 +92,7 @@ impl Node {
         } else {
             self.ipv4().unwrap_or_default()
         };
-        if port == 25565 {
+        if port == crate::server_list::DEFAULT_PORT {
             host.to_string()
         } else {
             format!("{host}:{port}")
@@ -121,8 +119,7 @@ pub fn status() -> State {
     status_of(cli())
 }
 
-/// `status` with a given `tailscale` command.
-pub fn status_of(cli: Option<PathBuf>) -> State {
+fn status_of(cli: Option<PathBuf>) -> State {
     let Some(cli) = cli else {
         return State::Missing;
     };
@@ -142,7 +139,7 @@ pub fn status_of(cli: Option<PathBuf>) -> State {
     }
 }
 
-pub fn parse_status(v: &Value) -> State {
+fn parse_status(v: &Value) -> State {
     let backend = v["BackendState"].as_str().unwrap_or_default();
     match backend {
         "Running" => {
@@ -198,8 +195,6 @@ pub fn open_app() -> Result<(), String> {
         }
     }
 }
-
-// ----- The API --------------------------------------------------------------------------------------
 
 /// An invitation to use this computer, as the API lists it.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -261,11 +256,7 @@ impl Api {
         if_match: Option<&str>,
     ) -> Result<(Value, Option<String>), String> {
         let url = format!("{}/api/v2{path}", self.base);
-        let agent = crate::proxy::agent(
-            ureq::AgentBuilder::new().timeout(Duration::from_secs(20)),
-            &url,
-        )
-        .build();
+        let agent = crate::backend::agent_within(&url, Duration::from_secs(20));
         let mut request = agent
             .request(method, &url)
             .set("Authorization", &format!("Bearer {}", self.token))
@@ -313,7 +304,6 @@ impl Api {
         }
     }
 
-    /// The invitations to this computer.
     pub fn invites(&self, device: &str) -> Result<Vec<Invite>, String> {
         let (v, _) = self.send(
             "GET",
@@ -371,8 +361,6 @@ impl Api {
             .map(|_| ())
     }
 }
-
-// ----- Limiting what shared friends reach -------------------------------------------------------------
 
 /// What the tailnet's access controls let shared friends reach.
 #[derive(Clone, Copy, Debug, PartialEq)]

@@ -6,22 +6,19 @@ use serde_json::{json, Value};
 use std::path::Path;
 
 /// The name the server is added under in every client.
-pub const SERVER_NAME: &str = "eclipse";
+const SERVER_NAME: &str = "eclipse";
 
 pub struct Client {
     /// `claude-code`, `codex`, `cursor` or `generic`.
     pub id: &'static str,
     pub name: &'static str,
-    /// Where its configuration lives.
     pub file: &'static str,
-    /// What goes in that file.
     pub config: String,
     /// The client's own command that adds the server, when it has a CLI: (program, arguments).
     pub add: Option<(&'static str, Vec<String>)>,
 }
 
 impl Client {
-    /// The add command as a shell line, to show and to copy.
     pub fn add_line(&self) -> Option<String> {
         self.add
             .as_ref()
@@ -40,7 +37,6 @@ fn toml_string(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// The clients, for the launcher at `exe`.
 pub fn clients(exe: &Path) -> Vec<Client> {
     let exe_text = exe.display().to_string();
     let add = |args: &[&str]| -> Vec<String> {
@@ -131,7 +127,7 @@ pub fn self_test(exe: &Path) -> Result<usize, String> {
         .spawn()
         .map_err(|e| format!("Could not start {}: {e}", exe.display()))?;
     let lines = [
-        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": "2025-06-18", "capabilities": {}, "clientInfo": { "name": "eclipse-launcher-test", "version": "1" } } }),
+        json!({ "jsonrpc": "2.0", "id": 1, "method": "initialize", "params": { "protocolVersion": eclipse_mcp::LEGACY, "capabilities": {}, "clientInfo": { "name": "eclipse-launcher-test", "version": "1" } } }),
         json!({ "jsonrpc": "2.0", "method": "notifications/initialized" }),
         json!({ "jsonrpc": "2.0", "id": 2, "method": "tools/list", "params": {} }),
     ];
@@ -153,8 +149,7 @@ pub fn self_test(exe: &Path) -> Result<usize, String> {
         .ok_or_else(|| "The MCP server did not list its tools.".into())
 }
 
-/// `program args...` quoted for a POSIX shell where a word needs it.
-pub fn shell_line(program: &str, args: &[String]) -> String {
+fn shell_line(program: &str, args: &[String]) -> String {
     let quote = |w: &str| {
         if !w.is_empty()
             && w.chars()

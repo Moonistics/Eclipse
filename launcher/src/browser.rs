@@ -6,7 +6,6 @@
 //! checked before install ([`java`]), modpacks (imported and ported), resource packs
 //! (`resourcepacks/`) and data packs (into a world, [`installed::install_datapack`]). Java code
 //! itself doesn't run in Eclipse (docs/mods.md).
-pub mod curseforge;
 pub mod details;
 pub mod download;
 pub mod eclipse;
@@ -17,7 +16,8 @@ pub mod java_instance;
 pub mod lock;
 pub mod modrinth;
 
-pub use lock::{lock_home, try_lock_home, HomeLockGuard};
+pub(crate) use lock::lock_home;
+pub use lock::{try_lock_home, HomeLockGuard};
 
 use serde::{Deserialize, Serialize};
 
@@ -25,7 +25,6 @@ use serde::{Deserialize, Serialize};
 /// `crates/eclipse-core/src/version.rs` moves it with everything else (docs/version-ports.md).
 pub const GAME: &str = eclipse_core::version::VERSION_ID;
 
-/// What a project is, as far as Eclipse is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
@@ -33,8 +32,8 @@ pub enum Kind {
     Modpack,
     /// A Java mod: its content is ported ([`java`]).
     Mod,
-    /// One of Eclipse's own shader packs (`.eshader`, docs/shaders.md), from Eclipse's registry
-    /// only.
+    /// A shader pack: Eclipse's own (`.eshader`, docs/shaders.md) from Eclipse's registry, or an
+    /// Iris or OptiFine pack from Modrinth for a Java instance.
     Shader,
     /// A data pack: it goes into one world's `datapacks/` (`crate::datapacks`).
     DataPack,
@@ -63,14 +62,30 @@ impl Kind {
     /// and a data pack put in a world instead.
     pub fn folder(self) -> Option<&'static str> {
         match self {
-            Kind::ResourcePack => Some("resourcepacks"),
-            Kind::Shader => Some("shaderpacks"),
+            Kind::ResourcePack => Some(crate::game_folder::RESOURCE_PACKS),
+            Kind::Shader => Some(crate::game_folder::SHADER_PACKS),
             Kind::Modpack | Kind::Mod | Kind::DataPack => None,
         }
     }
+
+    /// Where the browser looks for this kind first: Eclipse's registry for the mods and shader
+    /// packs of an instance that plays Eclipse, Modrinth for the rest.
+    pub fn first_source(self, eclipse: bool) -> SourceId {
+        match self {
+            Kind::Mod | Kind::Shader if eclipse => SourceId::Eclipse,
+            Kind::Mod | Kind::Shader | Kind::ResourcePack | Kind::Modpack | Kind::DataPack => {
+                SourceId::Modrinth
+            }
+        }
+    }
+
+    /// Whether the player picks this kind's source: every kind is on Eclipse's registry and
+    /// Modrinth, but Eclipse's shader packs are on its registry only.
+    pub fn picks_source(self) -> bool {
+        self != Kind::Shader
+    }
 }
 
-/// Where a project comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceId {
@@ -100,7 +115,6 @@ impl SourceId {
     }
 }
 
-/// How well a project runs in Eclipse.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Support {
     /// Made for the version Eclipse plays, and Eclipse reads everything it uses.
@@ -159,7 +173,7 @@ impl Project {
 
     /// The project as a data pack, for a search of data packs or an install into a world;
     /// its page is Modrinth's data pack page.
-    pub fn as_datapack(self) -> Project {
+    fn into_datapack(self) -> Project {
         Project {
             page: match self.source {
                 SourceId::Modrinth => format!("https://modrinth.com/datapack/{}", self.slug),
@@ -197,7 +211,6 @@ impl FileRef {
     }
 }
 
-/// A version of a project: its files and what it needs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Version {
     pub id: String,
@@ -208,12 +221,11 @@ pub struct Version {
     pub files: Vec<FileRef>,
     /// Required dependencies, as project ids on the same source.
     pub required: Vec<String>,
-    /// Why this version can't be downloaded from here (CurseForge authors can forbid it).
+    /// Why this version can't be downloaded from here.
     pub blocked: Option<String>,
 }
 
 impl Version {
-    /// The file to install: the primary one, else the first.
     pub fn file(&self) -> Option<&FileRef> {
         self.files
             .iter()
@@ -222,7 +234,6 @@ impl Version {
     }
 }
 
-/// A search.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Query {
     pub text: String,
@@ -248,13 +259,12 @@ impl Query {
     }
 }
 
-/// A place projects come from.
 pub trait Source: Send + Sync {
     fn id(&self) -> SourceId;
     fn search(&self, query: &Query) -> Result<Vec<Project>, String>;
     fn project(&self, id: &str) -> Result<Project, String>;
     /// Versions, newest first.
-    fn versions(&self, project: &Project) -> Result<Vec<Version>, String>;
+    fn versions(&self, project: &Project, level: Option<u32>) -> Result<Vec<Version>, String>;
     /// The project's page: description, gallery, links, authors.
     fn details(&self, project: &Project) -> Result<details::Details, String> {
         Ok(details::Details {
@@ -277,28 +287,23 @@ pub trait Source: Send + Sync {
     }
 }
 
+const DATAPACK_LOADER: &str = "datapack";
+
 /// What the launcher says wherever CurseForge would be.
 pub const CURSEFORGE_SOON: &str = "CurseForge support is coming soon.";
-/// What another source answers for shader packs: Eclipse's own are on its registry only.
-pub const SHADERS_ON_ECLIPSE: &str =
-    "Shader packs come from Eclipse. Switch the source to Eclipse.";
 
 /// The sources this launcher uses: Modrinth and Eclipse's registry. CurseForge support is coming
-/// soon: its API needs a paid key, so no search or install goes to it; `curseforge` is kept for
-/// then.
+/// soon: its API needs a paid key, so no search or install goes to it.
 pub fn sources() -> Vec<Box<dyn Source>> {
     vec![Box::new(modrinth::Modrinth), Box::new(eclipse::Registry)]
 }
 
-/// The source of that id, when this launcher can use it.
 pub fn source(id: SourceId) -> Option<Box<dyn Source>> {
     sources().into_iter().find(|s| s.id() == id)
 }
 
-/// How well a project of `kind` made for `game_versions` and `loaders` runs in Eclipse.
 pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Support {
     if loaders.iter().any(|l| l == eclipse::LOADER) {
-        // Made for Eclipse and reviewed: it runs when it is for the version Eclipse plays.
         return match newest_release(game_versions)
             .filter(|_| !game_versions.iter().any(|v| v == GAME))
         {
@@ -319,9 +324,7 @@ pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Supp
                 Support::Partial("Lists no Minecraft version.".into())
             }
         }
-        Kind::Modpack => {
-            Support::Partial("Eclipse runs the mods it can port, from your own downloads.".into())
-        }
+        Kind::Modpack => Support::Partial("Some of its mods won't load in Eclipse.".into()),
         Kind::Shader => Support::No("Not one of Eclipse's own shader packs.".into()),
         Kind::DataPack => {
             let made_for = match newest_release(game_versions) {
@@ -348,13 +351,12 @@ pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Supp
 
 /// What a data pack does in Eclipse today, said before install; the install says it for the
 /// pack's own files (`crate::datapacks::coverage`).
-pub const DATAPACK_SUPPORT: &str = "Eclipse runs a data pack's functions, function tags, \
-     predicates and item modifiers; not yet its recipes, loot tables, advancements, other tags \
-     or worldgen.";
+pub const DATAPACK_SUPPORT: &str =
+    "Eclipse doesn't load data packs' recipes, loot tables or world generation yet.";
 
 /// A Minecraft version whose mods port-pack carries over: 1.21 and later (the data folders
 /// took their current names in 1.21).
-pub fn portable_version(v: &str) -> bool {
+fn portable_version(v: &str) -> bool {
     let parts: Vec<u32> = v.split('.').map_while(|p| p.parse().ok()).collect();
     match parts.as_slice() {
         [1, minor, ..] => *minor >= 21 && v.split('.').count() == parts.len(),
@@ -407,7 +409,7 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
     }
     if kind == Kind::DataPack {
         // Most data packs on Modrinth ship a mod build too: only the data pack files.
-        let mut packs = usable.filter(|v| v.loaders.iter().any(|l| l == "datapack"));
+        let mut packs = usable.filter(|v| v.loaders.iter().any(|l| l == DATAPACK_LOADER));
         let made_for = |v: &&Version| v.game_versions.iter().any(|g| g == GAME);
         return packs
             .clone()
@@ -428,7 +430,7 @@ pub fn pick(kind: Kind, versions: &[Version], everything: bool) -> Option<&Versi
 
 /// A file name from a source, kept only when it is one plain name: no folders, no `..`, no
 /// hidden file, nothing a file system would read as something else.
-pub fn safe_name(name: &str) -> Option<&str> {
+fn safe_name(name: &str) -> Option<&str> {
     let ok = !name.is_empty()
         && name.len() <= 200
         && !name.starts_with('.')

@@ -10,12 +10,12 @@
 mod forge;
 mod forge_install;
 
-use crate::sources::{fetch_checked, sha1_file, write_file, Fetch};
+use crate::files;
+use crate::sources::{fetch_checked, sha1_file, Fetch};
 use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
 
-/// A mod loader.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -53,6 +53,16 @@ impl Kind {
             Kind::Quilt => "quilt",
             Kind::Forge => "forge",
             Kind::NeoForge => "neoforge",
+        }
+    }
+
+    /// Quilt loads Fabric mods (<https://quiltmc.org/en/about/faq/>).
+    pub fn loads(self) -> &'static [Kind] {
+        match self {
+            Kind::Quilt => &[Kind::Quilt, Kind::Fabric],
+            Kind::Fabric => &[Kind::Fabric],
+            Kind::Forge => &[Kind::Forge],
+            Kind::NeoForge => &[Kind::NeoForge],
         }
     }
 
@@ -108,7 +118,7 @@ fn order(version: &str) -> (Vec<u64>, bool, Vec<(u64, String)>) {
 
 /// A service's list, `[{"loader": {"version", "stable"}}]`, the newest first (Quilt's comes in no
 /// order). Quilt's has no `stable`: its betas carry a `-` (`0.20.0-beta.9`).
-pub fn parse_versions(text: &str) -> Result<Vec<Listed>, String> {
+fn parse_versions(text: &str) -> Result<Vec<Listed>, String> {
     let list: Value =
         serde_json::from_str(text).map_err(|e| format!("The loader's version list: {e}"))?;
     let list = list
@@ -127,7 +137,6 @@ pub fn parse_versions(text: &str) -> Result<Vec<Listed>, String> {
     Ok(listed)
 }
 
-/// `kind`'s versions for `minecraft`.
 pub fn versions(kind: Kind, minecraft: &str, fetch: Fetch) -> Result<Vec<Listed>, String> {
     let listed = match kind {
         Kind::Forge | Kind::NeoForge => forge::versions(kind, minecraft, fetch)?,
@@ -256,7 +265,7 @@ pub fn install(
         let file = dir.join("libraries").join(crate::mojang::relative(&path)?);
         if sha1_file(&file).as_ref() != Some(&sha1) {
             let body = fetch_checked(fetch, &url, &sha1).map_err(|e| format!("{url} {e}"))?;
-            write_file(&file, &body)?;
+            files::write(&file, &body)?;
         }
         library["downloads"] = json!({"artifact": {"path": path, "url": url, "sha1": sha1}});
     }
@@ -264,7 +273,7 @@ pub fn install(
         .join("versions")
         .join(crate::mojang::relative(&id)?)
         .join(format!("{id}.json"));
-    write_file(
+    files::write(
         &out,
         &serde_json::to_vec_pretty(&profile).map_err(|e| e.to_string())?,
     )?;
@@ -272,5 +281,4 @@ pub fn install(
 }
 
 #[cfg(test)]
-#[path = "loaders/tests.rs"]
 mod tests;

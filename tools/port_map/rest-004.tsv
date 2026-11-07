@@ -29,7 +29,7 @@ PeriodicNotificationManager.calculateOptimalPeriod	skip:other		regional play-tim
 PeriodicNotificationManager.calculateInitialDelay	skip:other		regional play-time notices (REGIONAL_COMPLIANCIES, country check); none ship with the 26.3 assets and Eclipse has no equivalent
 PeriodicNotificationManager.NotificationTask.reset	skip:other		regional play-time notices; see the manager
 PeriodicNotificationManager.NotificationTask.run	skip:other		regional play-time notices; see the manager
-PreferredGraphicsApi.getBackendsToTry	skip:other		GL is not a Eclipse backend; the Vulkan then DX12 order lives in launcher/src/backend.rs
+PreferredGraphicsApi.getBackendsToTry	skip:other		GL is not a Eclipse backend; the Vulkan then DX12 order lives in launcher/src/backend/game_output.rs (vulkan_crash_fallback)
 ResourceLoadStateTracker.startReload	skip:debug		crash-report state of the last resource reload
 ResourceLoadStateTracker.startRecovery	skip:debug		crash-report state of the last resource reload
 ResourceLoadStateTracker.finishReload	skip:debug		crash-report state of the last resource reload

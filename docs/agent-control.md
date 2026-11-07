@@ -22,7 +22,7 @@ The command lists are generated, so they can't drift:
 | `eclipse-ctl mcp` | same | MCP over stdio, one tool per command of the table |
 | Launcher CLI | `launcher/src/cli.rs` | `eclipse-launcher <command> [--json]` |
 | Launcher MCP | `launcher/src/mcp.rs`, `cli_tools.rs`, `game_tools.rs` | `eclipse-launcher mcp` (stdio): every CLI command as a tool, the session tools, and the game's tools as `game_*` |
-| Connecting | `launcher/src/agents.rs`, `agents_page.rs`; `src/game/agent_settings.rs` | `eclipse-launcher agent-config`; Settings > AI in the launcher; Eclipse Settings > AI Agent in the game |
+| Connecting | `launcher/src/agents.rs`, `settings_ai.rs`; `src/game/agent_settings.rs` | `eclipse-launcher agent-config`; Settings > AI in the launcher; Eclipse Settings > AI Agent in the game |
 | No AI | `crates/eclipse-core/src/no_ai.rs` | `noAi:true` in `<game home>/eclipse-extras.txt`, read by every surface |
 
 ## One MCP server for everything

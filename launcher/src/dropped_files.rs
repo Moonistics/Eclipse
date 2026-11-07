@@ -1,0 +1,159 @@
+//! Files dropped anywhere on the window (`eclipse_launcher::import`): a shared instance becomes
+//! a new instance, a Java modpack goes to the Modpacks import, a resource or shader pack into
+//! the selected instance, a game build (a `eclipse-client` program, or an archive or an Actions
+//! artifact holding one) installed as its own version. The Packs section and the world rows take
+//! their own drops first.
+use crate::page::Page;
+use crate::ui::{self, ink, ButtonKind, Press};
+use crate::{mods_state, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::import::{self, Dropped};
+use eclipse_theme::glass::{ink, space, step};
+use gpui::prelude::*;
+use gpui::{div, px, ClickEvent, Div, ExternalPaths, FontWeight, Stateful};
+use std::path::PathBuf;
+
+const IMPORT_NOTE_WIDTH: f32 = 440.;
+
+#[derive(Default)]
+pub(super) struct Importing {
+    /// Shared instances being made.
+    busy: usize,
+    note: Option<Result<String, String>>,
+}
+
+impl Launcher {
+    fn import_dropped(&mut self, files: Vec<PathBuf>, cx: &mut Context<Self>) {
+        for file in files {
+            let name = file
+                .file_name()
+                .map(|n| n.to_string_lossy().into_owned())
+                .unwrap_or_default();
+            match import::what(&file) {
+                Err(e) => self.importing.note = Some(Err(e)),
+                Ok(Dropped::Instance) => self.import_instance(file, cx),
+                // The same import the Versions page's Import button starts. It
+                // reports through `Msg::Imported`, which the Versions page
+                // already shows, so the note here only says it began -- and
+                // says so only if it did, since one import runs at a time.
+                Ok(Dropped::Build) => {
+                    if !self.can_import_build() {
+                        self.importing.note = Some(Err(mods_state::folder_busy()));
+                        continue;
+                    }
+                    self.start_build_import(file, cx);
+                    self.importing.note = Some(Ok(tr("Importing…").to_owned()));
+                }
+                Ok(Dropped::Modpack) => {
+                    self.show_modpack(None);
+                    self.pack_job(move |log| eclipse_launcher::modpacks::import(&file, log));
+                    self.importing.note =
+                        Some(Ok(trf("Importing the modpack {name}…", &[("name", &name)])));
+                }
+                Ok(Dropped::Pack(_)) => {
+                    let Some(i) = self.selected_instance().cloned() else {
+                        continue;
+                    };
+                    self.importing.note =
+                        Some(eclipse_launcher::packs::add(&i.home, &file).map(|p| {
+                            trf(
+                                "Added {title} to {instance}. Turn it on in Packs.",
+                                &[("title", &p.title), ("instance", &i.name)],
+                            )
+                        }));
+                    self.game_packs.list.stale();
+                }
+                Ok(Dropped::DataPack) => {
+                    self.importing.note = Some(Err(trf(
+                        "{name} is a data pack. Drop it on a world to add it.",
+                        &[("name", &name)],
+                    )))
+                }
+            }
+        }
+    }
+
+    fn import_instance(&mut self, file: PathBuf, cx: &mut Context<Self>) {
+        self.importing.busy += 1;
+        self.importing.note = None;
+        let task = cx
+            .background_executor()
+            .spawn(async move { import::import_instance(&file, &|_, _| {}) });
+        cx.spawn(async move |this, cx| {
+            let made = task.await;
+            let _ = this.update(cx, |this, cx| {
+                this.importing.busy -= 1;
+                this.importing.note = Some(made.map(|i| {
+                    this.reload_instances();
+                    this.select_instance(&i);
+                    this.go(Page::Home);
+                    trf(
+                        "Made the instance {name} from the shared file.",
+                        &[("name", &i.name)],
+                    )
+                }));
+                cx.notify();
+            });
+        })
+        .detach();
+    }
+
+    /// The root's drop target: every drop the sections don't take.
+    pub(super) fn import_drop_target(
+        &self,
+        root: Stateful<Div>,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        root.on_drop(cx.listener(|this, paths: &ExternalPaths, _, cx| {
+            this.import_dropped(paths.paths().to_vec(), cx);
+            cx.notify();
+        }))
+    }
+
+    /// What the last drop did, in a corner over the page until closed.
+    pub(super) fn import_note(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let line = match (&self.importing.note, self.importing.busy) {
+            (_, n) if n > 0 => ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
+                .child(tr("Making the instance from the shared file…")),
+            (Some(Ok(said)), _) => {
+                ui::text(step::BODY, FontWeight::NORMAL, ink::FULL).child(said.clone())
+            }
+            (Some(Err(e)), _) => div().child(ui::error_line_for(
+                "import-failed",
+                tr("Couldn't import"),
+                e,
+                None,
+                Vec::new(),
+            )),
+            (None, _) => return None,
+        };
+        Some(ui::corner_float(
+            ui::float_card()
+                .w(px(IMPORT_NOTE_WIDTH))
+                .flex()
+                .items_center()
+                .gap(px(space::MD))
+                .p(px(ui::PANEL_INSET))
+                .child(ui::icon(
+                    crate::icons::DOWNLOAD,
+                    ui::IconSize::Px16,
+                    ink(ink::MUTED),
+                ))
+                .child(div().flex_1().min_w_0().child(line))
+                .child(
+                    ui::icon_button(
+                        "import-close",
+                        "cancel-01",
+                        tr("Close"),
+                        ButtonKind::Ghost,
+                        ui::ButtonSize::Sm,
+                        false,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.importing.note = None;
+                        cx.notify();
+                    })),
+                ),
+        ))
+    }
+}

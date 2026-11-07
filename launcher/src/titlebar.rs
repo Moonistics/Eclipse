@@ -1,19 +1,142 @@
 //! Window chrome: Windows and Linux client-side decorations are custom drawn; macOS and Linux
 //! server-side decorations use the platform's native chrome.
 use crate::theme::Theme;
+use crate::ui::{self, ink};
 use eclipse_launcher::backend::Appearance;
-use gpui::{div, px, Div, ParentElement, Styled, TitlebarOptions, Window};
+use eclipse_theme::glass::{ink, space};
+use gpui::{Div, ParentElement, Styled, TitlebarOptions, Window};
 
-fn wordmark(theme: &Theme) -> Div {
+fn wordmark() -> Div {
+    ui::press_text().text_color(ink(ink::FULL)).child("Eclipse")
+}
+
+const BAR_HEIGHT: f32 = 32.;
+const BUTTON_WIDTH: f32 = 46.;
+const GLYPH: f32 = 14.;
+const GLYPH_SQUARE: f32 = 10.;
+const GLYPH_STROKE: f32 = 1.;
+const GLYPH_INSET: f32 = (GLYPH - GLYPH_SQUARE) / 2.;
+const MARK: f32 = ui::IconSize::Px16.px();
+const RESIZE_EDGE: f32 = 5.;
+#[cfg(target_os = "linux")]
+const RESIZE_CORNER: f32 = 8.;
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn bar(theme: &Theme) -> Div {
+    use gpui::{div, px};
     div()
-        .font_family(eclipse_theme::glass::LABEL_FONT)
-        .text_size(px(12.))
-        .text_color(theme.ink)
-        .child("Eclipse")
+        .flex()
+        .flex_none()
+        .items_center()
+        .h(px(BAR_HEIGHT))
+        .bg(theme.side)
+        .text_color(ink(ink::MUTED))
+        .border_b_1()
+        .border_color(gpui::transparent_black())
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn drag_area(window: &Window) -> gpui::Stateful<Div> {
+    use gpui::{div, px, InteractiveElement};
+    div()
+        .id("window-drag")
+        .flex()
+        .flex_1()
+        .h_full()
+        .items_center()
+        .gap(px(space::SM))
+        .px(px(space::MD))
+        .child(mark(MARK, window.scale_factor()))
+        .child(wordmark())
+}
+
+#[derive(Clone, Copy, PartialEq)]
+enum Control {
+    Minimize,
+    Maximize,
+    Close,
+}
+
+impl Control {
+    #[cfg(any(target_os = "windows", target_os = "linux"))]
+    fn name(self) -> &'static str {
+        match self {
+            Self::Minimize => "window-minimize",
+            Self::Maximize => "window-maximize",
+            Self::Close => "window-close",
+        }
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn control_icon(control: Control, maximized: bool, color: gpui::Hsla) -> Div {
+    use gpui::{div, prelude::*, px};
+    let square = || {
+        div()
+            .absolute()
+            .size(px(GLYPH_SQUARE))
+            .border_1()
+            .border_color(color)
+    };
+    let icon = div().relative().size(px(GLYPH));
+    match control {
+        Control::Minimize => icon.child(
+            div()
+                .absolute()
+                .left(px(GLYPH_INSET))
+                .top(px((GLYPH - GLYPH_STROKE) / 2.))
+                .w(px(GLYPH_SQUARE))
+                .h(px(GLYPH_STROKE))
+                .bg(color),
+        ),
+        Control::Maximize if maximized => icon
+            .child(
+                div()
+                    .absolute()
+                    .left(px(2. * GLYPH_INSET))
+                    .top_0()
+                    .size(px(GLYPH_SQUARE))
+                    .border_t_1()
+                    .border_r_1()
+                    .border_color(color),
+            )
+            .child(
+                square()
+                    .left(px(GLYPH_STROKE))
+                    .top(px(GLYPH - GLYPH_SQUARE - GLYPH_STROKE)),
+            ),
+        Control::Maximize => icon.child(square().left(px(GLYPH_INSET)).top(px(GLYPH_INSET))),
+        Control::Close => icon.flex().items_center().justify_center().child(ui::icon(
+            "cancel-01",
+            ui::IconSize::Px16,
+            color,
+        )),
+    }
+}
+
+#[cfg(any(target_os = "windows", target_os = "linux"))]
+fn control_face(control: Control, maximized: bool) -> gpui::Stateful<Div> {
+    use gpui::{prelude::*, px};
+    let id: gpui::SharedString = control.name().into();
+    let hovered = ui::hover_is(&id);
+    let (hover, color) = match control {
+        Control::Close if hovered => (ui::Hover::Danger, ui::danger()),
+        Control::Close => (ui::Hover::Danger, ink(ink::BODY)),
+        _ if hovered => (ui::Hover::Bare, ink(ink::FULL)),
+        _ => (ui::Hover::Bare, ink(ink::BODY)),
+    };
+    ui::hoverable(id, 0., hover)
+        .flex()
+        .flex_none()
+        .items_center()
+        .justify_center()
+        .w(px(BUTTON_WIDTH))
+        .h_full()
+        .child(control_icon(control, maximized, color).relative())
 }
 
 /// Whether Windows uses a transparent native title bar for the launcher's custom chrome.
-pub const DRAWN: bool = cfg!(target_os = "windows");
+const DRAWN: bool = cfg!(target_os = "windows");
 
 pub fn options() -> TitlebarOptions {
     TitlebarOptions {
@@ -31,124 +154,44 @@ pub fn render(_theme: &Theme, _window: &Window) -> Option<Div> {
 /// Draw the launcher's Linux title bar when the platform uses client-side decorations.
 #[cfg(target_os = "linux")]
 pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
-    use super::wordmark;
-    use crate::{blocks, mark};
-    use gpui::{div, prelude::*, px, Decorations, FontWeight, MouseButton};
+    use crate::ui::Press;
+    use gpui::{prelude::*, Decorations, MouseButton};
 
     if matches!(window.window_decorations(), Decorations::Server) {
         return None;
     }
 
     let controls = window.window_controls();
-    let drag = div()
-        .id("window-drag")
-        .flex()
-        .flex_1()
-        .h_full()
-        .items_center()
-        .gap(px(8.))
-        .px(px(12.))
-        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move())
-        .child(mark(16., window.scale_factor()))
-        .child(wordmark(theme));
-
-    let mut bar = div()
-        .flex()
-        .flex_none()
-        .items_center()
-        .h(px(32.))
-        .bg(theme.side)
-        .text_color(theme.muted)
-        .border_b_1()
-        .border_color(gpui::transparent_black())
-        .child(drag);
-
-    if controls.minimize {
-        let color = theme.ink_soft;
-        let hover = theme.plate_soft;
-        bar = bar.child(
-            div()
-                .id("window-minimize")
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .w(px(46.))
-                .h_full()
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover))
-                .child(div().w(px(10.)).h(px(1.)).bg(color))
-                .on_click(|_, window, _| window.minimize_window()),
-        );
-    }
-
-    if controls.maximize {
-        let color = theme.ink_soft;
-        let hover = theme.plate_soft;
-        let maximized = window.is_maximized();
-        let square = || {
-            div()
-                .absolute()
-                .size(px(10.))
-                .border_1()
-                .border_color(color)
-        };
-        let icon = div().relative().size(px(14.));
-        let icon = if maximized {
-            icon.child(
-                div()
-                    .absolute()
-                    .left(px(4.))
-                    .top_0()
-                    .size(px(10.))
-                    .border_t_1()
-                    .border_r_1()
-                    .border_color(color),
-            )
-            .child(square().left(px(1.)).top(px(3.)))
-        } else {
-            icon.child(square().left(px(2.)).top(px(2.)))
-        };
-        bar = bar.child(
-            div()
-                .id("window-maximize")
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .w(px(46.))
-                .h_full()
-                .cursor_pointer()
-                .hover(move |style| style.bg(hover))
-                .child(icon)
-                .on_click(|_, window, _| window.zoom_window()),
-        );
-    }
-
-    let close_hover = theme.page;
-    let close_bg = theme.danger;
+    let drag = drag_area(window)
+        .on_mouse_down(MouseButton::Left, |_, window, _| window.start_window_move());
+    let maximized = window.is_maximized();
+    let shown = [
+        (Control::Minimize, controls.minimize),
+        (Control::Maximize, controls.maximize),
+        (Control::Close, true),
+    ];
     Some(
-        bar.child(
-            div()
-                .id("window-close")
-                .group("linux-window-close")
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .w(px(46.))
-                .h_full()
-                .cursor_pointer()
-                .hover(move |style| style.bg(close_bg).text_color(close_hover))
-                .child(
-                    blocks::icon("close", 14., theme.ink_soft)
-                        .group_hover("linux-window-close", move |style| {
-                            style.text_color(close_hover)
-                        }),
-                )
-                .on_click(|_, window, _| window.remove_window()),
-        ),
+        bar(theme)
+            .child(drag)
+            .children(shown.into_iter().filter(|(_, on)| *on).map(|(control, _)| {
+                control_face(control, maximized)
+                    .aria_label(control_label(control))
+                    .on_press(move |_, window, _| match control {
+                        Control::Minimize => window.minimize_window(),
+                        Control::Maximize => window.zoom_window(),
+                        Control::Close => window.remove_window(),
+                    })
+            })),
     )
+}
+
+#[cfg(target_os = "linux")]
+fn control_label(control: Control) -> &'static str {
+    eclipse_launcher::i18n::tr(match control {
+        Control::Minimize => "Minimize",
+        Control::Maximize => "Maximize",
+        Control::Close => "Close",
+    })
 }
 
 #[cfg(target_os = "linux")]
@@ -176,23 +219,23 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
             .child(
                 handle("resize-left", ResizeEdge::Left, CursorStyle::ResizeLeft)
                     .left_0()
-                    .top(px(8.))
-                    .bottom(px(8.))
-                    .w(px(5.)),
+                    .top(px(RESIZE_CORNER))
+                    .bottom(px(RESIZE_CORNER))
+                    .w(px(RESIZE_EDGE)),
             )
             .child(
                 handle("resize-right", ResizeEdge::Right, CursorStyle::ResizeRight)
                     .right_0()
-                    .top(px(8.))
-                    .bottom(px(8.))
-                    .w(px(5.)),
+                    .top(px(RESIZE_CORNER))
+                    .bottom(px(RESIZE_CORNER))
+                    .w(px(RESIZE_EDGE)),
             )
             .child(
                 handle("resize-bottom", ResizeEdge::Bottom, CursorStyle::ResizeDown)
                     .bottom_0()
-                    .left(px(8.))
-                    .right(px(8.))
-                    .h(px(5.)),
+                    .left(px(RESIZE_CORNER))
+                    .right(px(RESIZE_CORNER))
+                    .h(px(RESIZE_EDGE)),
             )
             .child(
                 handle(
@@ -202,7 +245,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .left_0()
                 .top_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             )
             .child(
                 handle(
@@ -212,7 +255,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .right_0()
                 .top_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             )
             .child(
                 handle(
@@ -222,7 +265,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .left_0()
                 .bottom_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             )
             .child(
                 handle(
@@ -232,7 +275,7 @@ pub fn resize_handles(window: &Window) -> Option<Div> {
                 )
                 .right_0()
                 .bottom_0()
-                .size(px(8.)),
+                .size(px(RESIZE_CORNER)),
             ),
     )
 }
@@ -283,19 +326,7 @@ pub fn apply_appearance(_: &Window, _: Appearance) {}
 #[cfg(target_os = "windows")]
 mod windows {
     use super::*;
-    use crate::{blocks, mark};
-    use gpui::{div, prelude::*, px, Stateful, WindowControlArea};
-
-    const HEIGHT: f32 = 32.;
-    const BUTTON_WIDTH: f32 = 46.;
-    const RESIZE_INSET: f32 = 5.;
-
-    #[derive(Clone, Copy)]
-    enum Control {
-        Minimize,
-        Maximize,
-        Close,
-    }
+    use gpui::{prelude::*, px, Stateful, WindowControlArea};
 
     impl Control {
         fn area(self) -> WindowControlArea {
@@ -305,110 +336,26 @@ mod windows {
                 Self::Close => WindowControlArea::Close,
             }
         }
-
-        fn name(self) -> &'static str {
-            match self {
-                Self::Minimize => "window-minimize",
-                Self::Maximize => "window-maximize",
-                Self::Close => "window-close",
-            }
-        }
     }
 
-    fn control_icon(control: Control, maximized: bool, theme: &Theme) -> Div {
-        let square = || {
-            div()
-                .absolute()
-                .size(px(10.))
-                .border_1()
-                .border_color(theme.ink_soft)
-        };
-        let icon = div().relative().size(px(14.));
-        match control {
-            Control::Minimize => icon.child(
-                div()
-                    .absolute()
-                    .left(px(2.))
-                    .top(px(7.))
-                    .w(px(10.))
-                    .h(px(1.))
-                    .bg(theme.ink_soft),
-            ),
-            Control::Maximize if maximized => icon
-                .child(
-                    div()
-                        .absolute()
-                        .left(px(4.))
-                        .top_0()
-                        .size(px(10.))
-                        .border_t_1()
-                        .border_r_1()
-                        .border_color(theme.ink_soft),
-                )
-                .child(square().left(px(1.)).top(px(3.))),
-            Control::Maximize => icon.child(square().left(px(2.)).top(px(2.))),
-            Control::Close => {
-                let hover_color = theme.page;
-                icon.child(
-                    blocks::icon("close", 14., theme.ink_soft)
-                        .group_hover("window-close", move |style| style.text_color(hover_color)),
-                )
-            }
-        }
-    }
-
-    fn control_button(control: Control, theme: &Theme, maximized: bool) -> Stateful<Div> {
-        let theme = *theme;
-        div()
-            .id(control.name())
-            .group(control.name())
-            .flex()
-            .flex_none()
-            .items_center()
-            .justify_center()
-            .w(px(BUTTON_WIDTH))
-            .h_full()
-            .text_color(theme.ink_soft)
-            // GPUI maps these to native non-client hit tests, retaining Snap Layouts,
-            // Alt+Space and close handling. Click callbacks would run the action twice.
-            .window_control_area(control.area())
-            .hover(move |style| match control {
-                Control::Close => style.bg(theme.danger).text_color(theme.page),
-                _ => style.bg(theme.plate_soft),
-            })
-            .child(control_icon(control, maximized, &theme))
+    fn control_button(control: Control, maximized: bool) -> Stateful<Div> {
+        // GPUI maps these to native non-client hit tests, retaining Snap Layouts,
+        // Alt+Space and close handling. Click callbacks would run the action twice.
+        control_face(control, maximized).window_control_area(control.area())
     }
 
     pub fn render(theme: &Theme, window: &Window) -> Option<Div> {
-        let drag = div()
-            .id("window-drag")
-            .flex()
-            .flex_1()
-            .h_full()
-            .items_center()
-            .gap(px(8.))
-            .px(px(12.))
-            .window_control_area(WindowControlArea::Drag)
-            .child(mark(16., window.scale_factor()))
-            .child(wordmark(theme));
+        let drag = drag_area(window).window_control_area(WindowControlArea::Drag);
         Some(
-            div()
-                .flex()
-                .flex_none()
-                .items_center()
-                .h(px(HEIGHT))
+            bar(theme)
                 // Control hit tests run before native edge resizing in GPUI 0.2.2.
                 .when(!window.is_maximized(), |bar| {
-                    bar.pt(px(RESIZE_INSET)).px(px(RESIZE_INSET))
+                    bar.pt(px(RESIZE_EDGE)).px(px(RESIZE_EDGE))
                 })
-                .bg(theme.side)
-                .text_color(theme.muted)
-                .border_b_1()
-                .border_color(gpui::transparent_black())
                 .child(drag)
                 .children(
                     [Control::Minimize, Control::Maximize, Control::Close]
-                        .map(|control| control_button(control, theme, window.is_maximized())),
+                        .map(|control| control_button(control, window.is_maximized())),
                 ),
         )
     }
@@ -416,3 +363,22 @@ mod windows {
 
 #[cfg(target_os = "windows")]
 pub use windows::render;
+
+pub(super) fn mark(size: f32, scale: f32) -> Div {
+    thread_local! {
+        static MARKS: std::cell::RefCell<std::collections::HashMap<(u32, u32), std::sync::Arc<gpui::RenderImage>>> =
+            Default::default();
+    }
+    let image = MARKS.with_borrow_mut(|marks| {
+        marks
+            .entry((size.to_bits(), scale.to_bits()))
+            .or_insert_with(|| {
+                crate::art::bake(&eclipse_theme::mark::texels(), 16, 16, size / 16., scale)
+            })
+            .clone()
+    });
+    gpui::div()
+        .flex_none()
+        .size(gpui::px(size))
+        .child(gpui::img(image).size(gpui::px(size)))
+}

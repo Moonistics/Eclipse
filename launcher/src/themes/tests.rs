@@ -103,3 +103,20 @@ fn a_typed_colour_is_worn_as_is_and_survives_settings_json() {
     let (_, vs, vl) = hsl(0xf5a524);
     assert!((h - 120.).abs() < 1. && (s - vs).abs() < 0.02 && (l - vl).abs() < 0.02);
 }
+
+#[test]
+fn daybreak_picked_under_its_old_name_stays_picked() {
+    use crate::backend::Settings;
+    let older = Settings::parse(r#"{"theme":"first_light"}"#).unwrap();
+    assert_eq!(older.theme.as_deref(), Some("daybreak"));
+    assert_eq!(
+        theme(older.theme.as_deref()).map(|t| t.name),
+        Some("Daybreak")
+    );
+    let saved = serde_json::to_value(&older).unwrap();
+    assert_eq!(saved["theme"], "daybreak");
+    let newer = Settings::parse(r#"{"theme":"aurora"}"#).unwrap();
+    assert_eq!(newer.theme.as_deref(), Some("aurora"));
+    assert!(theme(newer.theme.as_deref()).is_none());
+    assert!(Settings::parse("{}").unwrap().theme.is_none());
+}

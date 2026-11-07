@@ -1,7 +1,8 @@
-//! The launcher's night look ("Night" in `docs/design-system.md`): a pixel night sky that turns to
-//! a sunset at the bottom, plates over it only where text needs them, one violet for the main
-//! action, focus and progress, and Bricolage Grotesque (SIL OFL 1.1, `fonts/OFL-BricolageGrotesque.txt`).
-//! Light players get the same look at dawn ([`DAWN`]). The game's menus don't use it.
+//! The night scene's colours ("Night" in `docs/design-system.md`): [`NIGHT`] in the dark
+//! appearance, [`DAWN`] in the light one. The launcher paints its scene from the sky and takes the
+//! page and sidebar colours; the plates, strokes, the violet accent, the type steps and Bricolage
+//! Grotesque (SIL OFL 1.1, `fonts/OFL-BricolageGrotesque.txt`) reach the website's pages that wear
+//! the night through `tokens.css`. The game's menus don't use it.
 use crate::{step, Step, Web};
 
 /// The UI family (optical size 14: Regular, Medium, SemiBold, Bold) and the display family
@@ -74,7 +75,7 @@ pub struct Night {
 }
 
 pub const NIGHT: Night = Night {
-    sky: [0x07061a, 0x140f38, 0x2a1656, 0x5b2a78, 0xb0477d, 0xf08a5d],
+    sky: [0x05070e, 0x090c1a, 0x10132a, 0x1c1b3a, 0x34263e, 0x965c30],
     page: 0x0e0b26,
     side: 0x0a0820,
     card: 0x15112e,
@@ -98,19 +99,19 @@ pub const NIGHT: Night = Night {
 
 /// The light appearance: the same sky at dawn, pale blue to peach, with the night's violet.
 pub const DAWN: Night = Night {
-    sky: [0xc9d3f2, 0xdcd8f3, 0xead5ec, 0xf5d3d8, 0xf9d6bd, 0xfbe4c6],
-    page: 0xe9e6f6,
-    side: 0xe1ddf1,
+    sky: [0xdfe5ee, 0xe5e9ef, 0xedecec, 0xf1ece6, 0xf6e2c4, 0xf8d39a],
+    page: 0xf5f6f8,
+    side: 0xeef0f3,
     card: 0xfdfcff,
     card_alpha: 0.86,
     card_hi: 0xffffff,
     card_hi_alpha: 0.94,
-    stroke: 0x3b2f78,
+    stroke: 0x1f2330,
     stroke_alpha: 0.12,
     rule_alpha: 0.10,
-    ink: 0x1b1530,
-    ink_soft: 0x3b3354,
-    muted: 0x585071,
+    ink: 0x14151c,
+    ink_soft: 0x3a3d48,
+    muted: 0x575b66,
     accent: 0x5b3fd6,
     accent_hi: 0x5333c9,
     on_accent: 0xffffff,

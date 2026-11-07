@@ -7,6 +7,7 @@ use super::{
     details::{Details, GitHub, Link},
     download, installed, java, FileRef, Kind, Project, Query, Source, SourceId, Version, GAME,
 };
+use crate::game_folder;
 use eclipse_mods::index::{self, Index, Trust};
 use std::collections::HashMap;
 use std::fs;
@@ -14,14 +15,17 @@ use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-/// Where the registry publishes its index (GitHub Pages of horizon-rust/horizon-mods).
-pub const INDEX_URL: &str = "https://horizon-rust.github.io/horizon-mods/index.json";
-/// Each project's entry in the registry repository, `<SITE>/<id>.toml`.
-const SITE: &str = "https://github.com/horizon-rust/horizon-mods/blob/main/mods";
-/// The report form of a project.
-const REPORT: &str = "https://github.com/horizon-rust/horizon-mods/issues/new?template=report.yml";
+/// The registry's repository: its projects' entries, reports and policy.
+const REPOSITORY: &str = "https://github.com/horizon-rust/horizon-mods";
+/// Its GitHub Pages: the index and the projects' icons.
+pub(super) const PAGES: &str = "https://horizon-rust.github.io/horizon-mods/";
+/// Its Pages and its files at the address they had before the repositories moved to the
+/// Moonistics organization (GitHub redirects them).
+pub(super) const MOVED_PAGES: &str = "https://ludovic111.github.io/horizon-mods/";
+pub(super) const MOVED_FILES: &str =
+    "https://github.com/ludovic111/horizon-mods/releases/download/";
 /// The loader name the browser gives registry versions, so `support` and `pick` know them.
-pub const LOADER: &str = "eclipse";
+pub(crate) const LOADER: &str = "eclipse";
 /// How long a fetched index is used before it is fetched again.
 const FRESH: Duration = Duration::from_secs(600);
 /// Larger than any index should be.
@@ -29,13 +33,16 @@ const MAX_INDEX: u64 = 16 << 20;
 /// The last index fetched, kept in the game folder for when the registry can't be reached.
 const CACHE: &str = "mod-browser/eclipse-index.json";
 
+const UNREADABLE: &str =
+    "Eclipse's mod list came back unreadable. A firewall or proxy may be in the way.";
+
 /// Where the index comes from: `ECLIPSE_MOD_INDEX` (a file or an `https://` address, for a
-/// test registry), else [`INDEX_URL`].
+/// test registry), else the registry's own on its [`PAGES`].
 fn location() -> String {
     std::env::var("ECLIPSE_MOD_INDEX")
         .ok()
         .filter(|v| !v.is_empty())
-        .unwrap_or_else(|| INDEX_URL.to_owned())
+        .unwrap_or_else(|| format!("{PAGES}index.json"))
 }
 
 /// True when the index is a local file: its files may then be local too (`file://`), for
@@ -82,11 +89,7 @@ pub fn index() -> Result<Arc<Index>, String> {
         }
         Err(e) => {
             let kept = fs::read_to_string(&cache).map_err(|_| e.clone())?;
-            match local() {
-                true => Index::parse_local(&kept),
-                false => Index::parse(&kept),
-            }
-            .map_err(|_| e)?
+            parse(&kept).map_err(|_| e)?
         }
     };
     let index = Arc::new(index);
@@ -98,10 +101,10 @@ fn fetch_index() -> Result<(Index, String), String> {
     use std::io::Read;
     let at = location();
     let text = if at.starts_with("https://") {
-        let response = download::agent(&at).get(&at).call().map_err(|e| match e {
-            ureq::Error::Status(code, _) => format!("The mod registry answered {code}."),
-            ureq::Error::Transport(t) => format!("The mod registry can't be reached: {t}"),
-        })?;
+        let response = download::agent(&at)
+            .get(&at)
+            .call()
+            .map_err(|e| crate::backend::network_error(&at, e))?;
         let mut text = String::new();
         response
             .into_reader()
@@ -112,91 +115,18 @@ fn fetch_index() -> Result<(Index, String), String> {
     } else {
         fs::read_to_string(&at).map_err(|e| format!("{at}: {e}"))?
     };
-    let index = match local() {
-        true => Index::parse_local(&text)?,
-        false => Index::parse(&text)?,
-    };
-    Ok((index, text))
+    Ok((read_index(&text)?, text))
 }
 
-/// A project's ratings: 1 to 5 stars, their mean and how many.
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub struct Rating {
-    pub average: f32,
-    pub count: u64,
+fn read_index(text: &str) -> Result<Index, String> {
+    parse(text).map_err(|e| format!("{UNREADABLE}\n{e}"))
 }
 
-/// When the ratings were fetched last, and every rated project's [`Rating`] (None: that failed).
-type Ratings = Option<Arc<HashMap<String, Rating>>>;
-static RATINGS: Mutex<Option<(Instant, Ratings)>> = Mutex::new(None);
-
-/// A project's rating as fetched last, without asking the network: None when the ratings
-/// aren't known (not fetched, or the service didn't answer), `Some(None)` when it has none.
-pub fn rating(id: &str) -> Option<Option<Rating>> {
-    let ratings = RATINGS.lock().unwrap();
-    let known = ratings.as_ref()?.1.as_ref()?;
-    Some(known.get(id).copied())
-}
-
-/// Fetches the ratings again when the last try is ten minutes old, from `ECLIPSE_MOD_RATINGS` (a
-/// file or an `https://` address of a registry service, crates/eclipse-mod-registry); none
-/// without it. After a failure the browser shows downloads only.
-fn refresh_ratings() {
-    if RATINGS
-        .lock()
-        .unwrap()
-        .as_ref()
-        .is_some_and(|(at, _)| at.elapsed() < FRESH)
-    {
-        return;
+fn parse(text: &str) -> Result<Index, String> {
+    match local() {
+        true => Index::parse_local(text),
+        false => Index::parse(text),
     }
-    let Some(at) = std::env::var("ECLIPSE_MOD_RATINGS")
-        .ok()
-        .filter(|v| !v.is_empty())
-    else {
-        return;
-    };
-    let text = if at.starts_with("https://") {
-        download::agent(&at).get(&at).call().ok().and_then(|r| {
-            use std::io::Read;
-            let mut text = String::new();
-            r.into_reader()
-                .take(MAX_INDEX)
-                .read_to_string(&mut text)
-                .ok()
-                .map(|_| text)
-        })
-    } else {
-        fs::read_to_string(&at).ok()
-    };
-    let fetched = text.map(|t| Arc::new(parse_ratings(&t)));
-    *RATINGS.lock().unwrap() = Some((Instant::now(), fetched));
-}
-
-/// `{"projects": {"<id>": {"average", "count"}}}`, keeping only well-formed entries.
-fn parse_ratings(text: &str) -> HashMap<String, Rating> {
-    let Ok(json) = serde_json::from_str::<serde_json::Value>(text) else {
-        return HashMap::new();
-    };
-    let Some(projects) = json["projects"].as_object() else {
-        return HashMap::new();
-    };
-    projects
-        .iter()
-        .filter_map(|(id, r)| {
-            let average = r["average"].as_f64().filter(|a| (1.0..=5.0).contains(a))?;
-            let count = r["count"].as_u64().filter(|&c| c > 0)?;
-            index::valid_id(id).then(|| {
-                (
-                    id.clone(),
-                    Rating {
-                        average: average as f32,
-                        count,
-                    },
-                )
-            })
-        })
-        .collect()
 }
 
 /// The browser's kind for a registry kind; None for one the launcher doesn't install yet
@@ -266,18 +196,18 @@ fn tags_of(index: &Index, kind: Kind) -> Vec<String> {
         .collect()
 }
 
-/// Where the registry's mod policy is: who owns and answers for a project, takedowns.
-pub const POLICY: &str = "https://github.com/horizon-rust/horizon-mods/blob/main/MOD-POLICY.md";
-
 /// Whether the Eclipse project made `p` (the mod policy's "Official": author Eclipse, source in
 /// the Moonistics organisation).
 pub fn official(p: &index::Project) -> bool {
-    p.authors == ["Eclipse"] && p.source.starts_with("https://github.com/Moonistics/")
+    let (owner, _) = crate::backend::REPO.split_once('/').unwrap_or_default();
+    p.authors == ["Eclipse"]
+        && p.source
+            .starts_with(&format!("https://github.com/{owner}/"))
 }
 
 /// Whether the registry's project `id` is Eclipse's own ([`official`]), by the index already read
 /// (never the network); false when none was read.
-pub fn is_official(id: &str) -> bool {
+pub(crate) fn is_official(id: &str) -> bool {
     official_in(known_index().as_deref(), id)
 }
 
@@ -291,6 +221,7 @@ fn official_in(index: Option<&Index>, id: &str) -> bool {
 pub fn trust_and_capabilities(
     id: &str,
     instance: Option<&crate::instances::Instance>,
+    settings: &crate::backend::Settings,
 ) -> Vec<String> {
     let Ok(index) = index() else {
         return Vec::new();
@@ -302,7 +233,7 @@ pub fn trust_and_capabilities(
         "Made by Eclipse".to_owned()
     } else {
         format!(
-            "Made by {}. Not made or endorsed by the Eclipse project ({POLICY})",
+            "Made by {}. Not made or endorsed by the Eclipse project ({REPOSITORY}/blob/main/MOD-POLICY.md)",
             p.authors.join(", ")
         )
     }];
@@ -318,7 +249,9 @@ pub fn trust_and_capabilities(
             let pin = v.api.split('/').nth(1).unwrap_or_default();
             lines.push(
                 instance
-                    .and_then(|i| crate::native_fit::line(i, &p.id, v.hooks, pin, &v.broken_on))
+                    .and_then(|i| {
+                        crate::native_fit::line(i, settings, &p.id, v.hooks, pin, &v.broken_on)
+                    })
                     .unwrap_or_else(|| {
                         format!(
                             "Built by the launcher on Eclipse {}",
@@ -352,7 +285,7 @@ fn project_of(p: &index::Project) -> Option<Project> {
         summary: p.summary.clone(),
         author: p.authors.join(", "),
         downloads: p.downloads,
-        page: format!("{SITE}/{}.toml", p.id),
+        page: format!("{REPOSITORY}/blob/main/mods/{}.toml", p.id),
         icon: p.icon.clone(),
         license: p.license.clone(),
         kind: kind_of(&p.kind)?,
@@ -408,7 +341,7 @@ fn github_login(login: &str) -> bool {
 /// The GitHub repository a project's `source` is in, `https://github.com/<owner>/<repo>`: a
 /// deeper path (a folder of a monorepo) or a trailing `.git` names the same repository. None
 /// when the source isn't on GitHub, or its owner or name isn't one GitHub allows.
-pub fn github_repo(source: &str) -> Option<String> {
+fn github_repo(source: &str) -> Option<String> {
     let path = source.strip_prefix("https://github.com/")?;
     let mut parts = path.split(['/', '?', '#']);
     let owner = parts.next().filter(|o| github_login(o))?;
@@ -421,7 +354,6 @@ pub fn github_repo(source: &str) -> Option<String> {
     Some(format!("https://github.com/{owner}/{repo}"))
 }
 
-/// The words of a query found in a project's id, name, summary, authors or tags.
 fn matches(p: &index::Project, text: &str) -> bool {
     let hay = format!(
         "{} {} {} {} {}",
@@ -510,7 +442,6 @@ fn gallery_of(p: &index::Project) -> Vec<super::details::Image> {
         .collect()
 }
 
-/// The registry as a browser source.
 pub struct Registry;
 
 impl Source for Registry {
@@ -519,9 +450,7 @@ impl Source for Registry {
     }
 
     fn search(&self, query: &Query) -> Result<Vec<Project>, String> {
-        let found = search(&*index()?, query);
-        refresh_ratings();
-        Ok(found)
+        Ok(search(&*index()?, query))
     }
 
     fn project(&self, id: &str) -> Result<Project, String> {
@@ -538,12 +467,11 @@ impl Source for Registry {
         })
     }
 
-    fn versions(&self, project: &Project) -> Result<Vec<Version>, String> {
+    fn versions(&self, project: &Project, level: Option<u32>) -> Result<Vec<Version>, String> {
         let index = index()?;
         let p = index
             .project(&project.id)
             .ok_or_else(|| format!("{} isn't in Eclipse's registry.", project.title))?;
-        let level = crate::backend::game_mod_api_level();
         Ok(p.versions
             .iter()
             .map(|v| version_of(&index, p, v, level))
@@ -567,7 +495,6 @@ impl Source for Registry {
     }
 
     fn details(&self, project: &Project) -> Result<Details, String> {
-        refresh_ratings();
         let index = index()?;
         let p = index
             .project(&project.id)
@@ -606,7 +533,7 @@ impl Source for Registry {
             body,
             links: [
                 Link {
-                    label: "Source".into(),
+                    label: "Source code".into(),
                     url: p.source.clone(),
                 },
                 Link {
@@ -614,8 +541,8 @@ impl Source for Registry {
                     url: project.page.clone(),
                 },
                 Link {
-                    label: "Report".into(),
-                    url: format!("{REPORT}&title={}", p.id),
+                    label: "Report to Eclipse".into(),
+                    url: format!("{REPOSITORY}/issues/new?template=report.yml&title={}", p.id),
                 },
             ]
             .into_iter()
@@ -673,7 +600,6 @@ fn local_path(path: &str) -> &str {
     }
 }
 
-/// What the registry adds to an installed entry.
 fn trust_label(trust: Trust) -> &'static str {
     match trust {
         Trust::Verified => "Verified",
@@ -681,31 +607,31 @@ fn trust_label(trust: Trust) -> &'static str {
     }
 }
 
-/// The game folder path a registry project's file goes to.
 fn relative(kind: Kind, id: &str, file_name: &str) -> Result<String, String> {
     match kind {
         Kind::Mod => Ok(format!("{}/{id}.emod", java::MODS_DIR)),
-        Kind::ResourcePack => Ok(format!("resourcepacks/{file_name}")),
-        Kind::Shader => Ok(format!("shaderpacks/{file_name}")),
+        Kind::ResourcePack | Kind::Shader => Ok(format!(
+            "{}/{file_name}",
+            kind.folder().expect("packs have a folder")
+        )),
         Kind::Modpack => Err("A modpack installs as its own profile (pack::install).".into()),
         Kind::DataPack => Err("A data pack goes into a world (fetch_datapack).".into()),
     }
 }
 
 /// Installs a registry project into the game folder `home`: its newest version for this game that
-/// the game the player runs can load, downloaded into `mod-browser/downloads/`, checked against
+/// the game playing `home` can load, downloaded into `mod-browser/downloads/`, checked against
 /// the index, then moved into place. A mod is `eclipse-mods/<id>.emod`, turned on in
 /// `eclipse-mods.txt`.
 pub fn install(
     project: &Project,
     home: &Path,
+    level: Option<u32>,
     progress: &dyn Fn(&str, f32),
 ) -> Result<Vec<installed::Entry>, String> {
-    let level = crate::backend::game_mod_api_level();
     install_from(&*index()?, local(), level, project, home, progress)
 }
 
-/// [`install`] from `index`, for a game serving mod API `level`.
 fn install_from(
     index: &Index,
     local: bool,
@@ -721,13 +647,13 @@ fn install_from(
     if needs_port(v) {
         return Err(format!("{} {NEEDS_PORT}.", p.name));
     }
-    install_version(index, local, p, v, home, progress).map(|e| vec![e])
+    install_version(index, local, p, v, home, &|_| Ok(()), progress).map(|e| vec![e])
 }
 
 /// Downloads the newest version of the registry's data pack `project` into `folder`, checked
 /// against the index as every registry file is (size, SHA-256, signature, `pack.mcmeta` and
 /// `data/`): the file and its version. [`installed::install_datapack`] puts it in a world.
-pub fn fetch_datapack(
+pub(crate) fn fetch_datapack(
     project: &Project,
     folder: &Path,
     progress: &dyn Fn(f32),
@@ -785,34 +711,21 @@ const NEEDS_PORT: &str = "needs a native port: Eclipse doesn't run WebAssembly m
 /// Whether version `v` is a WebAssembly mod with code: a `.emod` that may do more than add
 /// content. The registry keeps it for the modpacks that need it; a modpack installs it with its
 /// code left out (the game doesn't run it), and the browser neither lists nor installs it.
-pub fn needs_port(v: &index::Version) -> bool {
+fn needs_port(v: &index::Version) -> bool {
     v.file.name.ends_with(".emod")
         && v.capabilities
             .iter()
             .any(|c| *c != eclipse_mods::Capability::Registries)
 }
 
-/// Whether version `v` calls mod API functions a game serving `level` doesn't have.
 fn needs_newer(v: &index::Version, level: Option<u32>) -> bool {
     matches!((v.api_level, level), (Some(needed), Some(level)) if needed > level)
 }
 
 /// Installs version `v` of the registry's mod, resource pack or shader pack `p` into the game
-/// folder `home`.
+/// folder `home`, with `guard` asked about the downloaded file once it passed the index's checks
+/// and before it replaces anything: its error leaves everything as it was.
 fn install_version(
-    index: &Index,
-    local: bool,
-    p: &index::Project,
-    v: &index::Version,
-    home: &Path,
-    progress: &dyn Fn(&str, f32),
-) -> Result<installed::Entry, String> {
-    install_version_guarded(index, local, p, v, home, &|_| Ok(()), progress)
-}
-
-/// [`install_version`], with `guard` asked about the downloaded file once it passed the index's
-/// checks and before it replaces anything: its error leaves everything as it was.
-fn install_version_guarded(
     index: &Index,
     local: bool,
     p: &index::Project,
@@ -821,7 +734,7 @@ fn install_version_guarded(
     guard: &dyn Fn(&Path) -> Result<(), String>,
     progress: &dyn Fn(&str, f32),
 ) -> Result<installed::Entry, String> {
-    let _lock = crate::browser::lock_home(home);
+    let mut list = installed::Installed::open(home)?;
     let project = project_of(p).ok_or_else(|| format!("{} can't be installed here.", p.name))?;
     if let Some(r) = index.revoked(&p.id, &v.file.sha256) {
         return Err(format!("{} was taken down: {}", p.name, r.reason));
@@ -831,11 +744,13 @@ fn install_version_guarded(
         true => format!("{}/{}.hnmod", crate::native_mods::INSTALLED, p.id),
         false => relative(project.kind, &p.id, &v.file.name)?,
     };
-    let mut list = installed::Installed::load(home);
     let ours = |e: &installed::Entry| e.source == SourceId::Eclipse && e.project == p.id;
     let old = list.entries.iter().find(|e| ours(e)).cloned();
-    if old.as_ref().is_some_and(|o| o.version == v.version) {
-        return Ok(old.expect("checked"));
+    if let Some(old) = old
+        .clone()
+        .filter(|o| o.version == v.version && o.path(home).is_some_and(|f| f.exists()))
+    {
+        return Ok(old);
     }
     let target = home.join(&relative);
     let taken_by = list.entries.iter().find(|e| !ours(e) && e.file == relative);
@@ -858,8 +773,9 @@ fn install_version_guarded(
         return Err(format!("{relative} is already there: move it away first."));
     }
     let line = format!("{} {}", p.name, v.version);
-    let file = &version_of(index, p, v, None).files[0];
-    let staging = home.join("mod-browser/downloads");
+    let version = version_of(index, p, v, None);
+    let file = &version.files[0];
+    let staging = home.join(game_folder::BROWSER_FILES).join("downloads");
     let path = fetch(file, &staging, local, &|f| progress(&line, f))?;
     let checked = index::check_file(index, p, v, &path).and_then(|trust| {
         // Only Rust and TOML sources, for the mod the index names: nothing in it runs here.
@@ -891,27 +807,14 @@ fn install_version_guarded(
         java::set_enabled(home, &p.id, true)?;
     }
     let entry = installed::Entry {
-        source: SourceId::Eclipse,
-        project: p.id.clone(),
-        slug: p.id.clone(),
-        title: p.name.clone(),
-        kind: project.kind,
-        version: v.version.clone(),
-        number: v.version.clone(),
-        file: relative,
-        checksum: format!("SHA-256:{}", v.file.sha256),
-        page: project.page.clone(),
-        dependency: false,
         verdict: Some(trust_label(trust).into()),
         skipped: match needs_port(v) {
             true => vec![format!("its code ({NEEDS_PORT})")],
             false => Vec::new(),
         },
-        namespaces: Vec::new(),
+        ..installed::Entry::of(&project, &version, relative)
     };
-    list.entries.retain(|e| !ours(e));
-    list.entries.push(entry.clone());
-    list.save(home)?;
+    list.record(entry.clone())?;
     Ok(entry)
 }
 
@@ -932,13 +835,19 @@ pub fn mod_id(entry: &installed::Entry) -> Option<&str> {
     Some(rest.strip_suffix(".emod").unwrap_or(rest))
 }
 
+pub fn taken_down<'a>(index: &'a Index, entry: &installed::Entry) -> Option<&'a index::Revoked> {
+    (entry.source == SourceId::Eclipse)
+        .then(|| index.revoked(&entry.project, entry.hash("SHA-256")?))
+        .flatten()
+}
+
 /// Turns the registry's files that were taken down off in the game folder `home`, and says
 /// which. Their files stay, so the player sees them and can remove them.
 pub fn turn_off_revoked(index: &Index, home: &Path) -> Vec<String> {
     let _lock = crate::browser::lock_home(home);
     let mut out = Vec::new();
     for e in installed::Installed::load(home).entries {
-        let hash = e.checksum.strip_prefix("SHA-256:").unwrap_or_default();
+        let hash = e.hash("SHA-256").unwrap_or_default();
         let Some(r) = (e.source == SourceId::Eclipse)
             .then(|| index.revoked(&e.project, hash))
             .flatten()
@@ -974,11 +883,7 @@ pub fn before_play(home: &Path) {
         return;
     }
     let kept = fs::read_to_string(crate::backend::game_home().join(CACHE)).ok();
-    let parse = |t: String| match local() {
-        true => Index::parse_local(&t).ok(),
-        false => Index::parse(&t).ok(),
-    };
-    if let Some(index) = kept.and_then(parse) {
+    if let Some(index) = kept.and_then(|t| parse(&t).ok()) {
         for line in turn_off_revoked(&index, home) {
             eprintln!("{line}");
         }

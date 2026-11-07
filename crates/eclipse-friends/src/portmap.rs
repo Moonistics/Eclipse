@@ -12,6 +12,11 @@ use std::{
 /// How long a mapping is asked for; it is renewed at half-time.
 pub const LEASE: Duration = Duration::from_secs(3600);
 const PMP_PORT: u16 = 5351;
+const FIRST_RETRY: Duration = if cfg!(test) {
+    Duration::from_millis(100)
+} else {
+    Duration::from_millis(250)
+};
 const DESCRIPTION: &str = "Eclipse (play with friends)";
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -294,7 +299,7 @@ impl Mapping {
 fn exchange(gateway: SocketAddr, req: &[u8]) -> io::Result<Vec<u8>> {
     let socket = UdpSocket::bind("0.0.0.0:0")?;
     socket.connect(gateway)?;
-    let mut wait = Duration::from_millis(250);
+    let mut wait = FIRST_RETRY;
     let mut buf = [0u8; 1100];
     for _ in 0..3 {
         socket.send(req)?;

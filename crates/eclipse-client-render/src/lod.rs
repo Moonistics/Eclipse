@@ -4504,12 +4504,13 @@ mod tests {
                 .find(|key| plan.nodes.contains(key) && !plan.split.contains(key))
         };
         let mut seam = Vec::new();
+        let mut seam_chunks = FxHashSet::default();
         for z in (camera[1] - 256..camera[1] + 256).step_by(2) {
             for x in (camera[0] - 256..camera[0] + 256).step_by(2) {
                 let chunk = (x.div_euclid(16), z.div_euclid(16));
                 let near = (-2..=2)
                     .any(|dz| (-2..=2).any(|dx| covered.contains(&(chunk.0 + dx, chunk.1 + dz))));
-                if !covered.contains(&chunk) && near {
+                if !covered.contains(&chunk) && near && seam_chunks.insert(chunk) {
                     seam.push((x, z, leaf(x, z).unwrap()));
                 }
             }
@@ -4578,18 +4579,34 @@ mod tests {
         }
         unreachable!()
     }
+    type SeamRun = ([(usize, i32); 2], usize);
+    fn seam_runs() -> &'static [SeamRun] {
+        static RUNS: std::sync::OnceLock<Vec<SeamRun>> = std::sync::OnceLock::new();
+        RUNS.get_or_init(|| {
+            std::thread::scope(|scope| {
+                let runs: Vec<_> = [[8, 8], [40, -9], [-300, 517]]
+                    .into_iter()
+                    .flat_map(|camera| {
+                        [false, true].map(|reduced| {
+                            scope.spawn(move || jobs_until_fine_seam(camera, reduced))
+                        })
+                    })
+                    .collect();
+                runs.into_iter()
+                    .map(|run| run.join().unwrap_or_else(|p| std::panic::resume_unwind(p)))
+                    .collect()
+            })
+        })
+    }
     #[test]
     fn the_far_terrain_next_to_the_near_chunks_loads_first() {
         // Measured: 270 to 301 jobs, all of them fine tiles (7500 to 8500
         // lattice points). A coarse tile first costs up to 289 points; the
         // order that filled a ring ahead first and refined broad tiles every
         // other job took 54000 to 119000 for the seam in view alone.
-        for camera in [[8, 8], [40, -9], [-300, 517]] {
-            for reduced in [false, true] {
-                let ([(jobs, cost), _], _) = jobs_until_fine_seam(camera, reduced);
-                assert!(jobs < 320, "{jobs} jobs");
-                assert!(cost < 9000, "{cost} lattice points");
-            }
+        for &([(jobs, cost), _], _) in seam_runs() {
+            assert!(jobs < 320, "{jobs} jobs");
+            assert!(cost < 9000, "{cost} lattice points");
         }
     }
     #[test]
@@ -4599,12 +4616,9 @@ mod tests {
         // in Reduced (200000): for minutes on a slow machine the far terrain
         // ended in a hard edge. The backdrop adds ~230 coarse tiles (~80 in
         // Reduced), about a tenth more work in all.
-        for camera in [[8, 8], [40, -9], [-300, 517]] {
-            for reduced in [false, true] {
-                let ([_, (jobs, cost)], leaves) = jobs_until_fine_seam(camera, reduced);
-                assert!(jobs < 1000 && jobs < leaves, "{jobs} jobs of {leaves}");
-                assert!(cost < 100_000, "{cost} lattice points");
-            }
+        for &([_, (jobs, cost)], leaves) in seam_runs() {
+            assert!(jobs < 1000 && jobs < leaves, "{jobs} jobs of {leaves}");
+            assert!(cost < 100_000, "{cost} lattice points");
         }
     }
     #[test]

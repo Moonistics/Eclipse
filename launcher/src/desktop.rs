@@ -77,8 +77,7 @@ pub(crate) fn quote(path: &Path) -> String {
     out
 }
 
-/// The launcher's entry, starting the binary at `exe`.
-pub fn launcher_entry(exe: &Path) -> String {
+fn launcher_entry(exe: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
          Type=Application\n\
@@ -97,7 +96,6 @@ pub fn launcher_entry(exe: &Path) -> String {
     )
 }
 
-/// Every file this module writes, with its contents, under `data`.
 fn files(data: &Path, exe: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut out = vec![
         (
@@ -134,13 +132,7 @@ pub fn install_in(data: &Path, exe: &Path) -> io::Result<bool> {
         if fs::read(&path).ok().as_deref() == Some(&bytes[..]) {
             continue;
         }
-        if let Some(dir) = path.parent() {
-            fs::create_dir_all(dir)?;
-        }
-        // Written beside and renamed, so a menu never reads half an entry.
-        let temp = path.with_extension("eclipse-tmp");
-        fs::write(&temp, &bytes)?;
-        fs::rename(&temp, &path)?;
+        crate::files::write(&path, &bytes).map_err(io::Error::other)?;
         wrote = true;
     }
     Ok(wrote)
@@ -206,7 +198,7 @@ fn target_exists(program: &str, path: Option<&OsStr>) -> bool {
 /// Whether the launcher may write its entry by itself: there is none under `data`, or the one
 /// there starts a program that no longer exists. An entry pointing at another launcher that
 /// still works is left alone.
-pub fn needs_repair_in(data: &Path, path: Option<&OsStr>) -> bool {
+fn needs_repair_in(data: &Path, path: Option<&OsStr>) -> bool {
     match fs::read_to_string(data.join("applications").join(LAUNCHER_ENTRY)) {
         Ok(entry) => !entry_target(&entry).is_some_and(|p| target_exists(&p, path)),
         Err(e) => e.kind() == io::ErrorKind::NotFound,
@@ -248,7 +240,6 @@ pub fn remove() -> Result<(), String> {
     remove_in(&data).map_err(|e| format!("{}: {e}", data.display()))
 }
 
-/// Whether the launcher's entry is there.
 pub fn installed() -> bool {
     data_home().is_some_and(|d| d.join("applications").join(LAUNCHER_ENTRY).exists())
 }

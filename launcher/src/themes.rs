@@ -15,82 +15,107 @@ pub struct Accent {
 }
 
 /// A launcher theme: free for everyone in Settings › Appearance, never sold or claimed. Each
-/// has a sky (six stops, top to bottom, behind the light appearance) and the accent it brings.
+/// has a sky (six stops, top to bottom, behind the light appearance).
 pub struct Theme {
     /// Its name in `Settings::theme`.
     pub id: &'static str,
+    pub old_ids: &'static [&'static str],
     /// Its name in Settings, in English (through `tr`).
     pub name: &'static str,
     pub sky: [u32; 6],
-    pub accent_hue: f32,
 }
 
-/// First Light: the sky just before sunrise, with a harbour skyline.
-pub const FIRST_LIGHT: Theme = Theme {
-    id: "first_light",
-    name: "First Light",
-    sky: [0x0b1030, 0x1d2a63, 0x3d4c94, 0x7f78c0, 0xe2a0b0, 0xffd6a0],
-    accent_hue: 246.,
+/// Daybreak: the sky just before sunrise.
+pub const DAYBREAK: Theme = Theme {
+    id: "daybreak",
+    old_ids: &["first_light"],
+    name: "Daybreak",
+    sky: [0x0b1030, 0x1a2660, 0x2a3778, 0x7f78c0, 0xe2a0b0, 0xffd6a0],
 };
 
-/// The launcher themes past Eclipse's own sky.
-pub const THEMES: [Theme; 1] = [FIRST_LIGHT];
+/// The launcher themes past the night sky.
+pub const THEMES: [Theme; 1] = [DAYBREAK];
 
-/// The theme named `id` (`Settings::theme`); None for Eclipse's own sky or a name this launcher
+pub const DEFAULT_SKY_NAME: &str = "Night";
+
+/// The theme named `id` (`Settings::theme`); None for the night sky or a name this launcher
 /// doesn't know.
 pub fn theme(id: Option<&str>) -> Option<&'static Theme> {
-    THEMES.iter().find(|t| Some(t.id) == id)
+    let id = id?;
+    THEMES
+        .iter()
+        .find(|t| t.id == id || t.old_ids.contains(&id))
 }
 
-/// The glass look's colour for each of [`Accent::ALL`]: the mockup's swatches.
-pub const SWATCHES: [u32; 7] = [
-    0xf5a524, 0x2563eb, 0x0f766e, 0x15803d, 0x6b4bff, 0xdc2626, 0xbe185d,
+pub(crate) fn stored_theme<'de, D: serde::Deserializer<'de>>(
+    stored: D,
+) -> Result<Option<String>, D::Error> {
+    let id: Option<String> = serde::Deserialize::deserialize(stored)?;
+    Ok(id.map(|id| theme(Some(&id)).map_or(id, |t| t.id.to_owned())))
+}
+
+const NAMED: [(Accent, &str, &str, u32); 7] = [
+    (
+        Accent::AMBER,
+        "amber",
+        "Amber",
+        eclipse_theme::glass::ACCENT,
+    ),
+    (Accent::BLUE, "blue", "Blue", 0x2563eb),
+    (Accent::TEAL, "teal", "Teal", 0x0f766e),
+    (Accent::GREEN, "green", "Green", 0x15803d),
+    (Accent::VIOLET, "violet", "Violet", 0x6b4bff),
+    (Accent::RED, "red", "Red", 0xdc2626),
+    (Accent::PINK, "pink", "Pink", 0xbe185d),
 ];
 
-/// [`Accent::ALL`]'s names, in its order.
-const NAMES: [&str; 7] = ["amber", "blue", "teal", "green", "violet", "red", "pink"];
+/// The look's colour for each of [`Accent::ALL`]: the swatches Settings offers.
+pub const SWATCHES: [u32; 7] = [
+    NAMED[0].3, NAMED[1].3, NAMED[2].3, NAMED[3].3, NAMED[4].3, NAMED[5].3, NAMED[6].3,
+];
 
 impl Accent {
     pub const AMBER: Accent = Accent {
         hue: None,
         rgb: None,
     };
-    pub const BLUE: Accent = Accent {
+    const BLUE: Accent = Accent {
         hue: Some(212.),
         rgb: None,
     };
-    pub const TEAL: Accent = Accent {
+    pub(crate) const TEAL: Accent = Accent {
         hue: Some(176.),
         rgb: None,
     };
-    pub const GREEN: Accent = Accent {
+    const GREEN: Accent = Accent {
         hue: Some(140.),
         rgb: None,
     };
-    pub const VIOLET: Accent = Accent {
+    const VIOLET: Accent = Accent {
         hue: Some(252.),
         rgb: None,
     };
-    pub const RED: Accent = Accent {
+    const RED: Accent = Accent {
         hue: Some(356.),
         rgb: None,
     };
-    pub const PINK: Accent = Accent {
+    const PINK: Accent = Accent {
         hue: Some(322.),
         rgb: None,
     };
 
     pub const ALL: [Accent; 7] = [
-        Self::AMBER,
-        Self::BLUE,
-        Self::TEAL,
-        Self::GREEN,
-        Self::VIOLET,
-        Self::RED,
-        Self::PINK,
+        NAMED[0].0, NAMED[1].0, NAMED[2].0, NAMED[3].0, NAMED[4].0, NAMED[5].0, NAMED[6].0,
     ];
 
-    /// Any hue the player picks.
+    fn named(self) -> Option<&'static (Accent, &'static str, &'static str, u32)> {
+        NAMED.iter().find(|n| n.0 == self)
+    }
+
+    pub fn label(self) -> Option<&'static str> {
+        self.named().map(|n| n.2)
+    }
+
     pub fn custom(hue: f32) -> Self {
         Self {
             hue: Some(hue.rem_euclid(360.)),
@@ -99,10 +124,10 @@ impl Accent {
     }
 
     /// A colour (`0xrrggbb`): one of the swatches is its named accent.
-    pub fn from_rgb(rgb: u32) -> Self {
+    fn from_rgb(rgb: u32) -> Self {
         let rgb = rgb & 0xff_ffff;
-        match SWATCHES.iter().position(|&c| c == rgb) {
-            Some(i) => Self::ALL[i],
+        match NAMED.iter().find(|n| n.3 == rgb) {
+            Some(n) => n.0,
             None => Self {
                 hue: Some(hsl(rgb).0),
                 rgb: Some(rgb),
@@ -110,19 +135,19 @@ impl Accent {
         }
     }
 
-    /// The colour the glass look wears: the one typed, a named accent's swatch, else the hue at
-    /// the violet's saturation and lightness.
+    /// The colour the look wears: the one typed, a named accent's swatch, else the hue at
+    /// amber's saturation and lightness.
     pub fn rgb(self) -> u32 {
         if let Some(rgb) = self.rgb {
             return rgb;
         }
-        match (Self::ALL.iter().position(|a| *a == self), self.hue) {
-            (Some(i), _) => SWATCHES[i],
+        match (self.named(), self.hue) {
+            (Some(n), _) => n.3,
             (None, Some(hue)) => {
-                let (_, s, l) = hsl(SWATCHES[0]);
+                let (_, s, l) = hsl(NAMED[0].3);
                 from_hsl(hue, s, l)
             }
-            (None, None) => SWATCHES[0],
+            (None, None) => NAMED[0].3,
         }
     }
 
@@ -137,10 +162,7 @@ impl Accent {
         if self.rgb.is_some() {
             return self.hex();
         }
-        let named = Self::ALL
-            .iter()
-            .position(|a| *a == self)
-            .map(|i| NAMES[i].to_owned());
+        let named = self.named().map(|n| n.1.to_owned());
         named.unwrap_or_else(|| match self.hue {
             None => "amber".to_owned(),
             Some(hue) => format!("{hue}"),
@@ -161,8 +183,8 @@ impl Accent {
             "default" => "amber",
             _ => &name,
         };
-        if let Some(i) = NAMES.iter().position(|n| *n == name) {
-            return Some(Self::ALL[i]);
+        if let Some(n) = NAMED.iter().find(|n| n.1 == name) {
+            return Some(n.0);
         }
         name.parse::<f32>()
             .ok()
@@ -173,6 +195,10 @@ impl Accent {
     /// Its hue in degrees; None for the default amber.
     pub fn hue(self) -> Option<f32> {
         self.hue
+    }
+
+    pub fn shown_hue(self) -> f32 {
+        self.hue.unwrap_or_else(|| hsl(self.rgb()).0)
     }
 }
 
@@ -286,5 +312,4 @@ pub fn background(dir: &Path, name: Option<&str>) -> Option<PathBuf> {
 }
 
 #[cfg(test)]
-#[path = "themes/tests.rs"]
 mod tests;

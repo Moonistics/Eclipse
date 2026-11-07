@@ -2,6 +2,7 @@
 //! the game discovers them (`datapack::discover`). The game turns on every pack it finds there
 //! that `<world>/datapacks.json` doesn't list as disabled, when the world opens or on `/reload`,
 //! so adding one is copying it in.
+use crate::game_folder::world::DATAPACKS;
 use crate::packs::{entry, plain};
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -35,10 +36,14 @@ fn disabled(settings: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-/// The data packs of the world folder `world`, by name.
+/// The folder of the data packs of the world `world`.
+pub fn folder(world: &Path) -> PathBuf {
+    world.join(DATAPACKS)
+}
+
 pub fn list(world: &Path) -> Vec<DataPack> {
     let off = disabled(&settings(world));
-    let mut packs: Vec<DataPack> = fs::read_dir(world.join("datapacks"))
+    let mut packs: Vec<DataPack> = fs::read_dir(folder(world))
         .into_iter()
         .flatten()
         .flatten()
@@ -92,7 +97,7 @@ fn check(file: &Path) -> Result<(), String> {
 /// the next time the world opens (or on `/reload`).
 pub fn add(world: &Path, file: &Path) -> Result<DataPack, String> {
     check(file)?;
-    let dir = world.join("datapacks");
+    let dir = folder(world);
     fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let name = file.file_name().ok_or("A pack file has a name")?;
     let stem = Path::new(name)
@@ -140,12 +145,7 @@ pub fn find(world: &Path, query: &str) -> Result<DataPack, String> {
     list(world)
         .into_iter()
         .find(|p| p.file == query || p.file.strip_suffix(".zip") == Some(query))
-        .ok_or_else(|| {
-            format!(
-                "No data pack {query} in {}",
-                world.join("datapacks").display()
-            )
-        })
+        .ok_or_else(|| format!("No data pack {query} in {}", folder(world).display()))
 }
 
 /// Moves the data pack to the system's trash and forgets it in `datapacks.json`.
@@ -156,7 +156,7 @@ pub fn remove(world: &Path, pack: &DataPack) -> Result<(), String> {
 }
 
 /// What of a data pack the game reads today (its `DataStore`): `data/<namespace>/<kind>/`.
-pub const READ: [&str; 4] = ["function", "function tag", "predicate", "item_modifier"];
+const READ: [&str; 4] = ["function", "function tag", "predicate", "item_modifier"];
 
 /// A data pack's files by kind (`function`, `worldgen`, `item tag`...), with how many each.
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -236,5 +236,4 @@ pub fn coverage(file: &Path) -> Result<Coverage, String> {
 }
 
 #[cfg(test)]
-#[path = "datapacks/tests.rs"]
 mod tests;

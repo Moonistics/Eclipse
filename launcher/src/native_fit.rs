@@ -2,9 +2,10 @@
 //! so a mod made for another Eclipse is no surprise at build time. A mod naming a hook points'
 //! version fits any Eclipse with that `NATIVE_HOOKS_API` or a later one; a pinned mod fits the
 //! commit it pins (docs/native-mods.md, "Pinned to a Nightly").
+use crate::backend;
 use crate::i18n::{tr, trf};
 use crate::instances::Instance;
-use crate::{backend, native_mods};
+use crate::native_mods::{self, Base, Bundle, HookCatalog, Lookup, Pinned, Undecided};
 use eclipse_mods::index::BrokenOn;
 use std::collections::HashMap;
 use std::path::Path;
@@ -12,7 +13,7 @@ use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
 /// The Eclipse the selected instance plays: the commit its game was compiled from and that
-/// commit's hook points' version (None when it couldn't be read).
+/// commit's hook points' version (None when it has none, or it couldn't be read).
 #[derive(Clone, Debug, PartialEq)]
 pub struct Plays {
     pub revision: String,
@@ -39,8 +40,7 @@ pub enum Fit {
 /// How mod `id` fits: it names hook points' version `hooks`, else pins commit `pin`. `pins` are
 /// the mods turned on that pin a commit (id, commit); the mod's own older version among them is
 /// replaced by this one. `broken_on` are the commits the registry found it doesn't apply on: one
-/// it would build on, the Eclipse played, makes it [`Fit::Broken`]. None when the hook points of
-/// the Eclipse played aren't known.
+/// it would build on makes it [`Fit::Broken`]. None when the hook points aren't known.
 pub fn fit(
     id: &str,
     hooks: Option<u32>,
@@ -48,25 +48,35 @@ pub fn fit(
     plays: &Plays,
     pins: &[(String, String)],
     broken_on: &[BrokenOn],
+    hooks_at: impl Fn(&str) -> Result<Option<u32>, String>,
 ) -> Option<Fit> {
-    let builds_on_yours = hooks.is_some() || pin == plays.revision;
-    if let Some(broken) = broken_on
-        .iter()
-        .find(|b| builds_on_yours && b.eclipse == plays.revision)
-    {
+    let alone = [Bundle::listed(id, hooks, pin)];
+    let base = Base {
+        version: &plays.revision,
+        built: None,
+        on_base: false,
+        anyway: true,
+    };
+    let builds_on = match native_mods::decide(&alone, &base, &Played { plays, hooks_at }) {
+        Ok(decided) => decided.revision,
+        Err(Undecided::Unfit(_)) => {
+            return Some(Fit::NeedsNewer {
+                needs: hooks?,
+                has: plays.hooks?,
+            })
+        }
+        Err(_) => return None,
+    };
+    if let Some(broken) = broken_on.iter().find(|b| b.eclipse == builds_on) {
         return Some(Fit::Broken {
             code: broken.code.clone(),
         });
     }
-    if let Some(needs) = hooks {
-        let has = plays.hooks?;
-        return Some(match needs <= has {
-            true => Fit::Fits,
-            false => Fit::NeedsNewer { needs, has },
-        });
-    }
-    if pin == plays.revision {
+    if builds_on == plays.revision {
         return Some(Fit::Fits);
+    }
+    if hooks.is_some() {
+        return Some(Fit::MovesTo { pin: builds_on });
     }
     let with: Vec<String> = pins
         .iter()
@@ -82,11 +92,34 @@ pub fn fit(
     })
 }
 
-fn short(revision: &str) -> &str {
-    &revision[..revision.len().min(7)]
+struct Played<'a, H> {
+    plays: &'a Plays,
+    hooks_at: H,
 }
 
-/// What the player reads about `fit`.
+const UNKNOWN: &str = "Not known before a build.";
+
+impl<H: Fn(&str) -> Result<Option<u32>, String>> Lookup for Played<'_, H> {
+    fn commit_of(&self, version: &str) -> Result<String, String> {
+        Ok(version.to_owned())
+    }
+
+    fn date(&self, _: Pinned, _: &str) -> Result<String, String> {
+        Err(UNKNOWN.into())
+    }
+
+    fn hooks(&self, revision: &str) -> Result<Option<u32>, String> {
+        match revision == self.plays.revision {
+            true => self.plays.hooks.map(Some).ok_or_else(|| UNKNOWN.into()),
+            false => (self.hooks_at)(revision),
+        }
+    }
+
+    fn catalog(&self, _: &str) -> Result<Option<HookCatalog>, String> {
+        Err(UNKNOWN.into())
+    }
+}
+
 pub fn describe(fit: &Fit, plays: &Plays) -> String {
     match fit {
         Fit::Fits => tr("Builds on the Eclipse you play").to_owned(),
@@ -96,11 +129,14 @@ pub fn describe(fit: &Fit, plays: &Plays) -> String {
         ),
         Fit::Clashes { pin, with } => trf(
             "Made for Eclipse {pin}, but {mods} pin another commit: the build will ask you to Build anyway and may not compile",
-            &[("pin", short(pin)), ("mods", &with.join(", "))],
+            &[("pin", native_mods::short(pin)), ("mods", &with.join(", "))],
         ),
         Fit::MovesTo { pin } => trf(
             "Made for Eclipse {pin}, you play {yours}: the launcher builds your game on {pin}",
-            &[("pin", short(pin)), ("yours", short(&plays.revision))],
+            &[
+                ("pin", native_mods::short(pin)),
+                ("yours", native_mods::short(&plays.revision)),
+            ],
         ),
         Fit::Broken { code } => trf(
             "Doesn't build on the Eclipse you play ({code}): a build leaves it out until its author updates it",
@@ -109,31 +145,36 @@ pub fn describe(fit: &Fit, plays: &Plays) -> String {
     }
 }
 
-/// [`Plays`] by the version an instance plays (kept for good once its hook points are known, a
-/// failure for [`RETRY`]), and hook points' versions by commit: reading them asks GitHub, and a
-/// search asks for every native mod it finds.
+/// [`Plays`] by the version an instance plays (kept for good once GitHub answered, a failure or
+/// nothing installed for [`RETRY`]), and hook points' versions by commit: reading them asks
+/// GitHub, and a search asks for every native mod it finds.
 type CacheKey = (String, Option<String>);
-type Known = HashMap<CacheKey, (Instant, Option<Plays>)>;
+type Known = HashMap<CacheKey, Read>;
 static PLAYS: Mutex<Option<Known>> = Mutex::new(None);
-static HOOKS: Mutex<Option<HashMap<String, u32>>> = Mutex::new(None);
+static HOOKS: Mutex<Option<HashMap<String, Option<u32>>>> = Mutex::new(None);
 const RETRY: Duration = Duration::from_secs(60);
+
+#[derive(Clone)]
+struct Read {
+    at: Instant,
+    plays: Option<Plays>,
+    settled: bool,
+}
 
 fn cached(cache: &Known, key: &CacheKey) -> Option<Option<Plays>> {
     cache
         .get(key)
-        .filter(|(at, plays)| {
-            plays.as_ref().is_some_and(|p| p.hooks.is_some()) || at.elapsed() < RETRY
-        })
-        .map(|(_, plays)| plays.clone())
+        .filter(|read| read.settled || read.at.elapsed() < RETRY)
+        .map(|read| read.plays.clone())
 }
 
 /// The Eclipse `instance` plays; None for a Java instance, when nothing is installed, or when
 /// GitHub can't say its commit.
-pub fn plays(instance: &Instance) -> Option<Plays> {
+pub fn plays(instance: &Instance, settings: &backend::Settings) -> Option<Plays> {
     if instance.java.is_some() {
         return None;
     }
-    let version = instance.resolve_version(None).ok()?;
+    let version = instance.resolve_version(None, settings).ok()?;
     // Native builds can be rebuilt under the same version name on a different commit.
     // Read the build record before consulting the cache so the cached answer follows it.
     let native_revision = native_mods::about(&version).map(|about| about.eclipse);
@@ -149,21 +190,36 @@ pub fn plays(instance: &Instance) -> Option<Plays> {
         None => native_mods::base_for(Some(&version), &backend::installed(), false)
             .and_then(|base| native_mods::revision_of(&base).ok()),
     };
-    let plays = revision.map(|revision| Plays {
-        hooks: hooks_at(&revision),
-        revision,
-    });
+    let read = match revision {
+        Some(revision) => {
+            let hooks = hooks_at(&revision);
+            Read {
+                at: Instant::now(),
+                settled: hooks.is_ok(),
+                plays: Some(Plays {
+                    hooks: hooks.ok().flatten(),
+                    revision,
+                }),
+            }
+        }
+        None => Read {
+            at: Instant::now(),
+            plays: None,
+            settled: false,
+        },
+    };
+    let plays = read.plays.clone();
     PLAYS
         .lock()
         .unwrap()
         .get_or_insert_default()
-        .insert(key, (Instant::now(), plays.clone()));
+        .insert(key, read);
     plays
 }
 
-fn hooks_at(revision: &str) -> Option<u32> {
+fn hooks_at(revision: &str) -> Result<Option<u32>, String> {
     if let Some(&hooks) = HOOKS.lock().unwrap().get_or_insert_default().get(revision) {
-        return Some(hooks);
+        return Ok(hooks);
     }
     let hooks = native_mods::hooks_at(revision)?;
     HOOKS
@@ -171,15 +227,17 @@ fn hooks_at(revision: &str) -> Option<u32> {
         .unwrap()
         .get_or_insert_default()
         .insert(revision.into(), hooks);
-    Some(hooks)
+    Ok(hooks)
 }
 
 /// The native mods turned on in game folder `home` that pin a commit, as (id, commit).
 pub fn pins(home: &Path) -> Vec<(String, String)> {
     crate::native_status::bundles_on(home)
         .into_iter()
-        .filter(|b| b.manifest.hooks.is_none())
-        .map(|b| (b.manifest.id, b.manifest.eclipse))
+        .filter_map(|b| {
+            let pin = native_mods::pin(b.manifest.hooks, Some(&b.manifest.eclipse))?.to_owned();
+            Some((b.manifest.id, pin))
+        })
         .collect()
 }
 
@@ -187,13 +245,23 @@ pub fn pins(home: &Path) -> Vec<(String, String)> {
 /// `pin`, in `instance`; None when it can't be told.
 pub fn line(
     instance: &Instance,
+    settings: &backend::Settings,
     id: &str,
     hooks: Option<u32>,
     pin: &str,
     broken_on: &[BrokenOn],
 ) -> Option<String> {
-    let plays = plays(instance)?;
-    fit(id, hooks, pin, &plays, &pins(&instance.home), broken_on).map(|fit| describe(&fit, &plays))
+    let plays = plays(instance, settings)?;
+    fit(
+        id,
+        hooks,
+        pin,
+        &plays,
+        &pins(&instance.home),
+        broken_on,
+        hooks_at,
+    )
+    .map(|fit| describe(&fit, &plays))
 }
 
 #[cfg(test)]
@@ -215,6 +283,10 @@ mod tests {
         (id.into(), revision.into())
     }
 
+    fn unasked(revision: &str) -> Result<Option<u32>, String> {
+        panic!("asked the hook points of {revision}")
+    }
+
     #[test]
     fn rebuilding_a_native_version_does_not_reuse_its_previous_compatibility() {
         let version = "native-example".to_string();
@@ -223,7 +295,14 @@ mod tests {
         let unbuilt_key = (version, None);
         let old = plays(Some(28));
         let mut cache = Known::new();
-        cache.insert(old_key.clone(), (Instant::now(), Some(old.clone())));
+        cache.insert(
+            old_key.clone(),
+            Read {
+                at: Instant::now(),
+                plays: Some(old.clone()),
+                settled: true,
+            },
+        );
         assert_eq!(cached(&cache, &old_key), Some(Some(old)));
         assert_eq!(cached(&cache, &rebuilt_key), None);
         assert_eq!(cached(&cache, &unbuilt_key), None);
@@ -236,7 +315,15 @@ mod tests {
             code: "E_TARGET_NOT_FOUND".into(),
         }];
         let at_28 = plays(Some(28));
-        let found = fit("eatinganimation", Some(1), OTHER, &at_28, &[], &broken);
+        let found = fit(
+            "eatinganimation",
+            Some(1),
+            OTHER,
+            &at_28,
+            &[],
+            &broken,
+            unasked,
+        );
         assert_eq!(
             found,
             Some(Fit::Broken {
@@ -253,12 +340,20 @@ mod tests {
             code: "E_TARGET_NOT_FOUND".into(),
         }];
         assert_eq!(
-            fit("eatinganimation", Some(1), OTHER, &at_28, &[], &elsewhere),
+            fit(
+                "eatinganimation",
+                Some(1),
+                OTHER,
+                &at_28,
+                &[],
+                &elsewhere,
+                unasked
+            ),
             Some(Fit::Fits)
         );
         // A mod pinning another commit builds there, not on the Eclipse played.
         assert_eq!(
-            fit("jei", None, OTHER, &at_28, &[], &broken),
+            fit("jei", None, OTHER, &at_28, &[], &broken, unasked),
             Some(Fit::MovesTo { pin: OTHER.into() })
         );
     }
@@ -267,26 +362,29 @@ mod tests {
     fn a_hook_points_mod_fits_that_version_or_a_later_one() {
         let at_28 = plays(Some(28));
         assert_eq!(
-            fit("zoom", Some(28), OTHER, &at_28, &[], &[]),
+            fit("zoom", Some(28), OTHER, &at_28, &[], &[], unasked),
             Some(Fit::Fits)
         );
         assert_eq!(
-            fit("zoom", Some(3), OTHER, &at_28, &[], &[]),
+            fit("zoom", Some(3), OTHER, &at_28, &[], &[], unasked),
             Some(Fit::Fits)
         );
         assert_eq!(
-            fit("zoom", Some(30), YOURS, &at_28, &[], &[]),
+            fit("zoom", Some(30), YOURS, &at_28, &[], &[], unasked),
             Some(Fit::NeedsNewer { needs: 30, has: 28 })
         );
         // Unknown hook points: nothing is said rather than a guess.
-        assert_eq!(fit("zoom", Some(1), OTHER, &plays(None), &[], &[]), None);
+        assert_eq!(
+            fit("zoom", Some(1), OTHER, &plays(None), &[], &[], unasked),
+            None
+        );
     }
 
     #[test]
     fn a_hook_points_mod_ignores_the_others_pins() {
         let pins = [pin("veinminer", THIRD)];
         assert_eq!(
-            fit("zoom", Some(5), OTHER, &plays(Some(9)), &pins, &[]),
+            fit("zoom", Some(5), OTHER, &plays(Some(9)), &pins, &[], unasked),
             Some(Fit::Fits)
         );
     }
@@ -294,9 +392,12 @@ mod tests {
     #[test]
     fn a_pinned_mod_fits_only_its_commit() {
         let p = plays(None);
-        assert_eq!(fit("jei", None, YOURS, &p, &[], &[]), Some(Fit::Fits));
         assert_eq!(
-            fit("jei", None, OTHER, &p, &[], &[]),
+            fit("jei", None, YOURS, &p, &[], &[], unasked),
+            Some(Fit::Fits)
+        );
+        assert_eq!(
+            fit("jei", None, OTHER, &p, &[], &[], unasked),
             Some(Fit::MovesTo { pin: OTHER.into() })
         );
     }
@@ -310,7 +411,7 @@ mod tests {
         ];
         // `chop` agrees with the pin and `jei` is the mod being replaced: only veinminer clashes.
         assert_eq!(
-            fit("jei", None, OTHER, &plays(None), &pins, &[]),
+            fit("jei", None, OTHER, &plays(None), &pins, &[], unasked),
             Some(Fit::Clashes {
                 pin: OTHER.into(),
                 with: vec!["veinminer".into()],
@@ -318,8 +419,29 @@ mod tests {
         );
         let agreeing = [pin("chop", OTHER)];
         assert_eq!(
-            fit("jei", None, OTHER, &plays(None), &agreeing, &[]),
+            fit("jei", None, OTHER, &plays(None), &agreeing, &[], unasked),
             Some(Fit::MovesTo { pin: OTHER.into() })
+        );
+    }
+
+    #[test]
+    fn a_hook_points_mod_moves_to_its_tested_commit_when_yours_lacks_them() {
+        let at_28 = plays(Some(28));
+        let tested = |revision: &str| Ok((revision == OTHER).then_some(30));
+        assert_eq!(
+            fit("recipes", Some(30), OTHER, &at_28, &[], &[], tested),
+            Some(Fit::MovesTo { pin: OTHER.into() }),
+            "the build compiles it on the commit it was tested on"
+        );
+        let older = |_: &str| Ok(Some(29));
+        assert_eq!(
+            fit("recipes", Some(30), OTHER, &at_28, &[], &[], older),
+            Some(Fit::NeedsNewer { needs: 30, has: 28 })
+        );
+        let offline = |_: &str| Err("No connection".to_string());
+        assert_eq!(
+            fit("recipes", Some(30), OTHER, &at_28, &[], &[], offline),
+            None
         );
     }
 }

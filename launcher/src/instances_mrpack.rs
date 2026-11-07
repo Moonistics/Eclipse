@@ -12,7 +12,7 @@ use serde_json::Value;
 use std::path::Path;
 
 /// The Minecraft version and the loader (none for a vanilla pack) a pack's index names.
-pub fn game_of(index: &Value) -> Result<(String, Option<Loader>), String> {
+fn game_of(index: &Value) -> Result<(String, Option<Loader>), String> {
     let dependencies = &index["dependencies"];
     let minecraft = dependencies["minecraft"]
         .as_str()
@@ -45,21 +45,15 @@ pub fn game_of(index: &Value) -> Result<(String, Option<Loader>), String> {
     Ok((minecraft.to_string(), loader))
 }
 
-/// Makes a Java instance from the `.mrpack` `file`, named after the pack.
 pub fn import(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Instance, String> {
     let (minecraft, loader) = game_of(&import::mrpack_index(file)?)?;
     let versions = crate::minecraft_versions::load()?;
     let minecraft = versions.find(&minecraft)?.id.clone();
     let made_id = std::cell::RefCell::new(None);
     let made = import::import_mrpack_into(file, progress, &|name| {
-        let made = instances::create_java(name, &minecraft)?;
+        let made = instances::create_java(name, &minecraft, loader.clone())?;
         *made_id.borrow_mut() = Some(made.id.clone());
-        match &loader {
-            Some(loader) => instances::edit(&made.id, |m| {
-                m.java.get_or_insert_with(Default::default).loader = Some(loader.clone())
-            }),
-            None => Ok(made),
-        }
+        Ok(made)
     });
     // A pack that failed half way leaves no instance behind.
     if let (Err(_), Some(id)) = (&made, made_id.into_inner()) {
@@ -69,5 +63,4 @@ pub fn import(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Instance, Str
 }
 
 #[cfg(test)]
-#[path = "instances_mrpack/tests.rs"]
 mod tests;

@@ -117,7 +117,7 @@ fn holes(s: &str) -> BTreeSet<&str> {
 #[test]
 fn every_language_has_every_string_the_code_asks_for() {
     let (mut asked, all) = strings();
-    assert!(asked.contains("Language"), "the scan finds tr(\"…\")");
+    assert!(asked.contains("Cancel"), "the scan finds tr(\"…\")");
     let tables: Vec<_> = Language::ALL
         .into_iter()
         .filter(|language| *language != Language::English)
@@ -223,15 +223,4 @@ fn a_missing_string_shows_in_english() {
         tr_in(Language::PortugueseBrazil, "Settings"),
         "Configurações"
     );
-}
-
-#[test]
-fn polish_entries_are_valid_and_keep_placeholders() {
-    let (_, all) = strings();
-    let table: HashMap<String, String> = serde_json::from_str(Language::Polish.source()).unwrap();
-    for (en, said) in &table {
-        assert!(all.contains(en), "unused Polish string: {en:?}");
-        assert!(!said.trim().is_empty(), "empty Polish string: {en:?}");
-        assert_eq!(holes(en), holes(said), "Polish: {en:?}");
-    }
 }

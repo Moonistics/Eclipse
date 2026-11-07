@@ -129,7 +129,7 @@ pub fn preview() -> (String, String) {
 
 /// What only the game knows (the GPU it draws with, the screen its window is on), as an
 /// example: the launcher draws with neither.
-pub fn with_example_gpu(mut system: System) -> System {
+fn with_example_gpu(mut system: System) -> System {
     system.gpu = "example: the GPU the game draws with".into();
     system.gpu_vendor = "nvidia".into();
     system.gpu_kind = "discrete".into();
@@ -170,12 +170,12 @@ pub fn delete_my_data() -> Result<String, String> {
 
 /// Hides the player's account names and UUIDs and their worlds' folder names, besides what
 /// `Scrubber` finds on its own.
-pub fn scrubber() -> Scrubber {
+fn scrubber() -> Scrubber {
     let mut s = Scrubber::new();
     for account in Accounts::load().accounts {
         s = s.term(account.name).term(account.uuid);
     }
-    let saves = std::fs::read_dir(home().join("saves"))
+    let saves = std::fs::read_dir(crate::worlds::saves_dir(&home()))
         .into_iter()
         .flatten()
         .flatten();
@@ -186,7 +186,7 @@ pub fn scrubber() -> Scrubber {
 }
 
 /// The end of the game's log as a bug report would carry it: scrubbed, without chat.
-pub fn log_for_report() -> Option<String> {
+fn log_for_report() -> Option<String> {
     let (_, text) = backend::read_logs(300, false).ok()?;
     let kept: Vec<&str> = text.lines().filter(|l| !l.contains("[CHAT]")).collect();
     let mut log = scrubber().scrub(&kept.join("\n"));
@@ -342,17 +342,18 @@ mod tests {
         assert!(names(&["everything"]).is_err());
     }
 
-    /// "View what would be sent" and `data show` list every hardware field.
+    /// "View what would be sent" and `data show` list every hardware field, the screen's too.
     #[test]
     fn the_example_shows_every_hardware_field() {
-        let json = serde_json::to_string(&with_example_gpu(System::detect())).unwrap();
-        let fields = "os os_version arch cpu threads cores cpu_base_mhz cpu_boost_mhz ram_gb gpu \
-            gpu_vendor gpu_kind vram_mb driver backend storage width height refresh_hz scale power form";
-        for field in fields.split_whitespace() {
-            assert!(
-                json.contains(&format!("\"{field}\":")),
-                "{field} missing from {json}"
-            );
+        let example = serde_json::to_value(with_example_gpu(System::detect())).unwrap();
+        let mut every = System::detect();
+        every.display = Some(Default::default());
+        for (field, value) in serde_json::to_value(every).unwrap().as_object().unwrap() {
+            let shown = &example[field];
+            assert!(!shown.is_null(), "{field} missing from {example}");
+            for inner in value.as_object().into_iter().flat_map(|o| o.keys()) {
+                assert!(!shown[inner].is_null(), "{inner} missing from {example}");
+            }
         }
     }
 

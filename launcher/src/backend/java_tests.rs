@@ -1,11 +1,13 @@
-use super::*;
+use super::prepare::*;
+use std::fs;
+use std::path::{Path, PathBuf};
 
 #[test]
 fn selected_jdk_reaches_external_preparers() {
     const CHILD: &str = "ECLIPSE_LAUNCHER_JAVA_TEST";
     if let Some(root) = std::env::var_os(CHILD) {
         let root = PathBuf::from(root);
-        let home = java(25, true, &[], &root.join("missing.json"), &|_| {}).unwrap();
+        let home = crate::java::for_preparing(25, true, &[], || None, &|_| {}, &|_| {}).unwrap();
         assert_eq!(
             fs::canonicalize(&home).unwrap(),
             fs::canonicalize(root.join("jdk25")).unwrap()

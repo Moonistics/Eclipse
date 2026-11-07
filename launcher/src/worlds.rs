@@ -2,14 +2,12 @@
 //! up, copying and deleting them. Backups are made as vanilla's Make Backup makes them
 //! (`LevelStorageAccess.makeWorldBackup`): `backups/<yyyy-MM-dd_HH-mm-ss>_<folder>.zip` in the
 //! game folder, every file under `<folder>/` but the world's `session.lock`.
+use crate::game_folder::{world::LEVEL, world::LOCK, SAVES};
 use eclipse_world::nbt::{self, Limits, Tag};
 use std::fs;
 use std::io::{Read, Write};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
-
-/// The lock a running game holds on a world; vanilla's backups leave it out.
-const LOCK: &str = "session.lock";
 
 struct WorldLock(fs::File);
 
@@ -52,9 +50,13 @@ pub struct World {
     pub icon: Option<PathBuf>,
 }
 
-/// The worlds in a game folder's `saves/`, the last played first.
+/// The folder of the worlds of the game folder `home`.
+pub fn saves_dir(home: &Path) -> PathBuf {
+    home.join(SAVES)
+}
+
 pub fn list(home: &Path) -> Vec<World> {
-    let mut worlds: Vec<World> = fs::read_dir(home.join("saves"))
+    let mut worlds: Vec<World> = fs::read_dir(saves_dir(home))
         .into_iter()
         .flatten()
         .flatten()
@@ -79,7 +81,7 @@ fn level_dat(path: &Path) -> Option<Tag> {
 }
 
 fn read(path: &Path) -> Option<World> {
-    let dat = path.join("level.dat");
+    let dat = path.join(LEVEL);
     let changed = fs::metadata(&dat).and_then(|m| m.modified()).ok()?;
     let folder = path.file_name()?.to_string_lossy().into_owned();
     let root = level_dat(&dat);
@@ -144,7 +146,7 @@ pub fn find(home: &Path, query: &str) -> Result<World, String> {
         .find(|w| w.folder == query)
         .or_else(|| all.iter().find(|w| w.name.eq_ignore_ascii_case(query)))
         .cloned()
-        .ok_or_else(|| format!("No world {query} in {}", home.join("saves").display()))
+        .ok_or_else(|| format!("No world {query} in {}", saves_dir(home).display()))
 }
 
 /// `base`, else `base (1)`, `base (2)`... from the `first` count: the first name free in `dir`
@@ -228,7 +230,8 @@ pub fn copy(world: &World) -> Result<World, String> {
     let saves = world.path.parent().ok_or("A world folder has a parent")?;
     let folder = free_name(saves, &world.name, "", 1);
     let to = saves.join(&folder);
-    let made = copy_dir(&world.path, &to).and_then(|()| rename_level(&to, &folder));
+    let made =
+        crate::files::copy_dir(&world.path, &to, &[LOCK]).and_then(|()| rename_level(&to, &folder));
     if let Err(e) = made {
         let _ = fs::remove_dir_all(&to);
         return Err(format!("Could not copy {}: {e}", world.name));
@@ -236,23 +239,9 @@ pub fn copy(world: &World) -> Result<World, String> {
     read(&to).ok_or_else(|| format!("{} has no level.dat", to.display()))
 }
 
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for e in fs::read_dir(from)? {
-        let e = e?;
-        let target = to.join(e.file_name());
-        if e.file_type()?.is_dir() {
-            copy_dir(&e.path(), &target)?;
-        } else if e.file_name() != LOCK {
-            fs::copy(e.path(), target)?;
-        }
-    }
-    Ok(())
-}
-
 /// Sets `Data.LevelName`; a level.dat that can't be read is left as it is.
 fn rename_level(world: &Path, name: &str) -> std::io::Result<()> {
-    let dat = world.join("level.dat");
+    let dat = world.join(LEVEL);
     let Some(mut root) = level_dat(&dat) else {
         return Ok(());
     };
@@ -287,5 +276,4 @@ pub fn delete(world: &World) -> Result<(), String> {
 }
 
 #[cfg(test)]
-#[path = "worlds/tests.rs"]
 mod tests;

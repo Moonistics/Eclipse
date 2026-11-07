@@ -1,10 +1,9 @@
 //! Reusable, immutable mixin output. API packages are staged after this snapshot.
-use super::{Bundle, Profile, FEATURES, MANIFEST};
+use super::manifest::Bundle;
+use super::target::FEATURES;
+use super::Profile;
 use sha2::{Digest, Sha256};
-use std::{
-    fs,
-    path::{Path, PathBuf},
-};
+use std::{fs, path::Path};
 
 fn field(hash: &mut Sha256, bytes: &[u8]) {
     hash.update((bytes.len() as u64).to_le_bytes());
@@ -40,7 +39,7 @@ pub(super) fn key(
         // The Cargo profile: `Performance` and `Dev` stage the same source.
         profile.cargo().0,
         FEATURES,
-        super::rust_toolchain::VERSION,
+        crate::rust_toolchain::VERSION,
     ] {
         field(&mut hash, part.as_bytes());
     }
@@ -53,11 +52,7 @@ pub(super) fn key(
             .map(|p| bundle.dir.join(p).canonicalize())
             .transpose()
             .map_err(|e| e.to_string())?;
-        let manifest_path = bundle.dir.join(MANIFEST);
-        let mut manifest: toml::Table = fs::read_to_string(&manifest_path)
-            .map_err(|e| e.to_string())?
-            .parse()
-            .map_err(|e| format!("{}: {e}", manifest_path.display()))?;
+        let mut manifest = bundle.manifest.clone();
         // Mixins also reads data/ implicitly, without a manifest entry.
         manifest.remove("api");
         let data = toml::Value::String("data".into());
@@ -65,7 +60,7 @@ pub(super) fn key(
         let exclude = api.as_ref().filter(|a| {
             !overlaps_api(&manifest, &bundle.dir, a) && !overlaps_api(&data, &bundle.dir, a)
         });
-        for (name, path) in super::bundle_files(bundle)? {
+        for (name, path) in super::manifest::bundle_files(bundle)? {
             if exclude.is_some_and(|a| path.starts_with(a)) {
                 continue;
             }
@@ -77,18 +72,13 @@ pub(super) fn key(
             );
         }
     }
-    Ok(hash.finalize().iter().map(|b| format!("{b:02x}")).collect())
+    Ok(super::key::hex(&hash.finalize()))
 }
 
-pub(super) fn snapshot(root: &Path, key: &str) -> PathBuf {
-    root.join("patched").join(key)
-}
-
-/// Record a hit and retain the three most recently used snapshots.
-pub(super) fn touch_and_prune(root: &Path, key: &str) -> Result<(), String> {
-    let dir = root.join("patched");
+/// Record a hit and retain the three most recently used snapshots in `dir`.
+pub(super) fn touch_and_prune(dir: &Path, key: &str) -> Result<(), String> {
     fs::write(dir.join(key).join(".last-used"), b"").map_err(|e| e.to_string())?;
-    let mut entries = fs::read_dir(&dir)
+    let mut entries = fs::read_dir(dir)
         .map_err(|e| e.to_string())?
         .flatten()
         .filter(|e| e.path().is_dir() && !e.file_name().to_string_lossy().starts_with('.'))

@@ -14,12 +14,10 @@
 //! the same hosts have to be left alone on both sides. This module adds what is the launcher's
 //! own — the setting in `settings.json`, kept in memory so a request doesn't read the file — and
 //! hands the address to the parts that build their agents.
-use crate::backend::Settings;
 use std::sync::Mutex;
 
-/// The launcher's setting, as `announce` last read it, or None before it has: a request shouldn't
-/// read `settings.json` every time, and an import fetches hundreds of jars.
-static SET: Mutex<Option<Option<String>>> = Mutex::new(None);
+/// The launcher's setting, as `announce` last read it.
+static SET: Mutex<Option<String>> = Mutex::new(None);
 
 /// The proxy address to reach `url` through: the launcher's setting, else the environment's, unless
 /// `url` is a local address or `NO_PROXY` names its host.
@@ -28,11 +26,13 @@ pub fn spec_for(url: &str) -> Option<String> {
     if eclipse_port_pack::net::direct(url) {
         return None;
     }
-    setting().or_else(|| eclipse_port_pack::net::env_for(scheme))
+    held()
+        .clone()
+        .or_else(|| eclipse_port_pack::net::env_for(scheme))
 }
 
 /// The proxy to reach `url` through: `spec_for`'s address, read as one.
-pub fn for_url(url: &str) -> Option<ureq::Proxy> {
+fn for_url(url: &str) -> Option<ureq::Proxy> {
     spec_for(url).and_then(|spec| eclipse_port_pack::net::parse(&spec))
 }
 
@@ -74,35 +74,13 @@ pub fn announce(setting: Option<String>) {
     let spec = setting
         .map(|p| p.trim().to_owned())
         .filter(|p| !p.is_empty());
-    *held() = Some(spec.clone());
+    *held() = spec.clone();
     eclipse_port_pack::net::set_proxy(spec);
-}
-
-/// The launcher's setting: read from `settings.json` the first time it is needed and kept after
-/// that, so a download doesn't read the file once per file.
-fn setting() -> Option<String> {
-    let mut set = held();
-    match set.clone() {
-        Some(kept) => kept,
-        None => {
-            let read = written();
-            *set = Some(read.clone());
-            read
-        }
-    }
-}
-
-/// The launcher's setting as it is written down, or None when there is none.
-fn written() -> Option<String> {
-    Settings::load()
-        .proxy
-        .map(|p| p.trim().to_owned())
-        .filter(|p| !p.is_empty())
 }
 
 /// The setting's lock, even after a thread panicked while holding it: an address lost to a panic
 /// is worse than an old one kept.
-fn held() -> std::sync::MutexGuard<'static, Option<Option<String>>> {
+fn held() -> std::sync::MutexGuard<'static, Option<String>> {
     SET.lock().unwrap_or_else(|e| e.into_inner())
 }
 

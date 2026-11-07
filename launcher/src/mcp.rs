@@ -1,11 +1,12 @@
 //! `eclipse-launcher mcp`: the Model Context Protocol over stdin and stdout (JSON-RPC 2.0, one
-//! message per line), so AI agents can install, prepare and run Eclipse. Every tool goes through
-//! `backend`. A server started here lives as long as the session. The running game's own tools
-//! come from its `eclipse-ctl` as `game_*` (game_tools.rs).
+//! message per line), so AI agents can install, prepare and run Eclipse. The CLI's commands are
+//! its tools (cli_tools.rs). A server started here lives as long as the session. The running
+//! game's own tools come from its `eclipse-ctl` as `game_*` (game_tools.rs).
+use crate::cli;
 use crate::cli_tools;
 use crate::game_tools::{self, GameTools};
 use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
-use eclipse_launcher::backend::{self, Job, Logged};
+use eclipse_launcher::backend::{self, Logged};
 use eclipse_launcher::instances;
 use serde_json::{json, Value};
 use std::path::PathBuf;
@@ -26,6 +27,10 @@ struct Session {
     sign_in: Option<SignIn>,
     /// The selected version's `eclipse-ctl mcp`, once a version is installed.
     game: Option<GameTools>,
+    /// The CLI's commands as tools (cli_tools.rs).
+    cli: Vec<cli_tools::Tool>,
+    /// The launcher's own tools, as `tools/list` describes them: the session's and the CLI's.
+    tools: Vec<Value>,
 }
 
 /// The tools the session runs itself, under their CLI names: they keep a process (the game, a
@@ -55,13 +60,6 @@ fn session_tools() -> Value {
     ])
 }
 
-/// Every launcher tool: the session's and the generated ones.
-fn tools() -> Vec<Value> {
-    let mut list = session_tools().as_array().cloned().unwrap_or_default();
-    list.extend(cli_tools::all().iter().map(cli_tools::Tool::describe));
-    list
-}
-
 fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
     args.get(key)
         .and_then(Value::as_str)
@@ -70,6 +68,7 @@ fn arg_str<'a>(args: &'a Value, key: &str) -> Option<&'a str> {
 
 impl Session {
     fn call(&mut self, name: &str, args: &Value) -> Result<String, String> {
+        let settings = &backend::Settings::load();
         match name {
             "play" => {
                 if self.client.as_ref().is_some_and(|c| c.finished().is_none()) {
@@ -77,33 +76,42 @@ impl Session {
                 }
                 let instance = match arg_str(args, "instance") {
                     Some(name) => instances::find(name)?,
-                    None => instances::selected(),
+                    None => instances::selected(settings),
                 };
-                let tag = instance.resolve_version(arg_str(args, "version"))?;
-                let mut cmd = backend::client(&tag)?;
-                instances::apply(&mut cmd, &instance)?;
-                cmd.args(game_tools::control_args());
-                if let Some(world) = arg_str(args, "world") {
-                    cmd.arg("--world").arg(world);
+                let tag = instance.resolve_version(arg_str(args, "version"), settings)?;
+                let on = |flag| args.get(flag).and_then(Value::as_bool).unwrap_or(false);
+                let mut extra = game_tools::control_args();
+                if on("offscreen") {
+                    extra.push("--offscreen".into());
                 }
-                for flag in ["creative", "offscreen"] {
-                    if args.get(flag).and_then(Value::as_bool).unwrap_or(false) {
-                        cmd.arg(format!("--{flag}"));
+                if let Some(more) = args.get("arg").and_then(Value::as_array) {
+                    extra.extend(more.iter().filter_map(Value::as_str).map(String::from));
+                }
+                let text = |key| arg_str(args, key).map(String::from);
+                let played = instance.clone();
+                let launched = backend::launch(
+                    backend::Play {
+                        version: Some(tag.clone()),
+                        join: text("join"),
+                        world: text("world"),
+                        server: text("server"),
+                        creative: on("creative"),
+                        args: extra,
+                        ..backend::Play::of(instance)
+                    },
+                    settings,
+                    &|line| eprintln!("{line}"),
+                )
+                .map_err(|e| e.hinted())?;
+                for notice in launched.notices() {
+                    eprintln!("{}", notice.said());
+                }
+                let (started, vars) = (std::time::Instant::now(), launched.vars);
+                let client = Logged::start_then(launched.cmd, move |_| {
+                    if let Some(cmd) = instances::game_ended(&played, started.elapsed(), &vars) {
+                        eclipse_launcher::launch::run_after_exit(cmd);
                     }
-                }
-                if let Some(code) = arg_str(args, "join") {
-                    backend::join_friend(&mut cmd, code)?;
-                }
-                if let Some(server) = arg_str(args, "server") {
-                    let list = eclipse_launcher::server_list::List::load(&instance.home);
-                    let ip = eclipse_launcher::server_list::find(&list, server)
-                        .map_or_else(|_| server.to_string(), |(_, s)| s.ip);
-                    cmd.arg("--server").arg(ip);
-                }
-                if let Some(extra) = args.get("arg").and_then(Value::as_array) {
-                    cmd.args(extra.iter().filter_map(Value::as_str));
-                }
-                let client = Logged::start(Job::Client, cmd)?;
+                })?;
                 // Started once its control socket answers, as eclipse-ctl launch waits.
                 let deadline = std::time::Instant::now() + Duration::from_secs(120);
                 while !game_tools::listening() {
@@ -131,13 +139,13 @@ impl Session {
                 if self.server.as_ref().is_some_and(|s| s.finished().is_none()) {
                     return Err("A server is already running. Stop it first.".into());
                 }
-                let tag = backend::resolve_version(arg_str(args, "version"))?;
-                let dir = backend::server_dir(arg_str(args, "dir").map(PathBuf::from));
+                let tag = backend::resolve_version(arg_str(args, "version"), settings)?;
+                let dir = backend::server_dir(arg_str(args, "dir").map(PathBuf::from), settings);
                 let accept = args
                     .get("accept_eula")
                     .and_then(Value::as_bool)
                     .unwrap_or(false);
-                let server = Logged::start(Job::Server, backend::server(&tag, &dir, accept)?)?;
+                let server = Logged::start(backend::server(&tag, &dir, accept, settings)?)?;
                 std::thread::sleep(Duration::from_secs(3));
                 let tail = server.tail(15).join("\n");
                 if let Some(result) = server.finished() {
@@ -202,19 +210,8 @@ impl Session {
                     SignInState::Done(Ok(a)) => json!({ "state": "signed in", "name": a.name }),
                     SignInState::Done(Err(e)) => json!({ "state": "failed", "error": e }),
                 });
-                Ok(serde_json::to_string_pretty(&json!({
-                    "accounts": accounts.accounts.iter().map(|a| json!({ "name": a.name, "uuid": a.uuid, "authentication": account::session::status(account::store(), &a.uuid) })).collect::<Vec<_>>(),
-                    "plays_as": accounts.selected().map(|a| a.name.clone()),
-                    "sign_in_configured": account::client_id().is_some(),
-                    // Sign-ins outlast the launcher: in the keychain, or in the secrets file
-                    // where it refused them (`secrets_file`: the file holds a sign-in).
-                    "keychain": account::store().persistent(),
-                    "secrets_file": account::in_secrets_file(),
-                    // Play needs an account that owns the game (the owner gate).
-                    "owner": accounts.has_owner(account::store()),
-                    "sign_in": sign_in,
-                }))
-                .unwrap())
+                let listing = cli::account::Listing::session(&accounts, sign_in);
+                serde_json::to_string_pretty(&listing).map_err(|e| e.to_string())
             }
             "account_sign_in" => {
                 account::client_id().ok_or(account::NOT_CONFIGURED)?;
@@ -241,7 +238,7 @@ impl Session {
                     _ => Err("Microsoft did not answer. Try again.".into()),
                 }
             }
-            _ => match cli_tools::all().into_iter().find(|t| t.name == name) {
+            _ => match self.cli.iter().find(|t| t.name == name) {
                 Some(tool) => tool.call(args),
                 None => Err(format!("Unknown tool {name}")),
             },
@@ -251,7 +248,7 @@ impl Session {
     /// The game's tools, starting the selected version's eclipse-ctl the first time.
     fn game(&mut self) -> Option<&mut GameTools> {
         if self.game.is_none() {
-            self.game = backend::resolve_version(None)
+            self.game = backend::resolve_version(None, &backend::Settings::load())
                 .and_then(|tag| GameTools::start(&tag))
                 .ok();
         }
@@ -270,7 +267,7 @@ impl Session {
     fn handle(&mut self, method: &str, params: &Value) -> Result<Value, (i64, String)> {
         match method {
             "tools/list" => {
-                let mut list = tools();
+                let mut list = self.tools.clone();
                 if let Some(game) = self.game() {
                     list.extend(game.tools().iter().cloned());
                 }
@@ -285,10 +282,8 @@ impl Session {
                     .get("name")
                     .and_then(Value::as_str)
                     .ok_or((-32602, "name is required".to_string()))?;
-                // The launcher's own tools first: game_args is one, not a game tool.
-                if name.starts_with(game_tools::PREFIX)
-                    && !tools().iter().any(|t| t["name"] == name)
-                {
+                let ours = self.tools.iter().any(|t| t["name"] == name);
+                if !ours && name.starts_with(game_tools::PREFIX) {
                     let args = params.get("arguments").cloned().unwrap_or(json!({}));
                     let game = self.game().ok_or((
                         -32602,
@@ -299,7 +294,7 @@ impl Session {
                     }
                     return game.call(name, &args).map_err(|e| (-32603, e));
                 }
-                if !tools().iter().any(|t| t["name"] == name) {
+                if !ours {
                     return Err((-32602, format!("Unknown tool {name}")));
                 }
                 let args = params.get("arguments").cloned().unwrap_or(json!({}));
@@ -315,11 +310,16 @@ impl Session {
 }
 
 pub fn serve() -> Result<(), String> {
+    let cli = cli_tools::all();
+    let mut tools = session_tools().as_array().cloned().unwrap_or_default();
+    tools.extend(cli.iter().map(cli_tools::Tool::describe));
     let mut session = Session {
         server: None,
         client: None,
         sign_in: None,
         game: None,
+        cli,
+        tools,
     };
     let served = server().serve(|method, params| session.handle(method, params));
     // The session is over: the server it started goes with it.
@@ -332,6 +332,32 @@ pub fn serve() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SESSION_ONLY: [(&str, &str); 1] = [("play", "offscreen")];
+
+    #[test]
+    fn session_tools_take_their_cli_commands_arguments() {
+        let tools = session_tools();
+        let mut checked = 0;
+        for tool in tools.as_array().unwrap() {
+            let about = tool["description"].as_str().unwrap();
+            let Some((_, words)) = about.split_once("CLI: eclipse-launcher ") else {
+                continue;
+            };
+            let cli = cli_tools::tool_of(words).unwrap().describe();
+            let ours = tool["inputSchema"]["properties"].as_object().unwrap();
+            for (name, schema) in ours {
+                if SESSION_ONLY.contains(&(words, name.as_str())) {
+                    continue;
+                }
+                let theirs = &cli["inputSchema"]["properties"][name];
+                assert_eq!(theirs["type"], schema["type"], "{words}: {name}");
+                assert_eq!(theirs["items"], schema["items"], "{words}: {name}");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 10, "{checked}");
+    }
 
     #[test]
     fn the_server_advertises_what_it_serves() {

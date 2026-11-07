@@ -4,8 +4,8 @@
 //! mods in `home/eclipse-mods/`, each downloaded and checked against the index like any
 //! registry mod, turned on or off as the pack says. The pack's overrides (settings, resource
 //! packs, a mod's saved settings) are copied in once, when it is installed.
-use super::{fetch, index, install_version, local, newest, Index};
-use crate::browser::{java, FileRef};
+use super::{fetch, index, install_version, local, newest, version_of, Index};
+use crate::browser::java;
 use eclipse_mods::{index as idx, modpack::Modpack};
 use serde::{Deserialize, Serialize};
 use std::fs;
@@ -14,9 +14,8 @@ use std::process::Command;
 
 const RECORD: &str = "pack.json";
 
-/// Where registry modpacks live.
 pub fn packs_dir() -> PathBuf {
-    crate::backend::game_home().join("eclipse-packs")
+    crate::backend::game_home().join(crate::game_folder::PACKS)
 }
 
 /// What `pack.json` keeps of an installed pack.
@@ -32,7 +31,6 @@ pub struct Installed {
     pub work: PathBuf,
 }
 
-/// The installed registry packs, by name.
 pub fn list() -> Vec<Installed> {
     list_in(&packs_dir())
 }
@@ -55,15 +53,13 @@ fn read(work: &Path) -> Option<Installed> {
     Some(pack)
 }
 
-/// Whether `work` is a registry pack's folder.
 pub fn is_pack(work: &Path) -> bool {
     // Imported Java packs also have pack.json, with a different record format.
     read(work).is_some()
 }
 
-/// The profile's game folder.
 pub fn home(work: &Path) -> PathBuf {
-    work.join("home")
+    work.join(crate::game_folder::PROFILE)
 }
 
 /// Installs the registry modpack `id`: its newest version for this game, then each of its mods.
@@ -104,16 +100,8 @@ fn install_version_in(
     progress: &dyn Fn(&str, f32),
 ) -> Result<Installed, String> {
     let line = format!("{} {}", p.name, v.version);
-    let file = FileRef {
-        url: v.file.url.clone(),
-        name: v.file.name.clone(),
-        size: v.file.size,
-        sha512: None,
-        sha256: Some(v.file.sha256.clone()),
-        sha1: None,
-        primary: true,
-    };
-    let path = fetch(&file, &work.join("downloads"), local, &|f| {
+    let file = &version_of(index, p, v, None).files[0];
+    let path = fetch(file, &work.join("downloads"), local, &|f| {
         progress(&line, f)
     })?;
     idx::check_file(index, p, v, &path).inspect_err(|_| {
@@ -133,7 +121,7 @@ fn install_version_in(
                 p.name, m.id, m.version
             ));
         };
-        install_version(index, local, mp, mv, &home, progress)?;
+        install_version(index, local, mp, mv, &home, &|_| Ok(()), progress)?;
         java::set_enabled(&home, &m.id, m.on)?;
         mods.push(format!("{} {}", m.id, m.version));
     }
@@ -152,25 +140,23 @@ fn install_version_in(
         mods,
         work: work.to_path_buf(),
     };
-    let text = serde_json::to_string_pretty(&record).map_err(|e| e.to_string())?;
-    fs::write(work.join(RECORD), text).map_err(|e| e.to_string())?;
+    crate::files::write_json(&work.join(RECORD), &record)?;
     Ok(record)
 }
 
 /// Turns the game's command into the pack's profile: its own game folder (the player's
-/// options.txt copied in when the pack brings none), its taken-down mods turned off first.
+/// options.txt copied in when the pack brings none).
 pub fn apply(cmd: &mut Command, work: &Path) -> Result<(), String> {
     if !is_pack(work) {
         return Err(format!("{} is not an installed modpack.", work.display()));
     }
     let home = home(work);
     fs::create_dir_all(&home).map_err(|e| format!("{}: {e}", home.display()))?;
-    let options = home.join("options.txt");
-    let own = crate::backend::game_home().join("options.txt");
+    let options = home.join(crate::game_folder::OPTIONS);
+    let own = crate::backend::game_home().join(crate::game_folder::OPTIONS);
     if !options.exists() && own.is_file() {
         let _ = fs::copy(own, &options);
     }
-    super::before_play(&home);
     cmd.current_dir(&home).env("ECLIPSE_HOME", &home);
     Ok(())
 }

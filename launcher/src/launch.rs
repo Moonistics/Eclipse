@@ -49,89 +49,11 @@ fn is_false(b: &bool) -> bool {
     !*b
 }
 
-/// The memory slider's stops, in MiB.
-const SLIDER_STEP: u32 = 64;
-/// The slider's top when the computer's memory is not known.
-const UNKNOWN_TOTAL_MB: u32 = 64 * 1024;
-
-/// Java heap size at `fraction` of a slider over `total_mb`, in MiB.
-pub fn memory_at(fraction: f32, total_mb: u32) -> u32 {
-    if fraction >= 1. {
-        return total_mb.max(1);
-    }
-    let mb = fraction.max(0.) * total_mb as f32;
-    ((mb / SLIDER_STEP as f32).round() as u32 * SLIDER_STEP).max(1)
-}
-
-/// What [`parse_memory`] says of text that isn't a memory limit.
-#[derive(Debug, PartialEq, Eq)]
-pub struct NotMemory;
-
-/// A Java heap size as a player types it: MB, or GB with `gb`, and nothing or `off`
-/// to restore the default. Nothing keeps a player from going low. Err when it is none of those.
-pub fn parse_memory(typed: &str) -> Result<Option<u32>, NotMemory> {
-    let typed = typed.trim().to_ascii_lowercase();
-    if typed.is_empty() || typed == "off" {
-        return Ok(None);
-    }
-    let (number, scale) = if let Some(gb) = typed.strip_suffix("gb").or(typed.strip_suffix('g')) {
-        (gb, 1024)
-    } else {
-        let mb = typed.strip_suffix("mb").or(typed.strip_suffix('m'));
-        (mb.unwrap_or(&typed), 1)
-    };
-    let number: u32 = number.trim().parse().map_err(|_| NotMemory)?;
-    number.checked_mul(scale).map(Some).ok_or(NotMemory)
-}
-
-/// Where `mb` sits on a slider over `total_mb`; [`memory_at`]'s inverse.
-pub fn memory_fraction(mb: u32, total_mb: u32) -> f32 {
-    (mb as f32 / total_mb.max(1) as f32).min(1.)
-}
-
-/// This computer's memory in MiB, the top of the slider.
-pub fn total_memory_mb() -> u32 {
-    system_memory_bytes()
-        .map(|bytes| (bytes >> 20) as u32)
-        .filter(|mb| *mb > 0)
-        .unwrap_or(UNKNOWN_TOTAL_MB)
-}
-
-#[cfg(windows)]
-fn system_memory_bytes() -> Option<u64> {
-    use windows_sys::Win32::System::SystemInformation::{GlobalMemoryStatusEx, MEMORYSTATUSEX};
-    // SAFETY: all-zero is a valid value of this plain C struct, its length is set as the call
-    // requires, and the call only writes into it.
-    unsafe {
-        let mut status: MEMORYSTATUSEX = std::mem::zeroed();
-        status.dwLength = std::mem::size_of::<MEMORYSTATUSEX>() as u32;
-        (GlobalMemoryStatusEx(&mut status) != 0).then_some(status.ullTotalPhys)
-    }
-}
-
-#[cfg(target_os = "macos")]
-fn system_memory_bytes() -> Option<u64> {
-    let out = Command::new("sysctl")
-        .args(["-n", "hw.memsize"])
-        .output()
-        .ok()?;
-    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
-}
-
-#[cfg(not(any(windows, target_os = "macos")))]
-fn system_memory_bytes() -> Option<u64> {
-    let info = std::fs::read_to_string("/proc/meminfo").ok()?;
-    let line = info.lines().find(|l| l.starts_with("MemTotal:"))?;
-    let kib: u64 = line.split_whitespace().nth(1)?.parse().ok()?;
-    Some(kib * 1024)
-}
-
 /// What this Linux computer has for the three switches. Elsewhere, nothing.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
 pub struct Found {
     pub gamemode: bool,
     pub mangohud: bool,
-    /// More than one graphics card.
     pub two_gpus: bool,
     /// NVIDIA's own driver is loaded: offload asks for it, not Mesa.
     pub nvidia: bool,
@@ -139,7 +61,7 @@ pub struct Found {
 
 /// `ECLIPSE_LAUNCHER_LINUX_TOOLS=gamemode,mangohud,gpu,nvidia`: what [`Found::here`] says is
 /// installed, on any system (for tests and screenshots).
-pub const TOOLS_ENV: &str = "ECLIPSE_LAUNCHER_LINUX_TOOLS";
+const TOOLS_ENV: &str = "ECLIPSE_LAUNCHER_LINUX_TOOLS";
 
 fn on_path(program: &str) -> bool {
     std::env::var_os("PATH").is_some_and(|path| {
@@ -193,7 +115,6 @@ impl Found {
         }
     }
 
-    /// Whether any switch can be shown.
     pub fn any(&self) -> bool {
         self.gamemode || self.mangohud || self.two_gpus
     }
@@ -213,7 +134,7 @@ fn switch_programs(launch: &Launch, found: &Found) -> Vec<OsString> {
 
 /// The variables the dedicated GPU switch sets: NVIDIA's offload variables with its driver,
 /// else Mesa's `DRI_PRIME`. The player's own variables come after and win.
-pub fn switch_env(launch: &Launch, found: &Found) -> Vec<(&'static str, &'static str)> {
+fn switch_env(launch: &Launch, found: &Found) -> Vec<(&'static str, &'static str)> {
     match (launch.dedicated_gpu && found.two_gpus, found.nvidia) {
         (false, _) => vec![],
         (true, true) => vec![
@@ -327,7 +248,6 @@ pub fn instance_vars(name: &str, id: &str, dir: &std::path::Path, java: Option<&
     vars
 }
 
-/// An instance's variables ([`instance_vars`]).
 pub type Vars = Vec<(&'static str, OsString)>;
 
 /// The post-exit command, ready to run in `dir` with the instance's `vars` and variables; none
@@ -342,15 +262,7 @@ pub fn after_exit(
         return None;
     }
     let mut cmd = if cfg!(windows) {
-        let mut c = Command::new("cmd.exe");
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            c.raw_arg(format!("/D /S /C \"{line}\""));
-        }
-        #[cfg(not(windows))]
-        c.args(["/D", "/S", "/C", line]);
-        c
+        cmd_line(line)
     } else {
         let mut c = Command::new("/bin/sh");
         c.arg("-c").arg(line);
@@ -362,12 +274,8 @@ pub fn after_exit(
     Some(cmd)
 }
 
-/// Runs the post-exit command, if any, on its own thread: nothing waits for it, its output is
-/// dropped.
-pub fn run_after_exit(launch: &Launch, dir: &std::path::Path, vars: &[(&'static str, OsString)]) {
-    let Some(mut cmd) = after_exit(launch, dir, vars) else {
-        return;
-    };
+/// Runs the post-exit command on its own thread: nothing waits for it, its output is dropped.
+pub fn run_after_exit(mut cmd: Command) {
     crate::process::hide_console(&mut cmd);
     cmd.stdin(std::process::Stdio::null())
         .stdout(std::process::Stdio::null())
@@ -483,17 +391,7 @@ pub fn wrap(cmd: Command, launch: &Launch) -> Command {
             c.arg("-c").arg(script).arg("eclipse").args(words);
             c
         }
-        Plan::Cmd { line } => {
-            let mut c = Command::new("cmd.exe");
-            #[cfg(windows)]
-            {
-                use std::os::windows::process::CommandExt;
-                c.raw_arg(format!("/D /S /C \"{line}\""));
-            }
-            #[cfg(not(windows))]
-            c.args(["/D", "/S", "/C", &line]);
-            c
-        }
+        Plan::Cmd { line } => cmd_line(&line),
     };
     if let Some(dir) = cmd.get_current_dir() {
         out.current_dir(dir);
@@ -509,6 +407,18 @@ pub fn wrap(cmd: Command, launch: &Launch) -> Command {
     out
 }
 
+/// `cmd /D /S /C "<line>"`: `line` as cmd reads it, passed whole so cmd's own quoting holds.
+fn cmd_line(line: &str) -> Command {
+    let mut c = Command::new("cmd.exe");
+    #[cfg(windows)]
+    {
+        use std::os::windows::process::CommandExt;
+        c.raw_arg(format!("/D /S /C \"{line}\""));
+    }
+    #[cfg(not(windows))]
+    c.args(["/D", "/S", "/C", line]);
+    c
+}
+
 #[cfg(test)]
-#[path = "launch/tests.rs"]
 mod tests;

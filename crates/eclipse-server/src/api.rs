@@ -27,6 +27,11 @@ use std::{
 };
 
 const ENDPOINT: &str = ".eclipse/api.json";
+const ENDPOINT_WAIT: Duration = if cfg!(test) {
+    Duration::from_millis(200)
+} else {
+    Duration::from_secs(5)
+};
 /// The log lines kept for `logs` and the panel's console.
 const LOG_LINES: usize = 2000;
 /// The samples kept for the panel's graphs: 10 minutes, one a second.
@@ -920,7 +925,7 @@ impl Client {
         }
         // The supervisor writes the endpoint just after taking the lock: give it a moment.
         let path = dir.join(ENDPOINT);
-        let deadline = Instant::now() + Duration::from_secs(5);
+        let deadline = Instant::now() + ENDPOINT_WAIT;
         let text = loop {
             match std::fs::read_to_string(&path) {
                 Ok(text) => break text,

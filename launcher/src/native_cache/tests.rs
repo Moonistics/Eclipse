@@ -112,12 +112,31 @@ fn limit_keeps_warm_cache_until_exceeded_and_zero_disables_automatic_cleanup() {
     let dir = Temp::new();
     let artifact = dir.put("native/target/fast/compiled", b"12345");
     let cache = Cache::acquire(&dir.0).unwrap();
-    assert_eq!(cache.trim(0).unwrap(), 0);
-    assert_eq!(cache.trim(6).unwrap(), 0);
-    assert_eq!(cache.trim(5).unwrap(), 0);
+    let mut off = crate::backend::Settings::default();
+    off.native_cache_gib = Some(0);
+    assert_eq!(cache.trim(limit_bytes(&off)).unwrap(), 0);
+    assert_eq!(cache.trim(Some(6)).unwrap(), 0);
+    assert_eq!(cache.trim(Some(5)).unwrap(), 0);
     assert_eq!(fs::read(&artifact).unwrap(), b"12345");
-    assert_eq!(cache.trim(4).unwrap(), 5);
+    assert_eq!(cache.trim(Some(4)).unwrap(), 5);
     assert!(!artifact.exists());
+}
+
+#[test]
+fn a_windows_arm64_games_build_cache_is_counted_trimmed_and_cleared_too() {
+    let dir = Temp::new();
+    let arm64 = crate::rust_toolchain::WINDOWS_ARM64_TARGET;
+    let fast = dir.put(&format!("native/target/{arm64}/fast/deps/a"), b"abc");
+    let release = dir.put(&format!("native/target/{arm64}/release/b"), b"1234");
+    let info = dir.put(&format!("native/target/{arm64}/.rustc_info.json"), b"{}");
+    let cache = Cache::acquire(&dir.0).unwrap();
+    assert_eq!(cache.bytes().unwrap(), 7);
+    assert_eq!(cache.trim(Some(6)).unwrap(), 7);
+    assert!(!fast.exists() && !release.exists());
+    assert!(info.exists());
+    dir.put(&format!("native/target/{arm64}/fast/deps/c"), b"cd");
+    assert_eq!(cache.clear().unwrap(), 2);
+    assert_eq!(cache.bytes().unwrap(), 0);
 }
 
 #[test]

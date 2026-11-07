@@ -8,9 +8,9 @@
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 
-pub const SKIN_ENV: &str = "ECLIPSE_OFFLINE_SKIN";
-pub const MODEL_ENV: &str = "ECLIPSE_OFFLINE_SKIN_MODEL";
-pub const CAPE_ENV: &str = "ECLIPSE_OFFLINE_CAPE";
+const SKIN_ENV: &str = "ECLIPSE_OFFLINE_SKIN";
+const MODEL_ENV: &str = "ECLIPSE_OFFLINE_SKIN_MODEL";
+const CAPE_ENV: &str = "ECLIPSE_OFFLINE_CAPE";
 
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -151,10 +151,9 @@ pub fn keep(dir: &Path, name: &str, file: &Path, cape: bool) -> Result<(), Strin
         false => read_skin(&bytes).map(|_| ())?,
         true => read_cape(&bytes).map(|_| ())?,
     }
-    std::fs::create_dir_all(dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let (skin, cape_file) = files(dir, name);
     let to = if cape { cape_file } else { skin };
-    std::fs::write(&to, bytes).map_err(|e| format!("{}: {e}", to.display()))
+    crate::files::write(&to, &bytes)
 }
 
 /// Drops a forgotten name's files (`Accounts::remove_offline`); missing files are fine.
@@ -179,5 +178,4 @@ pub fn env(dir: &Path, name: &str, look: &Look) -> Vec<(&'static str, String)> {
 }
 
 #[cfg(test)]
-#[path = "skins/tests.rs"]
 mod tests;

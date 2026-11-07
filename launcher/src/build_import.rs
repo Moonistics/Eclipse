@@ -10,7 +10,6 @@
 
 use crate::backend::{self, CLIENT};
 use crate::i18n::{tr, trf};
-use crate::native_mods::{self, Target};
 use sha2::{Digest, Sha256};
 use std::fs;
 use std::io::{Cursor, Read, Seek};
@@ -22,7 +21,6 @@ const RECORD: &str = "imported.json";
 /// The most a program may take: a game build is ~100 MB.
 const MAX_PROGRAM: u64 = 1 << 30;
 
-/// Whether an installed version is an imported build.
 pub fn is_imported(version: &str) -> bool {
     version.starts_with(PREFIX)
 }
@@ -34,32 +32,30 @@ pub fn label(version: &str) -> Option<String> {
 }
 
 /// What an imported build was made from: its `imported.json`.
-#[derive(Clone, Debug, PartialEq)]
+#[derive(Clone, Debug, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct About {
     /// The release or Nightly whose game files it plays with.
     pub base: String,
-    /// The file the player picked.
     pub file: String,
+    #[serde(default)]
+    pub sha256: String,
 }
 
-/// What installed imported build `version` was made from; None for any other version.
+impl About {
+    fn read(dir: &Path) -> Option<Self> {
+        serde_json::from_slice(&fs::read(dir.join(RECORD)).ok()?).ok()
+    }
+
+    fn write(&self, dir: &Path) -> std::io::Result<()> {
+        fs::write(dir.join(RECORD), serde_json::to_vec(self)?)
+    }
+}
+
 pub fn about(version: &str) -> Option<About> {
     if !is_imported(version) {
         return None;
     }
-    let json: serde_json::Value =
-        serde_json::from_str(&fs::read_to_string(backend::version_dir(version).join(RECORD)).ok()?)
-            .ok()?;
-    let field = |name: &str| json[name].as_str().map(str::to_owned);
-    Some(About {
-        base: field("base")?,
-        file: field("file")?,
-    })
-}
-
-/// A version Eclipse published and signed: a release or a Nightly.
-fn official(version: &str) -> bool {
-    backend::is_game_tag(version) || crate::nightly::date_of(version).is_some()
+    About::read(&backend::version_dir(version))
 }
 
 /// The installed version an import takes its game files from: `requested` (`--version`), else
@@ -69,7 +65,7 @@ fn base_for(
     requested: Option<&str>,
     selected: Option<&str>,
 ) -> Result<String, String> {
-    let usable = |v: &str| official(v) && installed.iter().any(|t| t == v);
+    let usable = |v: &str| backend::is_release_or_nightly(v) && installed.iter().any(|t| t == v);
     match requested {
         Some(b) if usable(b) => Ok(b.to_owned()),
         Some(b) => Err(format!("{b} is not an installed release or Nightly.")),
@@ -77,7 +73,7 @@ fn base_for(
             selected
                 .filter(|s| usable(s))
                 .map(str::to_owned)
-                .or_else(|| native_mods::newest_installed(installed).cloned())
+                .or_else(|| backend::newest_release_or_nightly(installed).cloned())
                 .ok_or_else(|| {
                     tr("Install a release or Nightly first: an imported build plays with its game \
                     files.")
@@ -90,17 +86,21 @@ fn base_for(
 /// Installs the game program at `path` (or the one inside an archive there) as a new version on
 /// the game files of `requested` (default: [`base_for`]), prepared from another version where it
 /// can be, and selects it. Importing the same program again selects the version it made before.
-pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
-    let file = path.file_name().map_or_else(
-        || path.display().to_string(),
-        |n| n.to_string_lossy().into_owned(),
-    );
+pub fn import(
+    path: &Path,
+    requested: Option<&str>,
+    settings: &backend::Settings,
+) -> Result<String, String> {
+    let file = file_name(path);
     let program = read_program(path, &file)?;
     if !is_game(&program) {
         return Err(not_a_game(&file));
     }
-    let selected = backend::Settings::load().selected;
-    let base = base_for(&backend::installed(), requested, selected.as_deref())?;
+    let base = base_for(
+        &backend::installed(),
+        requested,
+        settings.default_version.as_deref(),
+    )?;
     let date = chrono::Local::now().format("%Y-%m-%d").to_string();
     let tag = install_in(&backend::version_dir(""), &base, &program, &file, &date)?;
     if let Some(made) = about(&tag).filter(|a| requested.is_some() && a.base != base) {
@@ -110,11 +110,8 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
             made.base
         ));
     }
-    backend::reuse_prepared_for(&tag);
-    // Read again: the window may have saved other settings during the copy.
-    let mut settings = backend::Settings::load();
-    settings.selected = Some(tag.clone());
-    settings.save()?;
+    backend::reuse_prepared_for(&tag, settings);
+    backend::Settings::update(|settings| settings.default_version = Some(tag.clone()))?;
     Ok(tag)
 }
 
@@ -126,11 +123,14 @@ pub fn import(path: &Path, requested: Option<&str>) -> Result<String, String> {
 /// [`import`] checks again and says precisely why a file is not one, so this
 /// answers only yes or no. It reads the whole program, so it is asked last.
 pub fn holds_game(path: &Path) -> bool {
-    let file = path.file_name().map_or_else(
+    read_program(path, &file_name(path)).is_ok_and(|program| is_game(&program))
+}
+
+fn file_name(path: &Path) -> String {
+    path.file_name().map_or_else(
         || path.display().to_string(),
         |n| n.to_string_lossy().into_owned(),
-    );
-    read_program(path, &file).is_ok_and(|program| is_game(&program))
+    )
 }
 
 fn not_a_game(file: &str) -> String {
@@ -275,7 +275,7 @@ fn install_in(
             let name = e.file_name().into_string().ok()?;
             (is_imported(&name)
                 && name.ends_with(&format!("-{short}"))
-                && e.path().join(".installed").exists())
+                && backend::is_installed(&e.path()))
             .then_some(name)
         });
     if let Some(tag) = made {
@@ -290,10 +290,14 @@ fn install_in(
     let partial = versions
         .join(".importing")
         .join(format!("{tag}-{}-{n}", std::process::id()));
-    let record = serde_json::json!({ "base": base, "file": file, "sha256": sha256 });
+    let record = About {
+        base: base.into(),
+        file: file.into(),
+        sha256: sha256.clone(),
+    };
     let made = fs::create_dir_all(&partial)
         .map_err(|e| e.to_string())
-        .and_then(|()| native_mods::copy_base(&versions.join(base), &partial, Target::Client))
+        .and_then(|()| backend::copy_version_except(&versions.join(base), &partial, &[]))
         .and_then(|()| finish(&partial, &dir, program, &record).map_err(|e| e.to_string()));
     let _ = retried(|| fs::remove_dir_all(&partial).or_else(|_| gone(&partial)));
     if let Err(e) = made {
@@ -305,22 +309,17 @@ fn install_in(
 /// Puts `program`, its record and the installed mark into the copied folder `partial`, then
 /// moves it into place as version `dir` in one step: no other call ever sees it half made, and a
 /// version already there (the same program, imported meanwhile) stays.
-fn finish(
-    partial: &Path,
-    dir: &Path,
-    program: &[u8],
-    record: &serde_json::Value,
-) -> std::io::Result<()> {
+fn finish(partial: &Path, dir: &Path, program: &[u8], record: &About) -> std::io::Result<()> {
     fs::write(partial.join(CLIENT), program)?;
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
         fs::set_permissions(partial.join(CLIENT), fs::Permissions::from_mode(0o755))?;
     }
-    fs::write(partial.join(RECORD), record.to_string())?;
-    fs::write(partial.join(".installed"), "")?;
+    record.write(partial)?;
+    backend::mark_installed(partial)?;
     retried(|| match fs::rename(partial, dir) {
-        Err(_) if dir.join(".installed").exists() => Ok(()),
+        Err(_) if backend::is_installed(dir) => Ok(()),
         Err(e) => {
             // No mark: not a version, but what a removal left while its game still ran.
             let _ = fs::remove_dir_all(dir);
@@ -343,7 +342,6 @@ fn retried(mut step: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()>
     }
 }
 
-/// Ok when `path` is gone.
 fn gone(path: &Path) -> std::io::Result<()> {
     match path.symlink_metadata() {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -363,7 +361,6 @@ mod tests {
         d
     }
 
-    /// The entries of `dir`, the copies' own `.importing` left out.
     fn listed(dir: &Path) -> usize {
         fs::read_dir(dir)
             .unwrap()
@@ -411,7 +408,7 @@ mod tests {
             tag.starts_with("imported-2026-11-01-") && tag.len() == 27,
             "{tag}"
         );
-        assert!(is_imported(&tag) && !official(&tag));
+        assert!(is_imported(&tag) && !backend::is_release_or_nightly(&tag));
         assert_eq!(label(&tag).as_deref(), Some("Imported · 2026-11-01"));
         let dir = versions.join(&tag);
         assert_eq!(fs::read(dir.join(CLIENT)).unwrap(), built);

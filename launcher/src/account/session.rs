@@ -1,7 +1,8 @@
-//! Launcher-owned authentication operations. UI, CLI and a future game bridge receive only
-//! public status; credentials stay behind SecretStore and the existing session-file handoff.
+//! Launcher-owned authentication operations. Callers receive only public status; credentials
+//! stay behind SecretStore and the session-file handoff.
 use super::*;
 use std::fs::{File, OpenOptions};
+use std::path::{Path, PathBuf};
 use std::sync::MutexGuard;
 use std::time::{Duration, Instant};
 
@@ -103,12 +104,6 @@ impl Status {
     }
 }
 
-/// The process lock of the stores that share one keychain ([`SecretStore::operations`]).
-pub(super) fn process_lock() -> &'static Mutex<()> {
-    static OPERATIONS: Mutex<()> = Mutex::new(());
-    &OPERATIONS
-}
-
 pub(super) struct Operation<'a> {
     _process: MutexGuard<'a, ()>,
     _file: Option<File>,
@@ -131,7 +126,6 @@ pub(super) fn lock_within(
     within: Option<Duration>,
 ) -> Result<Operation<'_>, String> {
     let deadline = within.map(|d| Instant::now() + d);
-    // Waits for `take` to stop answering None (busy), or until the deadline.
     let wait = |take: &mut dyn FnMut() -> Result<Option<()>, String>| loop {
         match take()? {
             Some(()) => return Ok(()),
@@ -226,8 +220,7 @@ fn status_within(
 }
 
 /// Force a renewal even when the access token is fresh. Does not select an account, change
-/// the public account list, or return a token. A future IPC handler can call this same API,
-/// then use write_session_file for an explicit game-session handoff.
+/// the public account list, or return a token.
 pub fn refresh(who: &str) -> Result<Status, String> {
     refresh_with_progress(who, &|_| {})
 }
@@ -353,62 +346,4 @@ pub(super) fn renew_for_game_with(
         .map_err(|e| Status::failed(&e))?
         .ok_or_else(|| Status::from_secrets(None))?;
     write_session_file(dir, account, &secrets).map_err(|e| Status::failed(&e))
-}
-
-/// Mojang's session server: what an online-mode server asks to check that a player is who they
-/// say (`hasJoined`), after the client said so (`join`).
-pub const SESSION_SERVER: &str = "https://sessionserver.mojang.com";
-
-/// Prove to a service that `who` owns their Minecraft account the way a client proves it to an
-/// online-mode server: tell Mojang's session server that this account joins `server_id`, a
-/// one-time value the service chose. The service then asks Mojang (`hasJoined`) and never sees
-/// the account's token, which only goes to Mojang.
-pub fn join_server(who: &str, server_id: &str) -> Result<(), String> {
-    let account = Accounts::load()
-        .find(who)
-        .cloned()
-        .ok_or("Sign in with a Minecraft account first.")?;
-    join_server_with(
-        &Endpoints::live(),
-        SESSION_SERVER,
-        client_id().as_deref(),
-        store(),
-        &account,
-        &Accounts::path(),
-        server_id,
-    )
-}
-
-pub(super) fn join_server_with(
-    ep: &Endpoints,
-    session: &str,
-    client_id: Option<&str>,
-    store: &dyn SecretStore,
-    account: &Account,
-    accounts: &Path,
-    server_id: &str,
-) -> Result<(), String> {
-    let status = refresh_account(ep, client_id, store, account, accounts, &|_| {});
-    if status.state != State::Ready {
-        return Err(status.message);
-    }
-    let secrets = {
-        let _operation = lock(store)?;
-        read(store, &account.uuid)?.ok_or("Sign in with a Minecraft account first.")?
-    };
-    let body = json!({
-        "accessToken": secrets.minecraft_token,
-        "selectedProfile": account.uuid,
-        "serverId": server_id,
-    });
-    let url = format!("{session}/session/minecraft/join");
-    match send(
-        request_to("POST", &url),
-        Some(Body::Json(body)),
-        "Mojang's session server",
-    )? {
-        (200..=299, _) => Ok(()),
-        (403, _) => Err("Mojang could not confirm your account. Sign in again and retry.".into()),
-        _ => Err("Mojang's session server is not answering. Try again later.".into()),
-    }
 }

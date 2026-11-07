@@ -1,5 +1,6 @@
 //! Modrinth's public API (api.modrinth.com/v2): no key, files with SHA-512 and SHA-1.
-use super::{details, FileRef, Kind, Project, Query, Source, SourceId, Version, GAME};
+use super::details::{self, Details, Image, Link, Tag, Tags};
+use super::{FileRef, Kind, Project, Query, Source, SourceId, Version, GAME};
 use serde_json::Value;
 
 const API: &str = "https://api.modrinth.com/v2";
@@ -7,24 +8,23 @@ const SITE: &str = "https://modrinth.com";
 
 pub struct Modrinth;
 
-/// Modrinth's project type for a kind.
 fn project_type(kind: Kind) -> &'static str {
     match kind {
         Kind::ResourcePack => "resourcepack",
         Kind::Modpack => "modpack",
         Kind::Mod => "mod",
         Kind::Shader => "shader",
-        Kind::DataPack => "datapack",
+        Kind::DataPack => super::DATAPACK_LOADER,
     }
 }
 
-/// The kind of a Modrinth project; its shader packs (the shaders/ format) are not offered. A
-/// data pack says it is a `mod` (most also ship a mod build): the search for data packs marks
-/// its hits, and an install into a world asks for its data pack files.
+/// The kind of a Modrinth project. A data pack says it is a `mod` (most also ship a mod build):
+/// the search for data packs marks its hits, and an install into a world asks for its data pack
+/// files.
 fn kind_of(project_type: &str) -> Option<Kind> {
     Kind::ALL
         .into_iter()
-        .filter(|k| !matches!(k, Kind::Shader | Kind::DataPack))
+        .filter(|k| *k != Kind::DataPack)
         .find(|k| self::project_type(*k) == project_type)
 }
 
@@ -42,9 +42,14 @@ pub(super) fn facets(query: &Query) -> String {
         None => {}
     }
     let loaders: Vec<String> = match &f.loader {
-        // Quilt loads Fabric mods: what runs on Quilt.
-        Some(l) if l == "quilt" => vec!["categories:quilt".into(), "categories:fabric".into()],
-        Some(l) => vec![format!("categories:{l}")],
+        Some(l) => match crate::loaders::Kind::parse(l) {
+            Ok(kind) => kind
+                .loads()
+                .iter()
+                .map(|m| format!("categories:{}", m.id()))
+                .collect(),
+            Err(_) => vec![format!("categories:{l}")],
+        },
         None => details::default_loaders(query.kind)
             .iter()
             .map(|l| format!("categories:{l}"))
@@ -202,9 +207,6 @@ impl Source for Modrinth {
     }
 
     fn search(&self, query: &Query) -> Result<Vec<Project>, String> {
-        if query.kind == Kind::Shader {
-            return Err(super::SHADERS_ON_ECLIPSE.into());
-        }
         let found = get(&search_url(query))?;
         Ok(found["hits"]
             .as_array()
@@ -212,7 +214,7 @@ impl Source for Modrinth {
             .flatten()
             .filter_map(parse_hit)
             .map(|p| match query.kind {
-                Kind::DataPack => p.as_datapack(),
+                Kind::DataPack => p.into_datapack(),
                 _ => p,
             })
             .collect())
@@ -223,7 +225,7 @@ impl Source for Modrinth {
         parse_project(&p).ok_or_else(|| format!("Modrinth: {id} is not a pack Eclipse loads."))
     }
 
-    fn versions(&self, project: &Project) -> Result<Vec<Version>, String> {
+    fn versions(&self, project: &Project, _level: Option<u32>) -> Result<Vec<Version>, String> {
         let found = get(&format!("{API}/project/{}/version", encode(&project.id)))?;
         let mut all: Vec<Version> = found
             .as_array()
@@ -241,7 +243,7 @@ impl Source for Modrinth {
         let id = encode(&project.id);
         let p = get(&format!("{API}/project/{id}"))?;
         let members = get(&format!("{API}/project/{id}/members")).unwrap_or_default();
-        Ok(details::modrinth_details(&p, &members))
+        Ok(details_of(&p, &members))
     }
 
     fn tags(&self, kind: Kind) -> Result<details::Tags, String> {
@@ -257,8 +259,8 @@ impl Source for Modrinth {
         let (c, l, v) = cached.as_ref().expect("filled above");
         // Data packs share the mods' categories; their one loader is `datapack`.
         let mut tags = match kind {
-            Kind::DataPack => details::modrinth_tags("mod", c, l, v),
-            _ => details::modrinth_tags(project_type(kind), c, l, v),
+            Kind::DataPack => tags_of("mod", c, l, v),
+            _ => tags_of(project_type(kind), c, l, v),
         };
         if kind == Kind::DataPack {
             tags.loaders.clear();
@@ -276,7 +278,7 @@ fn get(url: &str) -> Result<Value, String> {
                 "Modrinth asks to slow down: try again in a minute.".into()
             }
             ureq::Error::Status(code, _) => format!("Modrinth answered {code}."),
-            ureq::Error::Transport(t) => format!("No connection to Modrinth: {t}"),
+            e => crate::backend::network_error(url, e),
         })?;
     response
         .into_json()
@@ -284,7 +286,7 @@ fn get(url: &str) -> Result<Value, String> {
 }
 
 /// Percent-encoding for a query value or a path segment.
-pub(super) fn encode(s: &str) -> String {
+fn encode(s: &str) -> String {
     s.bytes()
         .map(|b| match b {
             b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
@@ -293,4 +295,188 @@ pub(super) fn encode(s: &str) -> String {
             _ => format!("%{b:02X}"),
         })
         .collect()
+}
+
+/// Only `https://` links are kept: a page never opens another scheme.
+fn https(url: &str) -> Option<String> {
+    url.starts_with("https://").then(|| url.to_owned())
+}
+
+/// Modrinth's `GET /project/{id}` and `GET /project/{id}/members`.
+fn details_of(project: &Value, members: &Value) -> Details {
+    let mut gallery: Vec<(i64, Image)> = project["gallery"]
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|g| {
+            Some((
+                g["ordering"].as_i64().unwrap_or(0),
+                Image {
+                    url: https(g["url"].as_str()?)?,
+                    title: text(&g["title"]),
+                    description: text(&g["description"]),
+                    featured: g["featured"].as_bool().unwrap_or(false),
+                },
+            ))
+        })
+        .collect();
+    gallery.sort_by_key(|(order, i)| (!i.featured, *order));
+    let mut links = Vec::new();
+    for (key, label) in [
+        ("source_url", "Source code"),
+        ("issues_url", "Report a bug"),
+        ("wiki_url", "Wiki"),
+        ("discord_url", "Discord"),
+    ] {
+        if let Some(url) = project[key].as_str().and_then(https) {
+            links.push(Link {
+                label: label.into(),
+                url,
+            });
+        }
+    }
+    for d in project["donation_urls"].as_array().into_iter().flatten() {
+        if let Some(url) = d["url"].as_str().and_then(https) {
+            links.push(Link {
+                label: format!("Donate ({})", text(&d["platform"])),
+                url,
+            });
+        }
+    }
+    let mut owners: Vec<(bool, String)> = members
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter_map(|m| {
+            let name = m["user"]["username"].as_str()?.to_owned();
+            Some((m["role"].as_str() != Some("Owner"), name))
+        })
+        .collect();
+    owners.sort();
+    let mut categories = strings(&project["categories"]);
+    categories.extend(strings(&project["additional_categories"]));
+    Details {
+        body: text(&project["body"]),
+        gallery: gallery.into_iter().map(|(_, i)| i).collect(),
+        links,
+        authors: owners.into_iter().map(|(_, n)| n).collect(),
+        followers: project["followers"].as_u64().unwrap_or(0),
+        published: text(&project["published"]),
+        updated: text(&project["updated"]),
+        categories,
+        client_side: text(&project["client_side"]),
+        server_side: text(&project["server_side"]),
+        github: None,
+    }
+}
+
+/// Modrinth's `/tag/category`, `/tag/loader` and `/tag/game_version` for one project type.
+pub(super) fn tags_of(
+    project_type: &str,
+    categories: &Value,
+    loaders: &Value,
+    versions: &Value,
+) -> Tags {
+    let loader_names: Vec<String> = loaders
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|l| {
+            l["supported_project_types"]
+                .as_array()
+                .is_some_and(|t| t.iter().any(|x| x == project_type))
+        })
+        .filter_map(|l| l["name"].as_str().map(str::to_owned))
+        .collect();
+    let mut categories: Vec<Tag> = categories
+        .as_array()
+        .into_iter()
+        .flatten()
+        .filter(|c| c["project_type"] == project_type)
+        .filter_map(|c| {
+            let name = c["name"].as_str()?.to_owned();
+            // Loaders are listed as categories too; the loader filter has them.
+            (!loader_names.contains(&name)).then(|| Tag {
+                name,
+                header: text(&c["header"]),
+            })
+        })
+        .collect();
+    categories.sort_by(|a, b| (&a.header, &a.name).cmp(&(&b.header, &b.name)));
+    Tags {
+        categories,
+        tags: Vec::new(),
+        loaders: loader_names,
+        game_versions: versions
+            .as_array()
+            .into_iter()
+            .flatten()
+            .filter(|v| v["version_type"] == "release")
+            .filter_map(|v| v["version"].as_str().map(str::to_owned))
+            .collect(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn a_modrinth_page() {
+        let project = json!({
+            "body": "# Fences\nMore fences.",
+            "gallery": [
+                {"url": "https://cdn.modrinth.com/data/x/images/b.png", "featured": false, "ordering": 0, "title": "B"},
+                {"url": "https://cdn.modrinth.com/data/x/images/a.png", "featured": true, "ordering": 5, "title": "A"},
+                {"url": "http://example.com/c.png", "featured": false, "ordering": 1}
+            ],
+            "source_url": "https://github.com/x/y", "issues_url": "javascript:alert(1)",
+            "wiki_url": null, "discord_url": "https://discord.gg/x",
+            "donation_urls": [{"platform": "Ko-fi", "url": "https://ko-fi.com/x"}],
+            "followers": 12, "categories": ["decoration"], "additional_categories": ["utility"],
+            "client_side": "required", "server_side": "required"
+        });
+        let members = json!([
+            {"user": {"username": "helper"}, "role": "Member"},
+            {"user": {"username": "Macaw"}, "role": "Owner"}
+        ]);
+        let d = details_of(&project, &members);
+        assert_eq!(
+            d.gallery
+                .iter()
+                .map(|i| i.title.as_str())
+                .collect::<Vec<_>>(),
+            ["A", "B"]
+        );
+        assert_eq!(
+            d.links.iter().map(|l| l.label.as_str()).collect::<Vec<_>>(),
+            ["Source code", "Discord", "Donate (Ko-fi)"]
+        );
+        assert_eq!(d.authors, ["Macaw", "helper"]);
+        assert_eq!(d.categories, ["decoration", "utility"]);
+        assert_eq!(d.followers, 12);
+    }
+
+    #[test]
+    fn tags_by_project_type() {
+        let categories = json!([
+            {"name": "decoration", "project_type": "mod", "header": "categories"},
+            {"name": "fabric", "project_type": "mod", "header": "loaders"},
+            {"name": "16x", "project_type": "resourcepack", "header": "resolutions"}
+        ]);
+        let loaders = json!([
+            {"name": "fabric", "supported_project_types": ["mod", "modpack"]},
+            {"name": "minecraft", "supported_project_types": ["resourcepack"]}
+        ]);
+        let versions = json!([
+            {"version": "26.3", "version_type": "release"},
+            {"version": "26.4-snapshot-1", "version_type": "snapshot"}
+        ]);
+        let t = tags_of("mod", &categories, &loaders, &versions);
+        assert_eq!(t.categories.len(), 1);
+        assert_eq!(t.categories[0].name, "decoration");
+        assert_eq!(t.loaders, ["fabric"]);
+        assert_eq!(t.game_versions, ["26.3"]);
+    }
 }

@@ -28,7 +28,6 @@ const MAX_ARCHIVE: u64 = 256 << 20;
 /// How deep below the archive's root a mod folder is looked for.
 const DEPTH: usize = 6;
 
-/// What a link points at.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     /// The repository: its latest release, else its default branch.
@@ -126,7 +125,6 @@ pub fn parse(text: &str) -> Result<Link, String> {
     })
 }
 
-/// A release's file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asset {
     pub name: String,
@@ -140,7 +138,6 @@ pub struct Asset {
 pub struct Resolved {
     pub owner: String,
     pub repo: String,
-    /// The release it came from, if any.
     pub tag: Option<String>,
     /// The full commit: what the source link names, and what a commit install fetches.
     pub commit: String,
@@ -169,7 +166,7 @@ impl Resolved {
 fn label(name: &str, tag: Option<&str>, commit: &str) -> String {
     match tag {
         Some(tag) => format!("{name} @ {tag}"),
-        None => format!("{name} @ {}", &commit[..commit.len().min(7)]),
+        None => format!("{name} @ {}", native_mods::short(commit)),
     }
 }
 
@@ -185,10 +182,9 @@ pub fn api(path: &str) -> Result<Option<serde_json::Value>, String> {
     let url = format!("https://api.github.com/{path}");
     match backend::get(&url) {
         Ok(response) => response.into_json().map(Some).map_err(|e| e.to_string()),
-        Err(e) if e.ends_with("answered 404") => Ok(None),
-        Err(e) if e.ends_with("answered 429") => Err(RATE_LIMIT.into()),
-        Err(e) if e.contains("rate limit") => Err(RATE_LIMIT.into()),
-        Err(e) => Err(e),
+        Err(e) if e.is_not_found() => Ok(None),
+        Err(e) if e.is_rate_limited() || e.status() == Some(429) => Err(RATE_LIMIT.into()),
+        Err(e) => Err(e.into()),
     }
 }
 
@@ -253,7 +249,6 @@ fn assets(release: &serde_json::Value, link: &Link) -> (Option<Asset>, Option<St
     let hnmod = named(".hnmod").find_map(|a| {
         let url = a["browser_download_url"].as_str()?.to_owned();
         let name = a["name"].as_str()?.to_owned();
-        // Only this repository's own release files.
         url.starts_with(&prefix).then(|| Asset {
             name,
             url,
@@ -297,7 +292,6 @@ fn at_commit(commit: String, link: &Link) -> Resolved {
     }
 }
 
-/// Resolves `link` to an exact release asset or commit, through `api`.
 pub fn resolve(link: &Link, api: Api) -> Result<Resolved, String> {
     let base = format!("repos/{}/{}", link.owner, link.repo);
     match &link.target {
@@ -321,11 +315,9 @@ pub struct Origin {
     pub version: String,
     pub owner: String,
     pub repo: String,
-    /// The release it came from, when it is a release's asset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
     pub commit: String,
-    /// The release asset's name, when it came from one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset: Option<String>,
     /// The SHA-256 of the installed `.hnmod`.
@@ -387,7 +379,7 @@ fn sha256(bytes: &[u8]) -> String {
 }
 
 fn scratch(name: &str) -> PathBuf {
-    native_mods::root().join("github").join(name)
+    crate::native_cache::Dirs::current().github().join(name)
 }
 
 /// Reads `bytes` as `.hnmod`, with the registry's checks, into a file `Packed` names.
@@ -407,10 +399,10 @@ fn checked(bytes: &[u8], dir: &Path) -> Result<Packed, String> {
     })
 }
 
-/// Every mod folder under `root`: a `eclipse-mixin.toml`, or an unpacked `.hnmod`
-/// (`eclipse-native.json`), the rules of `native-build <folder>`. A mod's folder is not searched
-/// further.
-pub fn find_mods(root: &Path) -> Result<Vec<Bundle>, String> {
+/// Every mod folder under `root`, as deep as [`DEPTH`] and past build output and hidden folders:
+/// a `eclipse-mixin.toml`, or an unpacked `.hnmod` (`eclipse-native.json`), each read as
+/// `native-build <folder>` reads one. A mod's folder is not searched further.
+fn find_mods(root: &Path) -> Result<Vec<Bundle>, String> {
     fn walk(dir: &Path, depth: usize, out: &mut Vec<Bundle>) -> Result<(), String> {
         if let Some(found) = native_mods::bundle_in(dir)? {
             out.push(found);
@@ -544,11 +536,12 @@ pub fn fetch(found: &Resolved) -> Result<Vec<Packed>, String> {
         }
         return Ok(vec![checked(&bytes, &dir)?]);
     }
-    let url = format!(
-        "https://codeload.github.com/{}/{}/tar.gz/{}",
-        found.owner, found.repo, found.commit
-    );
-    let top = native_mods::unpack_archive(&url, &dir.join("source"), MAX_ARCHIVE)?;
+    let top = crate::github::unpack_archive(
+        &found.name(),
+        &found.commit,
+        &dir.join("source"),
+        MAX_ARCHIVE,
+    )?;
     let mods = find_mods(&top)?;
     if mods.is_empty() {
         return Err(match &found.content_only {
@@ -612,12 +605,10 @@ fn origin_path(home: &Path, id: &str) -> PathBuf {
     home.join(INSTALLED).join(format!("{id}.origin.json"))
 }
 
-/// The origin of mod `id` installed in `home`, if it came from GitHub.
 pub fn origin(home: &Path, id: &str) -> Option<Origin> {
     serde_json::from_str(&fs::read_to_string(origin_path(home, id)).ok()?).ok()
 }
 
-/// Every mod of `home` installed from GitHub.
 pub fn origins(home: &Path) -> Vec<Origin> {
     let mut found: Vec<Origin> = fs::read_dir(home.join(INSTALLED))
         .map(|dir| {
@@ -629,6 +620,41 @@ pub fn origins(home: &Path) -> Vec<Origin> {
         .unwrap_or_default();
     found.sort_by(|a: &Origin, b| a.id.cmp(&b.id));
     found
+}
+
+/// A native file not tracked by the registry/browser, including GitHub installs.
+#[derive(Clone)]
+pub struct Installed {
+    pub file: String,
+    pub id: String,
+    pub version: String,
+    pub origin: Option<Origin>,
+}
+
+/// Discover the actual files, not just GitHub sidecars. Registry files already have a row.
+pub fn untracked(home: &Path) -> Vec<Installed> {
+    let tracked = crate::browser::installed::Installed::load(home);
+    native_mods::installed_files(home)
+        .into_iter()
+        .filter_map(|path| {
+            let file = format!("{}/{}", native_mods::INSTALLED, path.file_name()?.to_str()?);
+            if !path.is_file() || tracked.entries.iter().any(|e| e.file == file) {
+                return None;
+            }
+            let (id, version) = eclipse_mods::index::native::Bundle::read(&path)
+                .map(|b| (b.manifest.id, b.manifest.version))
+                .unwrap_or_else(|_| (crate::native_status::stem(&path), String::new()));
+            let origin = (path.file_stem()?.to_str()? == id)
+                .then(|| origin(home, &id))
+                .flatten();
+            Some(Installed {
+                file,
+                id,
+                version,
+                origin,
+            })
+        })
+        .collect()
 }
 
 /// Installs `packed` (from `found`) into the game folder `home`, turns it on and records where

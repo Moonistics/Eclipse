@@ -12,7 +12,7 @@ use std::path::Path;
 const FILE: &str = "servers.dat";
 /// An official server, named as the game lists it. Its address comes from `launcher/links.json`
 /// on main (`backend::Links`); there is none until it names one.
-pub const OFFICIAL_NAME: &str = "Eclipse Official";
+const OFFICIAL_NAME: &str = "Eclipse Official";
 /// Beside servers.dat once the official server was offered, so a player who removes it never
 /// gets it back: the address offered, so a new one moves the list once. The game writes the same file.
 const OFFICIAL_MARKER: &str = "eclipse_official_server.txt";
@@ -56,11 +56,16 @@ fn entry(name: &str, ip: &str) -> Compound {
     .collect()
 }
 
-/// An address as the game connects to it: any case, 25565 when no port is given.
+/// The port the game connects to when an address names none.
+pub const DEFAULT_PORT: u16 = 25565;
+
+/// An address as the game connects to it: any case, [`DEFAULT_PORT`] when no port is given.
 fn same_address(a: &str, b: &str) -> bool {
     let norm = |ip: &str| {
         let ip = ip.trim().to_ascii_lowercase();
-        ip.strip_suffix(":25565").map(str::to_owned).unwrap_or(ip)
+        ip.strip_suffix(&format!(":{DEFAULT_PORT}"))
+            .map(str::to_owned)
+            .unwrap_or(ip)
     };
     norm(a) == norm(b)
 }
@@ -249,5 +254,4 @@ pub fn find(list: &List, query: &str) -> Result<(usize, Server), String> {
 }
 
 #[cfg(test)]
-#[path = "server_list/tests.rs"]
 mod tests;

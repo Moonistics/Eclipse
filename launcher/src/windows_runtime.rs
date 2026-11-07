@@ -15,9 +15,13 @@ fn value<'a>(cmd: &'a Command, key: &str) -> Option<&'a std::ffi::OsStr> {
     cmd.get_envs().find(|(k, _)| *k == key).and_then(|(_, v)| v)
 }
 
+fn root() -> std::path::PathBuf {
+    crate::backend::data_dir().join("run")
+}
+
 /// Called before adding a pre-launch command or wrapper, after applying the instance.
 pub(crate) fn redirect(cmd: Command) -> Command {
-    redirect_in(cmd, &crate::backend::data_dir().join("run"))
+    redirect_in(cmd, &root())
 }
 
 fn redirect_in(cmd: Command, root: &Path) -> Command {
@@ -49,7 +53,7 @@ fn redirect_in(cmd: Command, root: &Path) -> Command {
 /// Prepare under an exclusive lock. Never fall back to a version-specific executable:
 /// a locked or incomplete slot is an error, rather than another firewall identity.
 pub(crate) fn prepare(cmd: &Command) -> io::Result<Option<crate::backend::RuntimeGuard>> {
-    prepare_in(cmd, &crate::backend::data_dir().join("run"))
+    prepare_in(cmd, &root())
 }
 
 fn prepare_in(cmd: &Command, root: &Path) -> io::Result<Option<crate::backend::RuntimeGuard>> {
@@ -118,7 +122,7 @@ fn stage(source: &Path, slot: &Path) -> io::Result<crate::backend::RuntimeGuard>
         }
         let to = game.join(entry.file_name());
         if entry.file_type()?.is_dir() {
-            crate::backend::copy_dir(&entry.path(), &to)?;
+            crate::files::copy_dir(&entry.path(), &to, &[])?;
         } else {
             fs::copy(entry.path(), to)?;
         }
@@ -134,7 +138,7 @@ fn stage(source: &Path, slot: &Path) -> io::Result<crate::backend::RuntimeGuard>
 }
 
 pub(crate) fn in_use(source: &Path) -> bool {
-    in_use_in(source, &crate::backend::data_dir().join("run"))
+    in_use_in(source, &root())
 }
 
 fn in_use_in(source: &Path, root: &Path) -> bool {

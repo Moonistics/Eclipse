@@ -80,6 +80,18 @@ libmimalloc-sys = { path = "third_party/libmimalloc-sys" }
 [profile.dev]
 debug = "line-tables-only"
 
+[profile.dev.package."*"]
+debug = false
+
+[profile.dev.package.syn]
+opt-level = 1
+
+[profile.dev.package.proc-macro2]
+opt-level = 1
+
+[profile.dev.package.quote]
+opt-level = 1
+
 [profile.release]
 lto = "thin"
 codegen-units = 1

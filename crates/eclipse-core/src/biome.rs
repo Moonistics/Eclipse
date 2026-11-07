@@ -240,33 +240,37 @@ mod tests {
             i32::MAX - 1,
             i32::MAX,
         ];
-        for &seed in &seeds {
-            let zoom = BiomeZoom::new(seed);
-            for x in -34..34 {
-                for y in -34..34 {
-                    for z in -34..34 {
-                        let block = BlockPos::new(x, y, z);
-                        assert_eq!(
-                            zoom.quart_at_block(block),
-                            reference(seed, block),
-                            "seed {seed} at {x} {y} {z}"
-                        );
+        std::thread::scope(|scope| {
+            for seed in seeds {
+                scope.spawn(move || {
+                    let zoom = BiomeZoom::new(seed);
+                    for x in -34..34 {
+                        for y in -34..34 {
+                            for z in -34..34 {
+                                let block = BlockPos::new(x, y, z);
+                                assert_eq!(
+                                    zoom.quart_at_block(block),
+                                    reference(seed, block),
+                                    "seed {seed} at {x} {y} {z}"
+                                );
+                            }
+                        }
                     }
-                }
-            }
-            for &x in &extremes {
-                for &y in &extremes {
-                    for &z in &extremes {
-                        let block = BlockPos::new(x, y, z);
-                        assert_eq!(
-                            zoom.quart_at_block(block),
-                            reference(seed, block),
-                            "seed {seed} at {x} {y} {z}"
-                        );
+                    for &x in &extremes {
+                        for &y in &extremes {
+                            for &z in &extremes {
+                                let block = BlockPos::new(x, y, z);
+                                assert_eq!(
+                                    zoom.quart_at_block(block),
+                                    reference(seed, block),
+                                    "seed {seed} at {x} {y} {z}"
+                                );
+                            }
+                        }
                     }
-                }
+                });
             }
-        }
+        });
     }
 
     #[test]

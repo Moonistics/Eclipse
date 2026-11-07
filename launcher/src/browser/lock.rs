@@ -3,7 +3,7 @@
 //! interleave, overwrite `mod-browser.json` with a stale snapshot, or clobber each other.
 //!
 //! Locks are re-entrant on the current thread for the same game home, so nested operations
-//! (e.g. `auto::run` -> `update` -> `install_version_guarded` -> `Installed::save`) proceed
+//! (e.g. `auto::run` -> `update` -> `install_version` -> `Installed::save`) proceed
 //! without deadlocking.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,24 +27,7 @@ fn registry() -> &'static Registry {
     REGISTRY.get_or_init(Registry::default)
 }
 
-/// Strips Windows extended-length prefixes (`\\?\` and `\\?\UNC\`) so canonicalized and
-/// non-canonicalized paths match.
-fn strip_verbatim(path: PathBuf) -> PathBuf {
-    #[cfg(windows)]
-    {
-        let s = path.to_string_lossy();
-        if let Some(stripped) = s.strip_prefix(r"\\?\UNC\") {
-            return PathBuf::from(format!(r"\\{stripped}"));
-        }
-        if let Some(stripped) = s.strip_prefix(r"\\?\") {
-            return PathBuf::from(stripped);
-        }
-    }
-    path
-}
-
-/// Normalizes a game home folder to a uniform canonical representation for keyed locking.
-pub fn normalize_home(path: &Path) -> PathBuf {
+fn normalize_home(path: &Path) -> PathBuf {
     let p = if let Ok(c) = path.canonicalize() {
         c
     } else if path.is_relative() {
@@ -54,7 +37,7 @@ pub fn normalize_home(path: &Path) -> PathBuf {
     } else {
         path.to_path_buf()
     };
-    let clean = strip_verbatim(p);
+    let clean = PathBuf::from(crate::files::without_verbatim(&p.to_string_lossy()).as_ref());
     #[cfg(windows)]
     {
         PathBuf::from(clean.to_string_lossy().to_lowercase())
@@ -91,37 +74,15 @@ impl Drop for HomeLockGuard {
 ///
 /// Re-entrant: if the current thread already holds the lock for this folder, this succeeds
 /// immediately and increments the recursion depth.
-pub fn lock_home(home: &Path) -> HomeLockGuard {
+pub(crate) fn lock_home(home: &Path) -> HomeLockGuard {
     let path = normalize_home(home);
-    let current_tid = std::thread::current().id();
     let reg = registry();
     let mut locks = reg.locks.lock().unwrap_or_else(|e| e.into_inner());
     loop {
-        match locks.get_mut(&path) {
-            Some(state) => {
-                if state.holder == current_tid {
-                    state.count += 1;
-                    return HomeLockGuard {
-                        path,
-                        _not_send: std::marker::PhantomData,
-                    };
-                }
-                locks = reg.condvar.wait(locks).unwrap_or_else(|e| e.into_inner());
-            }
-            None => {
-                locks.insert(
-                    path.clone(),
-                    LockState {
-                        holder: current_tid,
-                        count: 1,
-                    },
-                );
-                return HomeLockGuard {
-                    path,
-                    _not_send: std::marker::PhantomData,
-                };
-            }
+        if let Some(guard) = claim(&mut locks, &path) {
+            return guard;
         }
+        locks = reg.condvar.wait(locks).unwrap_or_else(|e| e.into_inner());
     }
 }
 
@@ -131,35 +92,29 @@ pub fn lock_home(home: &Path) -> HomeLockGuard {
 /// or `None` if another thread currently holds it.
 pub fn try_lock_home(home: &Path) -> Option<HomeLockGuard> {
     let path = normalize_home(home);
+    let mut locks = registry().locks.lock().unwrap_or_else(|e| e.into_inner());
+    claim(&mut locks, &path)
+}
+
+fn claim(locks: &mut HashMap<PathBuf, LockState>, path: &Path) -> Option<HomeLockGuard> {
     let current_tid = std::thread::current().id();
-    let reg = registry();
-    let mut locks = reg.locks.lock().unwrap_or_else(|e| e.into_inner());
-    match locks.get_mut(&path) {
-        Some(state) => {
-            if state.holder == current_tid {
-                state.count += 1;
-                Some(HomeLockGuard {
-                    path,
-                    _not_send: std::marker::PhantomData,
-                })
-            } else {
-                None
-            }
-        }
+    match locks.get_mut(path) {
+        Some(state) if state.holder != current_tid => return None,
+        Some(state) => state.count += 1,
         None => {
             locks.insert(
-                path.clone(),
+                path.to_path_buf(),
                 LockState {
                     holder: current_tid,
                     count: 1,
                 },
             );
-            Some(HomeLockGuard {
-                path,
-                _not_send: std::marker::PhantomData,
-            })
         }
     }
+    Some(HomeLockGuard {
+        path: path.to_path_buf(),
+        _not_send: std::marker::PhantomData,
+    })
 }
 
 #[cfg(test)]

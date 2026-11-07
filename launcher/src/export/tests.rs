@@ -123,7 +123,7 @@ fn served(e: &Entry) -> Option<FileRef> {
 fn a_zip_has_the_instance_and_the_picked_world_and_nothing_private() {
     let home = home("zip");
     let out = home.join("out/Hardcore.zip");
-    let done = export(&home, "Hardcore", Format::Zip, &["Base".into()], &[], &out).unwrap();
+    let done = export_with(&home, "Hardcore", Format::Zip, &["Base".into()], &[], &out).unwrap();
     assert_eq!((done.copied, done.linked), (8, 0));
     // Settings, packs, the mod and the picked world, without its per-player files; no logs,
     // screenshots, backups, caches, account files or the other world.
@@ -156,9 +156,9 @@ fn a_zip_has_the_instance_and_the_picked_world_and_nothing_private() {
     assert_eq!(player.get(&"XpLevel".into()), Some(&Tag::Int(7)));
     assert!(!out.with_extension("part").exists());
 
-    assert!(export(&home, "Hardcore", Format::Zip, &["../x".into()], &[], &out).is_err());
+    assert!(export_with(&home, "Hardcore", Format::Zip, &["../x".into()], &[], &out).is_err());
     let empty = scratch("empty");
-    let refused = export(&empty, "New", Format::Zip, &[], &[], &empty.join("New.zip"));
+    let refused = export_with(&empty, "New", Format::Zip, &[], &[], &empty.join("New.zip"));
     assert_eq!(
         refused.unwrap_err(),
         "New has nothing to share yet: no settings, packs, mods or worlds."
@@ -175,7 +175,7 @@ fn an_mrpack_lists_what_modrinth_serves_and_carries_the_rest() {
     assert_eq!(linked.len(), 1);
     let out = free_path(&home, "Hard: core", Format::Mrpack);
     assert_eq!(out.file_name().unwrap(), "Hard- core.mrpack");
-    let done = export(&home, "Hardcore", Format::Mrpack, &[], &linked, &out).unwrap();
+    let done = export_with(&home, "Hardcore", Format::Mrpack, &[], &linked, &out).unwrap();
     assert_eq!((done.copied, done.linked), (5, 1));
     assert_eq!(
         names(&out),

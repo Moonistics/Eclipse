@@ -8,6 +8,7 @@
 //! launcher's data folder, so renaming one never moves a folder.
 use crate::backend;
 use crate::browser::eclipse::pack as registry_pack;
+use crate::game_folder;
 use crate::launch::Launch;
 use crate::modpacks;
 use serde::{Deserialize, Serialize};
@@ -18,21 +19,22 @@ use std::process::Command;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
 /// The default instance's id: the game's home itself.
-pub const DEFAULT: &str = "eclipse";
+const DEFAULT: &str = "eclipse";
 const FILE: &str = "instances.json";
-/// Where new instances live, in the game's home.
-const OWN: &str = "instances";
+const OWN: &str = game_folder::INSTANCES;
+const PORT_ID: &str = "port:";
+const PACK_ID: &str = "pack:";
 
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Kind {
     /// The game's home: what every player had before instances.
     Default,
     /// Made in the launcher: `instances/<slug>/`.
     Own,
-    /// An imported Java modpack (modpacks.rs).
-    Port,
-    /// A modpack from Eclipse's registry.
-    Pack,
+    /// An imported Java modpack (modpacks.rs), by its folder in `ports/`.
+    Port { slug: String },
+    /// A modpack from Eclipse's registry, by its id.
+    Pack { id: String },
 }
 
 /// What an instance shows in the sidebar: a block or item texture from the player's prepared
@@ -83,7 +85,7 @@ impl Icon {
 /// Drawn instead of [`Meta::icon`] while it is there.
 pub const PICTURE: &str = "icon.png";
 /// How many pixels a side a picture is kept at: twice the largest it is drawn.
-pub const PICTURE_SIDE: u32 = 128;
+const PICTURE_SIDE: u32 = 128;
 
 /// Any image file's `bytes` as a picture: PNG, scaled down to fit [`PICTURE_SIDE`].
 pub fn picture(bytes: Vec<u8>) -> Result<Vec<u8>, String> {
@@ -107,10 +109,7 @@ pub fn set_picture(
             Ok(())
         };
     };
-    fs::create_dir_all(home).map_err(|e| format!("{}: {e}", home.display()))?;
-    let part = home.join("icon.png.part");
-    fs::write(&part, png).map_err(|e| format!("{}: {e}", part.display()))?;
-    fs::rename(&part, &target).map_err(|e| format!("{}: {e}", target.display()))
+    crate::files::write(&target, png)
 }
 
 /// Makes the icon at `url` (a modpack's, from the source it was installed from) the picture of the
@@ -152,6 +151,8 @@ pub struct Meta {
     /// What runs around the game: a pre-launch command, a wrapper, variables (`launch`).
     #[serde(default, skip_serializing_if = "Launch::is_empty")]
     pub launch: Launch,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub game_args: Option<String>,
     /// Set for a Minecraft: Java Edition instance: it plays the real game, not Eclipse.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub java: Option<JavaGame>,
@@ -176,7 +177,6 @@ pub struct JavaGame {
     /// Extra JVM arguments, split on whitespace.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub jvm_args: String,
-    /// The mod loader it plays with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loader: Option<crate::loaders::Loader>,
     /// The game window's size, width then height; none: the game's own 854×480.
@@ -191,9 +191,23 @@ impl Instance {
         let java = self.java.as_ref().map(|_| program);
         crate::launch::instance_vars(&self.name, &self.id, &self.home, java)
     }
+
+    pub fn plays_a_pack(&self) -> bool {
+        matches!(self.kind, Kind::Port { .. } | Kind::Pack { .. })
+    }
 }
 
 impl JavaGame {
+    pub fn line(&self) -> String {
+        match &self.loader {
+            Some(l) => crate::i18n::trf(
+                "{loader} {version}",
+                &[("loader", l.kind.name()), ("version", &self.minecraft)],
+            ),
+            None => crate::i18n::trf("Vanilla {version}", &[("version", &self.minecraft)]),
+        }
+    }
+
     /// What the mod browser installs for: its Minecraft version and its loader.
     pub fn target(&self) -> crate::browser::java_instance::Target {
         crate::browser::java_instance::Target {
@@ -218,16 +232,18 @@ struct Store {
 }
 
 impl Store {
-    fn load(data: &Path) -> Store {
-        fs::read_to_string(data.join(FILE))
-            .ok()
-            .and_then(|t| serde_json::from_str(&t).ok())
-            .unwrap_or_default()
+    fn read(data: &Path) -> Result<Store, String> {
+        crate::files::read_json(&data.join(FILE)).map(Option::unwrap_or_default)
     }
-    fn save(&self, data: &Path) -> Result<(), String> {
-        fs::create_dir_all(data).map_err(|e| format!("{}: {e}", data.display()))?;
-        let text = serde_json::to_string_pretty(self).unwrap();
-        fs::write(data.join(FILE), text).map_err(|e| format!("{FILE}: {e}"))
+
+    fn change<T>(
+        data: &Path,
+        f: impl FnOnce(&mut Store) -> Result<T, String>,
+    ) -> Result<T, String> {
+        let mut store = Self::read(data)?;
+        let out = f(&mut store)?;
+        crate::files::write_json(&data.join(FILE), &store)?;
+        Ok(out)
     }
 }
 
@@ -249,6 +265,7 @@ pub struct Instance {
     pub last_played: Option<SystemTime>,
     /// What runs around the game (`launch::wrap`).
     pub launch: Launch,
+    pub game_args: Option<String>,
     /// The Minecraft: Java Edition it plays, for a Java instance.
     pub java: Option<JavaGame>,
 }
@@ -269,18 +286,85 @@ impl Instance {
 
     /// The installed version this instance plays: its pinned one, else `requested` (the
     /// command line's `--version`) or the launcher's (`backend::resolve_version`).
-    pub fn resolve_version(&self, requested: Option<&str>) -> Result<String, String> {
+    pub fn resolve_version(
+        &self,
+        requested: Option<&str>,
+        settings: &backend::Settings,
+    ) -> Result<String, String> {
         self.eclipse()?;
-        match (requested, &self.version) {
-            (None, Some(pinned)) => backend::resolve_version(Some(pinned)).map_err(|_| {
-                format!(
-                    "{} plays {pinned}, which is not installed: install it, or eclipse-launcher \
-                     instance version \"{}\" latest",
-                    self.name, self.name
-                )
-            }),
-            _ => backend::resolve_version(requested),
+        if requested.is_some() {
+            return backend::resolve_version(requested, settings);
         }
+        let installed = backend::installed();
+        self.installed_version(settings.default_version.as_ref(), &installed)
+    }
+
+    fn installed_version(
+        &self,
+        default: Option<&String>,
+        installed: &[String],
+    ) -> Result<String, String> {
+        let plays = self.eclipse_version(default, installed);
+        if let Some(tag) = plays.and_then(EclipseVersion::installed_tag) {
+            return Ok(tag.clone());
+        }
+        match &self.version {
+            Some(pinned) => Err(format!(
+                "{} plays {pinned}, which is not installed: install it, or eclipse-launcher \
+                 instance version \"{}\" latest",
+                self.name, self.name
+            )),
+            None => Err(backend::no_version_installed()),
+        }
+    }
+
+    pub fn eclipse_version<'a>(
+        &'a self,
+        default: Option<&'a String>,
+        installed: &'a [String],
+    ) -> Option<EclipseVersion<'a>> {
+        self.java
+            .is_none()
+            .then(|| EclipseVersion::of(self.version.as_ref(), default, installed))
+    }
+
+    pub fn game_args_or<'a>(&'a self, default: &'a str) -> &'a str {
+        self.game_args.as_deref().unwrap_or(default)
+    }
+}
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct EclipseVersion<'a> {
+    pub tag: Option<&'a String>,
+    pub follows: bool,
+    pub installed: bool,
+}
+
+impl<'a> EclipseVersion<'a> {
+    pub fn of(
+        pinned: Option<&'a String>,
+        default: Option<&'a String>,
+        installed: &'a [String],
+    ) -> Self {
+        match pinned {
+            Some(pinned) => EclipseVersion {
+                tag: Some(pinned),
+                follows: false,
+                installed: installed.contains(pinned),
+            },
+            None => {
+                let tag = backend::followed_version(default, installed);
+                EclipseVersion {
+                    tag,
+                    follows: true,
+                    installed: tag.is_some(),
+                }
+            }
+        }
+    }
+
+    pub fn installed_tag(self) -> Option<&'a String> {
+        self.tag.filter(|_| self.installed)
     }
 }
 
@@ -291,7 +375,7 @@ pub fn list() -> Vec<Instance> {
 }
 
 fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
-    let mut store = Store::load(data);
+    let store = Store::read(data).unwrap_or_default();
     let mut found = vec![(
         DEFAULT.to_string(),
         "Eclipse".to_string(),
@@ -307,36 +391,29 @@ fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
         .filter_map(|e| e.file_name().into_string().ok())
         .collect();
     own.sort();
-    // An own instance whose folder is gone (deleted outside the launcher) is forgotten, so a new
-    // one of that name starts clean. Only when the folder of instances itself can be read.
-    if game_home.join(OWN).is_dir() {
-        let before = store.instances.len();
-        store
-            .instances
-            .retain(|id, _| id == DEFAULT || id.contains(':') || own.contains(id));
-        if store.instances.len() != before {
-            if let Err(e) = store.save(data) {
-                eprintln!("Eclipse: instances.json is not saved: {e}");
-            }
-        }
-    }
     for slug in own {
         let dir = game_home.join(OWN).join(&slug);
         found.push((slug.clone(), slug, Kind::Own, dir.clone(), dir));
     }
-    for p in modpacks::list_in(&game_home.join("ports")) {
+    for p in modpacks::list_in(&game_home.join(game_folder::PORTS)) {
         let home = modpacks::profile_home(&p.work);
         found.push((
-            format!("port:{}", p.slug),
+            port_id(&p.slug),
             p.title().into(),
-            Kind::Port,
+            Kind::Port { slug: p.slug },
             p.work,
             home,
         ));
     }
-    for p in registry_pack::list_in(&game_home.join("eclipse-packs")) {
+    for p in registry_pack::list_in(&game_home.join(game_folder::PACKS)) {
         let home = registry_pack::home(&p.work);
-        found.push((format!("pack:{}", p.id), p.name, Kind::Pack, p.work, home));
+        found.push((
+            pack_id(&p.id),
+            p.name,
+            Kind::Pack { id: p.id },
+            p.work,
+            home,
+        ));
     }
     let mut out: Vec<Instance> = found
         .into_iter()
@@ -352,6 +429,7 @@ fn list_in(game_home: &Path, data: &Path) -> Vec<Instance> {
                     .last_played
                     .map(|s| UNIX_EPOCH + Duration::from_secs(s)),
                 launch: meta.launch,
+                game_args: meta.game_args,
                 java: meta.java,
                 id,
                 kind,
@@ -371,11 +449,15 @@ pub fn find(query: &str) -> Result<Instance, String> {
 
 fn find_in(all: &[Instance], query: &str) -> Result<Instance, String> {
     let q = query.trim();
-    let bare = |id: &str| id.split_once(':').map_or(id, |(_, rest)| rest).to_string();
+    let folder = |i: &Instance| match &i.kind {
+        Kind::Port { slug } => slug.clone(),
+        Kind::Pack { id } => id.clone(),
+        Kind::Default | Kind::Own => i.id.clone(),
+    };
     all.iter()
         .find(|i| i.id == q)
         .or_else(|| all.iter().find(|i| i.name.eq_ignore_ascii_case(q)))
-        .or_else(|| all.iter().find(|i| bare(&i.id) == q))
+        .or_else(|| all.iter().find(|i| folder(i) == q))
         .cloned()
         .ok_or_else(|| format!("No instance {q}: eclipse-launcher instance list shows them"))
 }
@@ -397,13 +479,11 @@ pub fn delete_with_selection(query: &str) -> Result<(Instance, Result<(), String
         query,
         &crate::desktop_seams::to_trash,
     )?;
-    let mut settings = backend::Settings::load();
-    let saved = if settings.instance.as_ref() == Some(&gone.id) {
-        settings.instance = None;
-        settings.save()
-    } else {
-        Ok(())
-    };
+    let saved = backend::Settings::update(|settings| {
+        if settings.instance.as_ref() == Some(&gone.id) {
+            settings.instance = None;
+        }
+    });
     Ok((gone, saved))
 }
 
@@ -420,51 +500,63 @@ fn delete_in(
             instance.name
         ));
     }
+    Store::read(data)?;
     trash(&instance.work)
         .map_err(|e| format!("{} could not go to the Trash: {e}", instance.name))?;
-    let mut store = Store::load(data);
-    if store.instances.remove(&instance.id).is_some() {
-        store.save(data)?;
-    }
+    Store::change(data, |store| {
+        store.instances.remove(&instance.id);
+        Ok(())
+    })?;
     Ok(instance)
 }
 
+/// The mod API level of the game that plays the folder `home`: the version its Eclipse instance
+/// plays, else the selected version's. None when that isn't installed.
+pub fn mod_api_level_at(home: &Path, settings: &backend::Settings) -> Option<u32> {
+    let installed = backend::installed();
+    playing_at(&list(), home, settings.default_version.as_ref(), &installed)
+        .map(|tag| backend::mod_api_level(tag))
+}
+
+fn playing_at<'a>(
+    list: &'a [Instance],
+    home: &Path,
+    default: Option<&'a String>,
+    installed: &'a [String],
+) -> Option<&'a String> {
+    match list.iter().find(|i| i.home == home) {
+        Some(i) => i.eclipse_version(default, installed)?.installed_tag(),
+        None => backend::followed_version(default, installed),
+    }
+}
+
+pub fn port_id(slug: &str) -> String {
+    format!("{PORT_ID}{slug}")
+}
+
+pub fn pack_id(id: &str) -> String {
+    format!("{PACK_ID}{id}")
+}
+
 /// The instance Play starts: the one picked in the launcher, else Eclipse.
-pub fn selected() -> Instance {
-    let all = list();
-    backend::Settings::load()
-        .instance
-        .and_then(|id| all.iter().find(|i| i.id == id).cloned())
-        .unwrap_or_else(|| all[0].clone())
+pub fn selected_in<'a>(list: &'a [Instance], settings: &backend::Settings) -> Option<&'a Instance> {
+    let id = settings.instance.as_deref().unwrap_or(DEFAULT);
+    list.iter().find(|i| i.id == id).or(list.first())
+}
+
+pub fn selected(settings: &backend::Settings) -> Instance {
+    selected_in(&list(), settings)
+        .cloned()
+        .expect("the list always holds Eclipse's own instance")
 }
 
 pub fn select(query: &str) -> Result<Instance, String> {
     let instance = find(query)?;
-    let mut settings = backend::Settings::load();
-    settings.instance = (instance.kind != Kind::Default).then(|| instance.id.clone());
-    settings.save()?;
+    backend::Settings::update(|settings| {
+        settings.instance = (instance.kind != Kind::Default).then(|| instance.id.clone());
+    })?;
     Ok(instance)
 }
-
-/// What a copy of a game folder leaves out: other instances and packs, logs and crash reports,
-/// caches, data collection's state, and sign-in sessions (a session never leaves its folder).
-const NOT_COPIED: &[&str] = &[
-    OWN,
-    "ports",
-    "eclipse-packs",
-    "logs",
-    "crash-reports",
-    "sessions",
-    "telemetry",
-    "mod-browser",
-    ".eclipse-cache",
-    // Far terrain's copies of what servers sent, rebuilt as the instance plays.
-    "server-terrain",
-];
-
-/// Files of the player, not of one instance, that a new instance starts with: the keys and video
-/// settings, and the offline name (so the player stays the same player in its worlds).
-const PLAYER_FILES: &[&str] = &["options.txt", "eclipse-player.txt"];
 
 /// Creates an instance named `name`: empty but for the player's options and offline name, or a
 /// copy of `from`'s game folder (its worlds, options and packs). Nothing of `from` changes.
@@ -481,13 +573,22 @@ pub fn create(name: &str, from: Option<&str>) -> Result<Instance, String> {
 
 /// Creates a Minecraft: Java Edition instance named `name` playing `minecraft` (a version id
 /// from Mojang's list), with an empty game folder: the real game keeps its own options.
-pub fn create_java(name: &str, minecraft: &str) -> Result<Instance, String> {
+pub fn create_java(
+    name: &str,
+    minecraft: &str,
+    loader: Option<crate::loaders::Loader>,
+) -> Result<Instance, String> {
+    let java = JavaGame {
+        minecraft: minecraft.to_string(),
+        loader,
+        ..JavaGame::default()
+    };
     create_in(
         &backend::game_home(),
         &backend::data_dir(),
         name,
         None,
-        Some(minecraft),
+        Some(java),
     )
 }
 
@@ -499,17 +600,12 @@ pub fn name_taken(name: &str) -> String {
     )
 }
 
-/// `name_taken` for `instance copy-from`, whose flag for another name is `--as`.
-pub fn name_taken_with_flag(name: &str) -> String {
-    format!("{} (`--as NAME`)", name_taken(name))
-}
-
 fn create_in(
     game_home: &Path,
     data: &Path,
     name: &str,
     from: Option<&Instance>,
-    minecraft: Option<&str>,
+    java: Option<JavaGame>,
 ) -> Result<Instance, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -519,7 +615,7 @@ fn create_in(
     if all.iter().any(|i| i.name.eq_ignore_ascii_case(name)) {
         return Err(name_taken(name));
     }
-    if let Some(from) = from.filter(|f| matches!(f.kind, Kind::Port | Kind::Pack)) {
+    if let Some(from) = from.filter(|f| f.plays_a_pack()) {
         return Err(format!(
             "{} plays its pack's mods: import the pack again for a second copy.",
             from.name
@@ -537,12 +633,13 @@ fn create_in(
         })
         .find(|s| !taken(s))
         .unwrap();
+    Store::read(data)?;
     let dir = game_home.join(OWN).join(&slug);
     let made = match from {
-        Some(from) => copy_home(&from.home, &dir),
-        None if minecraft.is_some() => fs::create_dir_all(&dir),
+        Some(from) => crate::files::copy_dir(&from.home, &dir, &game_folder::copy_leaves_out()),
+        None if java.is_some() => fs::create_dir_all(&dir),
         None => fs::create_dir_all(&dir).and_then(|()| {
-            for f in PLAYER_FILES {
+            for f in game_folder::FROM_PLAYER {
                 let own = game_home.join(f);
                 if own.is_file() {
                     fs::copy(own, dir.join(f))?;
@@ -555,51 +652,18 @@ fn create_in(
         let _ = fs::remove_dir_all(&dir);
         return Err(format!("Could not make {}: {e}", dir.display()));
     }
-    let mut store = Store::load(data);
-    let meta = store.instances.entry(slug.clone()).or_default();
-    meta.name = (name != slug).then(|| name.to_string());
-    meta.icon = from.and_then(|f| f.icon.clone());
-    meta.group = from.and_then(|f| f.group.clone());
-    meta.java = from.and_then(|f| f.java.clone()).or_else(|| {
-        minecraft.map(|v| JavaGame {
-            minecraft: v.to_string(),
-            ..JavaGame::default()
-        })
-    });
-    store.save(data)?;
+    let meta = Meta {
+        name: (name != slug).then(|| name.to_string()),
+        icon: from.and_then(|f| f.icon.clone()),
+        group: from.and_then(|f| f.group.clone()),
+        java: from.and_then(|f| f.java.clone()).or(java),
+        ..Meta::default()
+    };
+    Store::change(data, |store| {
+        store.instances.insert(slug.clone(), meta);
+        Ok(())
+    })?;
     find_in(&list_in(game_home, data), &slug)
-}
-
-fn copy_home(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let name = entry.file_name();
-        if NOT_COPIED.iter().any(|n| name == *n) {
-            continue;
-        }
-        let path = entry.path();
-        if entry.file_type()?.is_dir() {
-            copy_dir(&path, &to.join(&name))?;
-        } else {
-            fs::copy(&path, to.join(&name))?;
-        }
-    }
-    Ok(())
-}
-
-fn copy_dir(from: &Path, to: &Path) -> std::io::Result<()> {
-    fs::create_dir_all(to)?;
-    for entry in fs::read_dir(from)? {
-        let entry = entry?;
-        let target = to.join(entry.file_name());
-        if entry.file_type()?.is_dir() {
-            copy_dir(&entry.path(), &target)?;
-        } else {
-            fs::copy(entry.path(), target)?;
-        }
-    }
-    Ok(())
 }
 
 /// Changes what the player chose about an instance: its name, icon or group. No folder moves.
@@ -615,16 +679,18 @@ fn edit_in(
 ) -> Result<Instance, String> {
     let all = list_in(game_home, data);
     let instance = find_in(&all, query)?;
-    let mut store = Store::load(data);
-    let meta = store.instances.entry(instance.id.clone()).or_default();
-    change(meta);
-    meta.name = meta.name.take().map(|n| n.trim().to_string());
-    meta.group = meta
-        .group
-        .take()
-        .map(|g| g.trim().to_string())
-        .filter(|g| !g.is_empty());
-    if let Some(name) = &meta.name {
+    Store::change(data, |store| {
+        let meta = store.instances.entry(instance.id.clone()).or_default();
+        change(meta);
+        meta.name = meta.name.take().map(|n| n.trim().to_string());
+        meta.group = meta
+            .group
+            .take()
+            .map(|g| g.trim().to_string())
+            .filter(|g| !g.is_empty());
+        let Some(name) = &meta.name else {
+            return Ok(());
+        };
         if name.is_empty() {
             return Err("An instance needs a name.".into());
         }
@@ -638,15 +704,26 @@ fn edit_in(
         {
             return Err(name_taken(name));
         }
-    }
-    store.save(data)?;
+        Ok(())
+    })?;
     find_in(&list_in(game_home, data), &instance.id)
 }
 
 /// Adds a finished run of the game to the instance's play time (by id: a renamed instance keeps
 /// it).
-pub fn record_play(id: &str, played: Duration) -> Result<(), String> {
+fn record_play(id: &str, played: Duration) -> Result<(), String> {
     record_play_in(&backend::data_dir(), id, played, SystemTime::now())
+}
+
+pub fn game_ended(
+    instance: &Instance,
+    played: Duration,
+    vars: &crate::launch::Vars,
+) -> Option<std::process::Command> {
+    if let Err(e) = record_play(&instance.id, played) {
+        eprintln!("Play time not saved: {e}");
+    }
+    crate::launch::after_exit(&instance.launch, &instance.home, vars)
 }
 
 fn record_play_in(
@@ -655,11 +732,12 @@ fn record_play_in(
     played: Duration,
     ended: SystemTime,
 ) -> Result<(), String> {
-    let mut store = Store::load(data);
-    let meta = store.instances.entry(id.to_string()).or_default();
-    meta.played_secs = meta.played_secs.saturating_add(played.as_secs());
-    meta.last_played = ended.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
-    store.save(data)
+    Store::change(data, |store| {
+        let meta = store.instances.entry(id.to_string()).or_default();
+        meta.played_secs = meta.played_secs.saturating_add(played.as_secs());
+        meta.last_played = ended.duration_since(UNIX_EPOCH).ok().map(|d| d.as_secs());
+        Ok(())
+    })
 }
 
 /// "12 min", "3 h 05 min", "140 h": the play time as players read it.
@@ -686,14 +764,15 @@ pub fn apply(cmd: &mut Command, instance: &Instance) -> Result<(), String> {
             cmd.current_dir(&instance.home)
                 .env("ECLIPSE_HOME", &instance.home);
         }
-        Kind::Port | Kind::Pack => modpacks::apply_profile(cmd, &instance.work)?,
+        Kind::Port { .. } => modpacks::apply_profile(cmd, &instance.work)?,
+        Kind::Pack { .. } => registry_pack::apply(cmd, &instance.work)?,
     }
     follow_player(&backend::game_home(), &instance.home);
     Ok(())
 }
 
 fn follow_player(game_home: &Path, home: &Path) {
-    for f in PLAYER_FILES {
+    for f in game_folder::FROM_PLAYER {
         if !home.join(f).exists() && game_home.join(f).is_file() {
             let _ = fs::copy(game_home.join(f), home.join(f));
         }
@@ -711,9 +790,9 @@ fn follow_player(game_home: &Path, home: &Path) {
 }
 
 /// A fresh made-up name everywhere the game keeps one: `eclipse-player.txt` is per game
-/// folder (`PLAYER_FILES`), so the same new name goes to the default home and every
-/// instance's — the player stays one player in its worlds. The file's `name:` line and the
-/// `Player` + five digits scheme are eclipse-client's (`offline_name.rs`).
+/// folder, so the same new name goes to the default home and every instance's — the player
+/// stays one player in its worlds. The `Player` + five digits scheme is eclipse-client's
+/// (`offline_name.rs`).
 pub fn new_player_name() -> Result<String, String> {
     new_player_name_in(&backend::game_home(), &backend::data_dir())
 }
@@ -728,20 +807,14 @@ fn new_player_name_in(game_home: &Path, data: &Path) -> Result<String, String> {
     );
     for instance in list_in(game_home, data) {
         if instance.home.is_dir() {
-            fs::write(
-                instance.home.join("eclipse-player.txt"),
-                format!("name:{name}\n"),
-            )
-            .map_err(|e| format!("{}: {e}", instance.home.display()))?;
+            game_folder::set_player_name(&instance.home, &name)?;
         }
     }
     Ok(name)
 }
 
-#[path = "instances/switch.rs"]
 mod switch;
 pub use switch::{switch, unkept, Plays, Unkept};
 
 #[cfg(test)]
-#[path = "instances/tests.rs"]
 mod tests;

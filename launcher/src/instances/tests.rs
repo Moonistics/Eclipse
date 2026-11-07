@@ -11,12 +11,18 @@ fn scratch(name: &str) -> PathBuf {
     root
 }
 
+fn java_of(minecraft: &str) -> JavaGame {
+    JavaGame {
+        minecraft: minecraft.into(),
+        ..JavaGame::default()
+    }
+}
+
 fn put(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
 }
 
-/// Every file under `dir`, relative, with its bytes.
 fn files(dir: &Path) -> BTreeMap<PathBuf, Vec<u8>> {
     fn walk(root: &Path, dir: &Path, out: &mut BTreeMap<PathBuf, Vec<u8>>) {
         for e in fs::read_dir(dir).unwrap().flatten() {
@@ -142,10 +148,16 @@ fn existing_worlds_stay_where_they_are_and_every_folder_becomes_an_instance() {
     ] {
         assert_eq!(copied[Path::new(kept)], before[Path::new(kept)]);
     }
-    assert!(copied.keys().all(|p| {
-        let top = p.components().next().unwrap().as_os_str().to_str().unwrap();
-        !NOT_COPIED.contains(&top)
-    }));
+    for left_out in [
+        "sessions",
+        "logs",
+        "telemetry",
+        "instances",
+        "ports",
+        "eclipse-packs",
+    ] {
+        assert!(!copy.home.join(left_out).exists(), "{left_out} was copied");
+    }
 
     let all = list_in(&home, &data);
     assert_eq!(all[0].name, "Main");
@@ -165,10 +177,6 @@ fn names_stay_unique_and_packs_are_not_copied() {
         create_in(&home, &data, "survival", None, None).unwrap_err(),
         "There is already an instance called survival. Choose another name."
     );
-    assert_eq!(
-        name_taken_with_flag("survival"),
-        "There is already an instance called survival. Choose another name. (`--as NAME`)"
-    );
     assert!(create_in(&home, &data, "  ", None, None).is_err());
     // Another name with the same folder name gets the next free folder.
     let second = create_in(&home, &data, "Survival!", None, None).unwrap();
@@ -184,9 +192,11 @@ fn names_stay_unique_and_packs_are_not_copied() {
     let grouped = edit_in(&home, &data, "Survival", |m| m.group = Some(" ".into())).unwrap();
     assert_eq!(grouped.group, None);
     // An import named like an instance: both can still change everything but their names.
-    let mut store = Store::load(&data);
-    store.instances.entry(port.id.clone()).or_default().name = Some("Survival".into());
-    store.save(&data).unwrap();
+    Store::change(&data, |store| {
+        store.instances.entry(port.id.clone()).or_default().name = Some("Survival".into());
+        Ok(())
+    })
+    .unwrap();
     let launched = edit_in(&home, &data, "survival", |m| {
         m.launch.wrapper = "nice".into()
     })
@@ -297,6 +307,23 @@ fn play_time_adds_up_per_instance_and_survives_a_rename() {
 }
 
 #[test]
+fn an_instances_json_that_cant_be_read_is_never_saved_over() {
+    let root = scratch("torn");
+    let (home, data) = (root.join("home"), root.join("data"));
+    player_home(&home);
+    create_in(&home, &data, "Skyblock", None, None).unwrap();
+    let torn = &fs::read(data.join(FILE)).unwrap()[..20];
+    fs::write(data.join(FILE), torn).unwrap();
+    assert!(record_play_in(&data, "skyblock", Duration::from_secs(60), UNIX_EPOCH).is_err());
+    assert!(edit_in(&home, &data, "skyblock", |m| m.group = Some("A".into())).is_err());
+    assert!(create_in(&home, &data, "Other", None, None).is_err());
+    assert!(!home.join(OWN).join("other").exists());
+    assert_eq!(fs::read(data.join(FILE)).unwrap(), torn);
+    assert!(find_in(&list_in(&home, &data), "skyblock").is_ok());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
 fn play_time_reads_as_minutes_then_hours() {
     let t = |s| play_time(Duration::from_secs(s));
     assert_eq!(t(59), "under a minute");
@@ -313,7 +340,14 @@ fn a_java_instance_plays_one_minecraft_version_in_its_own_folder() {
     let root = scratch("java");
     let (home, data) = (root.join("eclipse"), root.join("launcher"));
     player_home(&home);
-    let java = create_in(&home, &data, "Vanilla 1.21.4", None, Some("1.21.4")).unwrap();
+    let java = create_in(
+        &home,
+        &data,
+        "Vanilla 1.21.4",
+        None,
+        Some(java_of("1.21.4")),
+    )
+    .unwrap();
     assert_eq!(java.home, home.join(OWN).join("vanilla-1-21-4"));
     assert_eq!(fs::read_dir(&java.home).unwrap().count(), 0);
     assert_eq!(java.java.as_ref().unwrap().minecraft, "1.21.4");
@@ -342,8 +376,8 @@ fn a_java_instance_plays_one_minecraft_version_in_its_own_folder() {
     fs::remove_dir_all(&root).unwrap();
 }
 
-/// Delete moves an instance's folder to the Trash and forgets it; one deleted outside the
-/// launcher is forgotten when the list is next read (#eclipse-bugs: an instance that stayed).
+/// Delete moves an instance's folder to the Trash and forgets it; after one deleted outside the
+/// launcher, a new one of its name starts clean (#eclipse-bugs: an instance that stayed).
 #[test]
 fn deleted_instances_go_to_the_trash_and_are_forgotten() {
     let root = scratch("delete");
@@ -360,7 +394,10 @@ fn deleted_instances_go_to_the_trash_and_are_forgotten() {
         b"base"
     );
     assert!(find_in(&list_in(&home, &data), "Survival").is_err());
-    assert!(!Store::load(&data).instances.contains_key("survival"));
+    assert!(!Store::read(&data)
+        .unwrap()
+        .instances
+        .contains_key("survival"));
     // The game's home stays; an imported pack goes like an instance.
     assert!(delete_in(&home, &data, DEFAULT, &to_trash)
         .unwrap_err()
@@ -375,33 +412,9 @@ fn deleted_instances_go_to_the_trash_and_are_forgotten() {
     edit_in(&home, &data, "Skyblock", |m| m.group = Some("Old".into())).unwrap();
     fs::remove_dir_all(home.join(OWN).join("skyblock")).unwrap();
     assert!(find_in(&list_in(&home, &data), "Skyblock").is_err());
-    assert!(!Store::load(&data).instances.contains_key("skyblock"));
     let again = create_in(&home, &data, "Skyblock", None, None).unwrap();
     assert_eq!(again.group, None);
     fs::remove_dir_all(&root).unwrap();
-}
-
-#[test]
-fn the_mod_browser_installs_for_the_instance_loader() {
-    let vanilla = JavaGame {
-        minecraft: "1.21.1".into(),
-        ..JavaGame::default()
-    };
-    assert_eq!(vanilla.target().loader, None);
-    let quilt = JavaGame {
-        loader: Some(crate::loaders::Loader {
-            kind: crate::loaders::Kind::Quilt,
-            version: "0.30.1".into(),
-        }),
-        ..vanilla
-    };
-    let target = quilt.target();
-    assert_eq!(
-        (target.minecraft.as_str(), target.loader.as_deref()),
-        ("1.21.1", Some("quilt"))
-    );
-    // A Quilt instance takes Fabric mods too.
-    assert!(target.accepts("fabric") && !target.accepts("neoforge"));
 }
 
 /// A chosen picture is kept scaled to 128 pixels in the instance's folder; removing it moves it
@@ -444,7 +457,15 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
     let made = create_in(&home, &data, "Mine", None, None).unwrap();
     put(&made.home.join("saves/Base/level.dat"), "base");
     put(&made.home.join("saves/Base/region/r.0.0.mca"), "region");
-    put(&made.home.join("mods/minimap.emod"), "emod");
+    put(&made.home.join("eclipse-mods/minimap.emod"), "emod");
+    put(
+        &made.home.join("eclipse-mods/ported/eclipse-mod.toml"),
+        "ported",
+    );
+    put(
+        &made.home.join("eclipse-mods/.eclipse-mod-data/minimap/x"),
+        "data",
+    );
     put(&made.home.join("options.txt"), "fov:90");
     edit_in(&home, &data, &made.id, |m| {
         m.version = Some("nightly-2026-11-01-c9d474d".into())
@@ -465,7 +486,7 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
         unkept(&now, &fabric("1.21.1"), "26.3"),
         [
             Unkept::Mods {
-                count: 1,
+                count: 2,
                 made_for: "Eclipse".into()
             },
             Unkept::Worlds {
@@ -537,4 +558,188 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
     assert!(refused.contains("plays what it was made with"), "{refused}");
     assert_eq!(files(&home.join("saves")), home_files);
     fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_java_instance_is_made_with_its_loader() {
+    let root = scratch("java-loader");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    let loader = crate::loaders::Loader {
+        kind: crate::loaders::Kind::Fabric,
+        version: "0.16.9".into(),
+    };
+    let java = JavaGame {
+        loader: Some(loader.clone()),
+        ..java_of("1.21.4")
+    };
+    let made = create_in(&home, &data, "Fabric", None, Some(java)).unwrap();
+    let listed = find_in(&list_in(&home, &data), &made.id).unwrap();
+    assert_eq!(listed.java.unwrap().loader, Some(loader));
+}
+
+#[test]
+fn every_reader_of_the_version_an_instance_plays_gets_the_same_answer() {
+    let root = scratch("plays");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    create_in(&home, &data, "Pinned", None, None).unwrap();
+    create_in(&home, &data, "Vanilla", None, Some(java_of("1.21.4"))).unwrap();
+    edit_in(&home, &data, "Pinned", |m| {
+        m.version = Some("v0.2.0".into())
+    })
+    .unwrap();
+    let all = list_in(&home, &data);
+    let eclipse = find_in(&all, DEFAULT).unwrap();
+    let pinned = find_in(&all, "Pinned").unwrap();
+    let vanilla = find_in(&all, "Vanilla").unwrap();
+    let (newer, older, gone) = (
+        "v0.3.0".to_string(),
+        "v0.2.0".to_string(),
+        "v0.1.0".to_string(),
+    );
+    let both = [newer.clone(), older.clone()];
+    let only_newer = [newer.clone()];
+    let check = |instance: &Instance,
+                 default: Option<&String>,
+                 installed: &[String],
+                 expected: EclipseVersion| {
+        let plays = instance.eclipse_version(default, installed).unwrap();
+        let case = format!("{} with {default:?} of {installed:?}", instance.name);
+        assert_eq!(plays, expected, "{case}");
+        let resolved = instance.installed_version(default, installed);
+        assert_eq!(resolved.as_ref().ok(), plays.installed_tag(), "{case}");
+    };
+    let plays = |tag, follows, installed| EclipseVersion {
+        tag,
+        follows,
+        installed,
+    };
+    check(
+        &eclipse,
+        Some(&older),
+        &both,
+        plays(Some(&older), true, true),
+    );
+    check(
+        &eclipse,
+        Some(&gone),
+        &both,
+        plays(Some(&newer), true, true),
+    );
+    check(&eclipse, None, &[], plays(None, true, false));
+    check(
+        &pinned,
+        Some(&newer),
+        &both,
+        plays(Some(&older), false, true),
+    );
+    check(
+        &pinned,
+        Some(&newer),
+        &only_newer,
+        plays(Some(&older), false, false),
+    );
+    check(&pinned, None, &[], plays(Some(&older), false, false));
+    let unplayable = pinned.installed_version(Some(&newer), &only_newer);
+    assert!(
+        unplayable
+            .unwrap_err()
+            .contains("v0.2.0, which is not installed"),
+        "a pinned version that isn't installed never plays the launcher's"
+    );
+    assert_eq!(
+        eclipse.installed_version(None, &[]),
+        Err(backend::no_version_installed())
+    );
+    assert_eq!(vanilla.eclipse_version(Some(&newer), &both), None);
+    assert!(vanilla
+        .resolve_version(None, &backend::Settings::default())
+        .is_err());
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn an_instance_without_its_own_game_arguments_uses_the_launchers() {
+    let root = scratch("game-args");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    fs::create_dir_all(home.join("instances/survival")).unwrap();
+    put(
+        &data.join(FILE),
+        r#"{"instances": {"survival": {"name": "Survival", "played_secs": 60}}}"#,
+    );
+    let survival = find_in(&list_in(&home, &data), "Survival").unwrap();
+    assert_eq!(survival.game_args, None);
+    assert_eq!(survival.game_args_or("--fps 120"), "--fps 120");
+    edit_in(&home, &data, "Survival", |m| m.group = Some("Old".into())).unwrap();
+    let kept = fs::read_to_string(data.join(FILE)).unwrap();
+    assert!(!kept.contains("game_args"), "{kept}");
+
+    let own = edit_in(&home, &data, "Survival", |m| {
+        m.game_args = Some("--quick".into())
+    })
+    .unwrap();
+    assert_eq!(own.game_args_or("--fps 120"), "--quick");
+    let none = edit_in(&home, &data, "Survival", |m| {
+        m.game_args = Some(String::new())
+    })
+    .unwrap();
+    assert_eq!(none.game_args_or("--fps 120"), "");
+    let back = edit_in(&home, &data, "Survival", |m| m.game_args = None).unwrap();
+    assert_eq!(back.game_args_or("--fps 120"), "--fps 120");
+    assert_eq!(back.played, Duration::from_secs(60));
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn a_packs_instance_plays_its_pack_and_is_not_copied() {
+    let root = scratch("plays-a-pack");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    let mut pack = list_in(&home, &data).remove(0);
+    assert!(!pack.plays_a_pack());
+    for kind in [
+        Kind::Port {
+            slug: "pack".into(),
+        },
+        Kind::Pack { id: "pack".into() },
+    ] {
+        pack.kind = kind;
+        assert!(pack.plays_a_pack());
+        let refused = create_in(&home, &data, "Copy", Some(&pack), None).unwrap_err();
+        assert!(refused.contains("import the pack again"), "{refused}");
+    }
+    fs::remove_dir_all(&root).unwrap();
+}
+
+#[test]
+fn registry_mods_install_for_the_game_their_instance_plays() {
+    let instance = |id: &str, version: Option<&str>| Instance {
+        id: id.into(),
+        name: id.into(),
+        kind: Kind::Own,
+        work: PathBuf::from(id),
+        home: PathBuf::from(id),
+        icon: None,
+        group: None,
+        version: version.map(String::from),
+        played: Duration::ZERO,
+        last_played: None,
+        launch: Default::default(),
+        game_args: None,
+        java: None,
+    };
+    let list = [instance("eclipse", None), instance("old", Some("v1"))];
+    let installed = ["v2".to_string(), "v1".to_string()];
+    let selected = Some(&installed[0]);
+    let at = |home: &str| playing_at(&list, Path::new(home), selected, &installed).cloned();
+    assert_eq!(at("old").as_deref(), Some("v1"));
+    assert_eq!(at("eclipse").as_deref(), Some("v2"));
+    assert_eq!(at("elsewhere").as_deref(), Some("v2"));
+    let gone = [instance("gone", Some("v0"))];
+    assert_eq!(
+        playing_at(&gone, Path::new("gone"), selected, &installed),
+        None
+    );
 }

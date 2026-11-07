@@ -28,7 +28,6 @@ impl std::fmt::Debug for Player {
     }
 }
 
-/// Everything the command needs besides the version JSON.
 pub struct Launch<'a> {
     /// Holds `versions/`, `libraries/`, `assets/`.
     pub minecraft: &'a Path,
@@ -36,10 +35,8 @@ pub struct Launch<'a> {
     pub game_dir: &'a Path,
     /// Where an old version's natives are unpacked.
     pub natives: &'a Path,
-    /// The `java` program.
     pub java: &'a Path,
     pub memory_mb: u32,
-    /// The player's own JVM arguments.
     pub jvm_args: &'a [String],
     pub player: &'a Player,
     /// `osx`, `linux` or `windows`, as version files name systems.
@@ -66,18 +63,17 @@ impl Launch<'_> {
 }
 
 /// `host:port` as the game's arguments before 1.20 take it: `--server host --port port`
-/// (25565 when none is given; an IPv6 address keeps its own colons).
+/// (the default port when none is given; an IPv6 address keeps its own colons).
 fn host_and_port(address: &str) -> (&str, u16) {
     match address.rsplit_once(':') {
         Some((host, port)) if !host.contains(':') || host.ends_with(']') => match port.parse() {
             Ok(port) => (host.trim_matches(['[', ']']), port),
-            Err(_) => (address, 25565),
+            Err(_) => (address, crate::server_list::DEFAULT_PORT),
         },
-        _ => (address, 25565),
+        _ => (address, crate::server_list::DEFAULT_PORT),
     }
 }
 
-/// Whether one of `args`' rules asks for `feature`.
 fn mentions(args: &Value, feature: &str) -> bool {
     args.as_array().into_iter().flatten().any(|a| {
         a["rules"]
@@ -99,7 +95,7 @@ pub fn os_name() -> &'static str {
 
 /// Whether a rule list lets this system in: the last matching rule decides; no rules allow.
 /// The optional features (demo, custom resolution, quick play) are on only when named in `on`.
-fn allowed(rules: &Value, os: &str, on: &[&str]) -> bool {
+pub(crate) fn allowed(rules: &Value, os: &str, on: &[&str]) -> bool {
     let Some(rules) = rules.as_array() else {
         return true;
     };
@@ -125,7 +121,6 @@ fn allowed(rules: &Value, os: &str, on: &[&str]) -> bool {
     allow
 }
 
-/// A version file.
 pub fn read(path: &Path) -> Result<Value, String> {
     fs::read_to_string(path)
         .map_err(|e| e.to_string())
@@ -239,12 +234,7 @@ pub fn classpath(version: &Value, minecraft: &Path, os: &str) -> Result<Vec<Path
 
 /// Unpacks this system's natives of an old version (a library's classifier) into `to`, without
 /// what the library's `extract.exclude` names (META-INF/). Versions since 1.19 have none.
-pub fn unpack_natives(
-    version: &Value,
-    minecraft: &Path,
-    os: &str,
-    to: &Path,
-) -> Result<(), String> {
+fn unpack_natives(version: &Value, minecraft: &Path, os: &str, to: &Path) -> Result<(), String> {
     fs::create_dir_all(to).map_err(|e| format!("{}: {e}", to.display()))?;
     for library in version["libraries"].as_array().into_iter().flatten() {
         if !allowed(&library["rules"], os, &[]) {
@@ -486,5 +476,4 @@ pub fn command(version: &Value, launch: &Launch) -> Result<Command, String> {
 }
 
 #[cfg(test)]
-#[path = "java_launch/tests.rs"]
 mod tests;

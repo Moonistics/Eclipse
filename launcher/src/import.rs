@@ -10,21 +10,20 @@
 //! - A zip with `pack.mcmeta`: a data pack (`data/`) or a resource pack; with `shaders/`, or a
 //!   `.eshader`: a shader pack.
 //!
-//! Only what an instance holds is taken from a shared zip ([`crate::export::FILES`],
-//! [`crate::export::FOLDERS`], `saves/`), and every path is checked to stay inside its folder.
-use crate::browser::{download, installed, FileRef};
-use crate::export::{FILES, FOLDERS};
+//! Only what an instance holds is taken from a shared zip (`game_folder::SETTINGS`,
+//! `game_folder::CONTENT`, `saves/`), and every path is checked to stay inside its folder.
+use crate::browser::{download, FileRef};
+use crate::export::INDEX;
+use crate::game_folder::{self, CONTENT, SAVES, SETTINGS};
 use crate::instances::{self, Instance};
 use crate::packs;
 use std::fs;
 use std::io::Read;
 use std::path::{Component, Path, PathBuf};
 
-const INDEX: &str = "modrinth.index.json";
 /// The `.mrpack` folders copied into the game folder; `server-overrides/` is a server's.
 const OVERRIDES: [&str; 2] = ["overrides/", "client-overrides/"];
 
-/// What a dropped file is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dropped {
     /// A shared instance: a new instance is made from it.
@@ -122,9 +121,9 @@ pub fn what(file: &Path) -> Result<Dropped, String> {
     if under("shaders/") {
         return Ok(Dropped::Pack(packs::Kind::Shader));
     }
-    if FILES.iter().any(|f| has(f))
-        || under("saves/")
-        || FOLDERS.iter().any(|f| under(&format!("{f}/")))
+    if SETTINGS.iter().any(|f| has(f))
+        || under(&format!("{SAVES}/"))
+        || CONTENT.iter().any(|f| under(&format!("{f}/")))
     {
         return Ok(Dropped::Instance);
     }
@@ -146,17 +145,18 @@ fn target(home: &Path, relative: &str, java: bool) -> Option<PathBuf> {
     if relative.ends_with('/') || !path.components().all(|c| matches!(c, Component::Normal(_))) {
         return None;
     }
-    // The browser's list of what it installed is the launcher's, never a pack's: it names the
-    // files Update and Remove delete.
-    if relative.eq_ignore_ascii_case(installed::MANIFEST) {
+    if game_folder::ONLY_OURS
+        .iter()
+        .any(|n| relative.eq_ignore_ascii_case(n))
+    {
         return None;
     }
     if java {
         return Some(home.join(path));
     }
     let top = relative.split('/').next()?;
-    let kept = FILES.contains(&relative)
-        || (relative.contains('/') && (FOLDERS.contains(&top) || top == "saves"));
+    let kept = SETTINGS.contains(&relative)
+        || (relative.contains('/') && (CONTENT.contains(&top) || top == SAVES));
     kept.then(|| home.join(path))
 }
 
@@ -169,10 +169,9 @@ pub fn import_instance(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Inst
 /// The most a shared instance or a `.mrpack` may unpack to, all files together. A zip's sizes are its
 /// own claim, so [`fill`] counts the bytes actually inflated: a few kilobytes of zip bomb can't fill the
 /// disk.
-pub const MAX_IMPORT: u64 = 8 << 30;
+const MAX_IMPORT: u64 = 8 << 30;
 
-/// [`import_instance`] with the instance made by `create`.
-pub fn import_into(
+pub(crate) fn import_into(
     file: &Path,
     progress: &dyn Fn(&str, f32),
     create: &dyn Fn(&str) -> Result<Instance, String>,
@@ -183,7 +182,6 @@ pub fn import_into(
     import_any(file, progress, create, false, MAX_IMPORT)
 }
 
-/// A `.mrpack`'s index.
 pub fn mrpack_index(file: &Path) -> Result<serde_json::Value, String> {
     read_index(&mut open(file)?)
 }
@@ -319,5 +317,4 @@ fn fill(
 }
 
 #[cfg(test)]
-#[path = "import/tests.rs"]
 mod tests;

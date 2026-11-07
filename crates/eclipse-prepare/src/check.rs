@@ -75,7 +75,7 @@ pub fn check(root: &Path, resources: &Path) -> Result<Vec<String>, String> {
 /// What the resources at `resources` lack of what a preparation may leave out when the player's
 /// asset store lacks it: each as its `eclipse-prepare` command (`packs`, `panorama`, `fonts`,
 /// `languages`, `sounds`) and what it is. `--check` and the launcher's `COMPLETIONS`
-/// (launcher/src/backend.rs) both ask here, so they never disagree.
+/// (launcher/src/backend/resources.rs) both ask here, so they never disagree.
 pub fn missing_extras(resources: &Path) -> Vec<(&'static str, &'static str)> {
     EXTRAS
         .iter()

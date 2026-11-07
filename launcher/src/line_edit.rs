@@ -2,23 +2,22 @@
 //! undo), the keyboard (`handle`) and what it draws (`content`). A page keeps its own box and
 //! its Enter/Escape; this is what is inside it. Positions count characters, not bytes.
 
-use super::*;
+use crate::ui;
+use eclipse_theme::glass::ink;
+use gpui::prelude::*;
 use gpui::{
-    black, canvas, Bounds, Font, MouseButton, MouseDownEvent, MouseMoveEvent, Pixels, Point,
-    TextRun,
+    black, canvas, div, px, App, Bounds, Context, Div, Font, KeyDownEvent, MouseButton,
+    MouseDownEvent, MouseMoveEvent, Pixels, Point, TextRun, Window,
 };
 use std::{cell::RefCell, rc::Rc};
 
-/// What a key did to the field.
 #[derive(Debug, PartialEq)]
 pub(super) enum Key {
     Enter,
     Escape,
     /// Not the field's: Tab (focus), shortcuts.
     Pass,
-    /// The caret or the selection moved; the text is the same.
     Moved,
-    /// The text changed.
     Edited,
     /// Ctrl/Cmd-V: `handle` inserts the clipboard's first line.
     Paste,
@@ -73,9 +72,17 @@ impl Default for LineEdit {
     }
 }
 
+const SELECTION_ROUND: f32 = eclipse_theme::glass::space::XXS;
 const HISTORY: usize = 100;
 
 impl LineEdit {
+    pub(super) fn with_max(max: usize) -> Self {
+        LineEdit {
+            max,
+            ..LineEdit::default()
+        }
+    }
+
     pub(super) fn new(text: String, max: usize, visible: usize) -> Self {
         let caret = text.chars().count();
         let mut e = LineEdit {
@@ -104,14 +111,12 @@ impl LineEdit {
         *self = LineEdit::new(text, self.max, self.visible);
     }
 
-    /// The text, leaving the field empty.
     pub(super) fn take(&mut self) -> String {
         let text = self.text.clone();
         self.set(String::new());
         text
     }
 
-    /// How many characters the box shows.
     pub(super) fn show(&mut self, visible: usize) {
         self.visible = visible;
         self.reveal();
@@ -296,6 +301,10 @@ impl LineEdit {
         let (lo, hi) = self.range();
         let out = match key {
             "enter" => Key::Enter,
+            "escape" if lo != hi => {
+                self.move_to(self.caret, false);
+                Key::Moved
+            }
             "escape" => Key::Escape,
             "left" if !shift && lo != hi && !command => {
                 self.move_to(lo, false);
@@ -400,7 +409,6 @@ impl LineEdit {
         out
     }
 
-    /// Scrolls the field so the caret shows.
     fn reveal(&mut self) {
         if self.caret < self.scroll {
             self.scroll = self.caret;
@@ -497,39 +505,39 @@ pub(super) fn mouse<T: 'static, E: InteractiveElement>(
     }))
 }
 
+const CARET: f32 = 14.;
+
 /// What a field draws inside its box: the placeholder while empty and unfocused, else the text
 /// with its selection and caret. `mask` shows dots (a token); `whole` shows all selected.
-pub(super) fn content(
-    edit: &LineEdit,
-    t: &theme::Theme,
-    focused: bool,
-    whole: bool,
-    mask: bool,
-    placeholder: &'static str,
-) -> Div {
-    content_with(edit, t, focused, whole, mask, tr(placeholder).into())
-}
-
-/// [`content`] with a placeholder already translated (one with a value in it).
 pub(super) fn content_with(
     edit: &LineEdit,
-    t: &theme::Theme,
     focused: bool,
     whole: bool,
     mask: bool,
     placeholder: gpui::SharedString,
 ) -> Div {
-    let color = crate::glass_ui::white(eclipse_theme::glass::ink::DIM);
+    let (color, full) = (ui::ink(ink::DIM), ui::ink(ink::FULL));
     if edit.text.is_empty() && !focused {
-        return div().text_color(color).child(placeholder);
+        return div()
+            .min_w_0()
+            .truncate()
+            .text_color(color)
+            .child(placeholder);
     }
     // A focused empty field keeps its placeholder after the caret, as a browser's does.
     if edit.text.is_empty() {
         return div()
             .flex()
             .items_center()
-            .child(div().flex_none().w(px(1.)).h(px(14.)).bg(t.ink))
-            .child(div().text_color(color).child(placeholder));
+            .min_w_0()
+            .child(div().flex_none().w(px(1.)).h(px(CARET)).bg(full))
+            .child(
+                div()
+                    .min_w_0()
+                    .truncate()
+                    .text_color(color)
+                    .child(placeholder),
+            );
     }
     let (before, selected, after, caret_first) = edit.view(whole);
     let text = |s: String| {
@@ -540,20 +548,21 @@ pub(super) fn content_with(
         };
         div().flex_none().whitespace_nowrap().child(s)
     };
-    let caret = || div().flex_none().w(px(1.)).h(px(14.)).bg(t.ink);
+    let caret = || div().flex_none().w(px(1.)).h(px(CARET)).bg(full);
     let area = edit.area.clone();
     div()
         .relative()
         .flex()
         .items_center()
-        .text_color(t.ink)
+        .text_color(full)
         .child(text(before))
         .when(focused && caret_first, |d| d.child(caret()))
         .when(!selected.is_empty(), |d| {
             d.child(
                 text(selected)
-                    .rounded(px(2.))
-                    .bg(t.accent.opacity(theme::SELECTION)),
+                    .rounded(px(SELECTION_ROUND))
+                    .bg(ui::color(ui::look().accent_soft)
+                        .opacity(eclipse_theme::glass::fill::TEXT_SELECTION)),
             )
         })
         .when(focused && !caret_first, |d| d.child(caret()))

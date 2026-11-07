@@ -1,4 +1,5 @@
 use super::*;
+use crate::native_status;
 use serde_json::{json, Value};
 
 const SHA: &str = "0123456789abcdef0123456789abcdef01234567";
@@ -173,16 +174,6 @@ fn refs_and_short_commits_become_full_commits_and_unknown_ones_say_so() {
     assert!(err.contains("no commit, tag or branch gone"), "{err}");
     // A tag with no release is a commit.
     assert!(commit("https://github.com/acme/zoom/releases/tag/v9").is_err());
-}
-
-#[test]
-fn a_rate_limit_is_said_plainly() {
-    let limited = |_: &str| Err(RATE_LIMIT.to_string());
-    let err = resolve(&link("https://github.com/acme/zoom"), &limited).unwrap_err();
-    assert!(
-        err.contains("rate limit") && err.contains("Try again"),
-        "{err}"
-    );
 }
 
 fn tree(name: &str) -> PathBuf {
@@ -406,4 +397,107 @@ fn installing_records_the_origin_and_updates_follow_releases_or_the_head() {
     assert!(!java::is_enabled(&home, "zoom"));
     let _ = fs::remove_dir_all(home);
     let _ = fs::remove_dir_all(source);
+}
+
+#[test]
+fn github_and_local_files_are_listed_once_and_drive_build_state() {
+    use crate::browser::{installed, Kind, SourceId};
+    use std::io::Write;
+    let home = std::env::temp_dir().join(format!("native-list-{}", std::process::id()));
+    let _ = fs::remove_dir_all(&home);
+    fs::create_dir_all(home.join(INSTALLED)).unwrap();
+    let pin = "a".repeat(40);
+    for (file, id) in [
+        ("registry", "registry"),
+        ("github", "github"),
+        ("renamed", "local"),
+    ] {
+        let path = home.join(INSTALLED).join(format!("{file}.hnmod"));
+        let mut zip = zip::ZipWriter::new(fs::File::create(path).unwrap());
+        let manifest = serde_json::json!({"schema":1,"id":id,"version":"1.2","game":"26.3","eclipse":pin,"mixins":pin});
+        let source = format!("[mod]\nid = \"{id}\"\nversion = \"1.2\"\n[compatibility]\neclipse_revision = \"{pin}\"\n");
+        for (name, bytes) in [
+            ("eclipse-native.json".into(), manifest.to_string()),
+            (format!("mixins/{id}/eclipse-mixin.toml"), source),
+        ] {
+            zip.start_file(name, zip::write::SimpleFileOptions::default())
+                .unwrap();
+            zip.write_all(bytes.as_bytes()).unwrap();
+        }
+        zip.finish().unwrap();
+    }
+    let record = Origin {
+        id: "github".into(),
+        version: "1.2".into(),
+        owner: "example".into(),
+        repo: "mods".into(),
+        tag: None,
+        commit: pin,
+        asset: None,
+        sha256: "ab".repeat(32),
+    };
+    fs::write(
+        home.join(INSTALLED).join("github.origin.json"),
+        serde_json::to_vec(&record).unwrap(),
+    )
+    .unwrap();
+    installed::Installed::open(&home)
+        .unwrap()
+        .record(installed::Entry {
+            source: SourceId::Eclipse,
+            project: "registry".into(),
+            slug: "registry".into(),
+            title: "Registry mod".into(),
+            kind: Kind::Mod,
+            version: "1.2".into(),
+            number: "1.2".into(),
+            file: format!("{}/registry.hnmod", INSTALLED),
+            checksum: String::new(),
+            page: String::new(),
+            dependency: false,
+            verdict: None,
+            skipped: vec![],
+            namespaces: vec![],
+        })
+        .unwrap();
+    let files = untracked(&home);
+    let seen: Vec<_> = files
+        .iter()
+        .map(|m| (m.id.as_str(), m.version.as_str(), m.origin.is_some()))
+        .collect();
+    assert_eq!(seen, [("github", "1.2", true), ("local", "1.2", false)]);
+    for id in ["registry", "github", "local"] {
+        crate::browser::java::set_enabled(&home, id, true).unwrap();
+    }
+    assert_eq!(
+        native_status::state(&native_status::enabled(&home), None),
+        native_status::State::NotBuilt
+    );
+    for id in ["registry", "github", "local"] {
+        crate::browser::java::set_enabled(&home, id, false).unwrap();
+    }
+    assert_eq!(
+        native_status::state(&native_status::enabled(&home), None),
+        native_status::State::NoMods
+    );
+    assert_eq!(
+        untracked(&home).len(),
+        2,
+        "disabled mods remain in the list"
+    );
+    let before = native_status::fingerprint(&home, None);
+    fs::remove_file(home.join(&files[0].file)).unwrap();
+    assert_ne!(before, native_status::fingerprint(&home, None));
+    assert_eq!(
+        untracked(&home).len(),
+        1,
+        "a stale origin is not an installed mod"
+    );
+    fs::write(home.join(INSTALLED).join("broken.hnmod"), b"broken").unwrap();
+    assert_eq!(
+        untracked(&home)[0].id,
+        "broken",
+        "unreadable files can still be removed"
+    );
+    fs::remove_dir_all(home).unwrap();
 }

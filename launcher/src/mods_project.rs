@@ -1,22 +1,20 @@
 //! The Mods page's project page, search filters and project icons (`eclipse_launcher::browser`:
 //! `details` for the data, `images` for the icons and gallery). Drawn only with the launcher's
 //! shared components, so a restyle of those restyles this.
-//!
-//! - A result's title opens its page inside the launcher: icon, author, downloads, followers,
-//!   licence, how well it runs and Install, then Description (Markdown), Gallery, Versions and
-//!   the project's links.
-//! - Filters: sort, loader, game version, environment and categories, with the values the
-//!   source lists for the kind.
-//! - Icons and gallery images come from the source's image servers at run time, cached on disk;
-//!   a placeholder stands in until one arrives.
-use super::mods_page::{Checking, Event};
-use super::*;
+use super::mods_state::{licence_name, Checking, Event};
+use crate::tab_strip::{Strip, StripTab};
+use crate::ui::{self, ink, ButtonKind, Press};
+use crate::{cull, dates, icons, layout, menus, thousands, Launcher};
 use eclipse_launcher::browser::{
     self,
     details::{self, Details, Environment, Filters, Image, Sort, Tags},
-    images, java, Kind as PackKind, Project, SourceId, Support, Version,
+    images, java, Kind as PackKind, Project, SourceId, Version,
 };
-use gpui::img;
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{backend, i18n, instances};
+use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
+use gpui::prelude::*;
+use gpui::{div, img, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, Stateful};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -70,11 +68,7 @@ fn category_name(slug: &str) -> String {
     if said == words {
         return details::category_label(slug);
     }
-    let mut chars = said.chars();
-    chars
-        .next()
-        .map(|first| first.to_uppercase().chain(chars).collect())
-        .unwrap_or_default()
+    i18n::capitalised(said)
 }
 
 /// One of the registry's tags as a chip shows it.
@@ -82,7 +76,7 @@ fn tag_name(tag: &str) -> String {
     format!("#{tag}")
 }
 
-fn active_filters(f: &Filters) -> usize {
+pub(super) fn active_filters(f: &Filters) -> usize {
     f.categories.len()
         + f.tags.len()
         + f.loader.is_some() as usize
@@ -90,21 +84,25 @@ fn active_filters(f: &Filters) -> usize {
         + f.environment.is_some() as usize
 }
 
-/// A project page's tabs.
-#[derive(Clone, Copy, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Tab {
     Description,
     Gallery,
     Versions,
 }
 
-const TABS: [(Tab, &str); 3] = [
-    (Tab::Description, "Description"),
-    (Tab::Gallery, "Gallery"),
-    (Tab::Versions, "Versions"),
-];
+impl Tab {
+    const ALL: [Tab; 3] = [Tab::Description, Tab::Gallery, Tab::Versions];
 
-/// The open project page.
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Description => tr("Description"),
+            Tab::Gallery => tr("Gallery"),
+            Tab::Versions => tr("Versions"),
+        }
+    }
+}
+
 pub(super) struct Opened {
     pub(super) project: Project,
     tab: Tab,
@@ -129,8 +127,6 @@ pub(super) struct Browse {
     pub(super) open: Option<Opened>,
     pub(super) filters: Filters,
     pub(super) show_filters: bool,
-    /// The Sort by dropdown's list is open.
-    pub(super) sort_menu: bool,
     tags: HashMap<(SourceId, PackKind), Tags>,
     tags_asked: HashSet<(SourceId, PackKind)>,
     /// Images on disk, by URL and size; `None` while they load or when they failed.
@@ -153,6 +149,18 @@ pub(super) enum Loaded {
 
 /// Images fetched at once.
 const IMAGE_WORKERS: usize = 4;
+
+const FILTER_NAME: f32 = 120.;
+
+pub(super) const FILTERS_TOGGLE: &str = "mods-filters";
+
+const PAGE_TEXT: f32 = layout::MEASURE_TEXT;
+
+const HEAD_TEXT_MIN: f32 = 240.;
+
+const GALLERY_HEIGHT: f32 = 428.;
+
+const THUMB: (f32, f32) = (120., 68.);
 
 impl Launcher {
     pub(super) fn mods_loaded(&mut self, loaded: Loaded) {
@@ -199,13 +207,15 @@ impl Launcher {
         let key = (project.source, project.id.clone());
         let tx = self.mods.tx.clone();
         let p = project.clone();
+        let (mods_home, settings) = (self.mods.home(), self.settings.clone());
         std::thread::spawn(move || {
             let Some(source) = browser::source(p.source) else {
                 return;
             };
             let d = source.details(&p).map(Arc::new);
             let _ = tx.send(Event::Loaded(Loaded::Details(key.clone(), d)));
-            let v = source.versions(&p).map(|versions| {
+            let level = instances::mod_api_level_at(&mods_home, &settings);
+            let v = source.versions(&p, level).map(|versions| {
                 let home = backend::game_home();
                 versions
                     .into_iter()
@@ -296,7 +306,7 @@ impl Launcher {
             .icon
             .clone()
             .and_then(|url| self.mods_image(&url, images::ICON));
-        blocks::slot(path.map(gpui::ImageSource::from), &p.title, side).into_any_element()
+        icons::slot(path.map(gpui::ImageSource::from), &p.title, side).into_any_element()
     }
 
     /// The values the filters can take for the current kind and source, asked for once.
@@ -314,7 +324,6 @@ impl Launcher {
         self.mods.browse.tags.get(&key)
     }
 
-    /// Sets the filters and searches again.
     pub(super) fn mods_filter(&mut self, change: impl FnOnce(&mut Filters)) {
         change(&mut self.mods.browse.filters);
         self.mods_search_keeping(0, true);
@@ -334,37 +343,26 @@ impl Launcher {
             .collect()
     }
 
-    pub(super) fn mods_filters_button(
-        &self,
-        size: crate::glass_ui::Size,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
+    pub(super) fn mods_filters_button(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let shown = self.mods.browse.show_filters;
         let active = active_filters(&self.mods.browse.filters);
-        let label = if active > 0 {
-            trf("Filters ({count})", &[("count", &active.to_string())])
-        } else {
-            tr("Filters").to_string()
+        let value = match active {
+            0 => tr("None").to_string(),
+            n => n.to_string(),
         };
-        crate::glass_ui::button(
-            "mods-filters",
-            Some("sliders-horizontal"),
-            label,
-            Kind::Secondary,
-            size,
-            &self.theme,
-        )
-        .child(
-            crate::glass_ui::icon(
-                "arrow-down-01",
-                16.,
-                crate::glass_ui::white(eclipse_theme::glass::ink::BODY),
-            )
-            .with_transformation(gpui::Transformation::rotate(gpui::radians(
-                if shown { std::f32::consts::PI } else { 0. },
-            ))),
-        )
-        .on_click(cx.listener(|this, _: &ClickEvent, _, cx| {
+        let toggle = ui::labelled_dropdown(
+            FILTERS_TOGGLE,
+            tr("Filters"),
+            None,
+            value,
+            shown,
+            ui::ButtonSize::Md,
+        );
+        let toggle = match menus::opener_focus(FILTERS_TOGGLE) {
+            Some(focus) => ui::keep_focus(toggle, &focus),
+            None => toggle,
+        };
+        toggle.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
             this.mods.browse.show_filters = !this.mods.browse.show_filters;
             cx.notify();
         }))
@@ -374,16 +372,15 @@ impl Launcher {
     /// and tags for the registry. While the panel is closed, what is picked stays in view as chips
     /// that each remove theirs.
     pub(super) fn mods_filters(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let f = self.mods.browse.filters.clone();
-        let registry =
-            self.mods.source == SourceId::Eclipse && self.mods.java_for(self.mods.kind).is_none();
+        let java = self.mods.java_for(self.mods.kind).is_some();
+        let registry = self.mods.source == SourceId::Eclipse && !java;
         let shown = self.mods.browse.show_filters;
         let active = active_filters(&f);
         if !shown && active == 0 {
             return None;
         }
-        let mut bar = div().flex().flex_col().gap(px(12.));
+        let mut bar = div().flex().flex_col().gap(px(space::MD));
         if !shown {
             if active > 0 {
                 bar = bar.child(self.mods_picked_filters(&f, cx));
@@ -391,111 +388,145 @@ impl Launcher {
             return Some(bar);
         }
         let Some(tags) = self.mods_tags().cloned() else {
-            return Some(bar.child(caps(tr("Loading filters")).text_color(t.muted)));
+            return Some(bar.child(ui::card_note(tr("Loading filters"))));
         };
-        // A chip: on or off, one value of a filter.
-        let chip = |id: String, label: String, on: bool| {
-            button(
-                id,
-                label,
-                if on { Kind::Secondary } else { Kind::Ghost },
-                &t,
+        let loaders = {
+            let values = tags.loaders.clone();
+            let chips = values
+                .iter()
+                .map(|l| {
+                    let on = f.loader.as_deref() == Some(l.as_str());
+                    (format!("mods-loader-{l}"), l.clone(), on)
+                })
+                .collect();
+            self.filter_row(
+                "mods-loaders",
+                tr("Loader"),
+                None,
+                chips,
+                cx,
+                move |f, i| {
+                    let v = values[i].clone();
+                    f.loader = if f.loader.as_ref() == Some(&v) {
+                        None
+                    } else {
+                        Some(v)
+                    };
+                },
             )
         };
-        let row = |title: &'static str| {
-            div()
-                .flex()
-                .flex_wrap()
-                .items_center()
-                .gap(px(4.))
-                .child(caps(tr(title)).text_color(t.muted).w(px(120.)))
+        let versions = {
+            let values: Vec<String> = tags.game_versions.iter().take(12).cloned().collect();
+            let chips = values
+                .iter()
+                .map(|v| {
+                    let on = f.game_version.as_deref() == Some(v.as_str());
+                    (format!("mods-version-{v}"), v.clone(), on)
+                })
+                .collect();
+            let side = ui::IconSize::Px16.px();
+            let grass = self
+                .grass_mark(side)
+                .map(|grass| img(grass).size(px(side)).flex_none().into_any_element());
+            self.filter_row(
+                "mods-versions",
+                tr("Game version"),
+                grass,
+                chips,
+                cx,
+                move |f, i| {
+                    let v = values[i].clone();
+                    f.game_version = if f.game_version.as_ref() == Some(&v) {
+                        None
+                    } else {
+                        Some(v)
+                    };
+                },
+            )
         };
-        let mut loaders = row("Loader");
-        for l in &tags.loaders {
-            let on = f.loader.as_deref() == Some(l.as_str());
-            let value = l.clone();
-            loaders = loaders.child(chip(format!("mods-loader-{l}"), l.clone(), on).on_click(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let v = value.clone();
-                    this.mods_filter(|f| f.loader = if on { None } else { Some(v) });
-                    cx.notify();
-                }),
-            ));
-        }
-        let mut versions = row("Game version");
-        if let Some(grass) = self.grass_mark(20.) {
-            versions = versions.child(img(grass).size(px(20.)).flex_none());
-        }
-        for v in tags.game_versions.iter().take(12) {
-            let on = f.game_version.as_deref() == Some(v.as_str());
-            let value = v.clone();
-            versions = versions.child(chip(format!("mods-version-{v}"), v.clone(), on).on_click(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let v = value.clone();
-                    this.mods_filter(|f| f.game_version = if on { None } else { Some(v) });
-                    cx.notify();
-                }),
-            ));
-        }
-        let mut environment = row("Environment");
-        for e in Environment::ALL {
-            let on = f.environment == Some(e);
-            environment = environment.child(
-                chip(format!("mods-env-{}", e.label()), e.label().into(), on).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.mods_filter(|f| f.environment = if on { None } else { Some(e) });
-                        cx.notify();
-                    }),
-                ),
-            );
-        }
-        let mut categories = row("Categories");
-        for c in &tags.categories {
-            let on = f.categories.contains(&c.name);
-            let value = c.name.clone();
-            categories = categories.child(
-                chip(format!("mods-cat-{}", c.name), category_name(&c.name), on).on_click(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        let v = value.clone();
-                        this.mods_filter(|f| {
-                            if !f.categories.contains(&v) {
-                                f.categories.push(v);
-                            } else {
-                                f.categories.retain(|x| *x != v);
-                            }
-                        });
-                        cx.notify();
-                    }),
-                ),
-            );
-        }
+        let environment = {
+            let chips = Environment::ALL
+                .iter()
+                .map(|e| {
+                    let on = f.environment == Some(*e);
+                    (format!("mods-env-{e:?}"), e.label().to_string(), on)
+                })
+                .collect();
+            self.filter_row(
+                "mods-environments",
+                tr("Environment"),
+                None,
+                chips,
+                cx,
+                |f, i| {
+                    let e = Environment::ALL[i];
+                    f.environment = if f.environment == Some(e) {
+                        None
+                    } else {
+                        Some(e)
+                    };
+                },
+            )
+        };
+        let categories = {
+            let values: Vec<String> = tags.categories.iter().map(|c| c.name.clone()).collect();
+            let chips = values
+                .iter()
+                .map(|c| {
+                    let on = f.categories.contains(c);
+                    (format!("mods-cat-{c}"), category_name(c), on)
+                })
+                .collect();
+            self.filter_row(
+                "mods-categories",
+                tr("Categories"),
+                None,
+                chips,
+                cx,
+                move |f, i| {
+                    let v = values[i].clone();
+                    if !f.categories.contains(&v) {
+                        f.categories.push(v);
+                    } else {
+                        f.categories.retain(|x| *x != v);
+                    }
+                },
+            )
+        };
         let _ = CATEGORY_NAMES;
-        let mut tag_row = row("Tags");
-        for tag in &tags.tags {
-            let on = f.tags.contains(tag);
-            let value = tag.clone();
-            tag_row = tag_row.child(chip(format!("mods-tag-{tag}"), tag_name(tag), on).on_click(
-                cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    let v = value.clone();
-                    this.mods_filter(|f| {
-                        if !f.tags.contains(&v) {
-                            f.tags.push(v);
-                        } else {
-                            f.tags.retain(|x| *x != v);
-                        }
-                    });
-                    cx.notify();
-                }),
-            ));
-        }
-        let clear = button("mods-clear", "Clear filters", Kind::Ghost, &t).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.mods_filter(|f| *f = Filters::default());
-                cx.notify();
-            },
-        ));
-        if !registry {
+        let tag_row = {
+            let values = tags.tags.clone();
+            let chips = values
+                .iter()
+                .map(|tag| {
+                    let on = f.tags.contains(tag);
+                    (format!("mods-tag-{tag}"), tag_name(tag), on)
+                })
+                .collect();
+            self.filter_row("mods-tags", tr("Tags"), None, chips, cx, move |f, i| {
+                let v = values[i].clone();
+                if !f.tags.contains(&v) {
+                    f.tags.push(v);
+                } else {
+                    f.tags.retain(|x| *x != v);
+                }
+            })
+        };
+        let clear = ui::button(
+            "mods-clear",
+            None,
+            tr("Clear filters"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods_filter(|f| *f = Filters::default());
+            cx.notify();
+        }));
+        if !registry && !java {
             bar = bar.child(loaders).child(versions).child(environment);
+        } else if java && self.mods.kind == PackKind::Mod {
+            bar = bar.child(environment);
         }
         bar = bar.child(categories);
         if registry && !tags.tags.is_empty() {
@@ -507,9 +538,38 @@ impl Launcher {
         Some(bar)
     }
 
+    fn filter_row(
+        &self,
+        id: &'static str,
+        title: &str,
+        lead: Option<AnyElement>,
+        chips: Vec<(String, String, bool)>,
+        cx: &mut Context<Self>,
+        pick: impl Fn(&mut Filters, usize) + 'static,
+    ) -> Stateful<Div> {
+        let this = cx.entity().downgrade();
+        let rows = chips
+            .into_iter()
+            .map(|(id, label, on)| (ui::filter_chip(id, label.clone(), on), label.into(), on))
+            .collect();
+        let list = div()
+            .id(id)
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(space::XS))
+            .child(ui::label(title.to_string()).w(px(FILTER_NAME)))
+            .children(lead);
+        ui::options(list, title.to_string(), rows, false, move |i, _, cx| {
+            let _ = this.update(cx, |this, cx| {
+                this.mods_filter(|f| pick(f, i));
+                cx.notify();
+            });
+        })
+    }
+
     /// What the filters pick, each a chip with a cross that removes it, then Clear filters.
     fn mods_picked_filters(&self, f: &Filters, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         type Remove = Rc<dyn Fn(&mut Filters)>;
         let mut picked: Vec<(String, String, Remove)> = Vec::new();
         for c in &f.categories {
@@ -545,55 +605,62 @@ impl Launcher {
                 Rc::new(|f| f.environment = None),
             ));
         }
-        let mut row = div().flex().flex_wrap().items_center().gap(px(6.));
+        let mut row = div().flex().flex_wrap().items_center().gap(px(space::SM));
         for (id, label, remove) in picked {
-            let cross = crate::glass_ui::icon("cancel-01", 14., t.ink_soft);
+            let cross = ui::icon("cancel-01", ui::IconSize::Px16, ink(ink::BODY));
             row = row.child(
-                button(format!("mods-picked-{id}"), label, Kind::Secondary, &t)
-                    .gap(px(6.))
-                    .child(cross)
-                    .on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        let remove = remove.clone();
-                        this.mods_filter(move |f| remove(f));
-                        cx.notify();
-                    })),
+                ui::button(
+                    format!("mods-picked-{id}"),
+                    None,
+                    label,
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Sm,
+                )
+                .child(cross)
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    let remove = remove.clone();
+                    this.mods_filter(move |f| remove(f));
+                    cx.notify();
+                })),
             );
         }
         row.child(
-            button("mods-picked-clear", "Clear filters", Kind::Ghost, &t).on_click(cx.listener(
-                |this, _: &ClickEvent, _, cx| {
-                    // The sort has its own control: only what filters goes.
-                    this.mods_filter(|f| {
-                        *f = Filters {
-                            sort: f.sort,
-                            ..Filters::default()
-                        }
-                    });
-                    cx.notify();
-                },
-            )),
+            ui::button(
+                "mods-picked-clear",
+                None,
+                tr("Clear filters"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                // The sort has its own control: only what filters goes.
+                this.mods_filter(|f| {
+                    *f = Filters {
+                        sort: f.sort,
+                        ..Filters::default()
+                    }
+                });
+                cx.notify();
+            })),
         )
     }
 
-    /// The open project's page.
     pub(super) fn mods_project_page(&mut self, cx: &mut Context<Self>) -> Option<Div> {
-        let t = self.theme;
         let o = self.mods.browse.open.as_ref()?;
         let p = o.project.clone();
         let tab = o.tab;
         let shot = o.shot;
-        let support = self.mods.support(&p);
-        let color = match support {
-            Support::Works => t.success,
-            Support::Partial(_) => t.warn,
-            Support::No(_) => t.muted,
-        };
-        let back = button("mods-back", "Back to results", Kind::Ghost, &t).on_click(cx.listener(
-            |this, _: &ClickEvent, _, cx| {
-                this.mods.browse.open = None;
-                cx.notify();
-            },
-        ));
+        let back = ui::button(
+            "mods-back",
+            None,
+            tr("Back to results"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods.browse.open = None;
+            cx.notify();
+        }));
         let details = o.details.clone();
         let versions = o.versions.clone();
         let version_list = o.version_list.clone();
@@ -615,11 +682,14 @@ impl Launcher {
                 None => {}
             }
             if let Some(day) = d.updated.get(..10) {
-                meta.push(trf("updated {date}", &[("date", day)]));
+                meta.push(trf(
+                    "updated {date}",
+                    &[("date", &dates::published(day, ""))],
+                ));
             }
         }
         if !p.license.is_empty() {
-            meta.push(p.license.clone());
+            meta.push(licence_name(&p.license));
         }
         if let Some(source) = p.source.shown_for(&p.id) {
             meta.push(trf("from {source}", &[("source", source)]));
@@ -628,92 +698,109 @@ impl Launcher {
             Some(Ok(d)) if !d.authors.is_empty() => d.authors.join(", "),
             _ => p.author.clone(),
         };
-        // The project's categories, as its source lists them.
         let categories = match &details {
             Some(Ok(d)) if !d.categories.is_empty() => Some(
-                div().flex().flex_wrap().gap(px(6.)).children(
-                    d.categories
-                        .iter()
-                        .map(|c| blocks::badge(category_name(c), t.muted)),
-                ),
+                d.categories
+                    .iter()
+                    .map(|c| category_name(c))
+                    .collect::<Vec<_>>()
+                    .join(" · "),
             ),
             _ => None,
         };
-        let icon = self.mods_icon(&p, 72.);
-        let busy = self.mods.busy.as_ref().map(|b| b.0.clone());
+        let icon = self.mods_icon(&p, ui::FACE_XL);
+        let busy = self.mods.busy.clone();
         let installed = self.mods.entry(&p).is_some();
         let checking = self.mods.checking(&p);
-        let mut action = div().flex().items_center().gap(px(8.)).child(
-            caps(if checking {
-                tr("Checking")
-            } else {
-                tr(support.label())
-            })
-            .flex_none()
-            .text_color(color),
-        );
-        if busy.as_deref() == Some(p.id.as_str()) {
-            action = action.child(caps(tr("Installing")).text_color(t.accent));
+        let instance = self.target_name();
+        let vanilla = self.mods_vanilla_target();
+        let status = match checking {
+            true => Some((ui::Tone::Busy, tr("Checking its jar…").to_string(), None)),
+            false => self.status_shown(&p, &instance),
+        };
+        let state = |tone: ui::Tone, said: String| {
+            ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(tone, said))
+        };
+        let mut action = div().flex().flex_none().items_center().gap(px(space::MD));
+        if busy.as_ref().is_some_and(|b| b.installs(&p.id)) {
+            action = action.child(ui::primary_busy(
+                "mods-page-install",
+                tr("Installing"),
+                None,
+                ui::ButtonSize::Md,
+            ));
         } else if installed {
-            action = action.child(caps(tr("Installed")).text_color(t.muted));
-        } else if support.installable() && !checking {
-            let label = if p.kind == PackKind::Modpack {
-                "Import"
-            } else {
-                "Install"
-            };
-            let mut install = button("mods-page-install", label, Kind::Primary, &t);
-            if busy.is_some() {
-                install = disabled(install);
+            action = action.child(state(
+                ui::Tone::Off,
+                trf("Installed in {instance}", &[("instance", &instance)]),
+            ));
+        } else if self.mods.support(&p).installable() && !checking {
+            let mut install = ui::primary(
+                "mods-page-install",
+                Some(crate::icons::DOWNLOAD),
+                Self::install_label(&p, &instance),
+                ui::ButtonSize::Md,
+            );
+            if let Some(why) = self.install_refusal(&p) {
+                install = ui::unavailable(install, why);
             } else {
                 let p = p.clone();
-                install = install.on_click(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                install = install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                     this.mods_install(p.source, p.id.clone(), Some(p.clone()));
                     cx.notify();
                 }));
             }
             action = action.child(install);
+        } else if let Some(minecraft) = vanilla {
+            action =
+                action.child(self.mods_new_fabric_button("mods-page-new-fabric", minecraft, cx));
         }
         let head = div()
             .flex()
+            .flex_wrap()
             .items_center()
-            .gap(px(20.))
+            .gap(px(space::XL))
             .child(icon)
             .child(
                 div()
                     .flex()
                     .flex_col()
                     .flex_1()
-                    .min_w_0()
-                    .gap(px(4.))
-                    .child(text(theme::TITLE).text_color(t.ink).child(p.title.clone()))
-                    .child(
-                        text(theme::UI)
-                            .text_color(t.muted)
-                            .child(if authors.is_empty() {
-                                p.summary.clone()
-                            } else {
-                                format!(
-                                    "{} · {}",
-                                    trf("by {author}", &[("author", &authors)]),
-                                    p.summary
-                                )
-                            }),
-                    )
-                    .child(
-                        text(theme::CAPTION)
-                            .text_color(t.muted)
-                            .child(meta.join(" · ")),
-                    )
-                    .children(categories),
+                    .min_w(px(HEAD_TEXT_MIN))
+                    .gap(px(space::XS))
+                    .child(ui::entity_title(p.title.clone(), pixel_text::CARD_TITLE))
+                    .child(ui::text(step::BODY, FontWeight::NORMAL, ink::BODY).child(
+                        if authors.is_empty() {
+                            p.summary.clone()
+                        } else {
+                            format!(
+                                "{} · {}",
+                                trf("by {author}", &[("author", &authors)]),
+                                p.summary
+                            )
+                        },
+                    ))
+                    .child(ui::card_note(meta.join(" · ")))
+                    .children(
+                        categories
+                            .map(|c| ui::text(step::NOTE, FontWeight::NORMAL, ink::DIM).child(c)),
+                    ),
             )
             .child(action);
         let mut page = div()
             .flex()
             .flex_col()
-            .gap(px(24.))
+            .gap(px(space::XL))
             .child(div().flex().child(back))
-            .child(head);
+            .child(head)
+            .children(status.map(|(tone, said, reason)| {
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::XS))
+                    .child(state(tone, said))
+                    .children(reason.map(ui::card_note))
+            }));
         // Registry projects are starred on their source repository, which the player does there
         // themselves.
         if p.source == SourceId::Eclipse {
@@ -725,19 +812,17 @@ impl Launcher {
                 div()
                     .flex()
                     .items_center()
-                    .gap(px(16.))
-                    .children(super::mods_page::stars(&p.id, &t).map(|s| text(theme::UI).child(s)))
+                    .gap(px(space::LG))
                     .children(repo.map(|repo| {
-                        button("mods-star", "Star on GitHub", Kind::Ghost, &t)
-                            .on_click(move |_, _, cx| cx.open_url(&repo))
+                        ui::button(
+                            "mods-star",
+                            None,
+                            tr("Star on GitHub"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(move |_, _, cx| cx.open_url(&repo))
                     })),
-            );
-        }
-        if let Some(why) = support.reason() {
-            page = page.child(
-                text(theme::UI)
-                    .text_color(t.ink_soft)
-                    .child(why.to_string()),
             );
         }
         if let Some(Checking::Done(c)) = self.mods.checks.get(&(p.source, p.id.clone())) {
@@ -745,115 +830,152 @@ impl Launcher {
                 div()
                     .flex()
                     .flex_col()
-                    .gap(px(2.))
-                    .child(caps(tr(title)).text_color(t.muted))
-                    .children(
-                        list.iter()
-                            .map(|l| text(theme::CAPTION).text_color(t.ink_soft).child(l.clone())),
-                    )
+                    .gap(px(space::XS))
+                    .child(ui::label(title.to_string()))
+                    .children(list.iter().map(|l| {
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(l.clone())
+                    }))
             };
-            let mut what = div().flex().gap(px(32.));
+            let mut what = div().flex().flex_wrap().gap(px(space::XXL));
             if !c.ports.is_empty() {
-                what = what.child(lines("Ports", &c.ports));
+                what = what.child(lines(tr("Ports"), &c.ports));
             }
             if !c.skipped.is_empty() {
-                what = what.child(lines("Doesn't port", &c.skipped));
+                what = what.child(lines(tr("Doesn't port"), &c.skipped));
             }
             page = page.child(what);
         }
         if let Some(Ok(d)) = &details {
-            let mut links = div().flex().flex_wrap().gap(px(8.));
+            let mut links = div().flex().flex_wrap().gap(px(space::SM));
             let page_url = p.page.clone();
             if !page_url.is_empty() {
                 links = links.child(
-                    button(
+                    ui::button(
                         "mods-link-page",
+                        None,
                         trf("Open on {source}", &[("source", p.source.label())]),
-                        Kind::Ghost,
-                        &t,
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
                     )
-                    .on_click(move |_, _, cx| cx.open_url(&page_url)),
+                    .on_press(move |_, _, cx| cx.open_url(&page_url)),
                 );
             }
-            for (i, l) in d.links.iter().enumerate() {
+            for l in d.links.iter().filter(|l| l.url != p.page) {
                 let url = l.url.clone();
                 links = links.child(
-                    button(format!("mods-link-{i}"), l.label.clone(), Kind::Ghost, &t)
-                        .on_click(move |_, _, cx| cx.open_url(&url)),
+                    ui::button(
+                        format!("mods-link-{url}"),
+                        None,
+                        tr(&l.label).to_string(),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(move |_, _, cx| cx.open_url(&url)),
                 );
             }
             page = page.child(links);
         }
-        let this = cx.entity().downgrade();
         // No Gallery tab for a project without images.
         let no_gallery = matches!(&details, Some(Ok(d)) if d.gallery.is_empty());
-        let tabs: Vec<(Tab, &str)> = TABS
+        let named = Tab::ALL
             .into_iter()
-            .filter(|(tab, _)| !(no_gallery && *tab == Tab::Gallery))
+            .filter(|shown| !(no_gallery && *shown == Tab::Gallery))
+            .map(|shown| StripTab {
+                value: shown,
+                label: shown.label().into(),
+                count: None,
+            })
             .collect();
-        page = page.child(div().flex().child(segments("mods-tab", &tabs, tab, &t, {
-            move |value, _, cx| {
-                let _ = this.update(cx, |this, cx| {
-                    if let Some(o) = &mut this.mods.browse.open {
-                        o.tab = value;
-                    }
+        let (tabs, panel) = self.tab_strip(
+            Strip::ModsProject,
+            named,
+            tab,
+            layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
+            |this, shown, _| {
+                if let Some(o) = &mut this.mods.browse.open {
+                    o.tab = shown;
+                }
+            },
+            cx,
+        );
+        let failed = |e: &str, cx: &mut Context<Self>| {
+            let again = p.clone();
+            ui::error_state_with(
+                "mods-project-failed",
+                tr("Couldn't load the page"),
+                e,
+                cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.mods_open(again.clone());
                     cx.notify();
-                });
-            }
-        })));
+                }),
+                Vec::new(),
+                ButtonKind::Secondary,
+            )
+            .into_any_element()
+        };
+        let loading =
+            || ui::loading_state("mods-project-loading", tr("Loading…")).into_any_element();
         let body = match tab {
             Tab::Description => match &details {
-                None => centered(tr("Loading…"), &t),
-                Some(Err(e)) => notice(e.clone(), &t),
-                Some(Ok(d)) => div().max_w(px(760.)).child(markdown::render(&d.body, &t)),
+                None => loading(),
+                Some(Err(e)) => failed(e, cx),
+                Some(Ok(d)) => div()
+                    .max_w(px(PAGE_TEXT))
+                    .child(ui::markdown::render(&d.body))
+                    .into_any_element(),
             },
             Tab::Gallery => match &details {
-                None => centered(tr("Loading…"), &t),
-                Some(Err(e)) => notice(e.clone(), &t),
-                Some(Ok(d)) if d.gallery.is_empty() => centered(tr("No gallery images."), &t),
-                Some(Ok(d)) => self.mods_gallery(&d.gallery, shot, cx),
+                None => loading(),
+                Some(Err(e)) => failed(e, cx),
+                Some(Ok(d)) if d.gallery.is_empty() => {
+                    ui::empty("mods-gallery-empty", tr("No gallery images.")).into_any_element()
+                }
+                Some(Ok(d)) => self.mods_gallery(&d.gallery, shot, cx).into_any_element(),
             },
             Tab::Versions => match &versions {
-                None => centered(tr("Loading…"), &t),
-                Some(Err(e)) => notice(e.clone(), &t),
-                Some(Ok(list)) => version_list.column(
-                    &self.content_scroll.handle,
-                    list.len().min(50),
-                    8.,
-                    |_| false,
-                    |i| {
-                        let v = &list[i].version;
-                        let file = v.file();
-                        let mut detail = vec![
-                            v.published.get(..10).unwrap_or_default().to_string(),
-                            v.loaders.join(", "),
-                        ];
-                        let games: Vec<&str> = v
-                            .game_versions
-                            .iter()
-                            .rev()
-                            .take(4)
-                            .map(String::as_str)
-                            .collect();
-                        detail.push(games.join(", "));
-                        if let Some(f) = file {
-                            detail.push(format!("{} · {:.1} MB", f.name, f.size as f64 / 1e6));
-                        }
-                        index_row(
-                            v.number.clone(),
-                            Some(detail.join(" · ").into_any_element()),
-                            list[i].verdict.as_ref().map(|verdict| {
-                                caps(tr(verdict.label()))
-                                    .text_color(t.muted)
-                                    .into_any_element()
-                            }),
-                            &t,
-                        )
-                    },
-                ),
+                None => loading(),
+                Some(Err(e)) => failed(e, cx),
+                Some(Ok(list)) => version_list
+                    .column(
+                        &self.content_scroll.handle,
+                        list.len().min(50),
+                        0.,
+                        |_| false,
+                        |i| {
+                            let v = &list[i].version;
+                            let file = v.file();
+                            let mut detail = vec![
+                                dates::published(v.published.get(..10).unwrap_or_default(), ""),
+                                v.loaders.join(", "),
+                            ];
+                            let games: Vec<&str> = v
+                                .game_versions
+                                .iter()
+                                .rev()
+                                .take(4)
+                                .map(String::as_str)
+                                .collect();
+                            detail.push(games.join(", "));
+                            if let Some(f) = file {
+                                detail.push(format!("{} · {:.1} MB", f.name, f.size as f64 / 1e6));
+                            }
+                            ui::list_row(
+                                SharedString::from(format!("mods-project-version-{}", v.id)),
+                                false,
+                            )
+                            .child(ui::item_text(v.number.clone(), detail.join(" · ")))
+                            .children(
+                                list[i]
+                                    .verdict
+                                    .as_ref()
+                                    .map(|verdict| ui::card_note(tr(verdict.label())).flex_none()),
+                            )
+                        },
+                    )
+                    .into_any_element(),
             },
         };
-        Some(page.child(body))
+        Some(page.child(div().flex().flex_col().child(tabs).child(panel.child(body))))
     }
 }
 
@@ -861,7 +983,6 @@ impl Launcher {
     /// A gallery: image `shot` large, the previous and next ones a click away, and every image
     /// as a strip of thumbnails that picks the large one.
     fn mods_gallery(&mut self, gallery: &[Image], shot: usize, cx: &mut Context<Self>) -> Div {
-        let t = self.theme;
         let count = gallery.len();
         let shot = shot.min(count.saturating_sub(1));
         let pick = |to: usize| {
@@ -880,79 +1001,47 @@ impl Launcher {
                 .h(px(h))
                 .object_fit(gpui::ObjectFit::Contain)
                 .into_any_element(),
-            None => plate().w(px(w)).h(px(h)).into_any_element(),
+            None => ui::tile(w).h(px(h)).into_any_element(),
         };
         let current = &gallery[shot];
-        let large = image(self, &current.url, 760., 428.);
-        let step = |id: &'static str, back: bool, to: usize| {
-            div()
-                .id(id)
-                .flex()
-                .flex_none()
-                .items_center()
-                .justify_center()
-                .size(px(32.))
-                .cursor_pointer()
-                .child(
-                    blocks::icon("chevron-right", 16., t.ink_soft).with_transformation(
-                        gpui::Transformation::rotate(gpui::radians(if back {
-                            std::f32::consts::PI
-                        } else {
-                            0.
-                        })),
-                    ),
+        let large = image(self, &current.url, PAGE_TEXT, GALLERY_HEIGHT);
+        let mut out = div()
+            .flex()
+            .flex_col()
+            .gap(px(space::MD))
+            .max_w(px(PAGE_TEXT))
+            .child(
+                ui::picture_button(
+                    "mods-shot",
+                    ui::picture_slot().child(large),
+                    picture_name(&current.title, shot, count),
                 )
-                .on_click(pick(to))
-        };
-        let mut out = div().flex().flex_col().gap(px(10.)).max_w(px(760.)).child(
-            plate()
-                .id("mods-shot")
-                .overflow_hidden()
-                .cursor_pointer()
-                .child(large)
-                .on_click(pick((shot + 1) % count)),
-        );
+                .on_press(pick((shot + 1) % count)),
+            );
         if !current.title.is_empty() {
             out = out.child(
-                text(theme::CAPTION)
-                    .text_color(t.ink_soft)
-                    .child(current.title.clone()),
+                ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY).child(current.title.clone()),
             );
         }
         if count < 2 {
             return out;
         }
-        let mut strip = div()
-            .flex()
-            .flex_wrap()
-            .items_center()
-            .gap(px(8.))
-            .child(step("mods-shot-back", true, (shot + count - 1) % count));
+        let mut strip = div().flex().flex_wrap().items_center().gap(px(space::SM));
         for (i, g) in gallery.iter().enumerate() {
-            let thumb = image(self, &g.url, 120., 68.);
-            strip = strip.child(
+            let thumb = image(self, &g.url, THUMB.0, THUMB.1);
+            let thumb = ui::picture_button(
+                SharedString::from(format!("mods-shot-{}", g.url)),
                 div()
-                    .id(SharedString::from(format!("mods-shot-{i}")))
-                    .flex_none()
+                    .rounded(px(radius::CONTROL))
                     .overflow_hidden()
-                    .border_2()
-                    .border_color(if i == shot {
-                        t.accent
-                    } else {
-                        gpui::transparent_black()
-                    })
-                    .cursor_pointer()
-                    .child(thumb)
-                    .on_click(pick(i)),
-            );
+                    .child(thumb),
+                picture_name(&g.title, i, count),
+            )
+            .p(px(space::XXS))
+            .on_press(pick(i));
+            strip = strip.child(ui::selected(thumb, i == shot));
         }
-        strip = strip
-            .child(step("mods-shot-next", false, (shot + 1) % count))
-            .child(
-                text(theme::CAPTION)
-                    .text_color(t.muted)
-                    .child(format!("{} / {count}", shot + 1)),
-            );
+        strip = strip.child(ui::card_note(format!("{} / {count}", shot + 1)));
         out.child(strip)
     }
 }
@@ -968,5 +1057,12 @@ impl Opened {
                 row.verdict = Some(*verdict);
             }
         }
+    }
+}
+
+fn picture_name(title: &str, at: usize, count: usize) -> String {
+    match title.trim() {
+        "" => format!("{} / {count}", at + 1),
+        title => title.to_string(),
     }
 }

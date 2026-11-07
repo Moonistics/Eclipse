@@ -95,18 +95,13 @@ impl Versions {
 }
 
 fn cache() -> PathBuf {
-    crate::backend::data_dir()
-        .join("minecraft")
-        .join("version_manifest_v2.json")
+    crate::backend::own_minecraft_dir().join("version_manifest_v2.json")
 }
 
 /// Mojang's list, fetched now and kept; the kept one when Mojang can't be reached.
 pub fn load() -> Result<Versions, String> {
     load_with(&cache(), &|url| {
-        let mut body = String::new();
-        std::io::Read::read_to_string(&mut crate::backend::get(url)?.into_reader(), &mut body)
-            .map_err(|e| e.to_string())?;
-        Ok(body)
+        String::from_utf8(crate::backend::get_bytes(url)?).map_err(|e| e.to_string())
     })
 }
 

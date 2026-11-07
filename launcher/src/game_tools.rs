@@ -25,7 +25,7 @@ const CTL: &str = if cfg!(windows) {
 
 /// The control endpoint of a game started by `play`: a Unix socket, or on Windows the
 /// file naming a localhost port and its token.
-pub fn socket_path() -> PathBuf {
+fn socket_path() -> PathBuf {
     backend::data_dir().join(if cfg!(unix) {
         "game-control.sock"
     } else {
@@ -105,7 +105,6 @@ fn tcp_answers(path: &Path) -> Option<bool> {
     Some(reply.contains("\"ok\""))
 }
 
-/// Whether the game `play` started answers yet.
 pub fn listening() -> bool {
     answers(&socket_path())
 }
@@ -113,7 +112,6 @@ pub fn listening() -> bool {
 pub struct GameTools {
     /// The installed version this `eclipse-ctl` belongs to.
     tag: String,
-    /// The endpoint it talks to.
     endpoint: PathBuf,
     child: Child,
     stdin: ChildStdin,
@@ -267,7 +265,6 @@ mod tests {
     use super::*;
     use std::net::TcpListener;
 
-    /// A folder for one test's endpoint files.
     fn scratch(name: &str) -> PathBuf {
         let dir = std::env::temp_dir().join(format!(
             "eclipse-game-endpoint-{name}-{}",

@@ -9,8 +9,7 @@ use std::os::unix::fs::MetadataExt;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 
-/// The bundle's folder in a version folder.
-pub const APP: &str = "Eclipse.app";
+use crate::backend::GAME_APP as APP;
 
 /// The game, then eclipse-ctl, which the game looks for beside itself (Copy Connection Details).
 const PROGRAMS: [&str; 2] = ["eclipse-client", "eclipse-ctl"];
@@ -353,13 +352,5 @@ mod tests {
         fs::create_dir_all(&version).unwrap();
         assert!(ensure(&version).is_err());
         fs::remove_dir_all(&version).unwrap();
-    }
-
-    #[test]
-    fn xml_escapes_the_characters_plist_strings_must_not_carry() {
-        assert_eq!(
-            crate::shortcut::xml(r#"a & b < c > "d""#),
-            r#"a &amp; b &lt; c &gt; &quot;d&quot;"#
-        );
     }
 }

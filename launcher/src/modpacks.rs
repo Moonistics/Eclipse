@@ -19,9 +19,17 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Where imported packs live.
 pub fn ports_dir() -> PathBuf {
-    backend::game_home().join("ports")
+    backend::game_home().join(crate::game_folder::PORTS)
+}
+
+/// The resources a modpack is ported with as it is imported: the selected version's, once it is
+/// prepared.
+pub fn port_resources(settings: &backend::Settings) -> Option<PathBuf> {
+    backend::resolve_version(None, settings)
+        .ok()
+        .filter(|tag| backend::is_prepared(tag))
+        .map(|tag| backend::resources(&tag))
 }
 
 /// A pack's folder name: its name in lowercase words joined by dashes.
@@ -39,6 +47,7 @@ pub fn slug(name: &str) -> String {
 }
 
 /// An imported pack, as its work folder has it.
+#[derive(Default)]
 pub struct Imported {
     pub slug: String,
     pub work: PathBuf,
@@ -201,7 +210,6 @@ pub fn row_plain(row: &Row) -> String {
     format!("{plain} {waiting}")
 }
 
-/// Reads the pack in `work`.
 pub fn load(work: &Path) -> Result<Imported, String> {
     let pack: Pack = pipeline::read_json(&work.join("pack.json"))?;
     let rows: Vec<Row> = pipeline::read_json(&work.join("coverage.json")).unwrap_or_default();
@@ -252,7 +260,6 @@ pub fn load(work: &Path) -> Result<Imported, String> {
     })
 }
 
-/// Every imported pack, by name.
 pub fn list() -> Vec<Imported> {
     list_in(&ports_dir())
 }
@@ -270,7 +277,7 @@ pub(crate) fn list_in(ports: &Path) -> Vec<Imported> {
 
 /// The carried-over mods in a work folder (`mods/<id>/carry/` with its manifest).
 pub fn carried(work: &Path) -> Vec<PathBuf> {
-    let mut mods: Vec<PathBuf> = fs::read_dir(work.join("mods"))
+    let mut mods: Vec<PathBuf> = fs::read_dir(work.join(crate::game_folder::JAVA_MODS))
         .into_iter()
         .flatten()
         .flatten()
@@ -370,7 +377,7 @@ pub fn remove(work: &Path) -> Result<(), String> {
 
 /// The profile's own game home: saves, options.txt, logs.
 pub fn profile_home(work: &Path) -> PathBuf {
-    work.join("home")
+    work.join(crate::game_folder::PROFILE)
 }
 
 /// Turns the game's command into this pack's profile: its own home (the player's options.txt
@@ -388,8 +395,8 @@ pub fn apply_profile(cmd: &mut Command, work: &Path) -> Result<(), String> {
     prepare_resourcepacks(work);
     let home = profile_home(work);
     fs::create_dir_all(&home).map_err(|e| format!("{}: {e}", home.display()))?;
-    let options = home.join("options.txt");
-    let own = backend::game_home().join("options.txt");
+    let options = home.join(crate::game_folder::OPTIONS);
+    let own = backend::game_home().join(crate::game_folder::OPTIONS);
     if !options.exists() && own.is_file() {
         let _ = fs::copy(own, &options);
     }
@@ -413,6 +420,7 @@ fn prepare_resourcepacks(work: &Path) {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use eclipse_port_pack::report::{self, Row, Status};
 
     #[test]
     fn slugs() {
@@ -554,5 +562,106 @@ mod tests {
         assert_eq!(p.portable, 0);
         assert_eq!(p.indexed_resources, 1);
         fs::remove_dir_all(root).unwrap();
+    }
+
+    fn row(class: &str, tier: &str, status: Status) -> Row {
+        Row {
+            key: format!("{class}-{tier}-{}", status.label()),
+            name: String::new(),
+            class: class.into(),
+            tier: tier.into(),
+            license: "MIT".into(),
+            license_kind: "permissive".into(),
+            status,
+            reason: String::new(),
+            plain: String::new(),
+            waiting: 0,
+        }
+    }
+
+    fn pack_with(rows: Vec<Row>) -> Imported {
+        Imported {
+            rows,
+            ..Imported::default()
+        }
+    }
+
+    #[test]
+    fn the_headline_says_what_coverage_md_says() {
+        let mixes = [
+            vec![],
+            vec![row("library", "none", Status::NotNeeded)],
+            vec![
+                row("content", "data", Status::Partial),
+                row("content", "data", Status::Partial),
+            ],
+            vec![
+                row("content", "machines", Status::NotYet),
+                row("content", "data", Status::NotYet),
+            ],
+            vec![
+                row("content", "data", Status::Ported),
+                row("content", "data", Status::Partial),
+                row("content", "deep", Status::NotYet),
+                row("unknown", "none", Status::NotYet),
+                row("integration", "data", Status::NotYet),
+                row("library", "none", Status::NotNeeded),
+                row("resourcepack", "data", Status::Partial),
+            ],
+        ];
+        for rows in mixes {
+            let expected = report::summary(&rows).lines();
+            assert_eq!(pack_with(rows).headline(), expected);
+        }
+        // An empty pack says nothing; a mixed one starts with the plain count.
+        assert!(pack_with(Vec::new()).headline().is_empty());
+        let one = pack_with(vec![row("content", "data", Status::Ported)]).headline();
+        assert!(
+            one[0].starts_with("1 of 1 mods that need porting come over"),
+            "{one:?}"
+        );
+    }
+
+    #[test]
+    fn row_explanations_keep_the_coverage_reports_english_and_dependency_counts() {
+        use eclipse_port_pack::inventory::Record;
+        let records: Vec<_> = [
+            ("base", "content", "machines", vec![]),
+            ("logic", "content", "logic", vec![]),
+            ("one", "integration", "logic", vec!["base"]),
+            ("two", "content", "deep", vec!["base", "logic"]),
+            ("unknown", "unknown", "none", vec![]),
+            ("data", "content", "data", vec![]),
+            ("client", "client-ui", "client", vec![]),
+            ("library", "library", "none", vec![]),
+            ("performance", "performance", "none", vec![]),
+            ("other", "other", "none", vec![]),
+        ]
+        .into_iter()
+        .map(|(key, class, tier, depends)| Record {
+            key: key.into(),
+            class: class.into(),
+            tier: tier.into(),
+            depends: depends.into_iter().map(str::to_owned).collect(),
+            ..Default::default()
+        })
+        .collect();
+        let missing =
+            std::env::temp_dir().join(format!("eclipse-row-english-{}", std::process::id()));
+        let rows = report::build(&records, &missing);
+        for row in &rows {
+            assert_eq!(row_plain(row), row.plain_text(), "{}", row.key);
+        }
+        assert!(row_plain(&rows[2]).ends_with("1 mod it depends on that is not ported yet."));
+        assert!(row_plain(&rows[3]).ends_with("2 mods it depends on that are not ported yet."));
+        // Reports from before the new count field, and future sentences, still show their text.
+        let old: Row = serde_json::from_str(
+            r#"{"key":"old","name":"","class":"content",
+            "tier":"logic","license":"MIT","license_kind":"permissive","status":"not-yet",
+            "reason":"detail","plain":"An explanation from another build."}"#,
+        )
+        .unwrap();
+        assert_eq!(row_plain(&old), "An explanation from another build.");
+        assert!(row_plain(&row("library", "none", Status::NotNeeded)).is_empty());
     }
 }

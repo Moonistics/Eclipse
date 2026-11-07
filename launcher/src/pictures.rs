@@ -8,6 +8,9 @@
 //! A picture is made at the size it is drawn ([`drawn_side`]), never above what the GPU's texture
 //! atlas holds ([`gpu_limit`]): GPUI's atlas makes a new max-size texture on every frame for a
 //! picture that doesn't fit, and never caches it (1 GiB a frame for a 32768 px screenshot).
+pub(super) mod cache;
+
+pub(super) use cache::{Look, Pictures};
 use std::collections::HashMap;
 use std::fs::File;
 use std::hash::Hash;
@@ -17,11 +20,11 @@ use std::time::{Duration, Instant};
 
 /// Formats without a row-by-row reader here (JPEG, WebP, interlaced PNG) are decoded whole
 /// first; a picture needing more than this is refused rather than decoded.
-pub const WHOLE_DECODE_MAX: u64 = 256 << 20;
+const WHOLE_DECODE_MAX: u64 = 256 << 20;
 
 /// The biggest texture GPUI's atlas makes on Metal and DirectX (a fixed 16384 there; on Linux it is
 /// the wgpu device's own limit, [`gpu_limit`]).
-pub const ATLAS_MAX: u32 = 16384;
+const ATLAS_MAX: u32 = 16384;
 
 /// Until the GPU has been asked (Linux): wgpu's default limit, which every adapter meets.
 const LIMIT_UNKNOWN: u32 = 8192;
@@ -29,7 +32,7 @@ const LIMIT_UNKNOWN: u32 = 8192;
 static GPU_LIMIT: std::sync::OnceLock<u32> = std::sync::OnceLock::new();
 
 /// The biggest picture side GPUI can hold in its atlas on this machine.
-pub fn gpu_limit() -> u32 {
+fn gpu_limit() -> u32 {
     if cfg!(any(target_os = "linux", target_os = "freebsd")) {
         GPU_LIMIT.get().copied().unwrap_or(LIMIT_UNKNOWN)
     } else {
@@ -66,7 +69,7 @@ pub fn probe_gpu_limit() {
 /// The side to make a picture drawn `points` across on a screen of `scale` pixels per point:
 /// what the screen shows, rounded up to 256 px (a resize doesn't remake it on every frame), and
 /// never more than `limit`, the GPU's ([`gpu_limit`]).
-pub fn drawn_side(points: f32, scale: f32, limit: u32) -> u32 {
+fn drawn_side(points: f32, scale: f32, limit: u32) -> u32 {
     let pixels = (points.max(1.) * scale.max(1.)).ceil().min(u32::MAX as f32) as u32;
     pixels.div_ceil(256).saturating_mul(256).min(limit).max(1)
 }
@@ -84,7 +87,7 @@ pub fn fitted(w: u32, h: u32, max: u32) -> (u32, u32) {
 }
 
 /// The picture at `path` fitted inside `max` × `max` (see [`fitted`]), as straight RGBA.
-pub fn load_fitted(path: &Path, max: u32) -> Result<image::RgbaImage, String> {
+fn load_fitted(path: &Path, max: u32) -> Result<image::RgbaImage, String> {
     let file = File::open(path).map_err(|e| format!("{}: {e}", path.display()))?;
     let mut reader = BufReader::new(file);
     let png = reader
@@ -244,7 +247,7 @@ impl Shrink {
 /// those drawn within `grace`: they are on screen, and making them again on every frame would
 /// cost more than going over. What goes is handed back so the caller can free it where it is
 /// drawn too (GPUI's sprite atlas).
-pub struct Lru<K, V> {
+struct Lru<K, V> {
     budget: u64,
     grace: Duration,
     used: u64,
@@ -318,21 +321,8 @@ impl<K: Eq + Hash + Clone, V> Lru<K, V> {
         gone
     }
 
-    /// The bytes kept.
-    pub fn used(&self) -> u64 {
-        self.used
-    }
-
-    pub fn over_budget(&self) -> bool {
+    fn over_budget(&self) -> bool {
         self.used > self.budget
-    }
-
-    pub fn len(&self) -> usize {
-        self.entries.len()
-    }
-
-    pub fn is_empty(&self) -> bool {
-        self.entries.is_empty()
     }
 }
 
@@ -452,11 +442,11 @@ mod tests {
         // `a` drawn again: `b` is now the least recently drawn.
         assert_eq!(lru.get(&"a", t0 + 3 * s), Some(&'a'));
         assert_eq!(lru.insert("c", 'c', 40, t0 + 6 * s), vec!['b']);
-        assert_eq!(lru.used(), 80);
+        assert_eq!(lru.used, 80);
         assert_eq!(lru.peek(&"b"), None);
         // Replacing a key hands back the old value and counts only the new one.
         assert_eq!(lru.insert("c", 'C', 10, t0 + 6 * s), vec!['c']);
-        assert_eq!(lru.used(), 50);
+        assert_eq!(lru.used, 50);
     }
 
     #[test]
@@ -467,7 +457,7 @@ mod tests {
             assert!(lru.insert(i, i, 40, t0).is_empty());
         }
         // All five drawn within the grace: over budget, but nothing goes.
-        assert_eq!(lru.used(), 200);
+        assert_eq!(lru.used, 200);
         assert!(lru.over_budget());
         // Later only 0 and 1 are still drawn: the rest go, oldest first, back under budget.
         let later = t0 + Duration::from_secs(5);
@@ -476,8 +466,8 @@ mod tests {
         let mut gone = lru.trim(later);
         gone.sort();
         assert_eq!(gone, vec![2, 3, 4]);
-        assert_eq!(lru.used(), 80);
-        assert_eq!(lru.len(), 2);
+        assert_eq!(lru.used, 80);
+        assert_eq!(lru.entries.len(), 2);
     }
 
     #[test]

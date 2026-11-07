@@ -37,7 +37,16 @@ fn hud(index: &Index) -> Project {
 /// port.
 fn put(index: &Index, local: bool, home: &Path) -> Result<Vec<installed::Entry>, String> {
     let p = index.project("coords_hud").unwrap();
-    install_version(index, local, p, &p.versions[0], home, &|_, _| {}).map(|e| vec![e])
+    install_version(
+        index,
+        local,
+        p,
+        &p.versions[0],
+        home,
+        &|_| Ok(()),
+        &|_, _| {},
+    )
+    .map(|e| vec![e])
 }
 
 #[test]
@@ -348,6 +357,18 @@ fn installs_checked_turns_on_and_removes() {
         fs::read_to_string(home.join("eclipse-mods.txt")).unwrap(),
         ""
     );
+    // Taken down, it stays off; the player can still turn it off.
+    let game = installed::Game::Eclipse;
+    let refused = game
+        .set_on(&home, &done[0], true, Some(&revoked))
+        .unwrap_err();
+    assert_eq!(refused, "Coordinates HUD was taken down: Test.");
+    game.set_on(&home, &done[0], true, Some(&index)).unwrap();
+    assert_eq!(
+        fs::read_to_string(home.join("eclipse-mods.txt")).unwrap(),
+        "mod.coords_hud:true\n"
+    );
+    game.set_on(&home, &done[0], false, Some(&revoked)).unwrap();
 
     installed::remove(&home, "coords_hud").unwrap();
     assert!(!home.join("eclipse-mods/coords_hud.emod").exists());
@@ -364,9 +385,11 @@ fn a_mod_that_turned_native_keeps_its_emod_until_removed() {
     let home = scratch("turned-native");
     put(&index, true, &home).unwrap();
     // As install_version leaves it after the native update.
-    let mut list = installed::Installed::load(&home);
-    list.entries[0].file = "eclipse-native-mods/coords_hud.hnmod".into();
-    list.save(&home).unwrap();
+    let mut list = installed::Installed::open(&home).unwrap();
+    let mut native = list.entries[0].clone();
+    native.file = "eclipse-native-mods/coords_hud.hnmod".into();
+    list.record(native).unwrap();
+    drop(list);
     fs::create_dir_all(home.join("eclipse-native-mods")).unwrap();
     fs::write(home.join("eclipse-native-mods/coords_hud.hnmod"), "").unwrap();
     installed::remove(&home, "coords_hud").unwrap();
@@ -506,30 +529,6 @@ fn versions_for_a_newer_eclipse_are_not_installed() {
 }
 
 #[test]
-fn ratings_keep_only_what_is_well_formed() {
-    let text = r#"{"projects": {
-        "zoom": {"average": 4.25, "count": 12},
-        "minimap": {"average": 9, "count": 3},
-        "keystrokes": {"average": 3, "count": 0},
-        "Bad Id": {"average": 4, "count": 1},
-        "fps_overlay": {"average": "5", "count": 1}
-    }}"#;
-    let ratings = parse_ratings(text);
-    assert_eq!(
-        ratings.into_iter().collect::<Vec<_>>(),
-        [(
-            "zoom".to_owned(),
-            Rating {
-                average: 4.25,
-                count: 12
-            }
-        )]
-    );
-    assert!(parse_ratings("not json").is_empty());
-    assert!(parse_ratings(r#"{"projects": []}"#).is_empty());
-}
-
-#[test]
 fn a_project_is_starred_on_the_repository_its_source_is_in() {
     let repo = |s: &str| github_repo(s);
     let daybreak = Some("https://github.com/hildlabs/eclipse-shaders".to_owned());
@@ -562,4 +561,12 @@ fn a_project_is_starred_on_the_repository_its_source_is_in() {
     ] {
         assert_eq!(repo(source), None, "{source:?}");
     }
+}
+
+#[test]
+fn a_registry_the_launcher_cant_read_says_so_first() {
+    let error = read_index(r#"{"projects": 3}"#).unwrap_err();
+    let (said, detail) = error.split_once('\n').unwrap();
+    assert_eq!(said, UNREADABLE);
+    assert!(!detail.is_empty(), "{error}");
 }

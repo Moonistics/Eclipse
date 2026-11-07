@@ -3,33 +3,96 @@
 //! the titles, navigation and buttons.
 
 pub const ACCENT: u32 = 0xf5a524;
-pub const TINT: f32 = 0.06;
-pub const BLUR: f32 = 24.;
 pub const PAGE: u32 = 0x08090f;
 pub const BASE: u32 = 0x10131c;
-pub const PLATE_ALPHA: f32 = 1.;
 pub const FLOAT: u32 = 0x161a25;
+pub const PAPER: u32 = 0xffffff;
 pub const EDGE: f32 = 0.07;
+pub const EDGE_LIGHT: f32 = 0.12;
+pub const FIELD_EDGE: f32 = 0.34;
+pub const FIELD_EDGE_LIGHT: f32 = 0.48;
+pub const SELECTED_EDGE: f32 = 0.3;
+pub const SELECTED_EDGE_LIGHT: f32 = 0.52;
+pub const SWITCH_EDGE_LIGHT: f32 = 0.56;
 pub const ON_LIGHT: u32 = 0x14151c;
 /// A running game or server, and a ready instance.
 pub const LIVE: u32 = 0x4ade80;
-/// Busy (pulsing) and partly-working states: a red-orange well off the accent's amber.
-pub const WARN: u32 = 0xff9a6c;
+/// Busy and partly-working states: a red-orange well off the accent's amber.
+pub const WARN: u32 = 0xff7059;
 /// Destructive menu rows, and the fill under one while hovered.
 pub const DANGER: u32 = 0xff8a8a;
-pub const DANGER_HOVER: u32 = 0xff6b6b;
-pub const LIVE_LIGHT: u32 = 0x15803d;
-pub const WARN_LIGHT: u32 = 0xc2410c;
-pub const DANGER_LIGHT: u32 = 0xdc2626;
-/// The Discord button and its hover.
-pub const DISCORD: u32 = 0x5865f2;
-pub const DISCORD_HOVER: u32 = 0x4752c4;
+pub const LIVE_LIGHT: u32 = 0x126e34;
+pub const WARN_LIGHT: u32 = 0xaf331a;
+pub const DANGER_LIGHT: u32 = 0xb91c1c;
 pub const SCRIM: u32 = 0x05060a;
 
 pub const FONT: &str = crate::FONT;
 pub const DISPLAY_FONT: &str = "Monocraft";
-pub const HEADING_FONT: &str = "Monocraft";
-pub const LABEL_FONT: &str = "Monocraft";
+
+pub const MONOCRAFT_PIXEL: f32 = 9.;
+
+pub const MONOCRAFT_ADVANCE: f32 = 6.;
+
+pub const GEIST_ADVANCE: f32 = 7.5;
+
+pub mod pixel_text {
+    use super::MONOCRAFT_PIXEL;
+    pub const PRESS: f32 = 2. * MONOCRAFT_PIXEL;
+    pub const CARD_TITLE: f32 = 3. * MONOCRAFT_PIXEL;
+    pub const PAGE_TITLE: f32 = 4. * MONOCRAFT_PIXEL;
+}
+
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct TextStep {
+    pub size: f32,
+    pub line: f32,
+}
+
+pub mod step {
+    use super::TextStep;
+    pub const LABEL: TextStep = TextStep {
+        size: 12.,
+        line: 16.,
+    };
+    pub const CAPTION: TextStep = TextStep {
+        size: 12.,
+        line: 18.,
+    };
+    pub const NOTE: TextStep = TextStep {
+        size: 13.,
+        line: 20.,
+    };
+    pub const BODY: TextStep = TextStep {
+        size: 14.,
+        line: 21.,
+    };
+    pub const LEAD: TextStep = TextStep {
+        size: 15.,
+        line: 22.,
+    };
+    pub const TITLE: TextStep = TextStep {
+        size: 16.,
+        line: 22.,
+    };
+    pub const FIGURE: TextStep = TextStep {
+        size: 22.,
+        line: 28.,
+    };
+    pub const CODE: TextStep = TextStep {
+        size: 28.,
+        line: 36.,
+    };
+}
+
+pub mod space {
+    pub const XXS: f32 = 2.;
+    pub const XS: f32 = 4.;
+    pub const SM: f32 = 8.;
+    pub const MD: f32 = 12.;
+    pub const LG: f32 = 16.;
+    pub const XL: f32 = 24.;
+    pub const XXL: f32 = 32.;
+}
 
 pub mod radius {
     pub const MODAL: f32 = 14.;
@@ -37,66 +100,102 @@ pub mod radius {
     pub const POPOVER: f32 = 10.;
     pub const ROW: f32 = 8.;
     pub const CONTROL: f32 = 6.;
+    pub const BLOCK: f32 = 4.;
 }
 
 pub mod ink {
     pub const FULL: f32 = 1.;
-    pub const STRONG: f32 = 0.86;
     pub const BODY: f32 = 0.72;
     pub const MUTED: f32 = 0.6;
     pub const DIM: f32 = 0.5;
+    pub const LEVELS: [f32; 4] = [FULL, BODY, MUTED, DIM];
+}
+
+mod ink_light {
+    pub const FULL: f32 = 1.;
+    pub const BODY: f32 = 0.78;
+    pub const MUTED: f32 = 0.7;
+    pub const DIM: f32 = 0.64;
+    pub const LEVELS: [f32; 4] = [FULL, BODY, MUTED, DIM];
+}
+
+pub fn light_ink(a: f32) -> f32 {
+    ink::LEVELS
+        .iter()
+        .position(|&level| level == a)
+        .map_or(a, |i| ink_light::LEVELS[i])
 }
 
 pub mod fill {
     pub const HOVER: f32 = 0.05;
-    pub const FIELD: f32 = 0.07;
+    pub const PRIMARY_HOVER: f32 = 0.14;
+    pub const INSET_LIGHT: f32 = 0.07;
     pub const BUTTON: f32 = 0.08;
+    pub const CONTROL_LIGHT: f32 = 0.7;
     pub const SELECTED: f32 = 0.1;
     pub const ACTIVE: f32 = 0.12;
-    pub const WELL: f32 = 0.04;
+    pub const WELL_SHADE: f32 = 0.25;
+    pub const DANGER: f32 = 0.12;
+    pub const TEXT_SELECTION: f32 = 0.22;
 }
+
+const BUSY_TRACK: f32 = 0.7;
+const BUSY_TRACK_STEPS: u32 = 10;
 
 pub const FIELD_BG: u32 = 0x1a1e29;
 pub const FIELD_BG_FOCUS: u32 = 0x222735;
 
-/// The look's colours for one accent and glass setting.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Glass {
     pub accent: u32,
-    /// The accent mixed half with white: progress bars, ticks, the focus ring, links.
+    /// The accent mixed with white (62 % accent): progress bars, the focus ring, links.
     pub accent_soft: u32,
-    /// The charcoal with a trace of the accent: what the plates are filled with.
-    pub base: u32,
+    pub mark: u32,
     /// Text on the accent: white, or [`ON_LIGHT`] on a light accent.
     pub on_accent: u32,
-    /// A plate's fill and its opacity.
+    /// The charcoal with a trace of the accent: what the plates are filled with.
     pub plate: u32,
-    pub plate_alpha: f32,
-    pub tint: f32,
-    pub blur: f32,
 }
 
 impl Glass {
-    pub fn new(accent: u32, tint: f32, blur: f32) -> Glass {
-        let base = mix_oklab(accent, BASE, 0.03);
+    pub fn new(accent: u32) -> Glass {
         Glass {
             accent,
             accent_soft: mix_oklab(accent, 0xffffff, 0.62),
-            base,
-            on_accent: if luminance(accent) > 0.4 {
+            mark: accent,
+            on_accent: if crate::contrast(ON_LIGHT, accent) > crate::contrast(0xffffff, accent) {
                 ON_LIGHT
             } else {
                 0xffffff
             },
-            plate: base,
-            plate_alpha: PLATE_ALPHA,
-            tint,
-            blur,
+            plate: mix_oklab(accent, BASE, 0.03),
         }
     }
 
     pub fn default_look() -> Glass {
-        Glass::new(ACCENT, TINT, BLUR)
+        Glass::new(ACCENT)
+    }
+
+    pub fn light(self) -> Glass {
+        Glass {
+            accent_soft: on_light(self.accent, 4.5),
+            mark: on_light(self.accent, 3.),
+            ..self
+        }
+    }
+
+    pub fn busy_track(&self, light: bool) -> u32 {
+        let under = match (self.on_accent == ON_LIGHT, light) {
+            (true, true) => PAPER,
+            (true, false) => self.plate,
+            (false, _) => PAGE,
+        };
+        let alphas = (0..=BUSY_TRACK_STEPS)
+            .map(|step| BUSY_TRACK + (1. - BUSY_TRACK) * step as f32 / BUSY_TRACK_STEPS as f32);
+        alphas
+            .map(|alpha| crate::night::over(self.accent, alpha, under))
+            .find(|&track| crate::contrast(self.on_accent, track) >= 4.5)
+            .unwrap_or(self.accent)
     }
 
     /// Every colour by its CSS name (`--glass-<name>`), for `tokens.css`.
@@ -105,28 +204,56 @@ impl Glass {
         [
             ("accent", hex(self.accent)),
             ("accent-soft", hex(self.accent_soft)),
-            ("base", hex(self.base)),
             ("on-accent", hex(self.on_accent)),
             ("page", hex(PAGE)),
             ("live", hex(LIVE)),
             ("warn", hex(WARN)),
             ("danger", hex(DANGER)),
-            (
-                "plate",
-                format!(
-                    "rgba({}, {}, {}, {:.3})",
-                    self.plate >> 16 & 255,
-                    self.plate >> 8 & 255,
-                    self.plate & 255,
-                    self.plate_alpha
-                ),
-            ),
-            ("blur", format!("{}px", self.blur)),
+            ("plate", hex(self.plate)),
         ]
         .into_iter()
         .map(|(name, value)| format!("  --glass-{name}: {value};\n"))
         .collect()
     }
+}
+
+pub fn light_surfaces() -> Vec<u32> {
+    use crate::night::{over, DAWN};
+    let tinted = |a, under| over(ON_LIGHT, a, under);
+    let mut out = vec![
+        DAWN.side,
+        tinted(fill::SELECTED, DAWN.side),
+        DAWN.page,
+        over(PAPER, fill::CONTROL_LIGHT, DAWN.page),
+        PAPER,
+        tinted(fill::SELECTED, PAPER),
+        tinted(fill::INSET_LIGHT, PAPER),
+    ];
+    out.extend(DAWN.sky);
+    out
+}
+
+pub fn dark_surfaces(look: &Glass) -> Vec<u32> {
+    use crate::night::over;
+    let raised = |under| over(0xffffff, fill::SELECTED, under);
+    vec![
+        PAGE,
+        look.plate,
+        raised(look.plate),
+        FLOAT,
+        raised(FLOAT),
+        FIELD_BG,
+        FIELD_BG_FOCUS,
+    ]
+}
+
+fn on_light(accent: u32, ratio: f32) -> u32 {
+    let surfaces = light_surfaces();
+    let [l, a, b] = oklab(accent);
+    (0..200)
+        .map(|step| from_oklab([l - step as f32 * 0.005, a, b]))
+        .find(|&c| surfaces.iter().all(|&s| crate::contrast(c, s) >= ratio))
+        .unwrap_or(0)
 }
 
 /// Builds a colour from a function of each channel's shift (16, 8, 0) giving 0..=1.
@@ -170,7 +297,7 @@ pub fn oklab(c: u32) -> [f32; 3] {
 /// OKLab back to sRGB, clamped to the gamut.
 // The matrices as CSS Color 4 publishes them, digit for digit.
 #[allow(clippy::excessive_precision)]
-pub fn from_oklab([l, a, b]: [f32; 3]) -> u32 {
+fn from_oklab([l, a, b]: [f32; 3]) -> u32 {
     let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
     let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
     let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
@@ -183,22 +310,9 @@ pub fn from_oklab([l, a, b]: [f32; 3]) -> u32 {
 }
 
 /// CSS `color-mix(in oklab, a p, b)`: `p` of `a`, the rest `b`.
-pub fn mix_oklab(a: u32, b: u32, p: f32) -> u32 {
+fn mix_oklab(a: u32, b: u32, p: f32) -> u32 {
     let (x, y) = (oklab(a), oklab(b));
     from_oklab([0, 1, 2].map(|i| x[i] * p + y[i] * (1. - p)))
-}
-
-/// WCAG relative luminance, as the mockup's `luminance` picks the label colour on the accent.
-pub fn luminance(c: u32) -> f32 {
-    let [r, g, b] = [16, 8, 0].map(|s| {
-        let v = ((c >> s) & 255) as f32 / 255.;
-        if v <= 0.03928 {
-            v / 12.92
-        } else {
-            ((v + 0.055) / 1.055).powf(2.4)
-        }
-    });
-    0.2126 * r + 0.7152 * g + 0.0722 * b
 }
 
 #[cfg(test)]
@@ -211,7 +325,7 @@ mod tests {
             .all(|s| (((a >> s) & 255) as i32 - ((b >> s) & 255) as i32).abs() <= 1)
     }
 
-    /// Chrome's own results for the mockup's `color-mix` sums (getComputedStyle, then a 1 px
+    /// Chrome's own results for these `color-mix` sums (getComputedStyle, then a 1 px
     /// canvas for the sRGB bytes): an independent check of the OKLab maths and the plate's mix.
     #[test]
     fn mixes_match_the_browser() {
@@ -228,31 +342,179 @@ mod tests {
     #[test]
     fn a_light_accent_takes_dark_labels() {
         assert_eq!(Glass::default_look().on_accent, ON_LIGHT);
-        assert_eq!(Glass::new(0x6b4bff, TINT, BLUR).on_accent, 0xffffff);
+        assert_eq!(Glass::new(0x6b4bff).on_accent, 0xffffff);
     }
 
     #[test]
     fn states_read_and_warn_is_not_the_accent() {
-        let plate = Glass::default_look().plate;
+        let look = Glass::default_look();
         for c in [LIVE, WARN, DANGER] {
-            for bg in [plate, FLOAT, FIELD_BG, FIELD_BG_FOCUS] {
+            for bg in dark_surfaces(&look) {
                 let ratio = crate::contrast(c, bg);
                 assert!(ratio >= 4.5, "#{c:06x} on #{bg:06x}: {ratio:.2}");
             }
         }
-        let light_plate = crate::night::over(0xffffff, 0.84, crate::night::DAWN.sky[3]);
+        use crate::night::{over, DAWN};
+        let plates = light_surfaces()
+            .into_iter()
+            .filter(|bg| !DAWN.sky.contains(bg));
         for c in [LIVE_LIGHT, WARN_LIGHT, DANGER_LIGHT] {
-            let ratio = crate::contrast(c, light_plate);
-            assert!(ratio >= 4.5, "#{c:06x} on the light plate: {ratio:.2}");
+            let hovered = [fill::HOVER, fill::SELECTED, fill::ACTIVE]
+                .map(|a| over(ON_LIGHT, a, PAPER))
+                .into_iter()
+                .chain([over(c, fill::DANGER, PAPER)]);
+            for bg in plates.clone().chain(hovered) {
+                let ratio = crate::contrast(c, bg);
+                assert!(ratio >= 4.5, "#{c:06x} on #{bg:06x}: {ratio:.2}");
+            }
         }
-        let hue = |c: u32| {
+        let oklab_hue = |c: u32| {
             let [_, a, b] = oklab(c);
             b.atan2(a).to_degrees()
         };
+        let hsl_hue = |c: u32| {
+            let [r, g, b] = [16, 8, 0].map(|s| ((c >> s) & 255) as f32);
+            let (max, min) = (r.max(g).max(b), r.min(g).min(b));
+            let h = if max == r {
+                (g - b) / (max - min)
+            } else if max == g {
+                2. + (b - r) / (max - min)
+            } else {
+                4. + (r - g) / (max - min)
+            };
+            (h * 60.).rem_euclid(360.)
+        };
         for warn in [WARN, WARN_LIGHT] {
-            let off = (hue(warn) - hue(ACCENT)).abs();
-            assert!(off >= 15., "#{warn:06x} is {off:.0}° from the accent");
+            for hue in [oklab_hue, hsl_hue] {
+                let off = (hue(warn) - hue(ACCENT)).abs();
+                assert!(off >= 25., "#{warn:06x} is {off:.0}° from the accent");
+            }
         }
+    }
+
+    #[test]
+    fn every_ink_level_reads_on_every_surface() {
+        use crate::night::{over, NIGHT, UNCARDED_STOPS};
+        for level in ink::LEVELS {
+            let a = light_ink(level);
+            for bg in light_surfaces() {
+                let ratio = crate::contrast(over(ON_LIGHT, a, bg), bg);
+                assert!(ratio >= 4.5, "light ink {a} on #{bg:06x}: {ratio:.2}");
+            }
+            let uncarded = NIGHT.sky[..UNCARDED_STOPS].iter().copied();
+            for bg in dark_surfaces(&Glass::default_look())
+                .into_iter()
+                .chain(uncarded)
+            {
+                let ratio = crate::contrast(over(0xffffff, level, bg), bg);
+                assert!(ratio >= 4.5, "ink {level} on #{bg:06x}: {ratio:.2}");
+            }
+        }
+        assert_eq!(
+            light_ink(fill::SELECTED),
+            fill::SELECTED,
+            "fills keep their weight"
+        );
+    }
+
+    /// What the dark look draws besides text: the keyboard focus ring on every surface (WCAG
+    /// 1.4.11 asks 3:1), and text over a selection.
+    #[test]
+    fn marks_and_selections_read_clearly() {
+        use crate::night::over;
+        let look = Glass::default_look();
+        for (name, bg) in [("plate", look.plate), ("float", FLOAT), ("field", FIELD_BG)] {
+            let ring = crate::contrast(look.accent_soft, bg);
+            assert!(ring >= 3.0, "focus ring on {name}: {ring:.2}");
+        }
+        let selection = over(look.accent_soft, fill::TEXT_SELECTION, FLOAT);
+        let ratio = crate::contrast(0xffffff, selection);
+        assert!(ratio >= 4.5, "text on a selection: {ratio:.2}");
+    }
+
+    #[test]
+    fn a_refused_field_reads_on_the_light_plates() {
+        for bg in light_surfaces() {
+            let refused = crate::contrast(DANGER_LIGHT, bg);
+            assert!(refused >= 3.0, "refused field on #{bg:06x}: {refused:.2}");
+        }
+    }
+
+    #[test]
+    fn a_switch_that_is_on_shows_it_by_its_track() {
+        let look = Glass::default_look();
+        for bg in [look.plate, FLOAT] {
+            let track = crate::contrast(look.accent, bg);
+            assert!(track >= 3.0, "on track on #{bg:06x}: {track:.2}");
+        }
+    }
+
+    #[test]
+    fn a_field_edge_stands_out_from_its_card() {
+        use crate::night::over;
+        let look = Glass::default_look();
+        for card in [look.plate, FLOAT] {
+            let ratio = crate::contrast(over(0xffffff, FIELD_EDGE, card), card);
+            assert!(ratio >= 3., "field edge on #{card:06x}: {ratio:.2}");
+        }
+        let ratio = crate::contrast(over(ON_LIGHT, FIELD_EDGE_LIGHT, PAPER), PAPER);
+        assert!(ratio >= 3., "light field edge: {ratio:.2}");
+    }
+
+    #[test]
+    fn a_chosen_card_shows_its_edge() {
+        use crate::night::{over, DAWN};
+        let look = Glass::default_look();
+        let track = over(0x000000, fill::WELL_SHADE, look.plate);
+        for under in [BASE, look.plate, FLOAT, track] {
+            let plate = over(0xffffff, fill::SELECTED, under);
+            let ratio = crate::contrast(over(0xffffff, SELECTED_EDGE, plate), under);
+            assert!(ratio >= 3., "selected edge on #{under:06x}: {ratio:.2}");
+        }
+        let well = over(ON_LIGHT, fill::INSET_LIGHT, PAPER);
+        for under in [PAPER, well, DAWN.side] {
+            let plate = over(ON_LIGHT, fill::SELECTED, under);
+            let ratio = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, plate), under);
+            assert!(
+                ratio >= 3.,
+                "light selected edge on #{under:06x}: {ratio:.2}"
+            );
+        }
+        let raised = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, PAPER), DAWN.side);
+        assert!(raised >= 3., "the sidebar's raised plate: {raised:.2}");
+    }
+
+    #[test]
+    fn the_light_look_marks_read_on_every_light_surface() {
+        let typed = (0..216).map(|i: u32| {
+            [i / 36, i / 6 % 6, i % 6]
+                .iter()
+                .fold(0, |c, n| (c << 8) | (n * 0x33))
+        });
+        for accent in [ACCENT].into_iter().chain(typed) {
+            let look = Glass::new(accent).light();
+            for bg in light_surfaces() {
+                let icon = crate::contrast(look.mark, bg);
+                assert!(icon >= 3., "#{accent:06x}'s mark on #{bg:06x}: {icon:.2}");
+                let link = crate::contrast(look.accent_soft, bg);
+                assert!(link >= 4.5, "#{accent:06x}'s links on #{bg:06x}: {link:.2}");
+            }
+            assert_eq!(look.accent, accent, "the fill stays the accent");
+        }
+    }
+
+    #[test]
+    fn the_dark_look_keeps_its_colours() {
+        let look = Glass::default_look();
+        assert_eq!(look.mark, ACCENT);
+        assert!(
+            close(look.accent_soft, 0xfbc989),
+            "{:06x}",
+            look.accent_soft
+        );
+        let light = look.light();
+        assert_ne!(light.mark, ACCENT);
+        assert_eq!((light.plate, light.on_accent), (look.plate, look.on_accent));
     }
 
     #[test]

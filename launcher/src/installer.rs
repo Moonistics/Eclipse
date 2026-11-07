@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use winreg::enums::{HKEY_CURRENT_USER, KEY_READ, KEY_WRITE};
 use winreg::RegKey;
 
-pub const APP_NAME: &str = "Eclipse Launcher";
+const APP_NAME: &str = "Eclipse Launcher";
 const BINARY: &str = "eclipse-launcher.exe";
 const PUBLISHER: &str = "Eclipse";
 const ABOUT_URL: &str = "https://github.com/Moonistics/Eclipse";
@@ -105,7 +105,7 @@ fn invocation() -> Invocation {
 }
 
 /// `%LOCALAPPDATA%\Programs\Eclipse Launcher`; `ECLIPSE_LAUNCHER_SETUP_DIR` replaces it (tests).
-pub fn default_dir() -> PathBuf {
+fn default_dir() -> PathBuf {
     if let Some(dir) = std::env::var_os("ECLIPSE_LAUNCHER_SETUP_DIR").filter(|d| !d.is_empty()) {
         return folder_for(Path::new(&dir));
     }

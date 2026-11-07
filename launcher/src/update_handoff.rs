@@ -23,7 +23,7 @@ use std::process::{Command, Stdio};
 use std::sync::Mutex;
 use std::time::Duration;
 
-pub const COMMAND: &str = "apply-update";
+const COMMAND: &str = "apply-update";
 const RESTART: &str = "--restart";
 const SHA256_ENV: &str = "ECLIPSE_LAUNCHER_UPDATE_SHA256";
 
@@ -36,15 +36,6 @@ static PENDING: Mutex<Option<Staged>> = Mutex::new(None);
 
 pub fn set_pending(staged: Option<Staged>) {
     *PENDING.lock().unwrap_or_else(|e| e.into_inner()) = staged;
-}
-
-/// Drops a staged update without installing it, and its stage: the window quits for the data move,
-/// whose worker copies the data folder the stage is in. The launcher it restarts checks again.
-pub fn forget() {
-    let staged = PENDING.lock().unwrap_or_else(|e| e.into_inner()).take();
-    if let Some(staged) = staged {
-        backend::remove_stage(&backend::update_work_dir(), &staged.payload);
-    }
 }
 
 /// The window is closing: a staged update goes in once it has exited, and the next start is the
@@ -69,7 +60,7 @@ pub fn start_now() -> Result<bool, String> {
 
 /// Starts the installer for `staged`; the caller quits right after. With `restart` the installer
 /// starts the new launcher with this one's arguments.
-pub fn hand_over(staged: &Staged, restart: bool) -> Result<(), String> {
+fn hand_over(staged: &Staged, restart: bool) -> Result<(), String> {
     backend::mark_handed_over(staged);
     let installer = backend::update_target();
     let mut cmd = installer_command(&installer, staged, restart, std::env::args_os().skip(1));

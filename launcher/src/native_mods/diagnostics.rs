@@ -43,10 +43,7 @@ impl Output {
 
 /// Cargo's stdout is JSON; the log stays readable and stderr still drives build progress.
 pub(super) fn capture(compiler: &Compiler<'_>, input: impl BufRead, mut log: impl Write) -> Output {
-    let plan = fs::read(compiler.stage.join(".horizon-mixins-stage.json"))
-        .ok()
-        .and_then(|bytes| serde_json::from_slice::<Value>(&bytes).ok())
-        .filter(|p| p["schema"].as_u64() == Some(6));
+    let plan = super::mixins::stage_plan(compiler.stage);
     let mut output = Output::default();
     for line in input.lines().map_while(Result::ok) {
         let value = serde_json::from_str::<Value>(&line).ok();
@@ -233,6 +230,7 @@ fn owner(compiler: &Compiler<'_>, plan: &Value, manifest: &Value, span: &Value) 
 
 #[cfg(test)]
 mod tests {
+    use super::super::mixins::{STAGE_PLAN, STAGE_SCHEMA};
     use super::*;
     use serde_json::json;
     use std::{io::Cursor, process::Command};
@@ -257,8 +255,8 @@ mod tests {
 
     fn plan(dir: &Path, entries: serde_json::Value) {
         fs::write(
-            dir.join(".horizon-mixins-stage.json"),
-            json!({"schema":6,"injections":entries}).to_string(),
+            dir.join(STAGE_PLAN),
+            json!({"schema":STAGE_SCHEMA,"injections":entries}).to_string(),
         )
         .unwrap();
     }
@@ -303,19 +301,22 @@ mod tests {
                 .arg("--manifest-path")
                 .arg(dir.join("Cargo.toml"))
                 .env("CARGO_TARGET_DIR", dir.join("target"));
-            let error = super::super::logged(|| {
-                super::super::run_checked(
-                    command,
-                    "Compiling the fixture",
-                    |_| {},
-                    Some(Compiler {
-                        stage: &dir,
-                        source: &dir.join("original"),
-                        mods: &mods,
-                    }),
-                )
-                .map_err(|ran| ran.error)
-            })
+            let error = super::super::build::logged(
+                crate::native_cache::limit_bytes(&crate::backend::Settings::default()),
+                || {
+                    super::super::run::run_checked(
+                        command,
+                        "Compiling the fixture",
+                        |_| {},
+                        Some(Compiler {
+                            stage: &dir,
+                            source: &dir.join("original"),
+                            mods: &mods,
+                        }),
+                    )
+                    .map_err(|ran| ran.error)
+                },
+            )
             .unwrap_err();
             assert!(
                 error.contains("fast_mesh 0.1.0") && error.contains("E0063"),
@@ -381,8 +382,8 @@ mod tests {
         )
         .unwrap();
         fs::write(
-            dir.join(".horizon-mixins-stage.json"),
-            json!({"schema":6,"injections":[],"modules":[{"mod_id":"fast_mesh","mod_version":"0.1.0","file":"src/main.rs","name":"fast_mesh_tables"}]}).to_string(),
+            dir.join(STAGE_PLAN),
+            json!({"schema":STAGE_SCHEMA,"injections":[],"modules":[{"mod_id":"fast_mesh","mod_version":"0.1.0","file":"src/main.rs","name":"fast_mesh_tables"}]}).to_string(),
         )
         .unwrap();
         let in_module = Command::new(env!("CARGO"))
@@ -397,7 +398,7 @@ mod tests {
         fs::write(dir.join("src/main.rs"), SOURCE).unwrap();
 
         for metadata in ["not json", "{}", r#"{"schema":99,"injections":[]}"#] {
-            fs::write(dir.join(".horizon-mixins-stage.json"), metadata).unwrap();
+            fs::write(dir.join(STAGE_PLAN), metadata).unwrap();
             let error =
                 capture(&compiler, Cursor::new(&stdout), Vec::new()).explain(original.clone());
             assert!(!error.contains("fast_mesh"), "{error}");

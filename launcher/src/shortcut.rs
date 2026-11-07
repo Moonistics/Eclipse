@@ -14,11 +14,11 @@
 //!
 //! [MS-SHLLINK]: https://learn.microsoft.com/en-us/openspecs/windows_protocols/ms-shllink/
 use crate::desktop;
-use crate::desktop_seams;
+use crate::desktop_seams::{self, Trash};
 use std::fs;
 use std::path::{Path, PathBuf};
 
-pub const DESKTOP_ENV: &str = "ECLIPSE_LAUNCHER_DESKTOP";
+const DESKTOP_ENV: &str = "ECLIPSE_LAUNCHER_DESKTOP";
 const MAC_ICON: &[u8] = include_bytes!("../../packaging/icons/eclipse.icns");
 /// The key a Linux shortcut names its instance with.
 const INSTANCE_KEY: &str = "X-Eclipse-Instance";
@@ -120,7 +120,7 @@ pub(crate) fn xml(text: &str) -> String {
 }
 
 /// A macOS app's files, by path inside the `.app`, and whether each is a program.
-pub fn mac_app(exe: &Path, id: &str, name: &str) -> Vec<(&'static str, Vec<u8>, bool)> {
+fn mac_app(exe: &Path, id: &str, name: &str) -> Vec<(&'static str, Vec<u8>, bool)> {
     let plist = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
@@ -169,88 +169,8 @@ fn utf16(text: &str) -> Vec<u8> {
     text.encode_utf16().flat_map(u16::to_le_bytes).collect()
 }
 
-/// A Windows Shell Link ([MS-SHLLINK]) to `exe` (a Windows path) with `args`: the header, a
-/// LinkInfo with the local path (ANSI and Unicode), then the name, working folder, arguments and
-/// icon as Unicode strings.
-pub fn lnk(exe: &str, args: &str, comment: &str) -> Vec<u8> {
-    const HAS_LINK_INFO: u32 = 0x02;
-    const HAS_NAME: u32 = 0x04;
-    const HAS_WORKING_DIR: u32 = 0x10;
-    const HAS_ARGUMENTS: u32 = 0x20;
-    const HAS_ICON_LOCATION: u32 = 0x40;
-    const IS_UNICODE: u32 = 0x80;
-    const FILE_ATTRIBUTE_NORMAL: u32 = 0x80;
-    const SW_SHOWNORMAL: u32 = 1;
-    let flags =
-        HAS_LINK_INFO | HAS_NAME | HAS_WORKING_DIR | HAS_ARGUMENTS | HAS_ICON_LOCATION | IS_UNICODE;
-    let mut out = Vec::new();
-    out.extend(0x4Cu32.to_le_bytes());
-    // CLSID 00021401-0000-0000-C000-000000000046.
-    out.extend([
-        0x01, 0x14, 0x02, 0x00, 0x00, 0x00, 0x00, 0x00, 0xC0, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
-        0x46,
-    ]);
-    out.extend(flags.to_le_bytes());
-    out.extend(FILE_ATTRIBUTE_NORMAL.to_le_bytes());
-    out.extend([0; 24]); // creation, access and write times: unknown
-    out.extend(0u32.to_le_bytes()); // file size
-    out.extend(0i32.to_le_bytes()); // icon index
-    out.extend(SW_SHOWNORMAL.to_le_bytes());
-    out.extend([0; 2 + 2 + 4 + 4]); // hot key, reserved
-
-    // LinkInfo: a header with the Unicode offsets (0x24 bytes), a VolumeID for a fixed drive
-    // with no label, the path in ANSI (anything else as '?') and in UTF-16, and empty suffixes.
-    let header = 0x24u32;
-    let volume: Vec<u8> = [0x11u32, 3, 0, 0x10]
-        .iter()
-        .flat_map(|v| v.to_le_bytes())
-        .chain([0])
-        .collect();
-    let ansi: Vec<u8> = exe
-        .chars()
-        .map(|c| if c.is_ascii() { c as u8 } else { b'?' })
-        .chain([0])
-        .collect();
-    let wide: Vec<u8> = utf16(exe).into_iter().chain([0, 0]).collect();
-    let volume_at = header;
-    let path_at = volume_at + volume.len() as u32;
-    let suffix_at = path_at + ansi.len() as u32;
-    let wide_at = suffix_at + 1;
-    let wide_suffix_at = wide_at + wide.len() as u32;
-    let size = wide_suffix_at + 2;
-    for v in [
-        size,
-        header,
-        1, // VolumeIDAndLocalBasePath
-        volume_at,
-        path_at,
-        0, // no network path
-        suffix_at,
-        wide_at,
-        wide_suffix_at,
-    ] {
-        out.extend(v.to_le_bytes());
-    }
-    out.extend(volume);
-    out.extend(ansi);
-    out.push(0);
-    out.extend(wide);
-    out.extend([0, 0]);
-
-    let folder = exe.rsplit_once('\\').map_or("", |(dir, _)| dir);
-    for text in [comment, folder, args, exe] {
-        out.extend((text.encode_utf16().count() as u16).to_le_bytes());
-        out.extend(utf16(text));
-    }
-    out.extend(0u32.to_le_bytes()); // no extra data
-    out
-}
-
 /// A Windows shortcut written by the shell itself (`IShellLinkW`), as Explorer and every installer
-/// make one. `lnk` above lays the bytes out from the format's specification, which tests can check
-/// anywhere, but it has no target ID list, and the shell reads the target from that list: Explorer
-/// shows an empty target and starts nothing. So on Windows this writes the shortcuts that are used.
-/// The icon is the program's own, which is also how an uninstall finds shortcuts made for it.
+/// make one. The icon is the program's own, which is also how an uninstall finds shortcuts made for it.
 #[cfg(windows)]
 pub fn write_windows_link(
     path: &Path,
@@ -307,31 +227,23 @@ fn plays(path: &Path, id: &str) -> bool {
     }
 }
 
-/// Writes `bytes` beside `path` and renames it in, so nothing reads half a file.
 fn write(path: &Path, bytes: &[u8], program: bool) -> Result<(), String> {
-    let fail = |e: std::io::Error| format!("{}: {e}", path.display());
-    if let Some(dir) = path.parent() {
-        fs::create_dir_all(dir).map_err(fail)?;
-    }
-    let temp = path.with_extension("eclipse-tmp");
-    fs::write(&temp, bytes).map_err(fail)?;
+    crate::files::write(path, bytes)?;
     #[cfg(unix)]
     if program {
         use std::os::unix::fs::PermissionsExt;
-        fs::set_permissions(&temp, fs::Permissions::from_mode(0o755)).map_err(fail)?;
+        fs::set_permissions(path, fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("{}: {e}", path.display()))?;
     }
     #[cfg(not(unix))]
     let _ = program;
-    fs::rename(&temp, path).map_err(fail)
+    Ok(())
 }
-
-/// Moves a file or folder out of the way, where the player can get it back.
-pub type Trash<'a> = &'a dyn Fn(&Path) -> Result<(), String>;
 
 /// Makes the shortcut for `system` in `desktop` (and, for Linux, the menu entry under
 /// `menu`, an `applications` folder). The instance's shortcut of the same name is rewritten;
 /// one under an older name goes to `trash`. Returns what it wrote.
-pub fn make_in(
+fn make_in(
     system: System,
     desktop: &Path,
     menu: Option<&Path>,
@@ -368,16 +280,13 @@ pub fn make_in(
                 write(&path.join(inside), &bytes, program)?;
             }
         }
+        #[cfg(windows)]
         System::Windows => {
-            let args = windows_args(id);
             let comment = format!("Play {name} in Eclipse");
-            // On Windows the shell writes the shortcut (`write_windows_link`); elsewhere, and in
-            // tests for the other systems, it is laid out from the format.
-            #[cfg(windows)]
-            write_windows_link(&path, exe, &args, &comment)?;
-            #[cfg(not(windows))]
-            write(&path, &lnk(&exe.to_string_lossy(), &args, &comment), false)?;
+            write_windows_link(&path, exe, &windows_args(id), &comment)?;
         }
+        #[cfg(not(windows))]
+        System::Windows => return Err("Windows shortcuts are made on Windows.".into()),
     }
     Ok(made)
 }
@@ -451,7 +360,6 @@ pub fn make(exe: &Path, id: &str, name: &str) -> Result<Vec<PathBuf>, String> {
     Ok(made)
 }
 
-/// The instance's shortcuts on this computer.
 pub fn find(id: &str) -> Vec<PathBuf> {
     desktop_dir()
         .map(|d| find_in(&d, menu().as_deref(), id))
@@ -469,5 +377,4 @@ pub fn remove(id: &str) -> Result<Vec<PathBuf>, String> {
 }
 
 #[cfg(test)]
-#[path = "shortcut/tests.rs"]
 mod tests;

@@ -319,7 +319,7 @@ mod tests {
         let (tc, rc) = channel();
         let deadline = Instant::now() + Duration::from_millis(800);
         let stop = Arc::new(AtomicBool::new(false));
-        accept(lc, 7, deadline, stop.clone(), tc.clone());
+        accept(lc, 7, deadline, stop.clone(), tc);
         let (td, rd) = channel();
         dial(
             None,

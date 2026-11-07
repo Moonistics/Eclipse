@@ -24,3 +24,54 @@ pub fn hide_console(command: &mut Command) -> &mut Command {
     }
     command
 }
+
+pub struct Running {
+    pub name: String,
+    pub command: String,
+}
+
+pub fn running() -> Result<Vec<Running>, String> {
+    #[cfg(windows)]
+    let output = command("powershell.exe")
+        .args([
+            "-NoProfile",
+            "-NonInteractive",
+            "-Command",
+            "Get-CimInstance Win32_Process | Select-Object Name,ExecutablePath,CommandLine | ConvertTo-Json -Compress",
+        ])
+        .output();
+    #[cfg(not(windows))]
+    let output = command("ps")
+        .args(["-A", "-ww", "-o", "comm=,args="])
+        .output();
+    let output = output.map_err(|e| e.to_string())?;
+    if !output.status.success() {
+        return Err(String::from_utf8_lossy(&output.stderr).trim().to_owned());
+    }
+    #[cfg(windows)]
+    {
+        let value: serde_json::Value =
+            serde_json::from_slice(&output.stdout).map_err(|e| e.to_string())?;
+        let entries = value.as_array().cloned().unwrap_or_else(|| vec![value]);
+        Ok(entries
+            .into_iter()
+            .map(|p| Running {
+                name: p["Name"].as_str().unwrap_or("").to_owned(),
+                command: format!(
+                    "{} {}",
+                    p["ExecutablePath"].as_str().unwrap_or(""),
+                    p["CommandLine"].as_str().unwrap_or("")
+                ),
+            })
+            .collect())
+    }
+    #[cfg(not(windows))]
+    Ok(String::from_utf8_lossy(&output.stdout)
+        .lines()
+        .filter_map(|line| line.trim().split_once(char::is_whitespace))
+        .map(|(name, command)| Running {
+            name: name.to_owned(),
+            command: command.trim_start().to_owned(),
+        })
+        .collect())
+}

@@ -107,7 +107,13 @@ impl Os {
     }
 }
 
-const OFFICIAL: &str = "the official launcher";
+pub(crate) const OFFICIAL: &str = "the official launcher";
+
+pub fn known_folders_here() -> Vec<(&'static str, PathBuf)> {
+    Folders::current()
+        .map(|f| known_folders(Os::current(), &f))
+        .unwrap_or_default()
+}
 
 /// Every launcher's default game folder on `os`, the official launcher's first. MultiMC on
 /// macOS and Windows has none (it lives where it was unzipped): it is chosen by hand.
@@ -320,7 +326,7 @@ pub fn find(dir: &Path, pins: &Pins) -> Result<Found, String> {
 /// launcher Eclipse knows, the advice names it: a Prism or MultiMC instance downloads the game
 /// only when it is launched once.
 pub fn not_found(version: &str, checked: &[(PathBuf, String)], chosen: &Path) -> String {
-    let mut text = format!("Minecraft {version} was not found. Eclipse looked in:");
+    let mut text = format!("{} Eclipse looked in:", not_found_line(version));
     for (dir, missing) in checked {
         text += &format!("\n  {} ({missing})", dir.display());
     }
@@ -328,18 +334,22 @@ pub fn not_found(version: &str, checked: &[(PathBuf, String)], chosen: &Path) ->
     text += &match launcher_of(chosen) {
         Some(launcher) => format!(
             "\n  • Launch the {version} instance once in {launcher} so it downloads the game, \
-             then prepare again.\n  \
-             • Or choose the folder {launcher} keeps Minecraft {version} in (Minecraft folder › \
-             Choose… in the launcher, --minecraft on the command line)."
+             then try again.\n  \
+             • Or choose the folder {launcher} keeps Minecraft {version} in (Play ⋯ › Choose \
+             Minecraft folder… in the launcher, --minecraft on the command line)."
         ),
         None => format!(
             "\n  • Play {version} once in the official Minecraft launcher, or in Prism Launcher, \
-             MultiMC, the Modrinth App, ATLauncher, GDLauncher or Dawn Client, then prepare again.\n  \
-             • Or choose the folder where your launcher keeps Minecraft {version} (Minecraft \
-             folder › Choose… in the launcher, --minecraft on the command line)."
+             MultiMC, the Modrinth App, ATLauncher, GDLauncher or Dawn Client, then try again.\n  \
+             • Or choose the folder where your launcher keeps Minecraft {version} (Play ⋯ › \
+             Choose Minecraft folder… in the launcher, --minecraft on the command line)."
         ),
     };
     text
+}
+
+pub fn not_found_line(version: &str) -> String {
+    format!("Minecraft {version} was not found.")
 }
 
 /// Fetches a URL's body (from several threads for a download).
@@ -427,7 +437,7 @@ pub(crate) fn fetch_manifest(
     let url = format!("https://piston-meta.mojang.com/v1/packages/{sha1}/{v}.json");
     let body =
         fetch_checked(fetch, &url, sha1).map_err(|e| format!("Mojang's {v} version file {e}"))?;
-    write_file(path, &body)
+    crate::files::write(path, &body)
 }
 
 pub(crate) fn sha1_hex(data: &[u8]) -> String {
@@ -444,19 +454,6 @@ pub(crate) fn fetch_checked(fetch: Fetch, url: &str, sha1: &str) -> Result<Vec<u
         actual if actual == sha1 => Ok(body),
         actual => Err(format!("is not the one Eclipse pins (sha1 {actual})")),
     }
-}
-
-/// Writes a file whole: a partial one never takes its place.
-pub(crate) fn write_file(path: &Path, data: &[u8]) -> Result<(), String> {
-    let error = |e: std::io::Error| format!("{}: {e}", path.display());
-    fs::create_dir_all(path.parent().unwrap()).map_err(error)?;
-    let partial = path.with_file_name(format!(
-        "{}.partial",
-        path.file_name().unwrap().to_string_lossy()
-    ));
-    fs::write(&partial, data)
-        .and_then(|_| fs::rename(&partial, path))
-        .map_err(error)
 }
 
 /// Links a launcher's files into the official layout in `linked`: the client jar as
@@ -552,5 +549,4 @@ pub(crate) fn junction(target: &Path, link: &Path) -> std::io::Result<()> {
 }
 
 #[cfg(test)]
-#[path = "sources_tests.rs"]
 mod tests;
