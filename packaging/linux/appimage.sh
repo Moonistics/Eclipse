@@ -10,7 +10,7 @@
 # its SHA-256 ($APPIMAGETOOL names one already on the machine, as the .dmg build takes $DMGBUILD).
 # It runs without FUSE (`--appimage-extract-and-run`), so a runner needs none.
 #
-# The launcher updates itself by replacing the file $APPIMAGE names (launcher/src/backend.rs,
+# The launcher updates itself by replacing the file $APPIMAGE names (launcher/src/backend/platform.rs,
 # LAUNCHER_APPIMAGE_ASSET); its menu entry starts that file, not the copy in the image's mount
 # (launcher/src/desktop.rs). Both only work for an AppImage built here.
 set -euo pipefail
