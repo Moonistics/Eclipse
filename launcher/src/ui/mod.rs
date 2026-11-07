@@ -357,8 +357,9 @@ pub fn icon(name: &'static str, size: IconSize, color: Hsla) -> Svg {
         .text_color(color)
 }
 
-/// The state dot before a row's second line: live green, the warning colour for busy and for a
-/// warning, the accent's soft shade (given) for an update, dim for nothing yet.
+/// The state dot before a row's second line: green only for a running game or server, the warning
+/// colour for busy and for a warning, the accent's soft shade (given) for an update, dim for the
+/// rest.
 #[derive(Clone, Copy, PartialEq)]
 pub enum Tone {
     Live,

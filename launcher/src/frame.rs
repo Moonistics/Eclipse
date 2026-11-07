@@ -99,8 +99,9 @@ impl Launcher {
         self.icon_for(spec, size)
     }
 
-    /// A sidebar row's state line and its dot, from what the launcher knows of the instance.
-    fn row_state(&self, i: &Instance) -> (Tone, String) {
+    /// A sidebar row's state line and its dot, from what the launcher knows of the instance;
+    /// `short` where the narrow sidebar has no room for the whole line.
+    fn row_state(&self, i: &Instance, short: bool) -> (Tone, String) {
         let state = self.play_state(i);
         if state == PlayState::Running {
             return (Tone::Live, tr("Running").into());
@@ -108,9 +109,10 @@ impl Launcher {
         if let Some(line) = state.busy_line() {
             return (Tone::Busy, line);
         }
-        let (tone, line) = match &i.kind {
+        match &i.kind {
             InstanceKind::Default | InstanceKind::Own => match &i.java {
                 Some(java) => (Tone::Off, java.line()),
+                None if short => self.install_state(i).short_line(),
                 None => self.install_state(i).line(),
             },
             InstanceKind::Port { slug } => {
@@ -121,10 +123,6 @@ impl Launcher {
                 )
             }
             InstanceKind::Pack { .. } => (Tone::Off, tr("Eclipse modpack").into()),
-        };
-        match tone {
-            Tone::Live => (Tone::Off, line),
-            _ => (tone, line),
         }
     }
 
@@ -170,7 +168,12 @@ impl Launcher {
                 }
                 InstanceKind::Pack { .. } => false,
             };
-            let state = self.row_state(i);
+            let state = self.row_state(i, false);
+            let shown = if roomy {
+                state.1.clone()
+            } else {
+                self.row_state(i, true).1
+            };
             let icon = self.instance_icon(i, ROW_TILE);
             let open = self.menu_is(&Menu::InstanceRow(i.id.clone()));
             let right_id = i.id.clone();
@@ -178,8 +181,7 @@ impl Launcher {
                 format!("side-instance-{}", i.id).into(),
                 format!("side-more-{}", i.id).into(),
             );
-            let lit = (current && roomy)
-                || open
+            let lit = open
                 || (keyboard && cursor == at)
                 || ui::hover_is(&row_id)
                 || ui::hover_is(&more_id);
@@ -223,7 +225,7 @@ impl Launcher {
             .child(div().relative().flex_none().child(icon))
             .child(ui::item_text(
                 i.name.clone(),
-                ui::state_line(state.0, state.1),
+                ui::state_line(state.0, shown),
             ))
             .child(more)
             .on_mouse_down(

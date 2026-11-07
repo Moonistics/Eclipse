@@ -34,7 +34,7 @@ impl Launcher {
                     .find(&uuid)
                     .map_or_else(String::new, |a| a.name.clone()),
                 face: uuid,
-                tone: ui::Tone::Live,
+                tone: ui::Tone::Off,
                 how: tr("Microsoft account"),
                 means: tr("Microsoft account · online play"),
             },

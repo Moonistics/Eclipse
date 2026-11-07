@@ -168,7 +168,13 @@ impl Launcher {
                     ),
             );
         }
-        let add = self.name_adder(Field::OfflineName, "offline", layout::FIELD_MD, true, cx);
+        let add = self.name_adder(
+            Field::OfflineName,
+            "offline",
+            layout::FIELD_MD,
+            CanAdd::Yes,
+            cx,
+        );
         let can_add = self.can_add_offline_names();
         let can_sign_in = account::client_id().is_some();
         let show_names = can_add || can_sign_in;
@@ -633,7 +639,7 @@ fn account_status_line(status: Option<&account::session::Status>, progress: Opti
         (Some(progress), _) => (ui::Tone::Busy, progress),
         (None, Some(status)) => (
             match status.state {
-                State::Ready => ui::Tone::Live,
+                State::Ready => ui::Tone::Off,
                 State::NeedsRefresh
                 | State::Retry
                 | State::SignInRequired

@@ -124,7 +124,12 @@ pub(super) fn held_back(el: Stateful<Div>, why: SharedString) -> Stateful<Div> {
         .cursor_default()
         .aria_description(why.clone())
         .tooltip(super::tip(why.clone()));
-    super::held_focus(el, why)
+    super::held_focus(el, Some(why))
+}
+
+pub(super) fn held_back_said(el: Stateful<Div>, why: SharedString) -> Stateful<Div> {
+    let el = unhovered(el).cursor_default().aria_description(why);
+    super::held_focus(el, None)
 }
 
 pub(super) fn unhovered(mut el: Stateful<Div>) -> Stateful<Div> {

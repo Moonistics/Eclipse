@@ -7,10 +7,9 @@ use crate::tab_strip::{Strip, StripTab};
 use crate::ui;
 use eclipse_theme::glass::space;
 
-#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HomeTab {
     Mods,
-    #[default]
     Worlds,
     Multiplayer,
     Packs,
@@ -21,17 +20,18 @@ pub(super) enum HomeTab {
 
 impl HomeTab {
     /// `ECLIPSE_LAUNCHER_PAGE=worlds` (or `instance-mods`, `multiplayer`, `packs`, `screenshots`,
-    /// `console`, `patch-notes`) opens Home on that tab, for screenshots.
-    pub(super) fn from_env() -> Self {
+    /// `console`, `patch-notes`) opens Home on that tab, for screenshots; otherwise Home opens
+    /// on the instance's first tab.
+    pub(super) fn from_env() -> Option<Self> {
         match std::env::var("ECLIPSE_LAUNCHER_PAGE").as_deref() {
-            Ok("instance-mods") => HomeTab::Mods,
-            Ok("worlds") => HomeTab::Worlds,
-            Ok("multiplayer") => HomeTab::Multiplayer,
-            Ok("packs") => HomeTab::Packs,
-            Ok("screenshots") => HomeTab::Screenshots,
-            Ok("console") => HomeTab::Console,
-            Ok("patch-notes") => HomeTab::PatchNotes,
-            _ => HomeTab::default(),
+            Ok("instance-mods") => Some(HomeTab::Mods),
+            Ok("worlds") => Some(HomeTab::Worlds),
+            Ok("multiplayer") => Some(HomeTab::Multiplayer),
+            Ok("packs") => Some(HomeTab::Packs),
+            Ok("screenshots") => Some(HomeTab::Screenshots),
+            Ok("console") => Some(HomeTab::Console),
+            Ok("patch-notes") => Some(HomeTab::PatchNotes),
+            _ => None,
         }
     }
 }
@@ -102,25 +102,22 @@ impl Launcher {
             .map(|(tab, _)| *tab)
             .filter(|tab| !tab.comes_and_goes())
             .collect();
-        if self
+        let changed = self
             .home_tabs_drawn
             .as_ref()
-            .is_some_and(|drawn| *drawn != kept)
-        {
-            if let Some((first, _)) = tabs.first() {
-                self.home_tab = *first;
-            }
+            .is_some_and(|drawn| *drawn != kept);
+        if changed || self.home_tab.is_none() {
+            self.home_tab = tabs.first().map(|(tab, _)| *tab);
         }
         self.home_tabs_drawn = Some(kept);
-        if tabs.is_empty() {
+        let Some(first) = tabs.first().map(|(tab, _)| *tab) else {
             return div();
-        }
+        };
         let open = tabs
             .iter()
             .map(|(tab, _)| *tab)
-            .find(|tab| *tab == self.home_tab)
-            .or_else(|| tabs.first().map(|(tab, _)| *tab))
-            .unwrap_or_default();
+            .find(|tab| Some(*tab) == self.home_tab)
+            .unwrap_or(first);
         let tabs = tabs
             .into_iter()
             .map(|(tab, count)| StripTab {
@@ -150,7 +147,7 @@ impl Launcher {
             tabs,
             open,
             room,
-            |this, tab, _| this.home_tab = tab,
+            |this, tab, _| this.home_tab = Some(tab),
             cx,
         );
         let body: Option<AnyElement> = match open {

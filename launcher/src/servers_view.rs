@@ -367,7 +367,7 @@ impl Launcher {
             out.push(ui::error_line(p.message.clone(), actions).mt(px(space::LG)));
         }
         if let Some(n) = self.servers.note.clone() {
-            out.push(ui::notice_line(ui::Tone::Live, n).mt(px(space::LG)));
+            out.push(ui::notice_line(ui::Tone::Off, n).mt(px(space::LG)));
         }
         if running && !self.servers.restart_needed.is_empty() {
             let names: Vec<String> = self

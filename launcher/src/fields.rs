@@ -99,6 +99,12 @@ impl Field {
     }
 }
 
+pub(super) enum CanAdd {
+    Yes,
+    Busy,
+    No(SharedString),
+}
+
 #[derive(Default)]
 pub(super) struct Fields {
     texts: HashMap<Field, LineEdit>,
@@ -262,7 +268,7 @@ impl Launcher {
         f: Field,
         id: &str,
         width: f32,
-        can_add: bool,
+        can_add: CanAdd,
         cx: &mut Context<Self>,
     ) -> Stateful<Div> {
         let add = ui::button(
@@ -272,13 +278,13 @@ impl Launcher {
             ui::ButtonKind::Secondary,
             ui::ButtonSize::Sm,
         );
-        let add = if can_add {
-            add.on_press(cx.listener(move |this, _: &ClickEvent, window, cx| {
+        let add = match can_add {
+            CanAdd::Yes => add.on_press(cx.listener(move |this, _: &ClickEvent, window, cx| {
                 this.field_enter(f, window, cx);
                 cx.notify();
-            }))
-        } else {
-            ui::disabled(add)
+            })),
+            CanAdd::Busy => ui::disabled(add),
+            CanAdd::No(why) => ui::unavailable(add, why),
         };
         self.field_with(
             f,

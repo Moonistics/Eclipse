@@ -2,9 +2,10 @@
 //! to eight commands, each its name and a hint. Arrows move, Enter runs, Esc or a click outside
 //! closes.
 //!
-//! The commands: Play each instance, Open each page and Settings, New instance, Open instance
-//! folder, and from two letters on the registry's mods that match: Install one, or Open one
-//! installed in the selected instance, its Remove… last (asked on the Mods page).
+//! The commands: Play each instance (once this copy can sign in), Open each page and Settings,
+//! New instance, Open instance folder, and from two letters on the registry's mods that match:
+//! Install one, or Open one installed in the selected instance, its Remove… last (asked on the
+//! Mods page).
 
 use super::*;
 use crate::settings_page::SettingsSection;
@@ -114,6 +115,9 @@ impl Launcher {
         let playable = |i: &&Instance| matches!(i.kind, InstanceKind::Default | InstanceKind::Own);
         let selected_id = selected.map(|i| i.id.as_str());
         let mut plays: Vec<&Instance> = self.instances.list.iter().filter(playable).collect();
+        if self.cant_sign_in_to_play() {
+            plays.clear();
+        }
         plays.sort_by_key(|i| Some(i.id.as_str()) != selected_id);
         let command = |label: String, run: Run| Command {
             label,

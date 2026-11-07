@@ -1,6 +1,7 @@
-//! Edit instance's launch options (`eclipse_launcher::launch`): a command before the game, a
-//! wrapper, environment variables, a command after it, the Linux switches and, for an Eclipse
-//! instance, its own game arguments. Save changes keeps them with the rest of the page.
+//! Edit instance's maximum memory and launch options (`eclipse_launcher::launch`): a command
+//! before the game, a wrapper, environment variables, a command after it, the Linux switches and,
+//! for an Eclipse instance, its own game arguments. Save changes keeps them with the rest of the
+//! page.
 use super::fields::Field;
 use super::*;
 use crate::ui;
@@ -9,10 +10,11 @@ use eclipse_launcher::launch;
 use eclipse_theme::glass::space;
 use instance_state::NewKind;
 
-pub(super) struct LaunchPanel {
+pub(super) struct LaunchDraft {
     /// The instance whose options the fields hold, as Edit opened it.
     instance: String,
     switches: Switches,
+    memory: Option<u32>,
     /// What this computer has for the Linux switches, looked at when Edit opens.
     found: launch::Found,
     /// Why Save refused the environment variables.
@@ -37,29 +39,15 @@ impl Switches {
     }
 }
 
-/// What saving the memory slider did, kept to show under the slider in the active language.
-#[derive(Clone, Debug, PartialEq, Eq)]
-pub(super) enum MemorySaved {
-    /// Saved Java heap size in MB.
-    Ok(u32),
-    /// Saving failed on disk.
-    Error(String),
-}
-
-/// Edit instance's memory row. What it shows comes from the instance, except during a drag.
+/// Edit instance's memory row. What it shows comes from the page's draft, except during a drag.
 #[derive(Default)]
 pub(super) struct MemorySlider {
     /// The computer's memory in MiB, read once: the slider's top.
     total: Option<u32>,
     /// The Java heap size being dragged to.
     dragging: Option<u32>,
-    /// What the last change did, or why not.
-    saved: Option<MemorySaved>,
-    /// The instance whose value is being typed: saved to it when the box loses the keyboard, even
-    /// if that's because another instance was picked.
-    typing: Option<String>,
-    /// The instance `saved` is about.
-    shown: Option<String>,
+    /// The box has the keyboard: what it holds is picked when it loses it.
+    typing: bool,
 }
 
 impl MemorySlider {
@@ -93,9 +81,12 @@ impl Launcher {
             .text(Field::InstanceGameArgs)
             .set(instance.game_args.clone().unwrap_or_default());
         self.fields.set_field_invalid(Field::LaunchEnv, false);
-        self.launch = Some(LaunchPanel {
+        self.fields.set_field_invalid(Field::MemoryLimit, false);
+        self.memory_slider.typing = false;
+        self.launch = Some(LaunchDraft {
             instance: instance.id.clone(),
             switches: Switches::of(l),
+            memory: None,
             found: launch::Found::here(),
             env_error: None,
             reveal,
@@ -162,7 +153,15 @@ impl Launcher {
     }
 
     pub(super) fn save_launch_options(&mut self) -> bool {
-        if !self.launch_options_changed() {
+        if self.memory_slider.typing && !self.pick_typed_memory() {
+            return false;
+        }
+        let memory = self
+            .memory_changed()
+            .then(|| self.picked_memory())
+            .flatten();
+        let options = self.launch_options_changed();
+        if !options && memory.is_none() {
             return true;
         }
         let Some(panel) = &self.launch else {
@@ -186,17 +185,22 @@ impl Launcher {
             Some(self.typed(Field::InstanceGameArgs).to_string()).filter(|a| !a.is_empty())
         });
         let saved = instances::edit(&id, |m| {
-            m.launch = launch::Launch {
-                pre_launch,
-                wrapper,
-                env,
-                post_exit,
-                gamemode: switches.gamemode,
-                mangohud: switches.mangohud,
-                dedicated_gpu: switches.dedicated_gpu,
-            };
-            if let Some(args) = args {
-                m.game_args = args;
+            if options {
+                m.launch = launch::Launch {
+                    pre_launch,
+                    wrapper,
+                    env,
+                    post_exit,
+                    gamemode: switches.gamemode,
+                    mangohud: switches.mangohud,
+                    dedicated_gpu: switches.dedicated_gpu,
+                };
+                if let Some(args) = args {
+                    m.game_args = args;
+                }
+            }
+            if let (Some(mb), Some(java)) = (memory, &mut m.java) {
+                java.memory_mb = Some(mb);
             }
         });
         match saved {
@@ -225,66 +229,58 @@ impl Launcher {
         *on = !*on;
     }
 
-    /// The Java instance being edited, or the selected Java instance on Home.
+    /// The Java instance being edited.
     fn memory_instance(&self) -> Option<instances::Instance> {
-        match self
-            .instances
-            .draft
-            .as_ref()
-            .and_then(|d| d.editing.as_ref())
-        {
-            Some(id) => self.instances.list.iter().find(|i| &i.id == id).cloned(),
-            None => self.selected_instance().cloned(),
-        }
-        .filter(|i| i.java.is_some())
+        self.launch_instance().filter(|i| i.java.is_some()).cloned()
     }
 
-    /// The value under the pointer. Saving waits until the mouse comes up.
+    /// The value under the pointer, picked when the mouse comes up.
     fn pick_memory(&mut self, at: f32, cx: &mut Context<Self>) {
         if self.memory_instance().is_none() {
             return;
         }
         let slider = &mut self.memory_slider;
         let total = slider.total();
-        slider.saved = None;
         slider.dragging = Some(crate::memory::memory_at(at, total));
         cx.notify();
     }
 
     fn step_memory(&mut self, steps: i32, from: u32, cx: &mut Context<Self>) {
-        let Some(id) = self.memory_instance().map(|i| i.id) else {
-            return;
-        };
         let total = self.memory_slider.total();
         let by = steps * crate::memory::SLIDER_STEP as i32;
         let memory = (from as i32 + by).clamp(crate::memory::SLIDER_STEP as i32, total as i32);
-        self.save_memory(&id, memory as u32);
+        self.set_memory(memory as u32);
         cx.notify();
     }
 
-    /// A release ends the drag and saves it to the instance, once.
     fn finish_memory(&mut self, cx: &mut Context<Self>) {
-        let Some(memory) = self.memory_slider.dragging.take() else {
-            return;
-        };
-        let Some(id) = self.memory_instance().map(|i| i.id) else {
-            return;
-        };
-        self.save_memory(&id, memory);
+        if let Some(memory) = self.memory_slider.dragging.take() {
+            self.set_memory(memory);
+        }
         cx.notify();
     }
 
-    fn save_memory(&mut self, id: &str, memory: u32) {
-        let saved = instances::edit(id, |m| {
-            if let Some(java) = &mut m.java {
-                java.memory_mb = Some(memory);
+    fn set_memory(&mut self, memory: u32) {
+        if let Some(draft) = &mut self.launch {
+            draft.memory = Some(memory);
+        }
+    }
+
+    fn picked_memory(&self) -> Option<u32> {
+        self.launch.as_ref()?.memory
+    }
+
+    pub(super) fn memory_changed(&self) -> bool {
+        let saved = self.memory_instance().and_then(|i| Self::saved_memory(&i));
+        let picked = if self.memory_slider.typing {
+            match crate::memory::parse_memory(self.fields.value(Field::MemoryLimit)) {
+                Ok(typed) => Some(typed.unwrap_or(instances::DEFAULT_MEMORY_MB)),
+                Err(_) => return true,
             }
-        });
-        self.memory_slider.saved = Some(match saved {
-            Ok(_) => MemorySaved::Ok(memory),
-            Err(e) => MemorySaved::Error(e),
-        });
-        self.reload_instances();
+        } else {
+            self.picked_memory()
+        };
+        picked.is_some_and(|m| Some(m) != saved)
     }
 
     /// The instance's saved value, as the row shows it.
@@ -295,45 +291,35 @@ impl Launcher {
             .map(|java| java.memory_mb.unwrap_or(instances::DEFAULT_MEMORY_MB))
     }
 
-    /// Saves what's in the box to `id`, if it's a value and a new one.
-    fn save_typed_memory(&mut self, id: &str) {
+    /// Picks what's in the box, if it's a value. Whether it was.
+    fn pick_typed_memory(&mut self) -> bool {
+        self.memory_slider.typing = false;
         let typed = self.fields.value(Field::MemoryLimit).to_owned();
         let Ok(memory) = crate::memory::parse_memory(&typed) else {
-            self.memory_slider.saved = None;
             self.fields.set_field_invalid(Field::MemoryLimit, true);
-            return;
+            return false;
         };
-        let memory = memory.unwrap_or(instances::DEFAULT_MEMORY_MB);
         self.fields.set_field_invalid(Field::MemoryLimit, false);
-        let same = instances::list()
-            .iter()
-            .find(|i| i.id == id)
-            .is_some_and(|i| Self::saved_memory(i) == Some(memory));
-        if !same {
-            self.save_memory(id, memory);
-        }
+        self.set_memory(memory.unwrap_or(instances::DEFAULT_MEMORY_MB));
+        true
     }
 
     /// Enter in the box.
     pub(super) fn memory_enter(&mut self) {
-        if let Some(id) = self.memory_slider.typing.clone() {
-            self.save_typed_memory(&id);
+        if self.memory_slider.typing {
+            self.pick_typed_memory();
         }
     }
 
-    /// The box follows the saved value and the slider except while it has the keyboard, and saves
-    /// when it loses it. Read every frame.
-    fn sync_memory_box(&mut self, instance: &str, memory: u32) {
-        if self.memory_slider.shown.as_deref() != Some(instance) {
-            self.memory_slider.saved = None;
-            self.memory_slider.shown = Some(instance.to_owned());
-        }
+    /// The box follows the picked value and the slider except while it has the keyboard, and
+    /// picks what it holds when it loses it. Read every frame.
+    fn sync_memory_box(&mut self, memory: u32) {
         if self.fields.has_focus(Field::MemoryLimit) {
-            self.memory_slider.typing = Some(instance.to_owned());
+            self.memory_slider.typing = true;
             return;
         }
-        if let Some(id) = self.memory_slider.typing.take() {
-            self.save_typed_memory(&id);
+        if self.memory_slider.typing {
+            self.pick_typed_memory();
             return;
         }
         let shown = memory.to_string();
@@ -343,13 +329,14 @@ impl Launcher {
     }
 
     /// Maximum memory as a setting row: the name and what it does on the left, the slider and
-    /// the box in MB on the right. Saved to the instance as it is set.
+    /// the box in MB on the right. Saved with the rest of the page.
     pub(super) fn memory_setting(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let instance = self.memory_instance()?;
         let total = self.memory_slider.total();
         let saved = Self::saved_memory(&instance)?;
-        let memory = self.memory_slider.dragging.unwrap_or(saved);
-        self.sync_memory_box(&instance.id, memory);
+        let picked = self.picked_memory().unwrap_or(saved);
+        let memory = self.memory_slider.dragging.unwrap_or(picked);
+        self.sync_memory_box(memory);
         let typed = crate::memory::parse_memory(self.fields.value(Field::MemoryLimit));
         let memory = match (self.fields.has_focus(Field::MemoryLimit), typed) {
             (true, Ok(typed)) => typed.unwrap_or(instances::DEFAULT_MEMORY_MB),
@@ -381,19 +368,7 @@ impl Launcher {
             ui::ButtonSize::Md,
             cx,
         );
-        let result = self.memory_slider.saved.as_ref().map(|s| match s {
-            MemorySaved::Ok(mb) => div().child(trf(
-                "Saved: the next Play uses at most {mb} MB.",
-                &[("mb", &mb.to_string())],
-            )),
-            MemorySaved::Error(e) => ui::error_note(e.clone()),
-        });
-        let note = div()
-            .flex()
-            .flex_col()
-            .gap(px(space::XS))
-            .child(tr(about))
-            .children(result);
+        let note = div().child(tr(about));
         let beside = layout::content_width(self.window_width) >= layout::INSTANCE_COMPACT_BELOW;
         Some(ui::setting_row_fit(
             beside,

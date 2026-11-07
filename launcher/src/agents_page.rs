@@ -193,7 +193,7 @@ impl Launcher {
         steps = steps.child(actions.child(test));
         if let Some((ok, message)) = &self.agents.status {
             steps = steps.child(if *ok {
-                ui::state_note(ui::Tone::Live, message.clone())
+                ui::state_note(ui::Tone::Off, message.clone())
             } else {
                 ui::error_note(message.clone())
             });

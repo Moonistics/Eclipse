@@ -121,7 +121,8 @@ impl Launcher {
             this.set_setting(ServerKey::Whitelist, (!friends_only).to_string());
             cx.notify();
         }));
-        let add = self.name_adder(Field::ServerPlayer, "player", layout::FIELD_MD, idle, cx);
+        let can_add = if idle { CanAdd::Yes } else { CanAdd::Busy };
+        let add = self.name_adder(Field::ServerPlayer, "player", layout::FIELD_MD, can_add, cx);
         let mut people: Vec<(String, String)> = whitelist.clone();
         for op in &ops {
             if !people.iter().any(|(n, _)| n.eq_ignore_ascii_case(op)) {

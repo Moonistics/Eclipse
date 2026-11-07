@@ -203,7 +203,7 @@ impl Launcher {
                         cx,
                         ClipboardItem::new_string(log.full.as_str().to_string()),
                     );
-                    this.native_log.note = Some(tr("Copied build log.").into());
+                    this.native_log.note = Some(tr("Copied build log").into());
                     cx.notify();
                 })),
                 None => ui::disabled(b),

@@ -1130,7 +1130,7 @@ impl Launcher {
         if self.mods.java_for(p.kind).is_some() {
             return Some(match support {
                 Support::Works => (
-                    ui::Tone::Live,
+                    ui::Tone::Off,
                     trf("Works in {instance}", &[("instance", instance)]),
                     None,
                 ),
@@ -1142,7 +1142,7 @@ impl Launcher {
         }
         let in_eclipse = trf("{support} in Eclipse", &[("support", tr(support.label()))]);
         Some(match support {
-            Support::Works => (ui::Tone::Live, in_eclipse, None),
+            Support::Works => (ui::Tone::Off, in_eclipse, None),
             Support::Partial(_) => (ui::Tone::Warn, in_eclipse, reason),
             Support::No(_) => (ui::Tone::Off, in_eclipse, reason),
         })

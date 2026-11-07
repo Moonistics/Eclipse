@@ -95,7 +95,7 @@ use eclipse_launcher::instances;
 use eclipse_launcher::native_mods;
 use eclipse_launcher::native_status;
 use eclipse_launcher::telemetry;
-use fields::Field;
+use fields::{CanAdd, Field};
 use game_run::PlayState;
 use gpui::{
     actions, div, prelude::*, px, size, AnimationExt, AnyElement, App, Bounds, ClickEvent, Context,
@@ -326,8 +326,8 @@ struct Launcher {
     perf: perf::Perf,
     /// The download under way as first seen (when, files done), for the time left.
     download_seen: Option<(Instant, usize)>,
-    /// The tab open under Home's head (`home_tabs.rs`).
-    home_tab: home_tabs::HomeTab,
+    /// The tab open under Home's head (`home_tabs.rs`); None opens the first one.
+    home_tab: Option<home_tabs::HomeTab>,
     home_tabs_drawn: Option<Vec<home_tabs::HomeTab>>,
     /// The selected instance's mods, for Home's Mods tab (`instance_mods.rs`).
     instance_mods: instance_mods::InstanceMods,
@@ -351,7 +351,7 @@ struct Launcher {
     game_packs: home_packs_state::Packs,
     world_packs: datapacks_page::WorldPacks,
     export: Option<export_page::ExportPanel>,
-    launch: Option<launch_page::LaunchPanel>,
+    launch: Option<launch_page::LaunchDraft>,
     /// The memory row on Edit instance.
     memory_slider: launch_page::MemorySlider,
     importing: import_page::Importing,

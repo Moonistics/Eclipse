@@ -739,7 +739,7 @@ impl Launcher {
             ));
         } else if installed {
             action = action.child(state(
-                ui::Tone::Live,
+                ui::Tone::Off,
                 trf("Installed in {instance}", &[("instance", &instance)]),
             ));
         } else if self.mods.support(&p).installable() && !checking {

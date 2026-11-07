@@ -61,7 +61,7 @@ impl Launcher {
         let soft = ui::look().accent_soft;
         let step_line = |name: &str, state: std::cmp::Ordering| {
             let (tone, ink) = match state {
-                std::cmp::Ordering::Less => (Tone::Live, ink::BODY),
+                std::cmp::Ordering::Less => (Tone::Off, ink::BODY),
                 std::cmp::Ordering::Equal => (Tone::Accent(soft), ink::FULL),
                 std::cmp::Ordering::Greater => (Tone::Off, ink::MUTED),
             };

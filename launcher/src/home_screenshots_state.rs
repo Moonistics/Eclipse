@@ -96,7 +96,7 @@ impl Launcher {
                     cx,
                     ClipboardItem::new_image(&Image::from_bytes(format, bytes)),
                 );
-                Ok(tr("Copied to the clipboard.").into())
+                Ok(tr("Copied to the clipboard").into())
             }
             Err(e) => Err(trf(
                 "Could not read {name}: {error}",
@@ -109,7 +109,7 @@ impl Launcher {
         self.stop_asking(|a| *a == Asking::Screenshot);
         self.screenshots.note = Some(
             screenshots::delete(shot)
-                .map(|()| trf("{name} moved to the trash.", &[("name", &shot.name)])),
+                .map(|()| trf("{name} moved to the trash", &[("name", &shot.name)])),
         );
         self.screenshots.stale();
     }

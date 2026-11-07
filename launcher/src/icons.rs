@@ -59,6 +59,7 @@ large_icons!(
     "information-circle",
     "more-horizontal",
     "package-01",
+    "pencil-edit-02",
     "play",
     "puzzle",
     "search-01",
@@ -126,7 +127,7 @@ mod tests {
 
     const CELL: u32 = 2;
 
-    const DISTINCT_CELLS: usize = 8;
+    const MOST_SHARED: f32 = 0.75;
 
     struct Drawing {
         side: u32,
@@ -290,10 +291,12 @@ mod tests {
             .collect();
         for (i, (a, cells)) in drawn.iter().enumerate() {
             for (b, others) in &drawn[..i] {
-                let apart = cells.symmetric_difference(others).count();
+                let both = cells.intersection(others).count() as f32;
+                let shared = both / cells.union(others).count() as f32;
                 assert!(
-                    apart >= DISTINCT_CELLS,
-                    "{a} and {b} differ by {apart} cells"
+                    shared <= MOST_SHARED,
+                    "{a} and {b} share {:.0}% of their cells",
+                    shared * 100.
                 );
             }
         }

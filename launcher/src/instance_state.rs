@@ -294,6 +294,7 @@ impl Launcher {
 
     pub(super) fn draft_changed(&self) -> bool {
         self.launch_options_changed()
+            || self.memory_changed()
             || self
                 .instances
                 .draft

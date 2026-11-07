@@ -76,7 +76,7 @@ impl Launcher {
             ),
             (None, None, State::UpToDate) => (
                 line(trf("Up to date: {instance} plays these mods.", &name)),
-                Some((ui::Tone::Live, tr("Up to date"))),
+                Some((ui::Tone::Off, tr("Up to date"))),
             ),
         };
         let mut detail = ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)

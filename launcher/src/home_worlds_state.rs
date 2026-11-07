@@ -76,17 +76,13 @@ impl Launcher {
         self.worlds.done = None;
         let task = cx.background_executor().spawn(async move {
             match action {
-                Action::Backup => worlds::backup(&home, &world).map(|zip| {
-                    (
-                        trf("{name} backed up.", &[("name", &world.name)]),
-                        Some(zip),
-                    )
-                }),
+                Action::Backup => worlds::backup(&home, &world)
+                    .map(|zip| (trf("{name} backed up", &[("name", &world.name)]), Some(zip))),
                 Action::Duplicate => worlds::copy(&world)
-                    .map(|c| (trf("Duplicated as {name}.", &[("name", &c.name)]), None)),
+                    .map(|c| (trf("Duplicated as {name}", &[("name", &c.name)]), None)),
                 Action::Delete => worlds::delete(&world).map(|()| {
                     (
-                        trf("{name} moved to the trash.", &[("name", &world.name)]),
+                        trf("{name} moved to the trash", &[("name", &world.name)]),
                         None,
                     )
                 }),

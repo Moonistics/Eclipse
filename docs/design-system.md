@@ -121,8 +121,8 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   inside a card draws 16 in its 36 tile. One icon per meaning, named in `launcher/src/icons.rs`
   (`SERVER`, `WORLD`, `MULTIPLAYER`, `PACK`, `VERSION`, `MODS`, `NEW_INSTANCE`, `ACCOUNT`, `GAME`,
   `AI`, `FOLDERS`, `DATA_COLLECTION`, `COPY`, ...): a page or a section that means one of these
-  takes its icon from there, and no two meanings share a drawing (a test keeps every two at least
-  8 of their 64 cells apart; the pack is a block with a grass band, not two squares). A text button
+  takes its icon from there, and no two meanings share a drawing (a test keeps any two from
+  sharing more than three quarters of their cells; the pack is an isometric block, not two squares). A text button
   carries an icon when it names what the button acts on or does: refresh (Try again), copy
   (Copy code, Copy link, Copy log), globe (Proxy settings), folder (every folder opener and file
   picker: `ui::open_folder_button`, imports, Choose image…), download, plus (add, create), search

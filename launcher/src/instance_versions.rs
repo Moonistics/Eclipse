@@ -30,8 +30,8 @@ pub(super) fn version_list_height() -> f32 {
 }
 
 pub(super) fn reveal_version_row(list: &str, at: usize) {
-    ui::scroll_list_to(list, at.saturating_sub(1));
-    ui::set_options_cursor(list, at);
+    ui::scroll_list_to(list, at);
+    ui::start_options_cursor(list, at);
 }
 
 pub(super) fn version_row(

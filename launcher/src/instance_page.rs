@@ -243,7 +243,7 @@ impl Launcher {
         note: SharedString,
     ) -> Stateful<Div> {
         if self.choices_stacked() {
-            return ui::list_choice(id, on)
+            return ui::choice_card_row(id, on)
                 .min_w_0()
                 .py(px(space::SM))
                 .child(icon)

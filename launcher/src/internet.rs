@@ -666,7 +666,7 @@ impl Launcher {
                                 ui::text(step::BODY, FontWeight::NORMAL, ink::FULL)
                                     .flex_1()
                                     .child(ui::state_line(
-                                        ui::Tone::Live,
+                                        ui::Tone::Off,
                                         format!(
                                             "Friends you share with reach only the Minecraft server (port {port})."
                                         ),

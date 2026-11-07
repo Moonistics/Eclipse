@@ -27,6 +27,11 @@ impl Launcher {
             let width = self.invite_width(tag);
             self.invite_field(tag, width, cx)
         });
+        let icons: Vec<_> = [self.edit_button(cx), self.folder_button()]
+            .into_iter()
+            .flatten()
+            .collect();
+        let icons = (!icons.is_empty()).then(|| div().flex().gap(px(space::MD)).children(icons));
         let actions = div()
             .mt(px(ui::page_gap()))
             .flex()
@@ -35,8 +40,7 @@ impl Launcher {
             .gap(px(space::MD))
             .child(play)
             .children(java.is_none().then(|| self.version_picker(cx)))
-            .children(self.edit_button(cx))
-            .children(self.folder_button())
+            .children(icons)
             .children(invite);
         div()
             .relative()
@@ -75,6 +79,12 @@ impl Launcher {
             .child(ui::page_title(instance.name.into()))
     }
 
+    fn head_note_says_no_sign_in(&self) -> bool {
+        self.game.run().is_none()
+            && self.selected_instance().is_some()
+            && self.cant_sign_in_to_play()
+    }
+
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
     fn played_text(&self, tag: &str, prepared: bool) -> Option<Div> {
@@ -83,7 +93,7 @@ impl Launcher {
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
             ),
-            (None, Some(_)) if self.cant_sign_in_to_play() => tr(
+            (None, Some(_)) if self.head_note_says_no_sign_in() => tr(
                 "Playing needs Microsoft sign-in, which this copy of the launcher can't do yet.",
             )
             .into(),
@@ -166,7 +176,12 @@ impl Launcher {
             })),
             (None, Some(why)) => {
                 ui::keep_focus_for("play", &focus);
-                ui::primary_unavailable("play", Some("play"), tr("Play"), ui::ButtonSize::Hero, why)
+                let (icon, label, size) = (Some("play"), tr("Play"), ui::ButtonSize::Hero);
+                if self.head_note_says_no_sign_in() {
+                    ui::primary_unavailable_said("play", icon, label, size, why)
+                } else {
+                    ui::primary_unavailable("play", icon, label, size, why)
+                }
             }
             (None, None) => {
                 let (label, icon) = match &update {
@@ -422,8 +437,6 @@ impl Launcher {
             None
         } else if row <= room {
             Some(row)
-        } else if pair + icon <= room {
-            Some(pair)
         } else if pair <= room {
             Some(pair - ICON_BUTTONS * icon)
         } else {

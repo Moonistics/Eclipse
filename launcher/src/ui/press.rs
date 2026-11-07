@@ -46,6 +46,7 @@ thread_local! {
     static PRESSED: RefCell<HashSet<SharedString>> = RefCell::default();
     static KEPT: RefCell<HashMap<SharedString, FocusHandle>> = RefCell::default();
     static FOCUSED: RefCell<Option<FocusHandle>> = const { RefCell::new(None) };
+    static RETRYING: RefCell<Option<(SharedString, FocusHandle)>> = const { RefCell::new(None) };
     static KEYBOARD: Cell<bool> = const { Cell::new(false) };
     static MODALS: RefCell<Modals> = RefCell::default();
     static CURSORS: RefCell<HashMap<SharedString, Cursor>> = RefCell::default();
@@ -208,7 +209,11 @@ pub fn focus_stop(mut el: Stateful<Div>) -> Stateful<Div> {
 }
 
 pub(super) fn note_focus(window: &Window, cx: &mut App) {
-    FOCUSED.set(window.focused(cx));
+    let focused = window.focused(cx);
+    if RETRYING.with_borrow(|r| r.as_ref().is_some_and(|(_, h)| Some(h) != focused.as_ref())) {
+        RETRYING.set(None);
+    }
+    FOCUSED.set(focused);
     KEYBOARD.set(window.last_input_was_keyboard());
     for (pool, short, size) in [
         (&SPARE, &SHORT_OF, SPARE_HANDLES),
@@ -241,6 +246,25 @@ pub fn try_focus_for(key: impl Into<SharedString>) -> Option<FocusHandle> {
         handles.insert(key, handle.clone());
         Some(handle)
     })
+}
+
+pub(super) fn retrying(id: &str) {
+    let key = SharedString::from(format!("press-{id}"));
+    let handle = HANDLES.with_borrow(|handles| handles.get(&key).cloned());
+    RETRYING.set(handle.map(|h| (id.to_string().into(), h)));
+}
+
+pub(super) fn retry_back(id: &str) {
+    if RETRYING.with_borrow(|r| r.as_ref().is_some_and(|(at, _)| at == id)) {
+        RETRYING.set(None);
+    }
+}
+
+pub(super) fn keeps_retry_focus(el: Stateful<Div>) -> Stateful<Div> {
+    match RETRYING.with_borrow(|r| r.as_ref().map(|(_, h)| h.clone())) {
+        Some(handle) => el.track_focus(&handle.tab_stop(false)),
+        None => el,
+    }
 }
 
 pub fn has_focus(handle: &FocusHandle) -> bool {
@@ -510,9 +534,13 @@ pub fn options_step(id: &str, by: isize, count: usize) {
 }
 
 pub fn set_options_cursor(id: &str, at: usize) {
+    start_options_cursor(id, at);
+    REVEAL_SOON.with_borrow_mut(|r| r.insert(SharedString::from(id.to_string())));
+}
+
+pub fn start_options_cursor(id: &str, at: usize) {
     let id = SharedString::from(id.to_string());
-    CURSORS.with_borrow_mut(|c| c.insert(id.clone(), Cursor { at, row: None }));
-    REVEAL_SOON.with_borrow_mut(|r| r.insert(id));
+    CURSORS.with_borrow_mut(|c| c.insert(id, Cursor { at, row: None }));
 }
 
 pub fn focus_option(id: &str, at: usize) {
@@ -691,7 +719,7 @@ pub(super) fn tip_on_focus(el: Stateful<Div>, label: SharedString, side: TipSide
         })
 }
 
-pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div> {
+pub(super) fn held_focus(el: Stateful<Div>, tip: Option<SharedString>) -> Stateful<Div> {
     let mut el = el;
     let filled = solid(&mut el);
     let handle = press_handle(&mut el, true);
@@ -708,6 +736,9 @@ pub(super) fn held_focus(el: Stateful<Div>, label: SharedString) -> Stateful<Div
         return el;
     }
     let el = ring_while_focused(el, &handle, filled);
+    let Some(label) = tip else {
+        return el;
+    };
     let tip = canvas(
         move |bounds, window, _| {
             let tip = Some(FocusTip {

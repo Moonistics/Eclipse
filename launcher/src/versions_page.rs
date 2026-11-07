@@ -209,7 +209,7 @@ impl Launcher {
                         newest
                             .then(|| ui::state_line(Tone::Accent(look.accent_soft), tr("Newest")))
                             .into_iter()
-                            .chain(in_use.then(|| ui::state_line(Tone::Live, tr("In use"))))
+                            .chain(in_use.then(|| ui::state_line(Tone::Off, tr("In use"))))
                             .collect(),
                     ))
                     .child(div().relative().flex().flex_none().child(right)),

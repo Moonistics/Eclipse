@@ -287,15 +287,36 @@ pub fn primary_unavailable(
     size: ButtonSize,
     why: impl Into<SharedString>,
 ) -> Stateful<Div> {
+    let face = unavailable_primary_face(id.into(), icon_name, label.into(), size);
+    super::held_back(face, why.into())
+}
+
+pub fn primary_unavailable_said(
+    id: impl Into<SharedString>,
+    icon_name: Option<&'static str>,
+    label: impl Into<SharedString>,
+    size: ButtonSize,
+    why: impl Into<SharedString>,
+) -> Stateful<Div> {
+    let face = unavailable_primary_face(id.into(), icon_name, label.into(), size);
+    super::held_back_said(face, why.into())
+}
+
+fn unavailable_primary_face(
+    id: SharedString,
+    icon_name: Option<&'static str>,
+    label: SharedString,
+    size: ButtonSize,
+) -> Stateful<Div> {
     let face = button_face(
-        div().id(id.into()),
+        div().id(id),
         icon_name,
         label,
         size,
         white(ink::DIM),
         shouts(ButtonKind::Primary, size),
     );
-    super::held_back(secondary(face), why.into())
+    secondary(face)
 }
 
 pub fn icon_button(

@@ -369,7 +369,7 @@ impl Launcher {
                     if self.modpacks.busy {
                         ui::Tone::Busy
                     } else {
-                        ui::Tone::Live
+                        ui::Tone::Off
                     },
                     tr(if self.modpacks.busy {
                         "Working"
@@ -391,7 +391,6 @@ impl Launcher {
         for (status, label) in FILTERS.iter().skip(1) {
             let status = status.expect("the first filter is All");
             let color = match status {
-                Status::Ported => ui::live(),
                 Status::Partial => ui::color(ui::look().accent_soft),
                 _ => white(ink::FULL),
             };
@@ -560,7 +559,7 @@ impl Launcher {
         let row = |i: usize| {
             let r = rows[i];
             let (tone, status_label) = match r.status {
-                Status::Ported => (ui::Tone::Live, tr("Ported")),
+                Status::Ported => (ui::Tone::Off, tr("Ported")),
                 Status::Partial => (ui::Tone::Accent(ui::look().accent_soft), tr("Partial")),
                 Status::NotYet => (ui::Tone::Warn, tr("Not yet")),
                 Status::NotNeeded => (ui::Tone::Off, tr("Not needed")),

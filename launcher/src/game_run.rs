@@ -235,20 +235,27 @@ impl InstallState {
                 trf("Needs Minecraft {version}", &[("version", minecraft)]),
             ),
             InstallState::Built(build) => (
-                Tone::Live,
+                Tone::Off,
                 trf(
                     "Built with mods · {version}",
                     &[("version", &build.eclipse_short())],
                 ),
             ),
             InstallState::Ready { pinned: Some(tag) } => (
-                Tone::Live,
+                Tone::Off,
                 trf(
                     "Ready · {version}",
                     &[("version", &eclipse_launcher::nightly::display_name(tag))],
                 ),
             ),
-            InstallState::Ready { pinned: None } => (Tone::Live, tr("Ready").into()),
+            InstallState::Ready { pinned: None } => (Tone::Off, tr("Ready").into()),
+        }
+    }
+
+    pub(super) fn short_line(&self) -> (Tone, String) {
+        match self {
+            InstallState::NotSetUp { .. } => (Tone::Off, tr("Needs Minecraft").into()),
+            _ => self.line(),
         }
     }
 }

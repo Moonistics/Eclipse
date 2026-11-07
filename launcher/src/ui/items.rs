@@ -122,6 +122,10 @@ pub fn list_choice(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
         .px(px(space::LG))
 }
 
+pub fn choice_card_row(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
+    list_choice(id, on).when(!on, |d| d.border_color(edge()))
+}
+
 pub fn item_text(name: impl Into<SharedString>, note: impl IntoElement) -> Div {
     item_lines(name_line(name.into()), note)
 }

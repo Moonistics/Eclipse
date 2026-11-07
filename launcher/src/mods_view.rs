@@ -857,7 +857,7 @@ impl Launcher {
                 ui::card_note(ui::state_line(tone, said.to_string())).into_any_element()
             };
             let action: AnyElement = if installed {
-                state(ui::Tone::Live, tr("Installed"))
+                state(ui::Tone::Off, tr("Installed"))
             } else if busy {
                 state(ui::Tone::Busy, tr("Installing…"))
             } else if checking {

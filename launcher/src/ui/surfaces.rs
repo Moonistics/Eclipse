@@ -559,13 +559,13 @@ pub fn empty_state(
 }
 
 pub fn loading_state(id: impl Into<SharedString>, title: impl Into<StateTitle>) -> Stateful<Div> {
-    state(
+    super::keeps_retry_focus(state(
         id.into(),
         "clock",
         white(ink::MUTED),
         title.into(),
         SharedString::default(),
-    )
+    ))
 }
 
 pub fn error_state(
@@ -614,14 +614,19 @@ pub fn error_state_again(
     retry: ButtonKind,
 ) -> Stateful<Div> {
     let id: SharedString = id.into();
+    let retry_id = format!("{id}-retry");
+    super::retry_back(&retry_id);
     let retry = super::any_button(
-        format!("{id}-retry"),
+        retry_id.clone(),
         Some(crate::icons::RETRY),
         again,
         retry,
         ButtonSize::Md,
     )
-    .on_press(on_retry);
+    .on_press(move |event, window, cx| {
+        super::retrying(&retry_id);
+        on_retry(event, window, cx);
+    });
     let copy = copy_details(format!("{id}-copy"), error.to_owned(), ButtonSize::Md);
     let state = state(id, "alert-circle", danger(), title.into(), cause.into()).role(Role::Alert);
     let buttons = std::iter::once(retry).chain(extra).chain([copy]);
@@ -682,9 +687,11 @@ pub fn group_head(
 ) -> Div {
     div()
         .flex()
+        .flex_wrap()
         .items_center()
         .justify_between()
-        .gap(px(space::LG))
+        .gap_x(px(space::LG))
+        .gap_y(px(space::SM))
         .min_h(px(GROUP_HEAD))
         .child(section_title(id, title))
         .children(aside)

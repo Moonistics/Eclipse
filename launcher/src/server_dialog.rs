@@ -620,12 +620,20 @@ impl Launcher {
             chips = chips.child(chip);
         }
         let typed = self.fields.value(Field::NewServerFriend).trim().to_string();
-        let ok = valid_name(&typed) && !friends.contains(&typed);
+        let can_add = if typed.is_empty() {
+            CanAdd::No(tr("Type a player's name").into())
+        } else if friends.contains(&typed) {
+            CanAdd::No(trf("{name} is already on the list", &[("name", &typed)]).into())
+        } else if !valid_name(&typed) {
+            CanAdd::No(tr("A Minecraft name has 3 to 16 letters, digits or underscores.").into())
+        } else {
+            CanAdd::Yes
+        };
         chips.child(self.name_adder(
             Field::NewServerFriend,
             "create-friend",
             layout::FIELD_MD,
-            ok,
+            can_add,
             cx,
         ))
     }
