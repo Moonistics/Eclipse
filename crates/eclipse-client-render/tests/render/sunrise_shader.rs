@@ -1,11 +1,11 @@
-#[path = "../src/gfx/sunrise_fan.rs"]
+#[path = "../../src/gfx/sunrise_fan.rs"]
 mod sunrise_fan;
 
-#[path = "../src/gfx/wgsl_prefix.rs"]
+#[path = "../../src/gfx/wgsl_prefix.rs"]
 mod wgsl_prefix;
 
 fn sunrise_shader() -> String {
-    let terrain = include_str!("../src/terrain.wgsl");
+    let terrain = include_str!("../../src/terrain.wgsl");
     let start = terrain.find("fn sunrise_weight_full").unwrap();
     let end = terrain[start..].find("// The sky's colour").unwrap() + start;
     let mut source = String::from(

@@ -1630,7 +1630,6 @@ mod tests {
                 .unwrap()
                 .hooks,
         );
-        super::sources(&root, super::FillMode::Require).unwrap();
         std::fs::remove_dir_all(root).unwrap();
     }
 
