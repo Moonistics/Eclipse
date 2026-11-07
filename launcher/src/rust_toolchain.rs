@@ -215,7 +215,6 @@ fn exe(name: &str) -> String {
     format!("{name}{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// An unpacked toolchain.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Toolchain {
     pub dir: PathBuf,

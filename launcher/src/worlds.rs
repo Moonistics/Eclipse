@@ -50,7 +50,6 @@ pub struct World {
     pub icon: Option<PathBuf>,
 }
 
-/// The worlds in a game folder's `saves/`, the last played first.
 /// The folder of the worlds of the game folder `home`.
 pub fn saves_dir(home: &Path) -> PathBuf {
     home.join(SAVES)

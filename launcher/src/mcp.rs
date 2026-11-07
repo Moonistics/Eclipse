@@ -1,7 +1,7 @@
 //! `eclipse-launcher mcp`: the Model Context Protocol over stdin and stdout (JSON-RPC 2.0, one
-//! message per line), so AI agents can install, prepare and run Eclipse. Every tool goes through
-//! `backend`. A server started here lives as long as the session. The running game's own tools
-//! come from its `eclipse-ctl` as `game_*` (game_tools.rs).
+//! message per line), so AI agents can install, prepare and run Eclipse. The CLI's commands are
+//! its tools (cli_tools.rs). A server started here lives as long as the session. The running
+//! game's own tools come from its `eclipse-ctl` as `game_*` (game_tools.rs).
 use crate::cli;
 use crate::cli_tools;
 use crate::game_tools::{self, GameTools};

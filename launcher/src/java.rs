@@ -15,7 +15,6 @@ use serde::Serialize;
 use std::fs;
 use std::path::{Path, PathBuf};
 
-/// What a version runs on.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Need {
     pub major: u32,
@@ -74,7 +73,6 @@ impl Need {
     }
 }
 
-/// Where a runtime comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Source {
@@ -132,12 +130,10 @@ fn runtime(home: PathBuf, source: Source) -> Option<Runtime> {
     found.java().is_file().then_some(found)
 }
 
-/// Mojang's runtimes Eclipse downloaded.
 pub fn runtimes_dir() -> PathBuf {
     backend::own_minecraft_dir().join("runtime")
 }
 
-/// The runtimes in a Mojang `runtime` folder.
 pub fn mojang_runtimes(dir: &Path) -> Vec<Runtime> {
     eclipse_prepare::java::minecraft_runtimes(dir)
         .into_iter()

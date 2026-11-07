@@ -1,4 +1,4 @@
-use super::{color, look, white, IconSize, KNOB_EDGE};
+use super::{color, ink, look, IconSize, KNOB_EDGE};
 use eclipse_theme::glass::{fill, radius, ON_LIGHT};
 use gpui::{div, prelude::*, px, App, Div, Hsla, Role, SharedString, Stateful, Window};
 
@@ -56,7 +56,7 @@ pub fn slider(
             .w_full()
             .rounded_full()
             .overflow_hidden()
-            .bg(white(fill::ACTIVE))
+            .bg(ink(fill::ACTIVE))
             .child(
                 div()
                     .h_full()

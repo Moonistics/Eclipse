@@ -36,7 +36,6 @@ fn disabled(settings: &serde_json::Value) -> Vec<String> {
         .collect()
 }
 
-/// The data packs of the world folder `world`, by name.
 /// The folder of the data packs of the world `world`.
 pub fn folder(world: &Path) -> PathBuf {
     world.join(DATAPACKS)

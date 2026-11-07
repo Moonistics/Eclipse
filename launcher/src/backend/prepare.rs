@@ -51,7 +51,6 @@ pub(super) fn server_jar(
     crate::files::write(jar, &bytes)
 }
 
-/// How a version's resources are prepared.
 pub enum Preparer {
     /// eclipse-prepare, linked into the launcher: the version ships the same preparer sources.
     InProcess(eclipse_prepare::Options),
@@ -60,7 +59,6 @@ pub enum Preparer {
     Process(Command),
 }
 
-/// The version's eclipse-prepare binary, when it ships one.
 fn preparer_binary(dir: &Path) -> Option<PathBuf> {
     let binary = dir.join(if cfg!(windows) {
         "eclipse-prepare.exe"
@@ -113,7 +111,6 @@ pub(super) fn assets_folder(
     }
 }
 
-/// Where the preparation takes Minecraft's files from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum MinecraftFrom {
     /// The player's own install (any launcher's); Mojang only when none has the version and an

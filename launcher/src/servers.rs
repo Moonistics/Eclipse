@@ -26,8 +26,6 @@ const PROGRAM: &str = if cfg!(windows) {
 /// The Minecraft EULA a server owner agrees to.
 pub const EULA_URL: &str = "https://aka.ms/MinecraftEULA";
 
-// ----- The list of servers -----------------------------------------------------------------------
-
 /// One server the launcher knows: its name and its folder.
 #[derive(Clone, Debug, PartialEq, Serialize, Deserialize)]
 pub struct Entry {
@@ -155,8 +153,6 @@ fn new_folder(name: &str) -> PathBuf {
     dir
 }
 
-// ----- The programs: an installed Eclipse version, laid out as install.sh does ---------------------
-
 pub fn runtime_root() -> PathBuf {
     backend::data_dir().join("server-runtime")
 }
@@ -179,7 +175,6 @@ pub fn game_files(root: &Path, game_version: &str) -> PathBuf {
 
 pub const GAME_VERSION: &str = eclipse_core::version::VERSION_ID;
 
-/// Whether the servers' game files are there.
 pub fn game_files_ready() -> bool {
     game_files(&runtime_root(), GAME_VERSION)
         .join(backend::RESOURCES_MANIFEST)
@@ -281,8 +276,6 @@ fn point(link: &Path, target: &Path) -> std::io::Result<()> {
         crate::sources::junction(target, link)
     }
 }
-
-// ----- Running eclipse-server -------------------------------------------------------------------
 
 /// `eclipse-server --dir <dir> <args>`.
 pub fn command(dir: &Path, args: &[&str]) -> Result<Command, String> {
@@ -456,8 +449,6 @@ impl Problem {
         Self::plain(crate::i18n::capitalised(&said))
     }
 }
-
-// ----- Creating a server ------------------------------------------------------------------------
 
 /// The world a new server starts with.
 #[derive(Clone, Debug, PartialEq)]
@@ -739,8 +730,6 @@ pub fn create(spec: &NewServer, tag: Option<&str>, log: &dyn Fn(String)) -> Resu
     Ok(entry)
 }
 
-// ----- A server's files --------------------------------------------------------------------------
-
 /// The settings, as `eclipse-server config --json` prints them (`None` before `init`, or from a
 /// `eclipse-server` older than the command).
 pub fn config(dir: &Path) -> Option<Value> {
@@ -901,8 +890,6 @@ fn service_suffix(dir: &Path) -> String {
         clean.into()
     }
 }
-
-// ----- The running server: its control API -------------------------------------------------------
 
 /// The running supervisor's control API (`.eclipse/api.json`: its address and token).
 #[derive(Clone, Debug)]
@@ -1100,7 +1087,6 @@ impl Status {
     }
 }
 
-/// The supervisor's phase.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Phase {
     Starting,

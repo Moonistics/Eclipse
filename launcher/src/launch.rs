@@ -54,7 +54,6 @@ fn is_false(b: &bool) -> bool {
 pub struct Found {
     pub gamemode: bool,
     pub mangohud: bool,
-    /// More than one graphics card.
     pub two_gpus: bool,
     /// NVIDIA's own driver is loaded: offload asks for it, not Mesa.
     pub nvidia: bool,
@@ -116,7 +115,6 @@ impl Found {
         }
     }
 
-    /// Whether any switch can be shown.
     pub fn any(&self) -> bool {
         self.gamemode || self.mangohud || self.two_gpus
     }
@@ -250,7 +248,6 @@ pub fn instance_vars(name: &str, id: &str, dir: &std::path::Path, java: Option<&
     vars
 }
 
-/// An instance's variables ([`instance_vars`]).
 pub type Vars = Vec<(&'static str, OsString)>;
 
 /// The post-exit command, ready to run in `dir` with the instance's `vars` and variables; none

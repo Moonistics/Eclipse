@@ -32,7 +32,6 @@ impl Launcher {
         let is_op = |n: &str| ops.iter().any(|o| o.eq_ignore_ascii_case(n));
         let mut tab = div().flex().flex_col().gap(px(space::XL));
 
-        // Online now.
         let mut online = div().flex().flex_col();
         for p in status.players.clone() {
             let op = is_op(&p.name);
@@ -113,7 +112,6 @@ impl Launcher {
             },
         ));
 
-        // Who can join.
         let friends_only = self
             .servers
             .setting(Key::Whitelist)
@@ -240,7 +238,6 @@ impl Launcher {
                 .child(allowed),
         ));
 
-        // Banned.
         if !banned.is_empty() {
             let mut list = div().flex().flex_col();
             for (name, uuid) in banned {

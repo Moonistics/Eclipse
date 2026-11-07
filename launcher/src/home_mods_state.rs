@@ -261,30 +261,25 @@ mod tests {
 
         let mut mods = InstanceMods::default();
         mods.observe_fingerprint(native_status::fingerprint(home, None));
-        assert!(!mods.fresh);
-        let read_fingerprint = mods.begin_read();
+        let first = mods.begin_read();
         let old_list = read(home, false, Vec::new());
-        assert_eq!(old_list.len(), 1);
 
         std::fs::write(installed.join("second.hnmod"), b"unreadable").unwrap();
         mods.observe_fingerprint(native_status::fingerprint(home, None));
-        assert!(!mods.fresh);
-        assert!(mods.reading, "the first read must still be pending");
-
-        mods.complete_read(0, &read_fingerprint, old_list);
-        let another_read_needed = !mods.fresh && !mods.reading;
-        if another_read_needed {
-            let read_fingerprint = mods.begin_read();
-            mods.complete_read(0, &read_fingerprint, read(home, false, Vec::new()));
-        }
-        let final_files: Vec<_> = mods.list.iter().map(|row| row.file.as_str()).collect();
-        let final_listing_is_fresh = mods.fresh
-            && final_files.contains(&"eclipse-native-mods/first.hnmod")
-            && final_files.contains(&"eclipse-native-mods/second.hnmod");
+        mods.complete_read(0, &first, old_list);
         assert!(
-            another_read_needed && final_listing_is_fresh,
-            "a native change during a read must leave another read needed and deliver both files; another_read_needed={another_read_needed}, fresh={}, files={final_files:?}",
-            mods.fresh
+            !mods.fresh && !mods.reading,
+            "a read made before the change is stale, and another can start"
+        );
+
+        let second = mods.begin_read();
+        mods.complete_read(0, &second, read(home, false, Vec::new()));
+        let files: Vec<_> = mods.list.iter().map(|row| row.file.as_str()).collect();
+        assert!(mods.fresh);
+        assert!(
+            files.contains(&"eclipse-native-mods/first.hnmod")
+                && files.contains(&"eclipse-native-mods/second.hnmod"),
+            "{files:?}"
         );
     }
 

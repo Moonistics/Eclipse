@@ -1,4 +1,4 @@
-//! What an instance's icon shows (plan R8): its own picture (one the player chose, or its
+//! What an instance's icon shows: its own picture (one the player chose, or its
 //! modpack's icon) first; else the block or colour chosen for it; else its mark: the loader
 //! it plays with, the grass block for plain Minecraft, Eclipse's own for Eclipse. The letter tile
 //! is the last resort. Each is decoded once per size and kept in `Instances::icons`.
@@ -173,12 +173,10 @@ impl Launcher {
         }
     }
 
-    /// Vanilla's grass block, `size` points square.
     pub(super) fn grass_mark(&mut self, size: f32) -> Option<Arc<RenderImage>> {
         self.icon_image(IconKey::Grass, size, false, || Some(GRASS.to_vec()))
     }
 
-    /// Eclipse's own mark, `size` points square.
     pub(super) fn eclipse_mark(&mut self, size: f32) -> AnyElement {
         match self.mark_image(size) {
             Some(image) => centred(image, size, self.scale).into_any_element(),
@@ -195,7 +193,6 @@ impl Launcher {
             .clone()
     }
 
-    /// A mod loader's logo, `size` points square.
     pub(super) fn loader_logo(&mut self, loader: Loader, size: f32) -> Option<Arc<RenderImage>> {
         let png = logo_png(loader);
         self.icon_image(IconKey::Loader(loader.id()), size, false, || {
@@ -298,7 +295,6 @@ pub(super) fn modded_mark() -> gpui::Svg {
     )
 }
 
-/// A loader's logo file.
 pub(super) fn logo_png(loader: Loader) -> &'static [u8] {
     match loader {
         Loader::Fabric => FABRIC,

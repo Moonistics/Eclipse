@@ -120,7 +120,6 @@ pub(super) fn server(
     Ok(())
 }
 
-/// Runs the instance's post-exit command in this terminal, if it has one, and waits for it.
 pub(super) fn launch(request: backend::Play) -> Result<(), String> {
     let instance = request.instance.clone();
     let launched = backend::launch(request, &|line| eprintln!("{line}")).map_err(|e| e.hinted())?;

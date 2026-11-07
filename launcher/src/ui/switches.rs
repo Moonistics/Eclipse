@@ -1,8 +1,8 @@
 use super::{
-    color, disabled, hover_is, hoverable, icon_button, inset, look, setting_row_frame,
-    setting_text, shine, white, ButtonKind, ButtonSize, Hover, Press,
+    color, disabled, hover_is, hoverable, icon_button, ink, inset, look, setting_row_frame,
+    setting_text, shine, ButtonKind, ButtonSize, Hover, Press,
 };
-use eclipse_theme::glass::{fill, ink, radius, space, step, ON_LIGHT, PAPER, SWITCH_EDGE_LIGHT};
+use eclipse_theme::glass::{fill, radius, space, step, ON_LIGHT, PAPER, SWITCH_EDGE_LIGHT};
 use gpui::{
     div, prelude::*, px, App, Div, FontWeight, Role, SharedString, Stateful, Toggled, Window,
 };
@@ -92,7 +92,7 @@ fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
             .bg(if on || super::light() {
                 color(PAPER)
             } else {
-                white(ink::MUTED)
+                ink(ink::MUTED)
             })
             .when(super::light(), |d| {
                 d.border_1()
@@ -104,7 +104,7 @@ fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
     let rim = match (on, super::light()) {
         (true, true) => color(ON_LIGHT).opacity(SWITCH_EDGE_LIGHT),
         (true, false) => gpui::transparent_black(),
-        (false, _) => white(ink::DIM),
+        (false, _) => ink(ink::DIM),
     };
     div()
         .id(id)
@@ -116,7 +116,7 @@ fn switch_face(id: impl Into<SharedString>, on: bool) -> Stateful<Div> {
         .bg(if on {
             color(look().accent)
         } else {
-            white(fill::ACTIVE)
+            ink(fill::ACTIVE)
         })
         .border(px(SWITCH_EDGE))
         .border_color(rim)

@@ -1,13 +1,8 @@
-//! The Mods page's look: the kinds as tabs under its title, then two cards: the search and
-//! what it found (icon, name, author, summary, then downloads for the registry's and how it runs
-//! for Modrinth's, a tick on what the instance has), and the picked project's card (its icon,
-//! name, line, summary, what it may do, downloads, and Install in or Remove from the instance).
+//! The Mods page's look: the kinds as tabs, the search and its results, the picked project's card.
 //! A kind's sources lead the search: Eclipse's registry or Modrinth, on the kinds both
 //! serve (`Kind::picks_source`); shader packs are Eclipse's registry's only, and a Java instance's files
 //! always Modrinth's. Modrinth's Java mods are offered to an Eclipse instance too, each marked
-//! Works or Partly in Eclipse; those that don't run show only when asked. Above the two cards:
-//! the install's progress, the instance's installed list (folded when long) and its native
-//! build; under them, adding an Eclipse mod from GitHub.
+//! Works or Partly in Eclipse; those that don't run show only when asked.
 
 use crate::fields::Field;
 use crate::menus::{Asking, Menu};
@@ -618,8 +613,6 @@ impl Launcher {
         )
     }
 
-    /// The "Sort by" dropdown beside the search; the choices on a popover under it, the chosen one
-    /// ticked.
     fn mods_sort(&mut self, cx: &mut Context<Self>) -> Div {
         let sorts = self.mods_sorts();
         let current = self.mods.browse.filters.sort;
@@ -1012,7 +1005,6 @@ impl Launcher {
         }
     }
 
-    /// The picked project's card.
     fn mod_detail(
         &mut self,
         instance: &str,

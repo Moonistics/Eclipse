@@ -360,7 +360,6 @@ pub fn make(exe: &Path, id: &str, name: &str) -> Result<Vec<PathBuf>, String> {
     Ok(made)
 }
 
-/// The instance's shortcuts on this computer.
 pub fn find(id: &str) -> Vec<PathBuf> {
     desktop_dir()
         .map(|d| find_in(&d, menu().as_deref(), id))

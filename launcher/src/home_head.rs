@@ -1,5 +1,4 @@
-//! Home's head: the instance's icon and name, how long it was played, then Play with its menu,
-//! the version, Edit, the instance's folder, and joining a friend on the right.
+//! Home's head: the selected instance, Play with its version, and joining a friend.
 use crate::fields::Field;
 use crate::game_run::QuickPlay;
 use crate::menus::Menu;
@@ -482,7 +481,6 @@ impl Launcher {
     }
 }
 
-/// What a Play menu row does.
 #[derive(Clone, Copy)]
 enum PlayItem {
     Prepare,

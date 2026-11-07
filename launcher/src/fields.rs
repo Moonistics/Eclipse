@@ -30,7 +30,7 @@ pub(super) enum Field {
     VersionSearch,
     /// Home's Mods tab's filter (`home_mods.rs`).
     InstanceModsFilter,
-    /// Home's Multiplayer tab's (`home_worlds.rs`).
+    /// Home's Multiplayer tab's (`home_multiplayer.rs`).
     MultiplayerName,
     MultiplayerAddress,
     /// Home's Console's search (`home_console.rs`).

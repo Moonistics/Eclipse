@@ -9,7 +9,6 @@ pub struct Shot {
     pub path: PathBuf,
     /// Its file name, the id commands take.
     pub name: String,
-    /// When the file was written.
     pub taken: SystemTime,
     pub size: u64,
 }

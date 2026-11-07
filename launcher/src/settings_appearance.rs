@@ -93,7 +93,7 @@ impl Launcher {
                 ui::icon(
                     crate::icons::ANY_COLOUR,
                     ui::IconSize::Px16,
-                    ui::white(eclipse_theme::glass::ink::BODY),
+                    ui::ink(eclipse_theme::glass::ink::BODY),
                 )
                 .into_any_element()
             }),

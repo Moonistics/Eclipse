@@ -377,7 +377,6 @@ fn shader_packs_older_launchers_installed_are_left_alone() {
     fs::remove_dir_all(&home).unwrap();
 }
 
-/// A data pack zip with these files.
 fn datapack_zip(files: &[&str]) -> Vec<u8> {
     use std::io::Write;
     let mut zip = zip::ZipWriter::new(std::io::Cursor::new(Vec::new()));

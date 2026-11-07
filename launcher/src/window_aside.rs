@@ -7,7 +7,6 @@ use gpui::prelude::*;
 use gpui::AnyWindowHandle;
 
 pub(super) struct Aside {
-    /// The launcher's window.
     window: AnyWindowHandle,
     /// What the window did when the game started, to undo when it closes.
     stepped: Option<WhilePlaying>,

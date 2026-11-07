@@ -40,9 +40,15 @@ const RENEW_BEFORE: u64 = 3600;
 /// The configured Azure app, if any: the run-time variable wins over the build-time one, and an
 /// empty value means none.
 pub fn client_id() -> Option<String> {
-    std::env::var("ECLIPSE_MSA_CLIENT_ID")
-        .ok()
-        .or_else(|| option_env!("ECLIPSE_MSA_CLIENT_ID").map(str::to_owned))
+    client_id_from(
+        std::env::var("ECLIPSE_MSA_CLIENT_ID").ok(),
+        option_env!("ECLIPSE_MSA_CLIENT_ID"),
+    )
+}
+
+fn client_id_from(run_time: Option<String>, build_time: Option<&str>) -> Option<String> {
+    run_time
+        .or_else(|| build_time.map(str::to_owned))
         .map(|id| id.trim().to_owned())
         .filter(|id| !id.is_empty())
 }
@@ -118,8 +124,6 @@ fn now() -> u64 {
         .map_or(0, |d| d.as_secs())
 }
 
-// ----- The device-code flow ----------------------------------------------------------------------
-
 /// What the player types at the verification page.
 #[derive(Clone, PartialEq)]
 pub struct DeviceCode {
@@ -186,7 +190,6 @@ pub fn device_code(ep: &Endpoints, client_id: &str) -> Result<DeviceCode, String
     }
 }
 
-/// The OAuth error codes as messages for the player.
 fn oauth_error(v: &Value) -> String {
     match v.get("error").and_then(Value::as_str) {
         Some("authorization_declined") => "Sign-in was declined in the browser.".into(),
@@ -201,7 +204,6 @@ fn oauth_error(v: &Value) -> String {
     }
 }
 
-/// One poll of the token endpoint while the player signs in.
 fn poll(ep: &Endpoints, client_id: &str, code: &DeviceCode) -> Result<Poll, String> {
     let (status, v) = send(
         request_to("POST", &format!("{}/token", ep.microsoft)),
@@ -272,8 +274,6 @@ fn refresh_ms(ep: &Endpoints, client_id: &str, refresh: &str) -> Result<MsTokens
     )?;
     ms_tokens(status, &v)
 }
-
-// ----- Xbox Live, XSTS, Minecraft ----------------------------------------------------------------
 
 /// The XSTS `XErr` codes, as the official launcher explains them.
 fn xsts_error(code: u64) -> String {
@@ -604,8 +604,6 @@ fn check_with(
     }
 }
 
-// ----- Accounts ------------------------------------------------------------------------------------
-
 /// accounts.json: the signed-in accounts and the one that plays. Never a token.
 #[derive(Clone, Debug, Default, PartialEq, serde::Serialize, serde::Deserialize)]
 pub struct Accounts {
@@ -629,7 +627,6 @@ pub struct Accounts {
 pub enum Player {
     /// A Microsoft account, by UUID.
     Microsoft(String),
-    /// An offline name.
     Offline(String),
     /// Offline as the name the game made up.
     GameName,
@@ -638,7 +635,6 @@ pub enum Player {
 const OFFLINE_NEEDS_OWNER: &str =
     "Sign in once with an account that owns Java Edition to pick your own player name.";
 
-/// The secrets an account keeps in `store`, if it still has them there.
 fn secrets_in(store: &dyn SecretStore, uuid: &str) -> Option<Secrets> {
     store
         .get(uuid)
@@ -677,14 +673,12 @@ impl Accounts {
         let uuid = self.selected.as_ref()?;
         self.accounts.iter().find(|a| &a.uuid == uuid)
     }
-    /// Find an account by name (any case) or UUID (with or without dashes).
     pub fn find(&self, who: &str) -> Option<&Account> {
         let undashed = who.replace('-', "").to_lowercase();
         self.accounts
             .iter()
             .find(|a| a.name.eq_ignore_ascii_case(who) || a.uuid == undashed)
     }
-    /// Keep a new or renewed account, its secrets in the store, and select it.
     pub fn add(
         &mut self,
         store: &dyn SecretStore,
@@ -769,7 +763,6 @@ impl Accounts {
         Ok(())
     }
 
-    /// Keeps an offline name (once, in any case); returns it as kept.
     fn add_offline(&mut self, name: &str) -> Result<String, String> {
         let name = name.trim();
         if !valid_offline_name(name) {
@@ -814,7 +807,6 @@ impl Accounts {
         Ok(())
     }
 
-    /// An offline name's look (the default: no skin of its own).
     pub fn look(&self, name: &str) -> crate::skins::Look {
         self.looks
             .get(&name.to_ascii_lowercase())
@@ -822,7 +814,6 @@ impl Accounts {
             .unwrap_or_default()
     }
 
-    /// The game's variables for the offline name that plays: its skin and cape.
     pub fn look_env(&self) -> Vec<(&'static str, String)> {
         match self.name_arg() {
             Some(name) => crate::skins::env(&crate::skins::dir(), name, &self.look(name)),
@@ -838,7 +829,6 @@ impl Accounts {
         }
     }
 
-    /// A renewed profile (its name or skin changed) in place of the old one; who plays stays.
     fn update(&mut self, account: Account) {
         if let Some(a) = self.accounts.iter_mut().find(|a| a.uuid == account.uuid) {
             *a = account;
@@ -898,7 +888,6 @@ pub struct Launch {
 /// The last [`Launch::unsaved`], for the window or the terminal to show once.
 static UNSAVED: Mutex<Option<String>> = Mutex::new(None);
 
-/// What the last launch couldn't save in the keychain, once.
 pub fn take_unsaved() -> Option<String> {
     UNSAVED.lock().ok()?.take()
 }
@@ -1001,7 +990,6 @@ fn launch_for_game(
 /// when it reads it.
 fn write_session_file(dir: &Path, account: &Account, secrets: &Secrets) -> Result<PathBuf, String> {
     std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
-    // The folder too is this user's only (the files already are).
     #[cfg(unix)]
     {
         use std::os::unix::fs::PermissionsExt;
@@ -1051,7 +1039,6 @@ const SESSION_FILE_LIFE: Duration = Duration::from_secs(120);
 /// ([`discard_unread_sessions`]). Nothing with a token stays on disk.
 static UNREAD: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
 
-/// [`write_session_file`] for a game this launcher is about to start (see [`UNREAD`]).
 fn write_launch_session_file(
     dir: &Path,
     account: &Account,
@@ -1081,8 +1068,6 @@ fn write_launch_session_file(
     Ok(path)
 }
 
-/// Deletes the files of `unread` older than `life` (the game would refuse them) and forgets
-/// those gone (read).
 fn reap(unread: &mut Vec<PathBuf>, life: Duration) {
     unread.retain(|path| {
         let waiting = std::fs::metadata(path)
@@ -1141,17 +1126,14 @@ fn accept_sign_in(
     Ok(())
 }
 
-/// Where a background sign-in is (the window and the MCP server show it).
 #[derive(Clone, Debug, PartialEq)]
 pub enum SignInState {
     Starting,
-    /// Waiting for the player at `verification_uri` with `user_code`.
     Code(DeviceCode),
     Working(session::Phase),
     Done(Result<Account, String>),
 }
 
-/// A sign-in on its own thread, from the code to the saved account.
 pub struct SignIn {
     state: std::sync::Arc<Mutex<SignInState>>,
     cancel: std::sync::Arc<std::sync::atomic::AtomicBool>,
@@ -1214,12 +1196,10 @@ impl SignIn {
     }
 }
 
-/// What the game about to start gets from the accounts.
 #[derive(Debug, Default)]
 pub struct GameSession {
     /// The playing account's session (`--session-file`); none: offline.
     pub file: Option<PathBuf>,
-    /// Why the account plays offline this time, if it does.
     pub offline: Option<String>,
     /// The other accounts' sessions, for splitscreen players (`account_sessions`).
     pub env: Vec<(&'static str, String)>,
@@ -1279,7 +1259,6 @@ pub fn session_for_game_as(game_home: &Path, who: &Player) -> Result<GameSession
     Ok(session_file(game_home, pass, env))
 }
 
-/// The owner gate as `who`, on `accounts`, which keeps its choice of player.
 fn launch_as(
     ep: &Endpoints,
     client_id: Option<&str>,
@@ -1303,7 +1282,6 @@ fn launch_as(
     pass
 }
 
-/// The game's session files for a launch that passed the gate.
 fn session_file(game_home: &Path, pass: Launch, env: Vec<(&'static str, String)>) -> GameSession {
     let mut out = GameSession {
         env,
@@ -1329,7 +1307,6 @@ fn split_sessions(
     playing: Option<&str>,
 ) -> Vec<(&'static str, String)> {
     if splitscreen_on(game_home) {
-        // The launch may override the saved player, or play with an offline name.
         let selected = std::mem::replace(&mut accounts.selected, playing.map(str::to_owned));
         let env = account_sessions(
             &Endpoints::live(),
@@ -1352,16 +1329,16 @@ fn splitscreen_on(game_home: &Path) -> bool {
         .is_ok_and(|text| crate::game_folder::setting(&text, "splitscreen") == Some("true"))
 }
 
-/// The signed-in accounts but the one that plays, each its session in a file of its own, for
-/// the game's splitscreen players to sign in with (`ECLIPSE_ACCOUNT_SESSIONS`: name, uuid and
-/// file each). A token known to own the game and not due goes as it is; otherwise it is renewed
-/// and asked about (`check`), and an account that can't be renewed, doesn't own the game or
-/// whose token names another profile is left out: the game starts all the same. Nothing with one
-/// account.
 /// How long Play spends renewing the other accounts' sessions, in all: past it, the rest are
 /// offered only with a token that still holds (no request starts; one under way finishes).
 const OTHERS_WAIT: Duration = Duration::from_secs(10);
 
+/// The signed-in accounts but the one that plays, each its session in a file of its own, for
+/// the game's splitscreen players to sign in with (`ECLIPSE_ACCOUNT_SESSIONS`: name, uuid and
+/// file each). A token known to own the game and not due goes as it is; otherwise it is renewed
+/// and asked about (`check`). An account that can't be renewed, doesn't own the game or whose
+/// token names another profile goes with why it was `skipped` instead of a file: the game starts
+/// all the same. Nothing with one account.
 fn account_sessions(
     ep: &Endpoints,
     client_id: Option<&str>,
@@ -1420,7 +1397,6 @@ fn account_sessions_until(
         let late = operation.is_err() || Instant::now() >= deadline;
         let (account, secrets) = match known {
             true => (Some(account), secrets),
-            // Out of time: its token while it holds, else Sign in again.
             false if late => (holds(&secrets, 60).then_some(account), secrets),
             false => match check(ep, client_id, &account, secrets) {
                 Check::Owns(renewed, secrets) => {
@@ -1436,7 +1412,6 @@ fn account_sessions_until(
                 }
             },
         };
-        // A renewed token, or the services' answer, kept for the next launch.
         let after = serde_json::to_string(&secrets).ok();
         if let (true, Some(text)) = (after != before, after) {
             let _ = store.set(&uuid, &text);

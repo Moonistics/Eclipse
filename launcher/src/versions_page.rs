@@ -1,7 +1,4 @@
-//! The Eclipse versions page: each Nightly on its own card (its name, Newest on the first, when
-//! it came out and which instances play it), Install or Use and a bin on the right; the space
-//! versions take, Import a version from file, the native and imported builds, install progress
-//! and errors, the confirmation before a removal.
+//! The Eclipse versions page: the releases and Nightlies, and the builds installed here.
 
 use crate::menus::Asking;
 use crate::messages::Msg;

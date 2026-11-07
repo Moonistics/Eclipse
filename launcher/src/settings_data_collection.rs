@@ -11,7 +11,6 @@ use eclipse_theme::glass::{ink, space, step};
 use gpui::prelude::*;
 use gpui::{div, px, ClickEvent, Div, FontWeight};
 
-/// What the window keeps about data collection.
 pub(super) struct Collection {
     pub(super) consent: Consent,
     pub(super) body_scroll: Scrollbar,
@@ -87,7 +86,6 @@ impl Launcher {
         };
     }
 
-    /// Settings' data collection: a switch per kind, then the player's data.
     pub(super) fn collection_section(&mut self, cx: &mut Context<Self>) -> Div {
         let consent = self.collection.consent.clone();
         let mut list = div().flex().flex_col();

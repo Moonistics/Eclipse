@@ -1,6 +1,4 @@
-//! Home's Packs tab: one row per resource or shader pack, its picture, "Resource pack · on" and
-//! a switch that turns it on or off. Find packs, Add from file… and the packs folder head the
-//! list; packs dropped on it are added; Delete asks first, in place.
+//! Home's Packs tab: the selected instance's resource and shader packs.
 use crate::menus::Asking;
 use crate::mods_state;
 use crate::ui::{self, ButtonKind, Press};
@@ -12,7 +10,6 @@ use gpui::prelude::*;
 use gpui::{div, px, ClickEvent, Div, ExternalPaths, SharedString, Stateful};
 
 impl Launcher {
-    /// Home's Packs tab: the selected instance's resource packs, then its shader packs.
     pub(super) fn packs_tab(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let home = self.selected_instance()?.home.clone();
         self.load_packs_list(&home, cx);

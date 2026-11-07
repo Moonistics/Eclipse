@@ -1,6 +1,5 @@
-//! The selected instance's worlds on Home (`eclipse_launcher::worlds`): each with its picture,
-//! mode, version, when it was last played and its size, and Back up, Duplicate, Delete (to the
-//! trash, after a confirmation) and Open folder. Reading sizes and copying run in the background.
+//! The selected instance's worlds on Home (`eclipse_launcher::worlds`). Reading sizes and
+//! copying run in the background.
 use crate::folder_list::FolderList;
 use crate::Launcher;
 use eclipse_launcher::i18n::trf;

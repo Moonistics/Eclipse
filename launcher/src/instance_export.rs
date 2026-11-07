@@ -1,4 +1,4 @@
-//! Export… on Home's Instance row: the selected instance as a `.mrpack` or a `.zip`, with the
+//! Export… from a sidebar row's ⋯ menu: the selected instance as a `.mrpack` or a `.zip`, with the
 //! worlds the player switches on, written to the launcher's `exports/` folder
 //! (`eclipse_launcher::export`).
 use crate::ui::{ButtonKind, Press};

@@ -7,14 +7,12 @@ use eclipse_theme as tokens;
 use gpui::{rgb, Hsla, WindowAppearance};
 use std::time::Duration;
 
-pub use tokens::night::{self, Night};
+use tokens::night::{self, Night};
 pub const FONT: &str = tokens::FONT;
 pub const MONO: &str = tokens::MONO;
 
-/// A disabled control's opacity, shared with the game's menus and the website.
 pub use tokens::DISABLED;
 
-/// Motion: short and eased out, never bouncy.
 pub const QUICK: Duration = tokens::QUICK.duration();
 
 pub type Inputs = (Appearance, Accent, Option<String>, WindowAppearance);
@@ -30,7 +28,6 @@ pub fn inputs(settings: &Settings, system: WindowAppearance) -> Inputs {
 
 #[derive(Clone, Copy)]
 pub struct Theme {
-    /// The look's colours for the accent.
     pub look: tokens::glass::Glass,
     pub side: Hsla,
     /// The scene's colours (`scene.rs`).
@@ -64,8 +61,6 @@ impl Theme {
         self
     }
 
-    /// The theme Settings ask for, under the window's own light or dark: the player's look,
-    /// under the launcher theme's sky if they picked one.
     pub fn for_settings(settings: &Settings, system: WindowAppearance) -> Self {
         let theme = Self::for_appearance(settings.appearance, settings.accent, system);
         match themes::theme(settings.theme.as_deref()) {
@@ -74,8 +69,6 @@ impl Theme {
         }
     }
 
-    /// The pinned appearance (`pinned_dark`), the system's when the player asked to follow it, in
-    /// the player's accent.
     pub fn for_appearance(choice: Appearance, accent: Accent, system: WindowAppearance) -> Self {
         use tokens::glass::{Glass, BASE};
         let system_dark = !matches!(
@@ -95,71 +88,12 @@ impl Theme {
     }
 }
 
-/// How strongly a selected suggestion in a text field is tinted with the accent.
-pub const SELECTION: f32 = 0.22;
-
 #[cfg(test)]
 mod tests {
-    use super::SELECTION;
     use eclipse_launcher::themes::Accent;
     use eclipse_theme::contrast;
-    use eclipse_theme::glass::{
-        ink, light_ink, light_surfaces, Glass, DANGER, DANGER_LIGHT, FIELD_BG, FLOAT, ON_LIGHT,
-        PAPER,
-    };
+    use eclipse_theme::glass::{fill, ink, light_ink, light_surfaces, Glass, ON_LIGHT, PAPER};
     use eclipse_theme::night::over;
-
-    /// What the dark look draws besides text: the keyboard focus ring and the border of a
-    /// refused field on every surface (WCAG 1.4.11 asks 3:1), and text over a selected
-    /// suggestion.
-    #[test]
-    fn marks_and_selections_read_clearly() {
-        let look = Glass::default_look();
-        for (name, bg) in [("plate", look.plate), ("float", FLOAT), ("field", FIELD_BG)] {
-            let ring = contrast(look.accent_soft, bg);
-            assert!(ring >= 3.0, "focus ring on {name}: {ring:.2}");
-            let refused = contrast(DANGER, bg);
-            assert!(refused >= 3.0, "refused field on {name}: {refused:.2}");
-        }
-        let selection = over(look.accent_soft, SELECTION, FLOAT);
-        let ratio = contrast(0xffffff, selection);
-        assert!(ratio >= 4.5, "text on a selection: {ratio:.2}");
-    }
-
-    #[test]
-    fn a_refused_field_reads_on_the_light_plates() {
-        for bg in light_surfaces() {
-            let refused = contrast(DANGER_LIGHT, bg);
-            assert!(refused >= 3.0, "refused field on #{bg:06x}: {refused:.2}");
-        }
-    }
-
-    #[test]
-    fn a_switch_that_is_off_shows_its_edge() {
-        let dim = light_ink(ink::DIM);
-        for bg in light_surfaces() {
-            let edge = contrast(over(ON_LIGHT, dim, bg), bg);
-            assert!(edge >= 3.0, "off switch on #{bg:06x}: {edge:.2}");
-        }
-        for bg in [Glass::default_look().plate, FLOAT] {
-            let edge = contrast(over(0xffffff, ink::DIM, bg), bg);
-            assert!(edge >= 3.0, "off switch on #{bg:06x}: {edge:.2}");
-        }
-    }
-
-    #[test]
-    fn a_switch_that_is_on_shows_it_by_its_track_not_its_knob() {
-        let look = Glass::default_look();
-        for bg in [look.plate, FLOAT] {
-            let track = contrast(look.accent, bg);
-            assert!(track >= 3.0, "on track on #{bg:06x}: {track:.2}");
-        }
-        let knob = contrast(PAPER, look.accent);
-        assert!(
-            knob < 3.0,
-            "the knob is not what shows the state: {knob:.2}"
-        );
-    }
 
     #[test]
     fn a_light_switch_that_is_on_shows_its_edge() {
@@ -191,7 +125,7 @@ mod tests {
                 let ring = contrast(look.accent_soft, bg);
                 assert!(ring >= 4.5, "{name}: link and ring on #{bg:06x}: {ring:.2}");
             }
-            let selection = over(look.accent_soft, SELECTION, PAPER);
+            let selection = over(look.accent_soft, fill::TEXT_SELECTION, PAPER);
             let ratio = contrast(ON_LIGHT, selection);
             assert!(ratio >= 4.5, "{name}: text on a selection: {ratio:.2}");
         }

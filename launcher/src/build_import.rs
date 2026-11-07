@@ -21,7 +21,6 @@ const RECORD: &str = "imported.json";
 /// The most a program may take: a game build is ~100 MB.
 const MAX_PROGRAM: u64 = 1 << 30;
 
-/// Whether an installed version is an imported build.
 pub fn is_imported(version: &str) -> bool {
     version.starts_with(PREFIX)
 }
@@ -37,7 +36,6 @@ pub fn label(version: &str) -> Option<String> {
 pub struct About {
     /// The release or Nightly whose game files it plays with.
     pub base: String,
-    /// The file the player picked.
     pub file: String,
     #[serde(default)]
     pub sha256: String,
@@ -53,7 +51,6 @@ impl About {
     }
 }
 
-/// What installed imported build `version` was made from; None for any other version.
 pub fn about(version: &str) -> Option<About> {
     if !is_imported(version) {
         return None;
@@ -338,7 +335,6 @@ fn retried(mut step: impl FnMut() -> std::io::Result<()>) -> std::io::Result<()>
     }
 }
 
-/// Ok when `path` is gone.
 fn gone(path: &Path) -> std::io::Result<()> {
     match path.symlink_metadata() {
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(()),
@@ -358,7 +354,6 @@ mod tests {
         d
     }
 
-    /// The entries of `dir`, the copies' own `.importing` left out.
     fn listed(dir: &Path) -> usize {
         fs::read_dir(dir)
             .unwrap()

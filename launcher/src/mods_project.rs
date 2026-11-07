@@ -1,17 +1,9 @@
 //! The Mods page's project page, search filters and project icons (`eclipse_launcher::browser`:
 //! `details` for the data, `images` for the icons and gallery). Drawn only with the launcher's
 //! shared components, so a restyle of those restyles this.
-//!
-//! - A result's title opens its page inside the launcher: icon, author, downloads, followers,
-//!   licence, how well it runs and Install, then Description (Markdown), Gallery, Versions and
-//!   the project's links.
-//! - Filters: sort, loader, game version, environment and categories, with the values the
-//!   source lists for the kind.
-//! - Icons and gallery images come from the source's image servers at run time, cached on disk;
-//!   a placeholder stands in until one arrives.
 use super::mods_state::{licence_name, Checking, Event};
 use crate::tab_strip::{Strip, StripTab};
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{cull, dates, icons, layout, menus, thousands, Launcher};
 use eclipse_launcher::browser::{
     self,
@@ -92,7 +84,6 @@ pub(super) fn active_filters(f: &Filters) -> usize {
         + f.environment.is_some() as usize
 }
 
-/// A project page's tabs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum Tab {
     Description,
@@ -112,7 +103,6 @@ impl Tab {
     }
 }
 
-/// The open project page.
 pub(super) struct Opened {
     pub(super) project: Project,
     tab: Tab,
@@ -332,7 +322,6 @@ impl Launcher {
         self.mods.browse.tags.get(&key)
     }
 
-    /// Sets the filters and searches again.
     pub(super) fn mods_filter(&mut self, change: impl FnOnce(&mut Filters)) {
         change(&mut self.mods.browse.filters);
         self.mods_search_keeping(0, true);
@@ -616,7 +605,7 @@ impl Launcher {
         }
         let mut row = div().flex().flex_wrap().items_center().gap(px(space::SM));
         for (id, label, remove) in picked {
-            let cross = ui::icon("cancel-01", ui::IconSize::Px16, white(ink::BODY));
+            let cross = ui::icon("cancel-01", ui::IconSize::Px16, ink(ink::BODY));
             row = row.child(
                 ui::button(
                     format!("mods-picked-{id}"),
@@ -654,7 +643,6 @@ impl Launcher {
         )
     }
 
-    /// The open project's page.
     pub(super) fn mods_project_page(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let o = self.mods.browse.open.as_ref()?;
         let p = o.project.clone();

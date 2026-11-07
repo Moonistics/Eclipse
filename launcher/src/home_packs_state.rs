@@ -1,6 +1,4 @@
-//! The selected instance's resource packs and shader packs on Home (`eclipse_launcher::packs`):
-//! each turned on or off with one click, Remove (to the trash, after a confirmation), and
-//! Add (a file picker) or a .zip or .eshader dropped anywhere on the section.
+//! The selected instance's resource packs and shader packs on Home (`eclipse_launcher::packs`).
 use crate::folder_list::FolderList;
 use crate::menus::Asking;
 use crate::{Launcher, Pick};
@@ -52,7 +50,6 @@ impl Launcher {
         self.game_packs.list.stale();
     }
 
-    /// Copies dropped or picked files into the instance's pack folders.
     pub(super) fn add_packs(&mut self, files: Vec<PathBuf>) {
         self.pack_action(|home| {
             let mut added = Vec::new();

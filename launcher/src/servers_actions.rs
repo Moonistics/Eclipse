@@ -18,8 +18,6 @@ use std::path::PathBuf;
 use std::time::Instant;
 
 impl Launcher {
-    // ----- Background work ------------------------------------------------------------------
-
     /// Runs `job` on a thread with the page busy; its lines and result arrive as events.
     pub(super) fn server_job(
         &mut self,
@@ -422,8 +420,6 @@ impl Launcher {
         }
     }
 
-    // ----- Creating -------------------------------------------------------------------------
-
     pub(super) fn open_create(&mut self, cx: &mut Context<Self>) {
         self.fields.handle(Field::NewServerName, cx);
         self.fields.focus_soon = Some(Field::NewServerName);
@@ -521,8 +517,6 @@ impl Launcher {
         });
     }
 
-    // ----- Building blocks ------------------------------------------------------------------
-
     /// Escape closes the Create dialog. Whether it did.
     pub(super) fn servers_escape(&mut self) -> bool {
         if self.servers.create.is_none() || self.servers.creating {
@@ -617,6 +611,4 @@ impl Launcher {
             None => ui::disabled(b),
         }
     }
-
-    // ----- The page -------------------------------------------------------------------------
 }

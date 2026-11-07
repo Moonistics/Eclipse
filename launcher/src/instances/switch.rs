@@ -1,5 +1,5 @@
-//! Switching what an instance plays (Edit's kinds, the mockup's `InstanceModal` for an existing
-//! instance): Eclipse, or Minecraft: Java Edition of one version with or without a loader. Only
+//! Switching what an instance plays (Edit's kinds): Eclipse, or Minecraft: Java Edition of one
+//! version with or without a loader. Only
 //! its entry in `instances.json` changes. Its folder, with its worlds, mods and options, is never
 //! touched, and a Java instance's own settings (memory, Java, arguments, window) are put aside
 //! while it plays Eclipse, to come back with Java.
@@ -7,7 +7,6 @@ use super::*;
 use crate::game_folder;
 use crate::loaders::Loader;
 
-/// What an instance plays.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Plays {
     Eclipse,
@@ -18,7 +17,6 @@ pub enum Plays {
 }
 
 impl Plays {
-    /// What `instance` plays now.
     pub fn of(instance: &Instance) -> Plays {
         match &instance.java {
             None => Plays::Eclipse,

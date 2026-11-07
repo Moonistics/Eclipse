@@ -225,7 +225,6 @@ fn official_version(root: &Path, id: &str) -> (String, Option<Loader>) {
     (minecraft, loader)
 }
 
-/// The official launcher's profiles in its folder `root`.
 fn official_profiles(root: &Path) -> Vec<Found> {
     let Some(text) = fs::read_to_string(root.join("launcher_profiles.json")).ok() else {
         return Vec::new();

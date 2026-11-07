@@ -4,10 +4,7 @@
 //!
 //! GPUI's `img(path)` keeps every picture it ever drew, at full size, until the launcher quits,
 //! in RAM and in its sprite atlas: one 32768 × 16384 screenshot is 2 GiB, and Home drew the
-//! three newest as soon as it opened (24 GiB reported on Linux, 2026-11-05). And a picture
-//! wider than the GPU's texture limit made GPUI's atlas add a max-size texture on every frame.
-//! Pictures are therefore made at the size the screen shows them, never above that limit
-//! (`pictures::drawn_side`, `pictures::gpu_limit`).
+//! three newest as soon as it opened (24 GiB reported on Linux, 2026-11-05).
 use crate::pictures::{self, Lru};
 use crate::{art, Launcher};
 use gpui::{Context, RenderImage, Window};
@@ -58,7 +55,6 @@ impl Pictures {
         self.retired.extend(gone.into_iter().flatten());
     }
 
-    /// The picture if it is already made, without making it.
     pub(crate) fn made(&self, path: &Path, look: Look) -> Option<Arc<RenderImage>> {
         self.made
             .peek(&(path.to_path_buf(), look))

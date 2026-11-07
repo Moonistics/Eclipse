@@ -342,17 +342,18 @@ mod tests {
         assert!(names(&["everything"]).is_err());
     }
 
-    /// "View what would be sent" and `data show` list every hardware field.
+    /// "View what would be sent" and `data show` list every hardware field, the screen's too.
     #[test]
     fn the_example_shows_every_hardware_field() {
-        let json = serde_json::to_string(&with_example_gpu(System::detect())).unwrap();
-        let fields = "os os_version arch cpu threads cores cpu_base_mhz cpu_boost_mhz ram_gb gpu \
-            gpu_vendor gpu_kind vram_mb driver backend storage width height refresh_hz scale power form";
-        for field in fields.split_whitespace() {
-            assert!(
-                json.contains(&format!("\"{field}\":")),
-                "{field} missing from {json}"
-            );
+        let example = serde_json::to_value(with_example_gpu(System::detect())).unwrap();
+        let mut every = System::detect();
+        every.display = Some(Default::default());
+        for (field, value) in serde_json::to_value(every).unwrap().as_object().unwrap() {
+            let shown = &example[field];
+            assert!(!shown.is_null(), "{field} missing from {example}");
+            for inner in value.as_object().into_iter().flat_map(|o| o.keys()) {
+                assert!(!shown[inner].is_null(), "{inner} missing from {example}");
+            }
         }
     }
 

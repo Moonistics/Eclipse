@@ -114,7 +114,6 @@ impl Launcher {
         });
     }
 
-    /// Generic Add account and targeted re-sign-in share the launcher-owned device-code flow.
     pub(super) fn start_sign_in(&mut self) {
         self.begin_sign_in(None);
     }

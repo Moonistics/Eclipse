@@ -59,7 +59,6 @@ impl Github {
     }
 }
 
-/// Installs the chosen mods of `mods` and says what was installed.
 fn finish(
     home: &Path,
     found: &Resolved,

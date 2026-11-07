@@ -5,7 +5,7 @@
 //! launcher's drain (every 80 ms) draws it, then lets it go.
 
 use super::*;
-use crate::ui::{self, white};
+use crate::ui::{self, ink};
 use eclipse_theme::glass::{ink, space};
 use std::path::Path;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -97,7 +97,7 @@ impl Launcher {
         .relative()
         .flex_1()
         .min_w_0()
-        .text_color(white(ink::FULL))
+        .text_color(ink(ink::FULL))
         .child(text.clone());
         let said = if error {
             ui::error_note(text.clone()).relative().flex_1().min_w_0()

@@ -19,7 +19,6 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-/// Where imported packs live.
 pub fn ports_dir() -> PathBuf {
     backend::game_home().join(crate::game_folder::PORTS)
 }
@@ -211,7 +210,6 @@ pub fn row_plain(row: &Row) -> String {
     format!("{plain} {waiting}")
 }
 
-/// Reads the pack in `work`.
 pub fn load(work: &Path) -> Result<Imported, String> {
     let pack: Pack = pipeline::read_json(&work.join("pack.json"))?;
     let rows: Vec<Row> = pipeline::read_json(&work.join("coverage.json")).unwrap_or_default();
@@ -262,7 +260,6 @@ pub fn load(work: &Path) -> Result<Imported, String> {
     })
 }
 
-/// Every imported pack, by name.
 pub fn list() -> Vec<Imported> {
     list_in(&ports_dir())
 }

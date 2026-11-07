@@ -1,5 +1,5 @@
-use super::{edge, hover_over, on_pixel_grid, tip, tip_on_focus, white, TipSide, TILE_LG};
-use eclipse_theme::glass::{fill, ink, radius, step};
+use super::{edge, hover_over, ink, on_pixel_grid, tip, tip_on_focus, TipSide, TILE_LG};
+use eclipse_theme::glass::{fill, radius, step};
 use gpui::{
     div, img, prelude::*, px, AnyElement, Div, Hsla, ImageSource, Role, SharedString, Stateful,
 };
@@ -19,7 +19,7 @@ pub fn tile(size: f32) -> Div {
         .size(px(size))
         .rounded(px(radius::ROW))
         .overflow_hidden()
-        .bg(white(fill::BUTTON))
+        .bg(ink(fill::BUTTON))
         .border_1()
         .border_color(edge())
 }
@@ -58,7 +58,7 @@ pub fn picture_slot() -> Div {
     div()
         .rounded(px(radius::ROW))
         .overflow_hidden()
-        .bg(white(fill::BUTTON))
+        .bg(ink(fill::BUTTON))
 }
 
 pub fn bullet() -> Div {
@@ -66,7 +66,7 @@ pub fn bullet() -> Div {
         .flex_none()
         .mt(px((step::BODY.line - BULLET) / 2.))
         .size(px(BULLET))
-        .bg(white(ink::DIM))
+        .bg(ink(ink::DIM))
 }
 
 pub fn image_tile(image: impl Into<ImageSource>, size: f32) -> AnyElement {
@@ -80,7 +80,7 @@ pub fn image_tile(image: impl Into<ImageSource>, size: f32) -> AnyElement {
 pub fn letter_tile(colour: Hsla, name: &str, size: f32) -> Div {
     let letter = on_pixel_grid(size * LETTER_SHARE);
     let tone = if colour.a < 1. {
-        white(ink::BODY)
+        ink(ink::BODY)
     } else {
         gpui::white()
     };

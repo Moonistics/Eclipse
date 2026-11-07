@@ -351,7 +351,6 @@ fn github_repo(source: &str) -> Option<String> {
     Some(format!("https://github.com/{owner}/{repo}"))
 }
 
-/// The words of a query found in a project's id, name, summary, authors or tags.
 fn matches(p: &index::Project, text: &str) -> bool {
     let hay = format!(
         "{} {} {} {} {}",
@@ -440,7 +439,6 @@ fn gallery_of(p: &index::Project) -> Vec<super::details::Image> {
         .collect()
 }
 
-/// The registry as a browser source.
 pub struct Registry;
 
 impl Source for Registry {
@@ -600,7 +598,6 @@ fn local_path(path: &str) -> &str {
     }
 }
 
-/// What the registry adds to an installed entry.
 fn trust_label(trust: Trust) -> &'static str {
     match trust {
         Trust::Verified => "Verified",
@@ -608,7 +605,6 @@ fn trust_label(trust: Trust) -> &'static str {
     }
 }
 
-/// The game folder path a registry project's file goes to.
 fn relative(kind: Kind, id: &str, file_name: &str) -> Result<String, String> {
     match kind {
         Kind::Mod => Ok(format!("{}/{id}.emod", java::MODS_DIR)),
@@ -634,7 +630,6 @@ pub fn install(
     install_from(&*index()?, local(), level, project, home, progress)
 }
 
-/// [`install`] from `index`, for a game serving mod API `level`.
 fn install_from(
     index: &Index,
     local: bool,
@@ -721,7 +716,6 @@ fn needs_port(v: &index::Version) -> bool {
             .any(|c| *c != eclipse_mods::Capability::Registries)
 }
 
-/// Whether version `v` calls mod API functions a game serving `level` doesn't have.
 fn needs_newer(v: &index::Version, level: Option<u32>) -> bool {
     matches!((v.api_level, level), (Some(needed), Some(level)) if needed > level)
 }
@@ -839,7 +833,6 @@ pub fn mod_id(entry: &installed::Entry) -> Option<&str> {
     Some(rest.strip_suffix(".emod").unwrap_or(rest))
 }
 
-/// Why the registry took the file `entry` installed down, if it did.
 pub fn taken_down<'a>(index: &'a Index, entry: &installed::Entry) -> Option<&'a index::Revoked> {
     (entry.source == SourceId::Eclipse)
         .then(|| index.revoked(&entry.project, entry.hash("SHA-256")?))

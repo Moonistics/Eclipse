@@ -1,6 +1,6 @@
 //! Release notes: pulldown-cmark events into gpui elements.
-use crate::ui::{self, white};
-use eclipse_theme::glass::{ink, space, step};
+use crate::ui::{self, ink};
+use eclipse_theme::glass::{space, step};
 use gpui::{
     div, prelude::*, px, AnyElement, FontStyle, FontWeight, HighlightStyle, SharedString,
     StyledText,
@@ -154,7 +154,7 @@ pub fn render(source: &str) -> AnyElement {
             let style = match span {
                 Span::Strong => HighlightStyle {
                     font_weight: Some(FontWeight::SEMIBOLD),
-                    color: Some(white(ink::FULL)),
+                    color: Some(ink(ink::FULL)),
                     ..Default::default()
                 },
                 Span::Emphasis => HighlightStyle {
@@ -163,7 +163,7 @@ pub fn render(source: &str) -> AnyElement {
                 },
                 Span::Code => HighlightStyle {
                     background_color: Some(ui::inset()),
-                    color: Some(white(ink::FULL)),
+                    color: Some(ink(ink::FULL)),
                     ..Default::default()
                 },
                 Span::Link => HighlightStyle {
@@ -203,7 +203,7 @@ pub fn render(source: &str) -> AnyElement {
                     Some(n) => div()
                         .flex_none()
                         .w(px(NUMBER_COLUMN))
-                        .text_color(white(ink::MUTED))
+                        .text_color(ink(ink::MUTED))
                         .child(format!("{n}.")),
                 })
                 .child(div().flex_1().min_w_0().child(styled(text, spans)))
@@ -236,7 +236,7 @@ pub fn render(source: &str) -> AnyElement {
                         };
                         line = line.child(
                             cell.when(i == 0, |d| {
-                                d.text_color(white(ink::FULL))
+                                d.text_color(ink(ink::FULL))
                                     .font_weight(FontWeight::MEDIUM)
                                     .text_size(px(step::CAPTION.size))
                             })

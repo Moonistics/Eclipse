@@ -1,11 +1,5 @@
-//! The palette (⌘K, Ctrl+K elsewhere): a card over the dimmed launcher, a search line, then up
-//! to eight commands, each its name and a hint. Arrows move, Enter runs, Esc or a click outside
-//! closes.
-//!
-//! The commands: Play each instance (once this copy can sign in), Open each page and Settings,
-//! New instance, Open instance folder, and from two letters on the registry's mods that match:
-//! Install one, or Open one installed in the selected instance, its Remove… last (asked on the
-//! Mods page).
+//! The palette (⌘K, Ctrl+K elsewhere): a search over the launcher's commands and, from two
+//! letters on, the registry's mods.
 
 use super::*;
 use crate::settings_page::SettingsSection;

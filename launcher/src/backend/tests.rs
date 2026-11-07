@@ -652,17 +652,17 @@ fn an_arm64_launcher_skips_a_release_without_its_zip() {
 
 #[test]
 fn the_game_plays_under_its_own_audio_stream_name() {
-    if std::env::var_os("PIPEWIRE_PROPS").is_some() {
-        return;
-    }
     let cmd = client_command("v2026.10.13");
     let props = cmd
         .get_envs()
         .find(|(k, _)| *k == "PIPEWIRE_PROPS")
-        .and_then(|(_, v)| v);
-    assert!(props.is_some_and(|v| v
-        .to_string_lossy()
-        .contains("application.name = \"Eclipse\"")));
+        .map(|(_, v)| v);
+    match std::env::var_os("PIPEWIRE_PROPS") {
+        Some(_) => assert_eq!(props, None),
+        None => assert!(props.flatten().is_some_and(|v| v
+            .to_string_lossy()
+            .contains("application.name = \"Eclipse\""))),
+    }
 }
 
 #[test]
@@ -749,7 +749,6 @@ fn extra_game_arguments_split_like_a_shell() {
         split_args("--name 'Two Words' --world \"My World\""),
         ["--name", "Two Words", "--world", "My World"]
     );
-    // An empty quoted word is still a word.
     assert_eq!(split_args("--name \"\""), ["--name", ""]);
     // A backslash escapes a space outside quotes, and " and \ inside double quotes.
     assert_eq!(split_args("--name My\\ World"), ["--name", "My World"]);
@@ -758,21 +757,13 @@ fn extra_game_arguments_split_like_a_shell() {
 }
 
 #[test]
-fn the_game_arguments_setting_round_trips_and_reaches_the_command() {
+fn the_game_arguments_setting_round_trips() {
     let settings = Settings::parse(r#"{"game_args":"--server-thread"}"#).unwrap();
     assert_eq!(settings.game_args, "--server-thread");
     // Unset in an older settings.json: no arguments, and nothing is written for them.
     let old = Settings::parse(r#"{"installed":true}"#).unwrap();
     assert_eq!(old.game_args, "");
     assert!(!serde_json::to_string(&old).unwrap().contains("game_args"));
-
-    let mut cmd = Command::new("true");
-    cmd.args(split_args("--server-thread --render-distance 40"));
-    let args: Vec<_> = cmd
-        .get_args()
-        .map(|a| a.to_string_lossy().into_owned())
-        .collect();
-    assert_eq!(args, ["--server-thread", "--render-distance", "40"]);
 }
 
 #[test]
@@ -1192,7 +1183,6 @@ fn the_temp_folder_is_recognized_however_it_is_spelled() {
     let _ = fs::remove_dir_all(root);
 }
 
-/// A fresh folder for one test, under the temporary folder.
 fn scratch(name: &str) -> PathBuf {
     let dir = std::env::temp_dir().join(format!("eclipse-{name}-{}", std::process::id()));
     let _ = fs::remove_dir_all(&dir);
@@ -1714,7 +1704,6 @@ fn a_new_version_reuses_resources_prepared_by_a_compatible_one() {
         .map(|e| e.file_name())
         .collect();
     assert_eq!(left, ["26.3"]);
-    // Already prepared: nothing to do.
     assert_eq!(reuse_prepared(&versions, "v2026.10.13.1"), None);
 
     // Another Minecraft version, a changed exporter or a changed prepare script: prepare again.
@@ -1849,7 +1838,6 @@ fn prepared_resources_follow_the_preparers_output_version() {
     assert_eq!(at("v0.2.64"), None);
     release("v0.2.65", "fn prepare() { changed() }");
     assert_eq!(at("v0.2.65"), None);
-    // A folder without the preparer's sources has no number.
     assert_eq!(output_version_in(&versions.join("missing"), &legacy), None);
     let _ = fs::remove_dir_all(&versions);
 }
@@ -2218,7 +2206,6 @@ fn a_replaced_binary_is_replaced_again_at_its_path() {
         fs::metadata(&exe).unwrap().permissions().mode() & 0o777,
         0o755
     );
-    // No temporary file is left beside it.
     let mut names: Vec<String> = fs::read_dir(&dir)
         .unwrap()
         .flatten()
@@ -2373,6 +2360,14 @@ fn old_settings_with_the_native_mods_switch_still_read() {
     assert!(!s.native_mods_noticed);
     let saved = serde_json::to_string(&s).unwrap();
     assert!(!saved.contains("native_mods"), "{saved}");
+}
+
+#[test]
+fn the_step_under_way_reads_back_as_it_was_set() {
+    for step in PrepareStep::ALL {
+        set_prepare_step(step);
+        assert_eq!(prepare_step(), step);
+    }
 }
 
 #[test]

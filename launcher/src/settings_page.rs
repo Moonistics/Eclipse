@@ -1,6 +1,4 @@
-//! The Settings page: the open section's card in a pane that scrolls on its own under the title,
-//! and a list of the sections beside it (a row of tabs under the title in a narrow window, with
-//! More tabs for those that don't fit).
+//! The Settings page: its sections, one open at a time.
 
 use crate::fields::Field;
 use crate::launcher_update::SelfUpdate;
@@ -8,7 +6,7 @@ use crate::page::Page;
 use crate::play_state::PlayState;
 use crate::scrollbar::Scrollbar;
 use crate::tab_strip::{Strip, StripTab};
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{dates, layout, scene, short, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::{backend, instances};
@@ -507,7 +505,7 @@ impl Launcher {
                 .child(ui::icon(
                     crate::icons::UPDATES,
                     ui::IconSize::Px16,
-                    white(ink::BODY),
+                    ink(ink::BODY),
                 ))
                 .into_any_element(),
             tr("Launcher").into(),
@@ -731,7 +729,7 @@ impl Launcher {
     }
 
     /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in
-    /// `settings.json` and read back by `proxy.rs` on each request.
+    /// `settings.json` and handed to `proxy.rs` whenever the settings are saved.
     pub(super) fn proxy_row(&mut self, cx: &mut Context<Self>) -> Div {
         let focused = self.fields.has_focus(Field::Proxy);
         let field = self
@@ -755,7 +753,6 @@ impl Launcher {
         ui::setting_row_stacked(tr("Proxy address"), detail, field.into_any_element())
     }
 
-    /// Keeps the Proxy field in `settings.json`.
     pub(super) fn save_proxy(&mut self) {
         let value = self.fields.value(Field::Proxy).trim().to_owned();
         self.settings.proxy = (!value.is_empty()).then_some(value);

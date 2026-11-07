@@ -137,7 +137,6 @@ pub(crate) fn agent_within(url: &str, timeout: Duration) -> ureq::Agent {
     builder(url).timeout(timeout).build()
 }
 
-/// A file's body, from the network as the launcher reaches it.
 pub fn get_bytes(url: &str) -> Result<Vec<u8>, String> {
     let mut body = Vec::new();
     get(url)?

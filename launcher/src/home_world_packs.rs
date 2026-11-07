@@ -1,8 +1,6 @@
-//! A world's data packs, opened under its row on Home (`eclipse_launcher::datapacks`): what is
-//! in `datapacks/`, Add (a file picker) or a zip dropped on the world, and Delete (to the trash,
-//! after a confirmation).
+//! A world's data packs, opened under its row on Home (`eclipse_launcher::datapacks`).
 use crate::menus::Asking;
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{Launcher, Pick};
 use eclipse_launcher::datapacks::{self, DataPack};
 use eclipse_launcher::i18n::{tr, trf};
@@ -32,7 +30,6 @@ impl WorldPacks {
 }
 
 impl Launcher {
-    /// Opens or closes the packs of `world` under its row.
     pub(super) fn toggle_world_packs(&mut self, world: &World) {
         if self.world_packs.open.as_ref() == Some(&world.path) {
             self.world_packs = WorldPacks::default();
@@ -68,7 +65,6 @@ impl Launcher {
         });
     }
 
-    /// The open world's packs, under its row.
     pub(super) fn world_packs_panel(
         &mut self,
         world: &World,
@@ -185,9 +181,7 @@ impl Launcher {
                     SharedString::from(format!("world-pack-{}", pack.file)),
                     confirming,
                 )
-                .child(
-                    ui::icon(crate::icons::PACK, ui::IconSize::Px16, white(ink::MUTED)).relative(),
-                )
+                .child(ui::icon(crate::icons::PACK, ui::IconSize::Px16, ink(ink::MUTED)).relative())
                 .child(ui::item_text(pack.file.clone(), pack.description.clone()))
                 .child(actions.flex_none().relative()),
             );

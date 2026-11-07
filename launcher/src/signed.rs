@@ -61,7 +61,10 @@ mod tests {
         let signature = key.sign("v2099.01.01", sums.as_bytes());
         // GitHub as it answers for a signed release (any tag: the files are what a replay would serve).
         let signed = |url: &str| -> Result<Option<Vec<u8>>, String> {
-            assert!(url.starts_with("https://github.com/Moonistics/Eclipse/releases/download/"));
+            assert!(url.starts_with(&format!(
+                "https://github.com/{}/releases/download/",
+                crate::backend::REPO
+            )));
             Ok(Some(
                 if url.ends_with(".sig") {
                     signature.clone()

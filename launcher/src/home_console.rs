@@ -3,7 +3,7 @@
 //! after the player confirms, without their home folder or names.
 use super::fields::Field;
 use crate::play_state::PlayState;
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{clipboard, layout, Launcher, LOG_LINES};
 use eclipse_launcher::backend;
 use eclipse_launcher::game_log::{self, Shared};
@@ -102,7 +102,6 @@ impl Launcher {
 }
 
 impl Launcher {
-    /// Home's Console tab: the count and the tools over the log.
     pub(super) fn console_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let log = self.console_log()?;
         let count = log.len();
@@ -295,7 +294,7 @@ impl Launcher {
                 } else if line.contains("/WARN]") {
                     ui::warn()
                 } else {
-                    white(ink::BODY)
+                    ink(ink::BODY)
                 };
                 div().text_color(color).child(line)
             }),

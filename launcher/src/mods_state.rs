@@ -1,11 +1,5 @@
-//! The Mods page: its tabs are the kinds (mods, modpacks, resource packs, shader packs, data
-//! packs). Search Eclipse's own registry for what was made for Eclipse, or Modrinth for Java
-//! mods, modpacks, resource packs and data packs (a Java instance's files
-//! always come from Modrinth, for its version), see where each comes
-//! from and how well it runs (a Java mod's jar is checked first; a Eclipse mod says whether it is
-//! signed and what it may do), install it with its checksum checked, turn Eclipse mods on and
-//! off, and update or remove what was installed (`eclipse_launcher::browser`). Imported modpacks
-//! are listed on its Modpacks tab.
+//! The Mods page: its tabs are the kinds, searched on Eclipse's own registry or Modrinth (a Java
+//! instance's files always from Modrinth, for its version), with `eclipse_launcher::browser`.
 use crate::menus::Asking;
 use crate::page::Page;
 use crate::ui;

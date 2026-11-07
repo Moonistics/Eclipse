@@ -154,7 +154,6 @@ pub fn share_private(text: &str, home: &Path) -> Result<Shared, String> {
     share(&private(text, dirs::home_dir().as_deref(), &names))
 }
 
-/// Deletes a log shared from here.
 pub fn unshare(shared: &Shared) -> Result<(), String> {
     let url = format!("{}/log/{}", api(), shared.id);
     crate::backend::agent(&url)

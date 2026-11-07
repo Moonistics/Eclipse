@@ -467,7 +467,6 @@ impl Launcher {
             return d;
         }
 
-        // Invite.
         let busy = self.internet.busy;
         let invite = ui::button(
             "ts-invite",

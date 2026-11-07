@@ -124,7 +124,6 @@ pub fn light() -> bool {
     LIGHT.get()
 }
 
-/// The look's colours.
 pub fn look() -> Glass {
     LOOK.get()
 }
@@ -133,7 +132,7 @@ pub fn short_window() -> bool {
     SHORT.get()
 }
 
-pub fn white(a: f32) -> Hsla {
+pub fn ink(a: f32) -> Hsla {
     if light() {
         color(INK).opacity(light_ink(a))
     } else {
@@ -176,7 +175,7 @@ pub fn danger() -> Hsla {
 pub fn inset() -> Hsla {
     use eclipse_theme::glass::fill;
     if light() {
-        white(fill::FIELD)
+        ink(fill::INSET_LIGHT)
     } else {
         gpui::black().opacity(fill::WELL_SHADE)
     }
@@ -186,7 +185,7 @@ pub fn icon_tone(selected: bool) -> Hsla {
     if selected {
         color(look().mark)
     } else {
-        white(ink::BODY)
+        ink(ink::BODY)
     }
 }
 
@@ -196,7 +195,7 @@ pub fn text(step: TextStep, weight: FontWeight, a: f32) -> Div {
         .text_size(px(step.size))
         .line_height(px(step.line))
         .font_weight(weight)
-        .text_color(white(a))
+        .text_color(ink(a))
 }
 
 pub fn mono(step: TextStep, a: f32) -> Div {
@@ -267,7 +266,6 @@ pub fn card_title(title: impl Into<SharedString>) -> Div {
     text(step::TITLE, FontWeight::SEMIBOLD, ink::FULL).child(title.into())
 }
 
-/// A card's note.
 pub fn card_note(label: impl IntoElement) -> Div {
     text(step::NOTE, FontWeight::NORMAL, ink::MUTED).child(label)
 }
@@ -341,7 +339,7 @@ pub fn entity_title(text: impl Into<SharedString>, size: f32) -> Div {
         "a thing inside a card is named by ui::card_title"
     );
     pixel_text(size)
-        .text_color(white(ink::FULL))
+        .text_color(ink(ink::FULL))
         .child(text.into())
 }
 
@@ -396,7 +394,7 @@ pub fn tone_colour(tone: Tone) -> Hsla {
         Tone::Live => live(),
         Tone::Busy | Tone::Warn => warn(),
         Tone::Accent(soft) => color(soft),
-        Tone::Off => white(ink::DIM),
+        Tone::Off => ink(ink::DIM),
     }
 }
 
@@ -482,7 +480,7 @@ fn bar_track() -> Stateful<Div> {
         .h(px(BAR_HEIGHT))
         .rounded_full()
         .overflow_hidden()
-        .bg(white(eclipse_theme::glass::fill::ACTIVE))
+        .bg(ink(eclipse_theme::glass::fill::ACTIVE))
 }
 
 fn bar_fill() -> Div {

@@ -23,7 +23,6 @@ const MAX_DEPTH: usize = 3;
 /// The loaders whose jars port-pack reads.
 pub const LOADERS: [&str; 4] = ["neoforge", "fabric", "forge", "quilt"];
 
-/// How well a checked mod runs.
 pub fn support_of(check: &Check) -> Support {
     match check.verdict {
         Verdict::Works => Support::Works,
@@ -51,7 +50,6 @@ fn read_check(dir: &Path) -> Option<Check> {
     serde_json::from_str(&fs::read_to_string(dir.join("check.json")).ok()?).ok()
 }
 
-/// The check of `file` if it was made before.
 pub fn cached(home: &Path, file: &FileRef) -> Option<Check> {
     read_check(&checked_dir(home, file)?)
 }
@@ -86,7 +84,6 @@ fn check_file(
     Ok(c)
 }
 
-/// The version of `project` to install and its check.
 pub fn check_project(
     home: &Path,
     source: &dyn Source,
@@ -109,7 +106,6 @@ pub fn check_project(
     Ok((version, check))
 }
 
-/// Whether mod `id` is on in `eclipse-mods.txt`.
 pub fn is_enabled(home: &Path, id: &str) -> bool {
     let text = fs::read_to_string(home.join(game_folder::MODS_LIST)).unwrap_or_default();
     game_folder::setting(&text, &format!("mod.{id}")) == Some("true")
@@ -144,7 +140,6 @@ pub fn install(
     Ok(done)
 }
 
-/// One install: where from, where to, and how it reports.
 struct Job<'a> {
     source: &'a dyn Source,
     everything: bool,
@@ -250,7 +245,6 @@ impl Job<'_> {
     }
 }
 
-/// Removes an installed mod's folder and turns it off.
 pub fn remove(home: &Path, entry: &Entry) -> Result<(), String> {
     let _lock = super::lock_home(home);
     let Some(id) = entry

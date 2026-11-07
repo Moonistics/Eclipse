@@ -1,10 +1,7 @@
 //! The sidebar's Mod build log: the native-mods build's own log (`native_mods::log_path`), read on
-//! a background thread when the panel opens or Refresh is pressed, never per frame. Copy log
-//! copies the whole file; Open full log and Show in folder point at the file itself, and only
-//! a bounded tail of it is shown, with a notice when there is more. Each build attempt starts
-//! its own log before its preflight can fail (`native_log_reset`, `native_log_preflight`), so
-//! the panel never shows the last attempt as the latest, and an open panel reads again when a
-//! build starts or ends.
+//! a background thread when the panel opens or Refresh is pressed, never per frame. Each build
+//! attempt starts its own log before its preflight can fail (`native_log_reset`,
+//! `native_log_preflight`), so the panel never shows the last attempt as the latest.
 use crate::ui::{ButtonKind, Press};
 use crate::{clipboard, short, ui, Launcher, LOG_LINES};
 use eclipse_launcher::i18n::{tr, trf};
@@ -20,9 +17,7 @@ const SHOWN: usize = LOG_LINES;
 
 /// The complete copyable snapshot and the bounded tail shown in the panel.
 pub(super) struct Log {
-    /// The whole file as it was read.
     full: String,
-    /// How many lines the whole file has.
     lines: usize,
     /// Its last [`SHOWN`] lines, as the panel lays them out without copying per frame.
     preview: Vec<SharedString>,
@@ -37,14 +32,12 @@ pub(super) enum Missing {
 }
 
 pub(super) struct NativeLog {
-    /// Whether the panel is open over the window.
     pub(super) open: bool,
     /// A read is wanted: the panel opened, or a build attempt began or ended. `drain` picks it
     /// up between frames, so `render` never reads the file.
     pub(super) stale: bool,
     /// Whether a log exists at all, for the sidebar's Mod build log row (checked in `drain`).
     pub(super) available: bool,
-    /// A read is under way.
     pub(super) reading: bool,
     /// The log as it was last read: `None` while the first read of this opening is under way.
     pub(super) loaded: Option<Result<Log, Missing>>,
@@ -174,7 +167,6 @@ impl Launcher {
         true
     }
 
-    /// The Build log panel over the whole window, while it is open.
     pub(super) fn native_log_panel(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         if !self.native_log.open {
             return None;

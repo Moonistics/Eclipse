@@ -105,20 +105,18 @@ pub mod radius {
 
 pub mod ink {
     pub const FULL: f32 = 1.;
-    pub const STRONG: f32 = 0.86;
     pub const BODY: f32 = 0.72;
     pub const MUTED: f32 = 0.6;
     pub const DIM: f32 = 0.5;
-    pub const LEVELS: [f32; 5] = [FULL, STRONG, BODY, MUTED, DIM];
+    pub const LEVELS: [f32; 4] = [FULL, BODY, MUTED, DIM];
 }
 
-pub mod ink_light {
+mod ink_light {
     pub const FULL: f32 = 1.;
-    pub const STRONG: f32 = 0.88;
     pub const BODY: f32 = 0.78;
     pub const MUTED: f32 = 0.7;
     pub const DIM: f32 = 0.64;
-    pub const LEVELS: [f32; 5] = [FULL, STRONG, BODY, MUTED, DIM];
+    pub const LEVELS: [f32; 4] = [FULL, BODY, MUTED, DIM];
 }
 
 pub fn light_ink(a: f32) -> f32 {
@@ -131,16 +129,17 @@ pub fn light_ink(a: f32) -> f32 {
 pub mod fill {
     pub const HOVER: f32 = 0.05;
     pub const PRIMARY_HOVER: f32 = 0.14;
-    pub const FIELD: f32 = 0.07;
+    pub const INSET_LIGHT: f32 = 0.07;
     pub const BUTTON: f32 = 0.08;
     pub const CONTROL_LIGHT: f32 = 0.7;
     pub const SELECTED: f32 = 0.1;
     pub const ACTIVE: f32 = 0.12;
     pub const WELL_SHADE: f32 = 0.25;
     pub const DANGER: f32 = 0.12;
-    pub const BUSY_TRACK: f32 = 0.7;
+    pub const TEXT_SELECTION: f32 = 0.22;
 }
 
+const BUSY_TRACK: f32 = 0.7;
 const BUSY_TRACK_STEPS: u32 = 10;
 
 pub const FIELD_BG: u32 = 0x1a1e29;
@@ -191,9 +190,8 @@ impl Glass {
             (true, false) => self.plate,
             (false, _) => PAGE,
         };
-        let alphas = (0..=BUSY_TRACK_STEPS).map(|step| {
-            fill::BUSY_TRACK + (1. - fill::BUSY_TRACK) * step as f32 / BUSY_TRACK_STEPS as f32
-        });
+        let alphas = (0..=BUSY_TRACK_STEPS)
+            .map(|step| BUSY_TRACK + (1. - BUSY_TRACK) * step as f32 / BUSY_TRACK_STEPS as f32);
         alphas
             .map(|alpha| crate::night::over(self.accent, alpha, under))
             .find(|&track| crate::contrast(self.on_accent, track) >= 4.5)
@@ -229,7 +227,7 @@ pub fn light_surfaces() -> Vec<u32> {
         over(PAPER, fill::CONTROL_LIGHT, DAWN.page),
         PAPER,
         tinted(fill::SELECTED, PAPER),
-        tinted(fill::FIELD, PAPER),
+        tinted(fill::INSET_LIGHT, PAPER),
     ];
     out.extend(DAWN.sky);
     out
@@ -299,7 +297,7 @@ pub fn oklab(c: u32) -> [f32; 3] {
 /// OKLab back to sRGB, clamped to the gamut.
 // The matrices as CSS Color 4 publishes them, digit for digit.
 #[allow(clippy::excessive_precision)]
-pub fn from_oklab([l, a, b]: [f32; 3]) -> u32 {
+fn from_oklab([l, a, b]: [f32; 3]) -> u32 {
     let l_ = (l + 0.3963377774 * a + 0.2158037573 * b).powi(3);
     let m_ = (l - 0.1055613458 * a - 0.0638541728 * b).powi(3);
     let s_ = (l - 0.0894841775 * a - 1.2914855480 * b).powi(3);
@@ -312,7 +310,7 @@ pub fn from_oklab([l, a, b]: [f32; 3]) -> u32 {
 }
 
 /// CSS `color-mix(in oklab, a p, b)`: `p` of `a`, the rest `b`.
-pub fn mix_oklab(a: u32, b: u32, p: f32) -> u32 {
+fn mix_oklab(a: u32, b: u32, p: f32) -> u32 {
     let (x, y) = (oklab(a), oklab(b));
     from_oklab([0, 1, 2].map(|i| x[i] * p + y[i] * (1. - p)))
 }
@@ -419,6 +417,38 @@ mod tests {
         );
     }
 
+    /// What the dark look draws besides text: the keyboard focus ring on every surface (WCAG
+    /// 1.4.11 asks 3:1), and text over a selection.
+    #[test]
+    fn marks_and_selections_read_clearly() {
+        use crate::night::over;
+        let look = Glass::default_look();
+        for (name, bg) in [("plate", look.plate), ("float", FLOAT), ("field", FIELD_BG)] {
+            let ring = crate::contrast(look.accent_soft, bg);
+            assert!(ring >= 3.0, "focus ring on {name}: {ring:.2}");
+        }
+        let selection = over(look.accent_soft, fill::TEXT_SELECTION, FLOAT);
+        let ratio = crate::contrast(0xffffff, selection);
+        assert!(ratio >= 4.5, "text on a selection: {ratio:.2}");
+    }
+
+    #[test]
+    fn a_refused_field_reads_on_the_light_plates() {
+        for bg in light_surfaces() {
+            let refused = crate::contrast(DANGER_LIGHT, bg);
+            assert!(refused >= 3.0, "refused field on #{bg:06x}: {refused:.2}");
+        }
+    }
+
+    #[test]
+    fn a_switch_that_is_on_shows_it_by_its_track() {
+        let look = Glass::default_look();
+        for bg in [look.plate, FLOAT] {
+            let track = crate::contrast(look.accent, bg);
+            assert!(track >= 3.0, "on track on #{bg:06x}: {track:.2}");
+        }
+    }
+
     #[test]
     fn a_field_edge_stands_out_from_its_card() {
         use crate::night::over;
@@ -441,7 +471,7 @@ mod tests {
             let ratio = crate::contrast(over(0xffffff, SELECTED_EDGE, plate), under);
             assert!(ratio >= 3., "selected edge on #{under:06x}: {ratio:.2}");
         }
-        let well = over(ON_LIGHT, fill::FIELD, PAPER);
+        let well = over(ON_LIGHT, fill::INSET_LIGHT, PAPER);
         for under in [PAPER, well, DAWN.side] {
             let plate = over(ON_LIGHT, fill::SELECTED, under);
             let ratio = crate::contrast(over(ON_LIGHT, SELECTED_EDGE_LIGHT, plate), under);

@@ -14,7 +14,6 @@ use std::process::Command;
 
 const RECORD: &str = "pack.json";
 
-/// Where registry modpacks live.
 pub fn packs_dir() -> PathBuf {
     crate::backend::game_home().join(crate::game_folder::PACKS)
 }
@@ -32,7 +31,6 @@ pub struct Installed {
     pub work: PathBuf,
 }
 
-/// The installed registry packs, by name.
 pub fn list() -> Vec<Installed> {
     list_in(&packs_dir())
 }
@@ -55,13 +53,11 @@ fn read(work: &Path) -> Option<Installed> {
     Some(pack)
 }
 
-/// Whether `work` is a registry pack's folder.
 pub fn is_pack(work: &Path) -> bool {
     // Imported Java packs also have pack.json, with a different record format.
     read(work).is_some()
 }
 
-/// The profile's game folder.
 pub fn home(work: &Path) -> PathBuf {
     work.join(crate::game_folder::PROFILE)
 }

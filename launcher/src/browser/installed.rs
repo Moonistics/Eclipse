@@ -1,7 +1,7 @@
 //! What the browser installed into the game folder, and installing, updating and removing it.
 //!
-//! `mod-browser.json` beside `options.txt` lists each file the browser put in `resourcepacks/`,
-//! and each Java mod it ported into `eclipse-mods/`: where it came from, its version and its
+//! `mod-browser.json` beside `options.txt` lists each file the browser put in the game folder
+//! (in one of its [`FOLDERS`]): where it came from, its version and its
 //! checksum. Files the player put there themselves are never touched: the browser only replaces
 //! or removes what it lists.
 use super::{
@@ -40,9 +40,9 @@ pub struct Entry {
     pub kind: Kind,
     pub version: String,
     pub number: String,
-    /// Relative to the game folder: `resourcepacks/<name>`.
+    /// Relative to the game folder, inside one of the [`FOLDERS`]: `resourcepacks/<name>`.
     pub file: String,
-    /// The checksum the download was checked against: `SHA-512:<hex>`.
+    /// The checksum the download was checked against: `<algorithm>:<hex>` (`SHA-512:…`).
     pub checksum: String,
     pub page: String,
     /// Installed because another pack needs it.
@@ -305,9 +305,7 @@ impl Game {
     }
 }
 
-/// Where a project from the browser goes.
 pub struct Destination<'a> {
-    /// The instance's game folder.
     pub home: &'a Path,
     /// A Java instance's game: its loader and Minecraft choose the files.
     pub java: Option<&'a java_instance::Target>,
@@ -317,7 +315,6 @@ pub struct Destination<'a> {
     pub everything: bool,
 }
 
-/// What installing a project made.
 pub enum Done {
     /// A data pack in the world, its version and, in Eclipse, what of it runs.
     DataPack {
@@ -592,10 +589,8 @@ pub fn fetch_modpack(
     source.fetch(file, folder, progress)
 }
 
-/// A data pack installed into a world.
 pub struct DataPackInstall {
     pub pack: crate::datapacks::DataPack,
-    /// Its version's number.
     pub number: String,
     /// What of it runs in Eclipse.
     pub coverage: crate::datapacks::Coverage,

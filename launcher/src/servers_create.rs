@@ -1,11 +1,8 @@
-//! The Create a server dialog over the dimmed page. On the left, what the server will be (a
-//! picture, its name and its rules); on the right, its name, world, game mode, difficulty, how
-//! many players, who may join and whether accounts are checked; the EULA, Cancel and Create at
-//! the foot.
+//! The Create a server dialog over the dimmed page.
 use crate::fields::{CanAdd, Field};
 use crate::scrollbar::Scrollbar;
 use crate::servers_state::{set_up_label, Create, GameMode, Needs, DIFFICULTIES};
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{layout, short, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::servers::Fix;
@@ -103,7 +100,6 @@ impl Launcher {
         )
     }
 
-    /// The left column: the picture, the name, the rules and where the world comes from.
     fn create_aside(&mut self) -> Stateful<Div> {
         let Some(c) = self.servers.create.as_ref() else {
             return div().id("create-aside");
@@ -338,7 +334,6 @@ impl Launcher {
                 .child(detail),
         );
 
-        // The game mode, three cards.
         let mode_cards = GameMode::ALL
             .into_iter()
             .map(|m| {
@@ -369,7 +364,6 @@ impl Launcher {
             },
         );
 
-        // The difficulty and the players stepper.
         let this = cx.entity().downgrade();
         let difficulties = ui::segments(
             "create-difficulty",
@@ -590,7 +584,7 @@ impl Launcher {
                 _ => ui::tile(FRIEND_FACE).child(ui::icon(
                     "user",
                     ui::IconSize::Px16,
-                    white(ink::BODY),
+                    ink(ink::BODY),
                 )),
             };
             let mut chip = ui::person_chip(face, name.clone()).when(i == 0, |d| {
@@ -651,7 +645,6 @@ impl Launcher {
         }
     }
 
-    /// The foot: what is happening, the EULA and its link, Cancel and Create server.
     fn create_foot(&mut self, cx: &mut Context<Self>) -> Vec<AnyElement> {
         let Some(c) = self.servers.create.as_ref() else {
             return Vec::new();

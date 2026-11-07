@@ -1,5 +1,5 @@
 //! `eclipse-launcher <subcommand>`: the same steps as the window, from a terminal. Every
-//! command goes through `backend`; this file only parses arguments and prints.
+//! command goes through the library; this module only parses arguments and prints.
 use clap::{Parser, Subcommand};
 use eclipse_launcher::backend;
 use std::io::{IsTerminal, Write};
@@ -338,7 +338,6 @@ fn json(value: serde_json::Value) {
     println!("{}", serde_json::to_string_pretty(&value).unwrap());
 }
 
-/// Runs a game process in this terminal and reports how it ended.
 fn attached(cmd: Command) -> Result<(), String> {
     let (mut cmd, _runtime) = backend::prepare_command(cmd)?;
     let status = cmd

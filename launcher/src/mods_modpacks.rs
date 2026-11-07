@@ -2,7 +2,7 @@
 //! port what this computer can and play it as its own profile (`eclipse_launcher::modpacks`).
 use crate::menus::Asking;
 use crate::messages::Msg;
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{cull, game_run, layout, short, Launcher, Pick};
 use eclipse_launcher::browser::eclipse::pack as eclipse_pack;
 use eclipse_launcher::i18n::{tr, trf};
@@ -374,7 +374,7 @@ impl Launcher {
             let status = status.expect("the first filter is All");
             let color = match status {
                 Status::Partial => ui::color(ui::look().accent_soft),
-                _ => white(ink::FULL),
+                _ => ink(ink::FULL),
             };
             counts = counts.child(
                 ui::well()

@@ -1,9 +1,9 @@
 use super::{
-    color, edge, gap_ring, hover_is, hoverable, icon, inset, look, pixel_text, selected, tip,
-    tip_on_focus, value_key, white, Hover, IconSize, Press, TipSide, LIST_INSET, PANEL_INSET,
+    color, edge, gap_ring, hover_is, hoverable, icon, ink, inset, look, pixel_text, selected, tip,
+    tip_on_focus, value_key, Hover, IconSize, Press, TipSide, LIST_INSET, PANEL_INSET,
 };
 use eclipse_theme::glass::{
-    fill, ink,
+    fill,
     pixel_text::{PAGE_TITLE, PRESS},
     radius, space, step, PAPER,
 };
@@ -186,8 +186,8 @@ pub(super) fn any_button(
     let look = look();
     let tone = match kind {
         ButtonKind::Primary => color(look.on_accent),
-        _ if hover_is(&id) => white(ink::FULL),
-        _ => white(ink::BODY),
+        _ if hover_is(&id) => ink(ink::FULL),
+        _ => ink(ink::BODY),
     };
     let d = button_face(
         hoverable(id, radius::CONTROL, hover_of(kind)),
@@ -241,7 +241,7 @@ pub(super) fn secondary_fill() -> Hsla {
     if super::light() {
         color(PAPER).opacity(fill::CONTROL_LIGHT)
     } else {
-        white(fill::BUTTON)
+        ink(fill::BUTTON)
     }
 }
 
@@ -292,7 +292,7 @@ fn unavailable_primary_face(
         icon_name,
         label,
         size,
-        white(ink::DIM),
+        ink(ink::DIM),
         shouts(ButtonKind::Primary, size),
     );
     secondary(face)
@@ -324,8 +324,8 @@ fn icon_button_tipped(
     let tone = match kind {
         ButtonKind::Primary => color(look.on_accent),
         ButtonKind::Ghost if active => super::icon_tone(true),
-        _ if hover_is(&id) => white(ink::FULL),
-        _ => white(ink::BODY),
+        _ if hover_is(&id) => ink(ink::FULL),
+        _ => ink(ink::BODY),
     };
     let d = hoverable(id, radius::CONTROL, hover_of(kind))
         .role(Role::Button)
@@ -339,7 +339,7 @@ fn icon_button_tipped(
         .overflow_hidden()
         .cursor_pointer()
         .when(active && kind != ButtonKind::Ghost, |d| {
-            d.child(div().absolute().size_full().bg(white(fill::ACTIVE)))
+            d.child(div().absolute().size_full().bg(ink(fill::ACTIVE)))
         })
         .child(icon(name, size.icon(), tone).relative())
         .when(tipped, |d| d.tooltip(tip(label.clone())));
@@ -528,7 +528,7 @@ pub fn chip_confirm(
         .h(px(super::CHIP))
         .px(px(LIST_INSET))
         .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
+        .bg(ink(fill::HOVER))
 }
 
 pub fn menu_confirm(
@@ -702,7 +702,7 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
                 .items_center()
                 .h(px(height))
                 .px(px(ButtonSize::Sm.pad()))
-                .text_color(white(if active { ink::FULL } else { ink::DIM }))
+                .text_color(ink(if active { ink::FULL } else { ink::DIM }))
                 .child(press_text().relative().child(label.clone())),
                 active,
             )
@@ -729,7 +729,7 @@ fn segments_at<T: Copy + PartialEq + std::fmt::Debug + 'static>(
 pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stateful<Div> {
     let id: SharedString = id.into();
     let tone = if hover_is(&id) {
-        white(ink::FULL)
+        ink(ink::FULL)
     } else {
         color(look().accent_soft)
     };
@@ -750,7 +750,7 @@ pub fn link(id: impl Into<SharedString>, label: impl Into<SharedString>) -> Stat
 }
 
 pub fn chevron(open: bool) -> gpui::Svg {
-    icon("arrow-down-01", IconSize::Px16, white(ink::MUTED)).with_transformation(
+    icon("arrow-down-01", IconSize::Px16, ink(ink::MUTED)).with_transformation(
         gpui::Transformation::rotate(gpui::radians(if open { std::f32::consts::PI } else { 0. })),
     )
 }
@@ -837,7 +837,7 @@ fn dropdown_face(
         .cursor_pointer()
         .font_family(crate::theme::FONT)
         .text_size(px(step::BODY.size))
-        .text_color(white(ink::FULL))
+        .text_color(ink(ink::FULL))
         .children(leading.map(|l| div().relative().child(l)))
 }
 

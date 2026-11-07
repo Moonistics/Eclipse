@@ -11,7 +11,6 @@ pub fn logs_dir_in(home: &Path) -> PathBuf {
     home.join(crate::game_folder::LOGS)
 }
 
-/// The log of the game's last run in `home`.
 pub fn latest_log_in(home: &Path) -> PathBuf {
     logs_dir_in(home).join("latest.log")
 }
@@ -140,7 +139,6 @@ pub fn switch_from_auto(home: &Path, api: &str) -> Result<bool, String> {
     Ok(true)
 }
 
-/// The last `lines` lines of `file`, or why it cannot be read.
 pub(super) fn tail_of(file: &Path, lines: usize) -> Result<String, String> {
     let bytes = fs::read(file).map_err(|e| format!("{}: {e}", file.display()))?;
     let text = String::from_utf8_lossy(&bytes);

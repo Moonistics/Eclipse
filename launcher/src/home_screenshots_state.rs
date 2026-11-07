@@ -1,6 +1,5 @@
-//! The selected instance's screenshots on Home (`eclipse_launcher::screenshots`): the newest as
-//! thumbnails, all of them on request, and a viewer (← and → step through) with Copy, Open,
-//! Show in folder and Delete (to the trash, after a confirmation). Pictures are made at their
+//! The selected instance's screenshots on Home (`eclipse_launcher::screenshots`) and their
+//! viewer. Pictures are made at their
 //! shown size (`pictures`), never decoded whole.
 use crate::folder_list::FolderList;
 use crate::menus::Asking;
@@ -18,7 +17,6 @@ pub(super) const FIRST: usize = 8;
 pub(super) struct Screenshots {
     pub(super) list: FolderList<Shot>,
     pub(super) all: bool,
-    /// The picture open in the viewer.
     pub(super) viewing: Option<PathBuf>,
     /// What the last action did, or why it failed.
     pub(super) note: Option<Result<String, String>>,
@@ -26,7 +24,6 @@ pub(super) struct Screenshots {
 
 #[derive(Default)]
 pub(super) struct ShotBlur {
-    /// Whether the screenshots are blurred.
     pub(super) hidden: bool,
 }
 

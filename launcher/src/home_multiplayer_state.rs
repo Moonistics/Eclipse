@@ -1,7 +1,6 @@
 //! The selected instance's server list on Home (`eclipse_launcher::server_list`, the game's own
-//! `servers.dat`): each server with the picture the game last saw, Join (the game starts straight
-//! into it), Remove after a confirmation, and a line to add one. The official server is put on top
-//! once, as the game does, at the address links.json gives (`server_list::add_official`).
+//! `servers.dat`). The official server is put on top once, as the game does, at the address
+//! links.json gives (`server_list::add_official`).
 use crate::fields::Field;
 use crate::folder_list::FolderList;
 use crate::menus::Asking;

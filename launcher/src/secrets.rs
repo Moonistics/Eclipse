@@ -5,7 +5,6 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
 
-/// The keychain service name every secret is stored under.
 pub const SERVICE: &str = "dev.eclipse.launcher";
 
 /// Where secrets are kept: the OS keychain, a file of the launcher's own when there is none, or
@@ -149,7 +148,6 @@ impl FileStore {
         self.locked(|| Ok(self.read()?.remove(key)))
     }
 
-    /// Everything the file holds, if it is there.
     fn entries(&self) -> Result<std::collections::BTreeMap<String, String>, String> {
         if !self.path.exists() {
             return Ok(Default::default());

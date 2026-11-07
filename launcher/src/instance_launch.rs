@@ -1,7 +1,5 @@
-//! Edit instance's maximum memory and launch options (`eclipse_launcher::launch`): a command
-//! before the game, a wrapper, environment variables, a command after it, the Linux switches and,
-//! for an Eclipse instance, its own game arguments. Save changes keeps them with the rest of the
-//! page.
+//! Edit instance's maximum memory and launch options (`eclipse_launcher::launch`), saved with the
+//! rest of the page.
 use super::fields::Field;
 use crate::instance_state::NewKind;
 use crate::ui::Press;
@@ -61,7 +59,6 @@ impl MemorySlider {
     }
 }
 
-/// A Linux switch: which one, its label, and what it does.
 #[derive(Clone, Copy, Debug)]
 enum Toggle {
     GameMode,
@@ -232,7 +229,6 @@ impl Launcher {
         *on = !*on;
     }
 
-    /// The Java instance being edited.
     fn memory_instance(&self) -> Option<instances::Instance> {
         self.launch_instance().filter(|i| i.java.is_some()).cloned()
     }
@@ -287,7 +283,6 @@ impl Launcher {
         picked.is_some_and(|m| Some(m) != saved)
     }
 
-    /// The instance's saved value, as the row shows it.
     fn saved_memory(instance: &instances::Instance) -> Option<u32> {
         instance
             .java
@@ -332,8 +327,6 @@ impl Launcher {
         }
     }
 
-    /// Maximum memory as a setting row: the name and what it does on the left, the slider and
-    /// the box in MB on the right. Saved with the rest of the page.
     pub(super) fn memory_setting(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let instance = self.memory_instance()?;
         let total = self.memory_slider.total();

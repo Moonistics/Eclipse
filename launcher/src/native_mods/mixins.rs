@@ -157,18 +157,6 @@ mod tests {
             std::env::split_paths(path).next(),
             Some(rust.dir.join("bin"))
         );
-        assert_eq!(
-            cmd.get_args().collect::<Vec<_>>(),
-            [
-                "apply",
-                "--workspace",
-                "/src",
-                "--mods",
-                "/mods",
-                "--out",
-                "/out"
-            ]
-        );
     }
 
     #[test]

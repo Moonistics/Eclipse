@@ -157,3 +157,11 @@ fn shortcuts_are_made_found_renamed_and_removed() {
     assert!(err.contains("isn't this instance's shortcut"), "{err}");
     fs::remove_dir_all(&root).unwrap();
 }
+
+#[test]
+fn xml_escapes_the_characters_plist_strings_must_not_carry() {
+    assert_eq!(
+        xml(r#"a & b < c > "d""#),
+        r#"a &amp; b &lt; c &gt; &quot;d&quot;"#
+    );
+}

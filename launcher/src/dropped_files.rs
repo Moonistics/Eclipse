@@ -4,7 +4,7 @@
 //! artifact holding one) installed as its own version. The Packs section and the world rows take
 //! their own drops first.
 use crate::page::Page;
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{mods_state, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::import::{self, Dropped};
@@ -19,7 +19,6 @@ const IMPORT_NOTE_WIDTH: f32 = 440.;
 pub(super) struct Importing {
     /// Shared instances being made.
     busy: usize,
-    /// What the last drop did, or why not.
     note: Option<Result<String, String>>,
 }
 
@@ -138,7 +137,7 @@ impl Launcher {
                 .child(ui::icon(
                     crate::icons::DOWNLOAD,
                     ui::IconSize::Px16,
-                    white(ink::MUTED),
+                    ink(ink::MUTED),
                 ))
                 .child(div().flex_1().min_w_0().child(line))
                 .child(

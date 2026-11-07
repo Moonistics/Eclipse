@@ -45,7 +45,6 @@ fn game_of(index: &Value) -> Result<(String, Option<Loader>), String> {
     Ok((minecraft.to_string(), loader))
 }
 
-/// Makes a Java instance from the `.mrpack` `file`, named after the pack.
 pub fn import(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Instance, String> {
     let (minecraft, loader) = game_of(&import::mrpack_index(file)?)?;
     let versions = crate::minecraft_versions::load()?;

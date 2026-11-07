@@ -1,5 +1,5 @@
 //! `eclipse-ctl launch`: find a Eclipse to start and start it with a control
-//! socket. Mirrors where the launcher puts things (launcher/src/backend.rs):
+//! socket. Mirrors where the launcher puts things (launcher/src/backend/paths.rs):
 //! versions under `<launcher home>/versions/<tag>`, each with its prepared
 //! resources in `.local/eclipse-client/<minecraft version>` and run from the
 //! game home, where saves and options.txt live.

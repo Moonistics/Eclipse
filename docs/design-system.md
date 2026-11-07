@@ -9,7 +9,7 @@ The tokens live in one place, `crates/eclipse-theme`. The launcher (`launcher/sr
 and the game (`crates/eclipse-client/src/ui_theme.rs`) read them as Rust constants, and the
 website reads them as CSS custom properties generated from the same crate
 (`cargo run -p xtask -- tokens` writes `crates/eclipse-theme/tokens.css`, which the website's build
-reads from main; a test fails when the file is out of date). Change a value in the crate and all three follow.
+reads from main; a test fails when the file is out of date).
 
 The launcher wears § Corona, built from the components in § Components. The website wears
 § Blocks; the game's overlays take § Game menus.
@@ -18,8 +18,8 @@ The launcher wears § Corona, built from the components in § Components. The we
 
 The launcher's look: quiet charcoal cards with hairline edges over a pixel eclipse scene, white
 text at a few opacities, one amber accent, Monocraft for what is pressed and named, Geist for
-what is read. Its tokens are `eclipse_theme::glass`, also reachable as `eclipse_theme::corona`
-(the module keeps its name: `tokens.css` carries the colours as `--glass-*`); the launcher's
+what is read. Its tokens are `eclipse_theme::glass` (the module keeps its name: `tokens.css`
+carries the colours as `--glass-*`); the launcher's
 components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
 
 - **The scene is the background**: a pixel eclipse (an eclipsed sun with an amber corona) over
@@ -51,10 +51,12 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   current instance or server row and Settings' section list share one look (`ui::side_selected`,
   `ui::side_row`: paper with that edge and a 2 px shade under it in light). Never a bar at the left
   edge.
-- **White text at a few opacities** (`glass::ink`: full, strong 86 %, body 72 %, muted 60 %, dim
-  50 %; `ink_light` maps them onto the light ink, full, 88, 78, 70 and 64 %, so every level reads at
-  4.5:1 on every surface) and white fills for states (`glass::fill`: hover 5 %, button 8 %,
-  selected 10 %, active 12 %, the danger fill 12 % of the red, the inset well black at 25 %). Dark
+- **White text at a few opacities** (`ui::ink(level)` with a level of `glass::ink`: full, body
+  72 %, muted 60 %, dim 50 %; in light `glass::light_ink` maps them onto the light ink, full, 78, 70
+  and 64 %, so every level reads at 4.5:1 on every surface) and white fills for states
+  (`glass::fill`: hover 5 %, button 8 %, selected 10 %, active 12 %, the danger fill 12 % of the
+  red, the inset well black at 25 % or the light ink at 7 % (`INSET_LIGHT`), a text selection
+  `accent-soft` at 22 % (`TEXT_SELECTION`)). Dark
   fields are opaque, `FIELD_BG` and `FIELD_BG_FOCUS`. In light, controls that sit on the page or a
   card (Secondary buttons, dropdowns, fields) are paper at 70 % (`fill::CONTROL_LIGHT`), full paper
   while a field has the keyboard, with their hairline or 3:1 field edge: raised like the dark
@@ -71,9 +73,9 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   page and entity titles (Home's instance name) and the Hero buttons' labels (PLAY, the loudest
   text on a screen). Only the main actions shout: PLAY and the Hero buttons, Primary buttons,
   navigation and tabs are uppercase (`ui::shouts`); Secondary and Ghost labels, segments and filter
-  chips are mixed case. At 125 % and 175 % its pixel grows to whole device pixels
-  (`ui::on_pixel_grid`: PRESS 21.6 at 125 %), as do the 16 and 32 px icons, and the narrow sidebar
-  keeps its wide width so no page name is cut (`ui::pixel_text_grows`). Hierarchy comes from size:
+  chips are mixed case. At 125 % and 175 % its pixel grows to whole device pixels (`ui::pixel_text`
+  does it: PRESS 21.6 at 125 %), as do the 16 and 32 px icons, and the narrow sidebar keeps its
+  wide width so no page name is cut (`layout::sidebar`). Hierarchy comes from size:
   page title and PLAY 36 > section, card and dialog title 27 > state title 18 in full ink > a
   Secondary or Ghost label 18 in body ink (an icon button's icon too) > an unpicked segment 18 in
   dim ink > Geist. A section title names a group of controls; `ui::card_title` (Geist 16) names a
@@ -93,9 +95,9 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   (`ui::primary_unavailable`). Play never greys out: it
   prepares the game first when it has to, and while it works it fills its block with its ⋯ on the
   same track (`ui::primary_busy`, `ui::more_busy`: a solid track, `Glass::busy_track`, the accent
-  over the plate from 70 % until the label reads at 4.5:1). The keyboard focus ring is 2 px
-  of `accent-soft`: outside a solid control with a gap in the page colour, inside anything
-  translucent.
+  over the plate from 70 % until the label reads at 4.5:1). The keyboard focus ring is
+  `accent-soft`: outside a solid control, 2.5 px beyond a 1.5 px gap in the page colour; inside
+  anything translucent, 2 px.
 - **Window**: at least 800 × 500 (`layout::MIN_WINDOW`); the sidebar is 236 wide and narrows to
   208 over the 28 px under 960 (`layout::sidebar`), then the page gutter narrows from 32 to 24
   (`layout::gutter`), so the page never widens as the window narrows; a new window is 1180 × 760, never more than
@@ -113,8 +115,9 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   fade and a 6 px rise over 200 ms, a switch's knob slides for 200 ms. Under reduced motion each is
   drawn where it ends, and progress bars stand still.
 - **Icons**: Eclipse's pixel set, filled in the text colour: 16 px icons on an 8x8 grid
-  (`crates/eclipse-theme/icons/glass/`); icons at 24 px have their own drawings on a 12x12 grid
-  (`icons/glass/24/`, served as `icons/24/<name>.svg`, falling back to the 16 px drawing); both
+  (`crates/eclipse-theme/icons/glass/`, `glass_icons::ALL`); icons at 24 px have their own drawings
+  on a 12x12 grid (`icons/glass/24/`, `glass_icons::LARGE`, served as `icons/24/<name>.svg`,
+  falling back to the 16 px drawing); both
   2 px a pixel (`ui::icon` asks `icons::path` for the size and snaps the drawing to whole device
   pixels on the grid `icons::cells` says it is drawn on). 16 in controls, 24 in the Hero
   buttons (Play and its icon buttons alike) and in a state that is a page's only content; a state
@@ -122,12 +125,15 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   (`SERVER`, `WORLD`, `MULTIPLAYER`, `PACK`, `VERSION`, `MODS`, `NEW_INSTANCE`, `ACCOUNT`, `GAME`,
   `AI`, `FOLDERS`, `DATA_COLLECTION`, `COPY`, ...): a page or a section that means one of these
   takes its icon from there, and no two meanings share a drawing (a test keeps any two from
-  sharing more than three quarters of their cells; the pack is an isometric block, not two squares). A text button
-  carries an icon when it names what the button acts on or does: refresh (Try again), copy
-  (Copy code, Copy link, Copy log), globe (Proxy settings), folder (every folder opener and file
-  picker: `ui::open_folder_button`, imports, Choose image…), download, plus (add, create), search
-  (find); Copy details is a labelled Secondary with the copy icon (`ui::copy_details`);
-  confirmation verbs, Cancel, Close, Dismiss and Not now carry none.
+  sharing more than three quarters of their cells; the pack is an isometric block, not two
+  squares). A text button carries an icon when it names what the button acts on or does: `RETRY`
+  (Try again), `COPY` (Copy code, Copy link, Copy log), `NETWORK` (Proxy settings), `OPEN_FOLDER`
+  (every folder opener and file picker: `ui::open_folder_button`, imports, Choose image…),
+  `DOWNLOAD`, `ADD` (add, create), `search-01` (find). The action icons `OPEN_FOLDER`, `DOWNLOAD`
+  and `ADD` are declared as the drawings of `FOLDERS`, `UPDATES` and `NEW_INSTANCE`, the only
+  meanings that share one. Copy details is a labelled Secondary with the copy icon
+  (`ui::copy_details`); confirmation verbs, Cancel, Keep editing, Close, Dismiss and Not now carry
+  none.
 - **Pictures**: a mod's or pack's own icon and gallery images from its source,
   downloaded when first shown and kept on disk (`launcher/src/browser/images.rs`); the launcher
   ships no third-party pictures. Plain Minecraft shows Eclipse's own grass block
@@ -136,9 +142,9 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
 - **Sign in with Microsoft** (`launcher/src/microsoft.rs`): Microsoft's four-square symbol as
   Microsoft publishes it, never recoloured. `microsoft::sign_in_button` is Microsoft's own button
   (41 tall, `#2F2F2F` with white text in dark, white with `#5E5E5E` text and a `#8C8C8C` border in
-  light, square corners); the owner sheet and the account card use the white 48-tall block
-  (`microsoft::white_button`).
-- **The sign-in sheet** (`launcher/src/owner_page.rs`, the owner gate): an opaque plate over the
+  light, square corners), used to add an account; the owner sheet, the account card and Home use
+  the white 48-tall block (`microsoft::white_button`).
+- **The sign-in sheet** (`launcher/src/owner_gate.rs`, the owner gate): an opaque plate over the
   dimmed launcher, never instead of it. It says why (the account that owns Java Edition), the code
   in mono with Copy code, Open link as the main action and Not now; the window goes on by itself
   once Microsoft answers (`ECLIPSE_LAUNCHER_PAGE=sign-in` shows it with a made-up code).
@@ -154,7 +160,7 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
   said something. A tab names how many it holds when the strip has room ("Worlds 3")
   (`ECLIPSE_LAUNCHER_PAGE=worlds`, `instance-mods`, `multiplayer`, `packs`, `screenshots`,
   `console` opens one for screenshots).
-- **Getting ready** (`launcher/src/home.rs`): Play fills with the preparation ("Preparing 34%");
+- **Getting ready** (`launcher/src/home_page.rs`): Play fills with the preparation ("Preparing 34%");
   under it sit the bar, what is happening with the time left, and the steps (game files, Java,
   sounds, prepare, then play when Play was pressed), the current one lit and those done ticked:
   steps, never the log (`ECLIPSE_LAUNCHER_PAGE=getting-ready` shows it; nothing runs).
@@ -169,9 +175,11 @@ components are `launcher/src/ui/`, its layout numbers `launcher/src/layout.rs`.
 ## Components
 
 The launcher's components live in `launcher/src/ui/` (one file per family: `buttons.rs`,
-`items.rs`, `tiles.rs`, `surfaces.rs`, `hover.rs`, `press.rs`; `mod.rs` holds the look, text,
-icons and progress) and are reached as `ui::…`. Each takes its text already translated and reads
-the frame's look itself; a screen is built from them, never from hand-made copies, and a call site
+`switches.rs`, `tabs.rs`, `nav.rs`, `sliders.rs`, `items.rs`, `tiles.rs`, `surfaces.rs`,
+`hover.rs`, `press.rs`, `markdown.rs`; `mod.rs` holds the look, text, icons and progress) and are
+reached as `ui::…`. Each takes its caller's text already translated (the words a component owns,
+such as a confirmation's question and verbs, Copy details or Try again, it translates itself) and
+reads the frame's look itself; a screen is built from them, never from hand-made copies, and a call site
 doesn't restyle one (a variant it needs goes into the component). The look they draw is § Corona's.
 
 - **Buttons** (`ui::button`, `ui::primary(id, icon, label, size)`, `ui::icon_button`,
@@ -182,7 +190,8 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   error states inside a screen that already has one use Secondary (`ui::error_state_with` takes
   the kind of its Try again). Secondary and Ghost labels are mixed case; they and icon buttons'
   icons rest at body ink and turn full under the pointer. *Secondary*, a faint fill, is every other action, in rows, cards and
-  headers. *Ghost*, text only, is for Cancel, Close, Dismiss and Not now; icon-only buttons (⋯,
+  headers. *Ghost*, text only, is for Cancel, Close, Dismiss and Not now, and Keep editing (what
+  "Discard your changes?" offers instead of Cancel); icon-only buttons (⋯,
   the bin, a folder, Close) are Ghost too, their label the tooltip and the accessible name (the
   one exception is Home's folder beside Play: a filled Secondary, Hero size like Play). An icon
   button that is open or current is selected (the plate and the icon in the mark); a ⋯ shows no
@@ -224,7 +233,7 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   the current one says so) and Settings' section list (from a 1440 px window, no card: an in-page
   outline that is a pick list; a tab strip below 1440); a label that doesn't fit gets its tooltip (`ui::tip_when_clipped`, the
   room from `ui::nav_text_room` and `ui::side_row_text_room`). A page's name, title and icon have
-  one owner (`Page::label`, `Page::title`, `Page::icon` in `main.rs`).
+  one owner (`Page::label`, `Page::title`, `Page::icon` in `page.rs`).
 - **Rows and selection** (`ui::row(id, name, current)`, `ui::side_row(id, name, current)`,
   `ui::list_row`, `ui::choice`, `ui::choice_card`, `ui::list_choice`, `ui::pick_row`,
   `ui::pick_item`, `ui::chip`, `ui::filter_chip`): a row names itself and says whether it is
@@ -262,8 +271,9 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   focused dropdown opens its menu. Focus only returns to an opener that is still drawn.
 - **Dialogs** (`ui::modal`, `ui::sheet`, `ui::dialog`): the launcher dimmed under a plate, or a
   sheet over the whole window. `ui::dialog(id, eyebrow, title, DialogWidth::Narrow | Wide, body,
-  foot)` owns the plate, its width, padding and title (a heading, 27), its foot from
-  `ui::dialog_foot`. Tab stays inside, focus moves in when it opens and back to what opened it when
+  foot)` owns the plate, its width, padding and title (a heading, 27); its foot is what the caller
+  passes: `ui::dialog_foot(dismiss, main)`, or the answers themselves (the data collection
+  question's). Tab stays inside, focus moves in when it opens and back to what opened it when
   it closes.
 - **States in a pane** (`ui::empty_state`, `ui::loading_state`, `ui::error_state`), centred in a
   card: a 36 icon tile, a title at 18, one sentence that ends with the next step, then the actions;
@@ -303,7 +313,7 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   1, section, state and dialog titles at 2), so every page gets them by using them. Text that
   explains (a state's note, a page's note, an error's cause, Home's play line) is `ui::said`.
 - **State owners**: what Play does and shows for an instance is `Launcher::play_state`
-  (`PlayState`, `game_run.rs`), which Home's head and the sidebar read; whether a game runs or
+  (`PlayState`, `play_state.rs`), which Home's head and the sidebar read; whether a game runs or
   starts is `GameRun::active()`; what went wrong with the last start is `GameProblem` (needs an
   owner, failed, or a notice); an Eclipse instance's state line is `InstallState::line()`, in the
   sidebar and Settings › Updates alike. Which version plays is one model: an instance follows the
@@ -315,8 +325,9 @@ doesn't restyle one (a variant it needs goes into the component). The look they 
   preparation, its error and the Console's lines belong to the instance that started them
   (`GameRun::begin`, `console_log`, `shown_prepare_error`); a version's name is
   `nightly::display_name`; who plays is `Launcher::who_plays`.
-- **Element ids** are stable and descriptive: keyed by the enum (`home-tab-{tab:?}`) or by a list
-  item's name, path or id, never by an English label or a position.
+- **Element ids** are stable and descriptive: keyed by the enum's value in kebab case
+  (`ui::value_key`: `home-tab-worlds`) or by a list item's name, path or id, never by an English
+  label or a position.
 
 ## Surfaces
 
@@ -354,7 +365,7 @@ settings screen:
 Minecraft's inventory rather than a document. Its colours are `eclipse_theme::Blocks`
 (`BLOCKS_LIGHT`, `BLOCKS_DARK`), which `tokens.css` carries under the same names as before plus
 `--panel`, `--raised`, `--button`, `--well`, `--bevel`, `--lip`, `--outline` and the `--face`
-of the main action. The game's other menus keep `LIGHT` and `DARK`.
+of the main action. The game's overlays keep `DARK`.
 
 In the game the graphics settings screen draws the Blocks palette in GUI pixels, lighter than the
 website's blocks so the world stays in view: square panels of the page colour, see-through, with a
@@ -370,49 +381,43 @@ than Pixelify. Hover and focus are vanilla's white edge.
 - **Blocks, not rounded cards.** Every surface is square: a 2 px dark outline, a 2 px light bevel
   along the top and a darker lip along the bottom. The main action is the violet face with its own
   bevel and a 4 px lip; it sinks a pixel when pressed. Code and fields are sunk wells.
-- **Pixel art drawn in code.** The stone behind the pages is close shades of the page colour
-  (`TILE_SHADES`), never Minecraft's stone; the landscape is a banded sky, a sun cut in slices like
+- **Pixel art drawn in code.** The stone behind the pages is close shades of the page colour,
+  never Minecraft's stone; the landscape is a banded sky, a sun cut in slices like
   the mark, hills and square trees (a sunset in dark, a dawn in light). The website draws them in
   its `scripts/art.mjs`.
 - **Icons**: Eclipse's 16 px pixel SVGs in `crates/eclipse-theme/icons/pixel/`, tinted with the
   text colour.
-- **Contrast**: every text colour meets WCAG AA (4.5:1) on the panels, the page and the lightest
-  stone shade in both palettes (`blocks_text_meets_wcag_aa_in_both_appearances`).
+- **Contrast**: every text colour meets WCAG AA (4.5:1) on the panels and the page in both
+  palettes (`blocks_text_meets_wcag_aa_in_both_appearances`).
 
 ## Game menus
 
 The game's few overlays (the on-screen keyboard a controller types with) and the website's type,
-spacing and motion read the crate's first tokens: `LIGHT` and `DARK`, cool neutrals with one
-violet accent, and the steps below. `tokens.css` carries them for the website.
+spacing and motion read the crate's first tokens: `DARK`, cool neutrals with one violet accent,
+and the steps below. `tokens.css` carries the steps, spacing and motion for the website.
 
 ### Colour
 
-Every text colour passes WCAG AA (4.5:1) on every background it is used on; the tests in
-`eclipse-theme` check each pair in both palettes.
+Every text colour passes WCAG AA (4.5:1) on every background it is used on; a test in
+`eclipse-theme` checks each pair.
 
-| Token        | Light     | Dark      | Use |
-|--------------|-----------|-----------|-----|
-| `page`       | `#fafafc` | `#0d0e13` | the background |
-| `plate_soft` | `#f3f3f8` | `#181a22` | hover plate, fields, segmented track, console |
-| `plate`      | `#ebecf4` | `#20222c` | pressed plate, switch off, the faint wordmark |
-| `surface`    | `#ffffff` | `#16181f` | dialogs and menus that sit above the page |
-| `rule`       | `#e2e3ea` | `#24262f` | 1 px rules between rows, tracks |
-| `ink`        | `#16181f` | `#ecedf3` | text, selection, slider fill, the inverted segment |
-| `ink_soft`   | `#3b3e49` | `#c5c7d1` | secondary text, values |
-| `muted`      | `#646875` | `#8b8f9c` | labels, descriptions, mono indices and details |
-| `accent`     | `#5b3fd6` | `#9a86ff` | the main action, links, focus, progress |
-| `on_accent`  | `#ffffff` | `#0d0e13` | text on the accent |
-| `danger`     | `#b4372a` | `#f07a68` | errors, the crash notice's dot |
-| `success`    | `#1d7a48` | `#45c27a` | "Matches vanilla", "Ready" |
+| Token        | Dark      | Use |
+|--------------|-----------|-----|
+| `page`       | `#0d0e13` | the background |
+| `plate_soft` | `#181a22` | hover plate, fields, segmented track, console |
+| `plate`      | `#20222c` | pressed plate, switch off, the faint wordmark |
+| `surface`    | `#16181f` | dialogs and menus that sit above the page |
+| `rule`       | `#24262f` | 1 px rules between rows, tracks |
+| `ink`        | `#ecedf3` | text, selection, slider fill, the inverted segment |
+| `ink_soft`   | `#c5c7d1` | secondary text, values |
+| `muted`      | `#8b8f9c` | labels, descriptions, mono indices and details |
+| `accent`     | `#9a86ff` | the main action, links, focus, progress |
+| `on_accent`  | `#0d0e13` | text on the accent |
+| `danger`     | `#f07a68` | errors, the crash notice's dot |
+| `success`    | `#45c27a` | "Matches vanilla", "Ready" |
 
-The game's menus draw over the live title backdrop, always in the dark palette, with the page
-colour as a flat veil so text keeps its contrast whatever the world shows: `VEIL` (0.90) on
-every page and in a world, `HOME_VEIL` (0.80) on the title's home page, which shows more of the
-world and keeps to `ink` and `ink_soft`. Muted text over the backdrop is `BACKDROP_MUTED`
-(`#9fa3ae`). A test holds every pair to AA over a backdrop of luminance 0.77 (the snowiest title
-panorama measured reaches 0.49), on the bare veil and on a selected row's plate. Their plates
-are the dark `ink` at 8 % and 14 % rather than `plate_soft` and `plate`: over the veil they come
-out the same, and they stay visible over a bright backdrop.
+The overlays draw over the game; their plates are the dark `ink` at 8 % and 14 % rather than
+`plate_soft` and `plate`, so they stay visible over a bright world.
 
 ### Type
 
@@ -437,7 +442,7 @@ Geist (400, 500, 600) and Geist Mono (400), bundled under the SIL Open Font Lice
 - Radii: 8 for fields and small controls, 12 for plates (hover rows, console, dialogs), full for
   buttons, segmented controls and switches.
 - Lines: 1 px, `rule`. No other borders.
-- Heights: control 32, large control 40, segment 28, list row 64 (game), 86 (web).
+- Heights: control 32, large control 40, segment 28, list row 86 (web).
 
 ### Motion
 

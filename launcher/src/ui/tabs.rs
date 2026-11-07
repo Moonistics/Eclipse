@@ -1,5 +1,5 @@
-use super::{color, hover_is, look, press_text, press_width, white, ButtonSize};
-use eclipse_theme::glass::{ink, radius, space};
+use super::{color, hover_is, ink, look, press_text, press_width, ButtonSize};
+use eclipse_theme::glass::{radius, space};
 use gpui::{div, prelude::*, px, Div, Role, SharedString, Stateful};
 
 const TAB_UNDERLINE: f32 = 4.;
@@ -46,7 +46,7 @@ fn padded_tab(
         .px(px(pad))
         .rounded(px(radius::CONTROL))
         .cursor_pointer()
-        .text_color(white(tone))
+        .text_color(ink(tone))
         .when(open, |d| {
             d.child(
                 div()
@@ -109,5 +109,5 @@ pub fn count_tab(
         .when_some(count.map(|(_, said)| said), |d, said| {
             d.aria_description(said)
         })
-        .children(shown.map(|n| press_text().text_color(white(ink::MUTED)).child(n)))
+        .children(shown.map(|n| press_text().text_color(ink(ink::MUTED)).child(n)))
 }

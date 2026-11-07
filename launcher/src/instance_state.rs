@@ -106,7 +106,6 @@ pub(super) fn picture_key(png: &[u8]) -> u64 {
     h.finish()
 }
 
-/// The instances and their icons as images, kept between frames.
 #[derive(Default)]
 pub(super) struct Instances {
     pub(super) list: Vec<Instance>,
@@ -211,7 +210,6 @@ impl Launcher {
             .clone()
     }
 
-    /// Opens the page for a new instance, or for changing `editing`.
     pub(super) fn open_instance_page(&mut self, editing: Option<Instance>) {
         if self.instances.draft.as_ref().is_some_and(|d| d.busy) {
             self.go(Page::InstanceEditor);
@@ -599,7 +597,6 @@ pub(super) enum NewKind {
     Modded,
 }
 
-/// What a new Java instance plays.
 #[derive(Clone, Debug)]
 pub(super) struct JavaChoice {
     pub(super) kind: NewKind,
@@ -655,7 +652,6 @@ fn free_name(base: String, taken: &[&str]) -> String {
         .unwrap_or(base)
 }
 
-/// Mojang's list as the page has it.
 #[derive(Default)]
 pub(super) enum VersionList {
     #[default]

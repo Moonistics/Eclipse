@@ -1,20 +1,21 @@
-//! Eclipse's design tokens, the one source of truth for the launcher (`launcher/src/theme.rs`),
-//! the game's on-screen keyboard (`eclipse-client`'s `ui_theme`) and the website (`tokens.css` in this crate,
-//! generated from [`css`] by `cargo run -p xtask -- tokens`, which the site's build reads from main). Change a value here and all three
-//! follow. The system is described in `docs/design-system.md`.
+//! Eclipse's design tokens, read by the launcher (`launcher/src/theme.rs`), the game's on-screen
+//! keyboard (`eclipse-client`'s `ui_theme`) and the website (`tokens.css` in this crate, generated
+//! from [`css`] by `cargo run -p xtask -- tokens`, which the site's build reads from main). The
+//! system is described in `docs/design-system.md`.
 //!
 //! The launcher wears [`glass`] (Corona: charcoal cards, one amber accent, Monocraft and Geist)
-//! over a scene coloured from [`night`]; the website wears [`Blocks`]; the game's menus keep
-//! [`LIGHT`] and [`DARK`], cool neutrals with one violet accent. The fonts are bundled here under
-//! the SIL Open Font License (`fonts/OFL-*.txt`). Colours are `0xRRGGBB`; sizes are in logical
-//! pixels.
+//! over a scene coloured from [`night`]; its motions are its own (`launcher/src/motion.rs`) beyond
+//! [`QUICK`]. The website wears [`Blocks`] and moves with [`MOTION`]; the game's overlays keep
+//! [`DARK`], cool neutrals with one violet accent. The fonts are bundled here under the SIL Open
+//! Font License (`fonts/OFL-*.txt`); the Pixelify Sans and Bricolage Grotesque files and the
+//! pixel icons (`icons/pixel/`) are there for the website. Colours are `0xRRGGBB`; sizes are in
+//! logical pixels.
 use std::fmt::Write as _;
 use std::time::Duration;
 
 pub const FONT: &str = "Geist";
 pub const MONO: &str = "Geist Mono";
 pub mod glass;
-pub use glass as corona;
 pub mod night;
 
 /// The website's display face (headings, navigation, buttons, badges only): Pixelify Sans,
@@ -22,43 +23,30 @@ pub mod night;
 /// Monocraft ([`glass::DISPLAY_FONT`]).
 pub const PIXEL: &str = "Pixelify Sans";
 
-/// The bundled font files.
 pub mod fonts {
     pub const GEIST_REGULAR: &[u8] = include_bytes!("../fonts/Geist-Regular.ttf");
     pub const GEIST_MEDIUM: &[u8] = include_bytes!("../fonts/Geist-Medium.ttf");
     pub const GEIST_SEMIBOLD: &[u8] = include_bytes!("../fonts/Geist-SemiBold.ttf");
     pub const GEIST_MONO: &[u8] = include_bytes!("../fonts/GeistMono-Regular.ttf");
     pub const MONOCRAFT_REGULAR: &[u8] = include_bytes!("../fonts/Monocraft-Regular.ttf");
-    pub const PIXEL_MEDIUM: &[u8] = include_bytes!("../fonts/PixelifySans-Medium.ttf");
-    pub const PIXEL_SEMIBOLD: &[u8] = include_bytes!("../fonts/PixelifySans-SemiBold.ttf");
-    pub const PIXEL_BOLD: &[u8] = include_bytes!("../fonts/PixelifySans-Bold.ttf");
-    /// [`crate::night`]'s faces, cut from upstream's variable font by `tools/bake_bricolage.py`.
-    pub const BRICOLAGE_REGULAR: &[u8] = include_bytes!("../fonts/BricolageGrotesque-Regular.ttf");
-    pub const BRICOLAGE_MEDIUM: &[u8] = include_bytes!("../fonts/BricolageGrotesque-Medium.ttf");
-    pub const BRICOLAGE_SEMIBOLD: &[u8] =
-        include_bytes!("../fonts/BricolageGrotesque-SemiBold.ttf");
-    pub const BRICOLAGE_BOLD: &[u8] = include_bytes!("../fonts/BricolageGrotesque-Bold.ttf");
-    pub const BRICOLAGE_DISPLAY_BOLD: &[u8] =
-        include_bytes!("../fonts/BricolageGrotesqueDisplay-Bold.ttf");
-    pub const BRICOLAGE_DISPLAY_SEMIBOLD: &[u8] =
-        include_bytes!("../fonts/BricolageGrotesqueDisplay-SemiBold.ttf");
-    pub const BRICOLAGE_HEADING_SEMIBOLD: &[u8] =
-        include_bytes!("../fonts/BricolageGrotesqueHeading-SemiBold.ttf");
 }
 
-/// The glass look's icons: Eclipse's pixel set on an 8 px grid at 2 px a pixel, filled in
-/// `currentColor`, by name (`"folder-01"`, `"more-horizontal"`…). `github` is GitHub's mark,
-/// drawn for Eclipse (filled, its cat cut out by a mask), beside the links to GitHub Sponsors.
+/// The glass look's icons: Eclipse's pixel set at 2 px a pixel, filled in `currentColor`, by name
+/// (`"folder-01"`, `"more-horizontal"`…): [`ALL`](glass_icons::ALL) at 16 px on an 8 px grid, and
+/// [`LARGE`](glass_icons::LARGE) at 24 px on a 12 px grid for the names drawn again at that size.
+/// `github` is GitHub's mark, drawn for Eclipse (filled, its cat cut out by a mask), beside the
+/// links to GitHub Sponsors.
 pub mod glass_icons {
     macro_rules! icons {
-        ($($name:literal),* $(,)?) => {
-            /// Every icon, `(name, svg)`.
-            pub const ALL: &[(&str, &[u8])] = &[
-                $(($name, include_bytes!(concat!("../icons/glass/", $name, ".svg")))),*
+        ($list:ident, $dir:literal, $($name:literal),* $(,)?) => {
+            pub const $list: &[(&str, &[u8])] = &[
+                $(($name, include_bytes!(concat!("../icons/glass/", $dir, $name, ".svg")))),*
             ];
         };
     }
     icons!(
+        ALL,
+        "",
         "ai-chat-02",
         "alert-circle",
         "arrow-down-01",
@@ -77,7 +65,6 @@ pub mod glass_icons {
         "discord",
         "download-04",
         "earth",
-        "favourite",
         "folder-01",
         "game-controller-01",
         "github",
@@ -110,64 +97,40 @@ pub mod glass_icons {
         "view",
         "view-off-slash",
     );
-
-    /// The icon called `name`, if there is one.
-    pub fn get(name: &str) -> Option<&'static [u8]> {
-        ALL.iter().find(|(n, _)| *n == name).map(|(_, svg)| *svg)
-    }
-}
-
-/// Eclipse's first pixel icons, on a 16 px grid in `currentColor`, by name (`"home"`, `"play"`…).
-/// The launcher draws [`glass_icons`] instead.
-pub mod icons {
-    macro_rules! icons {
-        ($($name:literal),* $(,)?) => {
-            /// Every icon, `(name, svg)`.
-            pub const ALL: &[(&str, &[u8])] = &[
-                $(($name, include_bytes!(concat!("../icons/pixel/", $name, ".svg")))),*
-            ];
-        };
-    }
     icons!(
-        "archive",
-        "arrow-left",
-        "book-open",
-        "box",
-        "bug",
-        "check",
-        "chevron-down",
-        "chevron-right",
+        LARGE,
+        "24/",
+        "alert-circle",
         "clock",
-        "close",
-        "download",
-        "external-link",
-        "folder",
-        "gamepad",
-        "globe",
-        "heart",
-        "home",
-        "image",
-        "info-box",
-        "message",
-        "monitor",
-        "notes",
-        "package",
+        "computer",
+        "computer-terminal-01",
+        "cube",
+        "download-04",
+        "earth",
+        "folder-01",
+        "globe-02",
+        "image-01",
+        "information-circle",
+        "more-horizontal",
+        "package-01",
+        "pencil-edit-02",
         "play",
-        "plus",
-        "reload",
-        "search",
-        "server",
-        "sliders",
-        "star",
-        "terminal",
-        "trash",
-        "user",
-        "zap",
+        "puzzle",
+        "search-01",
+        "stop",
+        "user-multiple-02",
     );
 
-    /// An icon's SVG by name.
     pub fn get(name: &str) -> Option<&'static [u8]> {
-        ALL.iter().find(|(n, _)| *n == name).map(|(_, svg)| *svg)
+        find(ALL, name)
+    }
+
+    pub fn large(name: &str) -> Option<&'static [u8]> {
+        find(LARGE, name)
+    }
+
+    fn find(list: &[(&str, &'static [u8])], name: &str) -> Option<&'static [u8]> {
+        list.iter().find(|(n, _)| *n == name).map(|(_, svg)| *svg)
     }
 }
 
@@ -228,11 +191,10 @@ pub enum Web {
     Viewport(f32),
 }
 
-/// One step of the type scale.
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub struct Step {
     pub name: &'static str,
-    /// The size in the apps (launcher and game menus).
+    /// The size in the game.
     pub px: f32,
     pub web: Web,
     /// Line height as a multiple of the size.
@@ -241,13 +203,6 @@ pub struct Step {
     pub tracking: f32,
     pub weight: u16,
     pub mono: bool,
-}
-
-impl Step {
-    /// The line height in pixels at the app size.
-    pub fn line_px(&self) -> f32 {
-        (self.px * self.line).round()
-    }
 }
 
 const fn step(
@@ -276,7 +231,7 @@ pub const MICRO: Step = step("micro", 11., Web::Fixed, 1.5, 0.04, 400, true);
 pub const CAPTION: Step = step("caption", 12., Web::Fixed, 1.5, 0., 400, false);
 /// Row labels, navigation and buttons.
 pub const LABEL: Step = step("label", 13., Web::Fixed, 1.5, 0., 400, false);
-/// Body text in the apps.
+/// Body text in the game's overlays.
 pub const UI: Step = step("ui", 14., Web::Fixed, 1.5, 0., 400, false);
 /// Paragraphs.
 pub const BODY: Step = step("body", 15., Web::Fluid(15., 17.), 1.6, 0., 400, false);
@@ -301,7 +256,6 @@ pub const TYPE: [Step; 9] = [
     MICRO, CAPTION, LABEL, UI, BODY, HEADING, TITLE, DISPLAY, WORDMARK,
 ];
 
-/// The spacing scale.
 pub const SPACE: [f32; 9] = [4., 8., 12., 16., 24., 32., 48., 64., 96.];
 /// Page margins: wide windows and pages, and phones.
 pub const GUTTER: f32 = 64.;
@@ -317,19 +271,16 @@ pub const RADIUS_PILL: f32 = 999.;
 /// Rules between rows are one pixel; there are no other borders.
 pub const RULE: f32 = 1.;
 
-/// Heights: buttons, the one large action, a segment, a field, an index row in the apps and
-/// on the web.
+/// Heights: buttons, the one large action, a segment, a field, an index row on the web.
 pub const CONTROL: f32 = 32.;
 pub const CONTROL_LARGE: f32 = 40.;
 pub const SEGMENT: f32 = 28.;
 pub const FIELD: f32 = 36.;
-pub const ROW: f32 = 64.;
 pub const ROW_WEB: f32 = 86.;
 /// The index column of a list (where `01` sits) and how far the hover plate reaches past a row.
 pub const INDEX: f32 = 40.;
 pub const PLATE_BLEED: f32 = 16.;
-/// A pressed primary button's opacity, and disabled controls'.
-pub const PRESSED: f32 = 0.85;
+/// A disabled control's opacity.
 pub const DISABLED: f32 = 0.4;
 
 /// A duration and its easing curve (CSS `cubic-bezier` control points).
@@ -343,9 +294,6 @@ pub struct Motion {
 impl Motion {
     pub const fn duration(&self) -> Duration {
         Duration::from_millis(self.ms)
-    }
-    pub fn secs(&self) -> f32 {
-        self.ms as f32 / 1000.
     }
     /// The eased progress for a linear `t` in 0..1.
     pub fn ease(&self, t: f32) -> f32 {
@@ -365,7 +313,7 @@ pub const MOVE: Motion = Motion {
     ms: 240,
     curve: [0.23, 1., 0.32, 1.],
 };
-/// Content arriving: a fade and a [`RISE`].
+/// Content arriving on the website: a fade and a [`RISE`].
 pub const ENTER: Motion = Motion {
     name: "enter",
     ms: 600,
@@ -398,13 +346,6 @@ pub fn bezier([x1, y1, x2, y2]: [f32; 4], t: f32) -> f32 {
     at(y1, y2, (lo + hi) / 2.)
 }
 
-pub fn ease_out_quint(t: f32) -> f32 {
-    1. - (1. - t.clamp(0., 1.)).powi(5)
-}
-pub fn ease_out_cubic(t: f32) -> f32 {
-    1. - (1. - t.clamp(0., 1.)).powi(3)
-}
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Palette {
     /// The background.
@@ -428,24 +369,7 @@ pub struct Palette {
     pub on_accent: u32,
     pub danger: u32,
     pub success: u32,
-    pub dark: bool,
 }
-
-pub const LIGHT: Palette = Palette {
-    page: 0xfafafc,
-    plate_soft: 0xf3f3f8,
-    plate: 0xebecf4,
-    surface: 0xffffff,
-    rule: 0xe2e3ea,
-    ink: 0x16181f,
-    ink_soft: 0x3b3e49,
-    muted: 0x646875,
-    accent: 0x5b3fd6,
-    on_accent: 0xffffff,
-    danger: 0xb4372a,
-    success: 0x1d7a48,
-    dark: false,
-};
 
 pub const DARK: Palette = Palette {
     page: 0x0d0e13,
@@ -460,13 +384,12 @@ pub const DARK: Palette = Palette {
     on_accent: 0x0d0e13,
     danger: 0xf07a68,
     success: 0x45c27a,
-    dark: true,
 };
 
 /// The website's blocky look ("Blocks" in `docs/design-system.md`), which the game's graphics
 /// settings screen also takes: stone-dark (or lavender-light) neutrals with a violet cast, panels
 /// with a dark outline, a light bevel on top and a darker lip below, and the violet `face` of the
-/// one big action. The game's other menus keep [`LIGHT`] and [`DARK`].
+/// one big action. The game's overlays keep [`DARK`].
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub struct Blocks {
     /// The window behind everything, tiled with a faint stone texture.
@@ -560,53 +483,15 @@ pub const BLOCKS_LIGHT: Blocks = Blocks {
     dark: false,
 };
 
-/// Pixel sizes of the blocky look: outlines, bevels and lips, the cut corner, and the stone tile.
+/// Pixel sizes of the blocky look: outlines, bevels and lips.
 pub const BLOCK_OUTLINE: f32 = 2.;
 pub const BLOCK_BEVEL: f32 = 2.;
 pub const BLOCK_LIP: f32 = 4.;
-/// The stone texture: a 16 by 16 tile, each texel this many logical pixels.
-pub const TILE_TEXELS: usize = 16;
-pub const TILE_TEXEL: f32 = 4.;
-/// The texture's shades: the page colour moved this many levels (of 255) lighter or darker.
-pub const TILE_SHADES: [i16; 5] = [0, 2, -2, 5, -4];
-
-/// How strongly the game's menus veil the live backdrop (the title panorama, or the world behind
-/// the pause and options screens) with the page colour. Every text colour the menus use keeps
-/// WCAG AA over it, even on a selected row's plate, with a backdrop as bright as
-/// [`BRIGHT_BACKDROP`] (a test checks it).
-pub const VEIL: f32 = 0.90;
-/// The title's home page shows more of the world; its text is `ink` and `ink_soft` only.
-pub const HOME_VEIL: f32 = 0.80;
-/// Muted text over the veiled backdrop: the dark palette's `muted`, lifted so it holds AA there.
-pub const BACKDROP_MUTED: u32 = 0x9fa3ae;
-/// The brightest backdrop the veils are measured against: a light grey of luminance 0.77,
-/// brighter than the snowiest title panorama measured (0.49) and a sunlit world.
-pub const BRIGHT_BACKDROP: u32 = 0xe3e3e3;
-
-impl Palette {
-    /// Every colour with its token name, in the order the docs list them.
-    pub fn named(&self) -> [(&'static str, u32); 12] {
-        [
-            ("page", self.page),
-            ("plate-soft", self.plate_soft),
-            ("plate", self.plate),
-            ("surface", self.surface),
-            ("rule", self.rule),
-            ("ink", self.ink),
-            ("ink-soft", self.ink_soft),
-            ("muted", self.muted),
-            ("accent", self.accent),
-            ("on-accent", self.on_accent),
-            ("danger", self.danger),
-            ("success", self.success),
-        ]
-    }
-}
 
 impl Blocks {
     /// Every colour by its CSS name. The website reads the Blocks palettes; the first twelve keep
-    /// the names of [`Palette::named`] (`plate-soft` is `raised`, `plate` is `button`, `surface`
-    /// is `panel`, `on-accent` is `on_face`), so styles written for those still apply.
+    /// the names of [`Palette`]'s colours (`plate-soft` is `raised`, `plate` is `button`,
+    /// `surface` is `panel`, `on-accent` is `on_face`), so styles written for those still apply.
     pub fn named(&self) -> [(&'static str, u32); 25] {
         [
             ("page", self.page),
@@ -663,7 +548,7 @@ pub fn css() -> String {
         let t = format!("{v:.3}");
         t.trim_end_matches('0').trim_end_matches('.').to_string()
     };
-    // The website wears the Blocks look; the game's menus keep LIGHT and DARK.
+    // The website wears the Blocks look.
     let colors = |s: &mut String, p: &Blocks| {
         for (name, c) in p.named() {
             let _ = writeln!(s, "  --{name}: #{c:06x};");
@@ -775,36 +660,31 @@ mod tests {
 
     /// Every text colour on every background it is drawn on reaches WCAG AA (4.5:1).
     #[test]
-    fn text_meets_wcag_aa_in_both_palettes() {
-        for p in [LIGHT, DARK] {
-            let backgrounds = [
-                ("page", p.page),
-                ("plate_soft", p.plate_soft),
-                ("plate", p.plate),
-                ("surface", p.surface),
-            ];
-            let texts = [
-                ("ink", p.ink),
-                ("ink_soft", p.ink_soft),
-                ("muted", p.muted),
-                ("accent", p.accent),
-                ("danger", p.danger),
-                ("success", p.success),
-            ];
-            for (bn, bg) in backgrounds {
-                for (tn, fg) in texts {
-                    let ratio = contrast(fg, bg);
-                    assert!(
-                        ratio >= 4.5,
-                        "{} {tn} on {bn}: {ratio:.2}",
-                        if p.dark { "dark" } else { "light" }
-                    );
-                }
+    fn text_meets_wcag_aa_in_the_dark_palette() {
+        let p = DARK;
+        let backgrounds = [
+            ("page", p.page),
+            ("plate_soft", p.plate_soft),
+            ("plate", p.plate),
+            ("surface", p.surface),
+        ];
+        let texts = [
+            ("ink", p.ink),
+            ("ink_soft", p.ink_soft),
+            ("muted", p.muted),
+            ("accent", p.accent),
+            ("danger", p.danger),
+            ("success", p.success),
+        ];
+        for (bn, bg) in backgrounds {
+            for (tn, fg) in texts {
+                let ratio = contrast(fg, bg);
+                assert!(ratio >= 4.5, "{tn} on {bn}: {ratio:.2}");
             }
-            // Text on the accent, and page-coloured text on an ink segment.
-            assert!(contrast(p.on_accent, p.accent) >= 4.5);
-            assert!(contrast(p.page, p.ink) >= 4.5);
         }
+        // Text on the accent, and page-coloured text on an ink segment.
+        assert!(contrast(p.on_accent, p.accent) >= 4.5);
+        assert!(contrast(p.page, p.ink) >= 4.5);
     }
 
     /// The blocky look: every text colour on every background it is drawn on reaches AA, the
@@ -835,19 +715,6 @@ mod tests {
                     let ratio = contrast(fg, bg);
                     assert!(ratio >= 4.5, "{theme} {tn} on {bn}: {ratio:.2}");
                 }
-                // The texture's lightest shade under the page's text.
-                let lifted = TILE_SHADES.iter().max().copied().unwrap_or(0) as i32;
-                let shade = [16, 8, 0].iter().fold(0, |out, s| {
-                    let c = (((p.page >> s) & 255) as i32 + lifted).clamp(0, 255) as u32;
-                    out | c << s
-                });
-                for (tn, fg) in texts {
-                    let ratio = contrast(fg, shade);
-                    assert!(
-                        ratio >= 4.5,
-                        "{theme} {tn} on the stone texture: {ratio:.2}"
-                    );
-                }
             }
             let label = contrast(p.on_face, p.face);
             assert!(label >= 4.5, "{theme} the main action's label: {label:.2}");
@@ -855,43 +722,13 @@ mod tests {
     }
 
     #[test]
-    fn every_icon_is_a_pixel_svg() {
-        for (name, svg) in icons::ALL {
-            let svg = std::str::from_utf8(svg).unwrap();
-            assert!(svg.contains("viewBox=\"0 0 16 16\""), "{name}");
-            assert!(svg.contains("currentColor"), "{name}");
+    fn a_large_icon_has_a_small_one_of_the_same_name() {
+        for (name, _) in glass_icons::LARGE {
+            assert!(
+                glass_icons::get(name).is_some(),
+                "{name} is drawn only at 24 px"
+            );
         }
-        assert!(icons::get("play").is_some());
-    }
-
-    /// The game's menus over the brightest backdrop: the page colour veiled over it, and a
-    /// selected row's plate (ink at 8 %) on top.
-    #[test]
-    fn menu_text_meets_wcag_aa_over_a_bright_backdrop() {
-        let mix = |a: u32, b: u32, t: f32| {
-            [16, 8, 0].iter().fold(0, |out, s| {
-                let (x, y) = (((a >> s) & 255) as f32, ((b >> s) & 255) as f32);
-                out | ((x * (1. - t) + y * t).round() as u32) << s
-            })
-        };
-        let p = DARK;
-        for (veil, texts) in [
-            (
-                VEIL,
-                &[p.ink, p.ink_soft, BACKDROP_MUTED, p.danger, p.success][..],
-            ),
-            (HOME_VEIL, &[p.ink, p.ink_soft][..]),
-        ] {
-            let bg = mix(BRIGHT_BACKDROP, p.page, veil);
-            let plate = mix(bg, p.ink, 0.08);
-            for &text in texts {
-                for under in [bg, plate] {
-                    let ratio = contrast(text, under);
-                    assert!(ratio >= 4.5, "#{text:06x} over veil {veil}: {ratio:.2}");
-                }
-            }
-        }
-        assert!(contrast(BACKDROP_MUTED, p.page) >= 4.5);
     }
 
     #[test]

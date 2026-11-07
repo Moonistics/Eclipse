@@ -1,12 +1,12 @@
 use super::{
-    button, color, copy_details, danger, entity_title, hand_back_at_ends, heading, icon, inset,
-    light, look, menu_keys, modal_keys, nested_list, said, scroll_pane, section_title, text, tile,
-    white, ButtonKind, ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG, TILE_MD,
+    button, color, copy_details, danger, entity_title, hand_back_at_ends, heading, icon, ink,
+    inset, light, look, menu_keys, modal_keys, nested_list, said, scroll_pane, section_title, text,
+    tile, ButtonKind, ButtonSize, IconSize, Listener, Press, PANEL_INSET, TILE_LG, TILE_MD,
 };
 use crate::scrollbar::Scrollbar;
 use eclipse_theme::glass::{
-    fill, ink, pixel_text, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT,
-    FLOAT, PAPER,
+    fill, pixel_text, radius, space, step, EDGE, EDGE_LIGHT, FIELD_EDGE, FIELD_EDGE_LIGHT, FLOAT,
+    PAPER,
 };
 use gpui::{
     anchored, deferred, div, point, prelude::*, px, AnyElement, App, ClickEvent, Div, FontWeight,
@@ -91,7 +91,7 @@ pub(super) fn backdrop(kind: Surface, radius: f32) -> AnyElement {
 }
 
 pub fn edge() -> Hsla {
-    white(if light() { EDGE_LIGHT } else { EDGE })
+    ink(if light() { EDGE_LIGHT } else { EDGE })
 }
 
 pub fn card() -> Div {
@@ -290,7 +290,7 @@ pub fn dialog_plate() -> Div {
         .child(layer(
             color(eclipse_theme::glass::SCRIM).opacity(if light() { 0. } else { SCRIM_SHADE }),
         ))
-        .child(layer(white(fill::HOVER)))
+        .child(layer(ink(fill::HOVER)))
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -441,7 +441,7 @@ pub fn tab_panel(id: impl Into<SharedString>, tab: impl Into<SharedString>) -> S
 pub fn dialog_colour() -> Hsla {
     let plate = surface_colour(Surface::Card);
     let plate = if light() { plate } else { plate.blend(scrim()) };
-    plate.blend(white(fill::HOVER))
+    plate.blend(ink(fill::HOVER))
 }
 
 pub struct StateTitle {
@@ -516,7 +516,7 @@ fn state(
                 .mt(px(gap))
                 .child(
                     super::pixel_text(size)
-                        .text_color(white(ink::FULL))
+                        .text_color(ink(ink::FULL))
                         .child(title.text),
                 ),
         )
@@ -554,7 +554,7 @@ pub fn empty_state(
 ) -> Stateful<Div> {
     let note: SharedString = note.into();
     debug_assert!(!note.is_empty(), "an empty state says what to do next");
-    let state = state(id.into(), icon_name, white(ink::MUTED), title.into(), note);
+    let state = state(id.into(), icon_name, ink(ink::MUTED), title.into(), note);
     self::actions(state, actions)
 }
 
@@ -562,7 +562,7 @@ pub fn loading_state(id: impl Into<SharedString>, title: impl Into<StateTitle>) 
     super::keeps_retry_focus(state(
         id.into(),
         "clock",
-        white(ink::MUTED),
+        ink(ink::MUTED),
         title.into(),
         SharedString::default(),
     ))
@@ -859,7 +859,7 @@ pub fn field(focused: bool, invalid: bool, size: ButtonSize) -> Div {
 }
 
 pub fn field_icon(name: &'static str) -> AnyElement {
-    icon(name, IconSize::Px16, white(ink::MUTED)).into_any_element()
+    icon(name, IconSize::Px16, ink(ink::MUTED)).into_any_element()
 }
 
 pub fn log_well(id: impl Into<SharedString>, handle: &ScrollHandle) -> Stateful<Div> {

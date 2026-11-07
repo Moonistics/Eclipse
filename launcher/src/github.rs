@@ -26,7 +26,6 @@ const API: &str = "https://api.github.com";
 /// [`backend::CHECK_EVERY`], so a few minutes late at worst.
 const FRESH_SECS: u64 = 5 * 60;
 
-/// What one source answered.
 #[derive(Debug)]
 pub(crate) enum Answer {
     /// 200, with the ETag GitHub gave (none from the mirror).

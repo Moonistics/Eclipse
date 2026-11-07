@@ -199,7 +199,6 @@ impl Launcher {
         });
     }
 
-    /// Looks for newer versions of what the browser installed.
     pub(super) fn mods_check_updates(&mut self) {
         let entries = self.mods.installed.clone();
         if entries.is_empty() {

@@ -3,7 +3,7 @@
 //! the image cache, else its jar's), and the Mods page's Installed group.
 use crate::menus::Asking;
 use crate::mods_state::{goes_to_trash, removal, ModsBusy};
-use crate::ui::{white, ButtonKind, Press};
+use crate::ui::{ink, ButtonKind, Press};
 use crate::{icons, mods_state, ui, Launcher};
 use eclipse_launcher::browser::{images, installed, modrinth, Kind as PackKind, SourceId};
 use eclipse_launcher::i18n::{tr, trf};
@@ -239,7 +239,7 @@ impl Launcher {
             (None, None) => tile.child(ui::icon(
                 "puzzle",
                 ui::IconSize::Px16,
-                white(eclipse_theme::glass::ink::MUTED),
+                ink(eclipse_theme::glass::ink::MUTED),
             )),
         }
     }

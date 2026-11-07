@@ -1,6 +1,5 @@
-//! The Servers page: create a server in one dialog, then start, stop and watch it, give friends its
-//! address, manage who may join, change its settings, back it up and update it, all with buttons. Every
-//! action runs `eclipse-server` or calls the running server's control API (`eclipse_launcher::servers`).
+//! The Servers page's state. Every action runs `eclipse-server` or calls the running server's
+//! control API (`eclipse_launcher::servers`).
 use crate::scrollbar::Scrollbar;
 use crate::{ui, Launcher, Pick};
 use eclipse_launcher::account::{Accounts, Player};
@@ -100,7 +99,6 @@ pub(super) const DIFFICULTIES: [(&str, &str); 4] = [
     ("hard", "Hard"),
 ];
 
-/// What the background work reports.
 pub(super) enum Event {
     Polled {
         dir: PathBuf,
@@ -494,7 +492,6 @@ impl Launcher {
     }
 }
 
-/// The state, in a few words.
 pub(super) fn phase_label(status: &Status) -> String {
     if let Some(busy) = &status.update_busy {
         return trf("Updating: {step}", &[("step", busy)]);
@@ -510,7 +507,6 @@ pub(super) fn phase_label(status: &Status) -> String {
     }
 }
 
-/// A setting's name for people.
 pub(super) fn setting_name(dotted: &str) -> String {
     Key::ALL
         .into_iter()

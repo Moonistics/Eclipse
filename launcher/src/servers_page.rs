@@ -1,6 +1,4 @@
-//! The Servers page: the open server's card with its state, name, numbers, Start or Restart and
-//! Stop, its console and command line; beside it the list of servers and how friends reach the
-//! open one. Below, the server's Players, Settings and Backups.
+//! The Servers page's look: the open server, the list beside it, and its tabs under it.
 use crate::fields::Field;
 use crate::page::Page;
 use crate::play_state::{PlayState, PrepareFailed};
@@ -8,7 +6,7 @@ use crate::servers_state::{
     phase_label, set_up_label, setting_name, uptime, GameMode, Needs, ServerJob, Tab,
 };
 use crate::tab_strip::{Strip, StripTab};
-use crate::ui::{self, white, ButtonKind, Press, Tone};
+use crate::ui::{self, ink, ButtonKind, Press, Tone};
 use crate::{clipboard, layout, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::server_list::DEFAULT_PORT;
@@ -114,7 +112,6 @@ impl Launcher {
             .children(tabs)
     }
 
-    /// The open server's card: its state, name and numbers, its buttons, then its console.
     fn server_card(&mut self, dir: &Path, cx: &mut Context<Self>) -> Div {
         let status = self.servers.status();
         let running = status.running();
@@ -323,7 +320,6 @@ impl Launcher {
         card.child(self.server_console(running, cx))
     }
 
-    /// The action under way, a problem, a note and settings waiting for a restart.
     fn server_notes(&mut self, running: bool, idle: bool, cx: &mut Context<Self>) -> Vec<Div> {
         let mut out = Vec::new();
         if let Some(job) = self.servers.busy.clone() {
@@ -423,7 +419,7 @@ impl Launcher {
                     .child(ui::icon(
                         crate::icons::CONSOLE,
                         ui::IconSize::Px16,
-                        white(ink::MUTED),
+                        ink(ink::MUTED),
                     ))
                     .child(ui::empty_line(
                         "server-console-stopped",
@@ -442,7 +438,7 @@ impl Launcher {
                 ))
         } else {
             let accent = ui::color(ui::look().accent_soft);
-            log.text_color(white(ink::BODY))
+            log.text_color(ink(ink::BODY))
                 .children(self.servers.log.iter().map(|l| {
                     div()
                         .when(l.starts_with("> "), |d| d.text_color(accent))
@@ -466,7 +462,7 @@ impl Launcher {
             ui::unavailable(send, tr("Type a command first"))
         };
         let slash = div()
-            .text_color(white(ink::DIM))
+            .text_color(ink(ink::DIM))
             .child("/")
             .into_any_element();
         console.child(log).child(
@@ -689,7 +685,6 @@ impl Launcher {
         )
     }
 
-    /// The servers, the open one lit, then Create a server and adding a server folder.
     fn server_list(&mut self, cx: &mut Context<Self>) -> Div {
         let mut rows = Vec::new();
         for e in self.servers.list.clone() {
@@ -839,7 +834,6 @@ impl Launcher {
             .child(internet.relative())
     }
 
-    /// The server's Players, Settings and Backups, on a card under it.
     fn server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
         let tabs = Tab::ALL
             .into_iter()
@@ -938,7 +932,6 @@ impl Launcher {
     }
 }
 
-/// The open server's port.
 fn port_of(this: &Launcher) -> u16 {
     this.servers
         .setting(Key::Port)

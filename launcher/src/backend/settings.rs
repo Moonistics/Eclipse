@@ -9,7 +9,6 @@ const FILE: &str = "settings.json";
 /// How many of the newest release versions stay installed when the player has not said.
 const KEEP_NEWEST: usize = 2;
 
-/// The launcher's appearance, as the player picks it in Settings.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Appearance {
@@ -24,7 +23,6 @@ pub enum Appearance {
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum WhilePlaying {
-    /// The window stays where it is.
     #[default]
     Stay,
     /// The window goes to the Dock or the taskbar, and comes back when the game closes.
@@ -143,7 +141,6 @@ pub struct Settings {
     /// Unset means none: the environment's `HTTPS_PROXY` and `HTTP_PROXY` apply instead.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub proxy: Option<String>,
-    /// Dark, Light, or the system's: the launcher's look. Dark by default.
     #[serde(default)]
     pub appearance: Appearance,
     /// The player has read what the "I'm playing" ping holds: on the first-run question, or on the
@@ -154,7 +151,6 @@ pub struct Settings {
     /// one now (the owner gate's screen).
     #[serde(default)]
     pub owner_notice_seen: bool,
-    /// What the window does while the game runs. Stays by default.
     #[serde(default)]
     pub while_playing: WhilePlaying,
     /// The accent colour on top of the appearance (`themes::Accent`). Eclipse's amber by default.
@@ -297,7 +293,6 @@ impl Settings {
     pub fn desktop_entry(&self) -> bool {
         self.desktop_entry.unwrap_or(true)
     }
-    /// The window's language: the one picked, else the system's.
     pub fn language(&self) -> crate::i18n::Language {
         self.language.unwrap_or_else(crate::i18n::Language::system)
     }
@@ -307,11 +302,9 @@ impl Settings {
     pub fn auto_prune(&self) -> bool {
         self.prune_old_versions.unwrap_or(true)
     }
-    /// Registry mods update by themselves ([`Settings::mods_auto_update`]): on unless turned off.
     pub fn auto_updates_mods(&self) -> bool {
         self.mods_auto_update.unwrap_or(true)
     }
-    /// How many of the newest release versions pruning keeps: at least the newest.
     pub fn keep_newest(&self) -> usize {
         self.keep_versions.unwrap_or(KEEP_NEWEST).max(1)
     }

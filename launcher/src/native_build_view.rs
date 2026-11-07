@@ -1,5 +1,5 @@
 use crate::native_build::Phase;
-use crate::ui::{white, ButtonKind, Press};
+use crate::ui::{ink, ButtonKind, Press};
 use crate::{ui, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::{native_mods, native_status};
@@ -95,7 +95,7 @@ impl Launcher {
             .as_ref()
             .filter(|_| mine && step.is_none())
         {
-            detail = detail.child(div().text_color(white(ink::MUTED)).child(done.clone()));
+            detail = detail.child(div().text_color(ink(ink::MUTED)).child(done.clone()));
         }
         if let (Some(tag), Some(build)) = (&version, &build) {
             let said = match pinned.is_empty() {
@@ -113,7 +113,7 @@ impl Launcher {
                     ],
                 ),
             };
-            detail = detail.child(div().text_color(white(ink::MUTED)).child(said));
+            detail = detail.child(div().text_color(ink(ink::MUTED)).child(said));
             for left in &build.left_out {
                 detail = detail.child(ui::state_note(ui::Tone::Warn, left.label()));
             }
@@ -124,7 +124,7 @@ impl Launcher {
                 .for_instance
                 .as_deref()
                 .and_then(|id| self.instances.list.iter().find(|i| i.id == id));
-            detail = detail.child(div().text_color(white(ink::MUTED)).child(trf(
+            detail = detail.child(div().text_color(ink(ink::MUTED)).child(trf(
                 "{instance} is building. Wait for it to finish.",
                 &[("instance", other.map_or("", |i| i.name.as_str()))],
             )));

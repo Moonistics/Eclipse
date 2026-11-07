@@ -24,7 +24,6 @@ use std::path::{Component, Path, PathBuf};
 /// The `.mrpack` folders copied into the game folder; `server-overrides/` is a server's.
 const OVERRIDES: [&str; 2] = ["overrides/", "client-overrides/"];
 
-/// What a dropped file is.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Dropped {
     /// A shared instance: a new instance is made from it.
@@ -172,7 +171,6 @@ pub fn import_instance(file: &Path, progress: &dyn Fn(&str, f32)) -> Result<Inst
 /// disk.
 const MAX_IMPORT: u64 = 8 << 30;
 
-/// [`import_instance`] with the instance made by `create`.
 pub(crate) fn import_into(
     file: &Path,
     progress: &dyn Fn(&str, f32),
@@ -184,7 +182,6 @@ pub(crate) fn import_into(
     import_any(file, progress, create, false, MAX_IMPORT)
 }
 
-/// A `.mrpack`'s index.
 pub fn mrpack_index(file: &Path) -> Result<serde_json::Value, String> {
     read_index(&mut open(file)?)
 }

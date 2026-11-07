@@ -1,6 +1,6 @@
 use crate::menus::Asking;
 use crate::pictures::Look;
-use crate::ui::{white, ButtonKind, Press};
+use crate::ui::{ink, ButtonKind, Press};
 use crate::{home_screenshots_state, ui, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_theme::glass::{fill, ink, radius, space};
@@ -9,8 +9,6 @@ use gpui::{div, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, State
 use std::path::Path;
 
 impl Launcher {
-    /// Home's Screenshots tab: the pictures in a grid, 4 across on wide windows, else 2, each
-    /// 16:9, its file name under it. A click opens the viewer.
     pub(super) fn screenshots_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.selected_instance()?.home.clone();
         self.load_screenshots(&home, cx);
@@ -137,7 +135,6 @@ impl Launcher {
 }
 
 impl Launcher {
-    /// The eye button: blurs the screenshots, or shows them again.
     pub(super) fn shots_privacy(&self, cx: &mut Context<Self>) -> Stateful<Div> {
         let hidden = self.shot_blur.hidden;
         ui::icon_button(
@@ -174,12 +171,11 @@ impl Launcher {
             None => div()
                 .size_full()
                 .rounded(px(radius::ROW))
-                .bg(white(fill::HOVER))
+                .bg(ink(fill::HOVER))
                 .into_any_element(),
         }
     }
 
-    /// The viewer over the whole window, while a picture is open.
     pub(super) fn screenshot_viewer(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         let i = self.viewing_at()?;
         let shot = self.screenshots.list.get(i)?.clone();

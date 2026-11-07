@@ -355,7 +355,6 @@ pub(super) fn remove_in(dir: &Path) -> Result<(), String> {
     Ok(())
 }
 
-/// The bytes an installed version takes on disk.
 pub fn disk_use(tag: &str) -> u64 {
     fn size(dir: &Path) -> u64 {
         fs::read_dir(dir)
@@ -387,7 +386,6 @@ pub(super) fn game_version_at(dir: &Path) -> String {
         .unwrap_or_else(|| eclipse_core::VANILLA_VERSION.into())
 }
 
-/// The installed version to use: the one asked for, else the selected one, else the newest.
 pub fn resolve_version(requested: Option<&str>) -> Result<String, String> {
     let installed = installed();
     if let Some(tag) = requested {

@@ -353,12 +353,4 @@ mod tests {
         assert!(ensure(&version).is_err());
         fs::remove_dir_all(&version).unwrap();
     }
-
-    #[test]
-    fn xml_escapes_the_characters_plist_strings_must_not_carry() {
-        assert_eq!(
-            crate::shortcut::xml(r#"a & b < c > "d""#),
-            r#"a &amp; b &lt; c &gt; &quot;d&quot;"#
-        );
-    }
 }

@@ -59,7 +59,6 @@ impl std::ops::Deref for Log {
 /// The last game the launcher started ended badly: what it left behind.
 #[derive(Clone)]
 pub(super) struct Crash {
-    /// The crash report the run wrote, if it wrote one.
     pub(super) report: Option<std::path::PathBuf>,
     /// One line on what went wrong: the report's error, else how the process ended.
     pub(super) summary: String,

@@ -82,7 +82,6 @@ impl Build {
         Some(Build::of(native_mods::about(version)?))
     }
 
-    /// What build record `about` says.
     fn of(about: native_mods::About) -> Build {
         Build {
             pinned_unknown: about.off_its_nightly(),

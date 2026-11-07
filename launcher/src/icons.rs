@@ -1,6 +1,7 @@
 //! The icons served to `svg()`, and the slots that hold icons downloaded at run time.
-use crate::ui::{self, white, IconSize};
+use crate::ui::{self, ink, IconSize};
 use eclipse_theme::glass::fill;
+use eclipse_theme::glass_icons;
 use gpui::{img, prelude::*, px, Div, ImageSource, ObjectFit, SharedString};
 use std::borrow::Cow;
 
@@ -51,36 +52,6 @@ pub const OPEN_FOLDER: &str = FOLDERS;
 pub const DOWNLOAD: &str = UPDATES;
 pub const ADD: &str = NEW_INSTANCE;
 
-macro_rules! large_icons {
-    ($($name:literal),* $(,)?) => {
-        const LARGE: &[(&str, &[u8])] = &[
-            $(($name, include_bytes!(concat!("../../crates/eclipse-theme/icons/glass/24/", $name, ".svg")))),*
-        ];
-    };
-}
-
-large_icons!(
-    "alert-circle",
-    "clock",
-    "computer",
-    "computer-terminal-01",
-    "cube",
-    "download-04",
-    "earth",
-    "folder-01",
-    "globe-02",
-    "image-01",
-    "information-circle",
-    "more-horizontal",
-    "package-01",
-    "pencil-edit-02",
-    "play",
-    "puzzle",
-    "search-01",
-    "stop",
-    "user-multiple-02",
-);
-
 pub fn path(name: &str, size: IconSize) -> String {
     match size {
         IconSize::Px24 => format!("{LARGE_DIR}{name}.svg"),
@@ -90,47 +61,40 @@ pub fn path(name: &str, size: IconSize) -> String {
 
 pub fn cells(name: &str, size: IconSize) -> f32 {
     match size {
-        IconSize::Px24 if large(name).is_some() => LARGE_CELLS,
+        IconSize::Px24 if glass_icons::large(name).is_some() => LARGE_CELLS,
         _ => CELLS,
     }
 }
 
-fn large(name: &str) -> Option<&'static [u8]> {
-    LARGE.iter().find(|(n, _)| *n == name).map(|(_, svg)| *svg)
-}
-
-/// The icons, served to `svg()` as `icons/<name>.svg`.
 pub struct Assets;
 
 impl gpui::AssetSource for Assets {
     fn load(&self, path: &str) -> gpui::Result<Option<Cow<'static, [u8]>>> {
         let name = |dir: &str| path.strip_prefix(dir)?.strip_suffix(".svg");
         let found = match name(LARGE_DIR) {
-            Some(name) => large(name).or_else(|| eclipse_theme::glass_icons::get(name)),
-            None => name("icons/").and_then(eclipse_theme::glass_icons::get),
+            Some(name) => glass_icons::large(name).or_else(|| glass_icons::get(name)),
+            None => name("icons/").and_then(glass_icons::get),
         };
         Ok(found.map(Cow::Borrowed))
     }
 
     fn list(&self, _path: &str) -> gpui::Result<Vec<SharedString>> {
-        let small = eclipse_theme::glass_icons::ALL
+        let small = glass_icons::ALL
             .iter()
             .map(|(name, _)| format!("icons/{name}.svg").into());
-        let large = LARGE
+        let large = glass_icons::LARGE
             .iter()
             .map(|(name, _)| format!("{LARGE_DIR}{name}.svg").into());
         Ok(small.chain(large).collect())
     }
 }
 
-/// A square slot for an icon: the picture at `source` when there is one, else the first letter of
-/// `name` on a tile.
 pub fn slot(source: Option<ImageSource>, name: &str, size: f32) -> Div {
     match source {
         Some(source) => {
             ui::tile(size).child(img(source).size(px(size)).object_fit(ObjectFit::Cover))
         }
-        None => ui::letter_tile(white(fill::BUTTON), name, size),
+        None => ui::letter_tile(ink(fill::BUTTON), name, size),
     }
 }
 
@@ -183,10 +147,10 @@ mod tests {
     }
 
     fn every_drawing() -> Vec<(String, Drawing)> {
-        let small = eclipse_theme::glass_icons::ALL
+        let small = glass_icons::ALL
             .iter()
             .map(|(name, svg)| (format!("icons/{name}.svg"), *svg));
-        let large = LARGE
+        let large = glass_icons::LARGE
             .iter()
             .map(|(name, svg)| (format!("{LARGE_DIR}{name}.svg"), *svg));
         small
@@ -226,25 +190,15 @@ mod tests {
     #[test]
     fn every_icon_snaps_on_the_grid_it_is_drawn_on() {
         let grid = |svg: &[u8]| drawing(svg).map(|d| (d.side / CELL) as f32);
-        for (name, svg) in eclipse_theme::glass_icons::ALL {
+        for (name, svg) in glass_icons::ALL {
             let Some(small) = grid(svg) else { continue };
-            let large = large(name).and_then(grid);
+            let large = glass_icons::large(name).and_then(grid);
             assert_eq!(cells(name, IconSize::Px16), small, "{name}");
             assert_eq!(cells(name, IconSize::Px32), small, "{name}");
             assert_eq!(
                 cells(name, IconSize::Px24),
                 large.unwrap_or(small),
                 "{name}"
-            );
-        }
-    }
-
-    #[test]
-    fn a_large_icon_has_a_small_one_of_the_same_name() {
-        for (name, _) in LARGE {
-            assert!(
-                eclipse_theme::glass_icons::get(name).is_some(),
-                "{name} is drawn only at 24 px"
             );
         }
     }
@@ -270,7 +224,7 @@ mod tests {
         let drawn: Vec<_> = meanings
             .iter()
             .map(|name| {
-                let svg = eclipse_theme::glass_icons::get(name).expect(name);
+                let svg = glass_icons::get(name).expect(name);
                 (name, filled(&drawing(svg).expect(name)))
             })
             .collect();
@@ -292,15 +246,15 @@ mod tests {
         let load = |path: String| Assets.load(&path).unwrap().map(|svg| svg.into_owned());
         assert_eq!(
             load(path("play", IconSize::Px24)),
-            large("play").map(<[u8]>::to_vec)
+            glass_icons::large("play").map(<[u8]>::to_vec)
         );
         assert_eq!(
             load(path("play", IconSize::Px16)),
-            eclipse_theme::glass_icons::get("play").map(<[u8]>::to_vec)
+            glass_icons::get("play").map(<[u8]>::to_vec)
         );
         assert_eq!(
             load(path("cancel-01", IconSize::Px24)),
-            eclipse_theme::glass_icons::get("cancel-01").map(<[u8]>::to_vec)
+            glass_icons::get("cancel-01").map(<[u8]>::to_vec)
         );
         assert!(load(path("no-such-icon", IconSize::Px24)).is_none());
         let listed = Assets.list("").unwrap();

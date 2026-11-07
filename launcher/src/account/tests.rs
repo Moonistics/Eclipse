@@ -9,7 +9,6 @@ use std::sync::Arc;
 
 const UUID: &str = "069a79f444e94726a5befca90e38aaf5";
 
-/// What the mock answers and what it was asked.
 #[derive(Default)]
 struct Mock {
     /// Polls left before the token endpoint stops saying authorization_pending.
@@ -307,7 +306,6 @@ fn notch() -> Account {
     }
 }
 
-/// A signed-in account's secrets: a token good for two hours, and the last ownership answer.
 fn secrets(token: &str, owns: bool) -> Secrets {
     Secrets {
         refresh_token: "ms-refresh-1".into(),
@@ -370,7 +368,6 @@ fn refresh_only_when_the_token_runs_out() {
     ));
 }
 
-/// An accounts.json with Notch signed in and playing, his secrets in `store`.
 fn signed_in(store: &MemoryStore, secrets: &Secrets) -> Accounts {
     let mut accounts = Accounts::default();
     accounts.add(store, notch(), secrets).unwrap();
@@ -444,7 +441,6 @@ fn splitscreen_gets_the_other_accounts_that_still_hold() {
         assert_eq!(mode(&dir), 0o700, "nor lists the folder");
     }
     let _ = std::fs::remove_dir_all(&dir);
-    // Alone: nothing.
     let mut alone = signed_in(&store, &secrets("mc-token", true));
     let env = account_sessions(&offline(), Some("test-client"), &store, &dir, &mut alone);
     assert!(env.is_empty());
@@ -589,7 +585,6 @@ fn a_renewed_sign_in_the_keychain_refuses_still_plays_and_says_so() {
     assert_eq!(pass.unsaved.as_deref(), Some(said));
     assert_eq!(take_unsaved().as_deref(), Some(said));
     assert_eq!(take_unsaved(), None, "said once");
-    // Nothing to save, nothing to say.
     let mut accounts = signed_in(&refusing.0, &secrets("mc-token", true));
     let pass = launch(&ep, Some("test-client"), &refusing, &mut accounts).unwrap();
     assert!(pass.unsaved.is_none());
@@ -626,7 +621,6 @@ fn no_network_never_blocks_a_past_owner() {
     let store = MemoryStore::default();
     let mut accounts = signed_in(&store, &secrets("mc-token", true));
     let pass = launch(&offline(), Some("test-client"), &store, &mut accounts).unwrap();
-    // Plays, offline, and says why.
     assert!(pass.session.is_none() && pass.owner.is_none());
     assert!(pass.offline.unwrap().contains("Could not reach"));
     // A token to renew with no network, or a build without sign-in: the same.
@@ -674,7 +668,6 @@ fn any_owner_opens_the_gate_and_the_one_who_plays_brings_the_session() {
     let pass = launch(&ep, Some("test-client"), &store, &mut accounts).unwrap();
     assert!(pass.session.is_none() && pass.offline.is_none());
     assert_eq!(m.lock().unwrap().log.len(), 2);
-    // No account at all.
     assert!(launch(&ep, Some("test-client"), &store, &mut Accounts::default()).is_err());
 }
 
@@ -909,18 +902,17 @@ fn session_files_are_private_and_complete() {
 
 #[test]
 fn client_id_is_configuration() {
-    // The run-time variable overrides; empty means not configured.
-    std::env::set_var("ECLIPSE_MSA_CLIENT_ID", " ");
-    assert_eq!(client_id(), None);
-    std::env::set_var(
-        "ECLIPSE_MSA_CLIENT_ID",
-        "00000000-1111-2222-3333-444444444444",
+    let id = "00000000-1111-2222-3333-444444444444";
+    assert_eq!(client_id_from(Some(" ".into()), Some(id)), None);
+    assert_eq!(
+        client_id_from(Some(id.into()), Some("other")).as_deref(),
+        Some(id)
     );
     assert_eq!(
-        client_id().as_deref(),
-        Some("00000000-1111-2222-3333-444444444444")
+        client_id_from(None, Some(&format!(" {id} "))).as_deref(),
+        Some(id)
     );
-    std::env::remove_var("ECLIPSE_MSA_CLIENT_ID");
+    assert_eq!(client_id_from(None, None), None);
 }
 
 #[test]
@@ -1038,12 +1030,10 @@ fn the_secrets_file_keeps_sign_ins_across_starts() {
         let mode = std::fs::metadata(&path).unwrap().permissions().mode();
         assert_eq!(mode & 0o777, 0o600, "only the player reads it");
     }
-    // No temporary file left behind.
     assert_eq!(
         files_beside(&path),
         ["account-secrets.json", "account-secrets.lock"]
     );
-    // Signing the last account out removes the file.
     accounts.remove(&again, UUID).unwrap();
     assert_eq!(again.get(UUID).unwrap(), None);
     assert!(!path.exists());

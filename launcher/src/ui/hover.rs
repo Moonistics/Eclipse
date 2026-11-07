@@ -1,4 +1,4 @@
-use super::white;
+use super::ink;
 use eclipse_theme::glass::fill;
 use gpui::{
     div, prelude::*, px, AnimationExt, AnyElement, Div, ElementId, Hsla, SharedString, Stateful,
@@ -39,8 +39,8 @@ pub enum Hover {
 impl Hover {
     fn fill(self) -> Hsla {
         match self {
-            Hover::Row => white(fill::HOVER),
-            Hover::Bare => white(fill::BUTTON),
+            Hover::Row => ink(fill::HOVER),
+            Hover::Bare => ink(fill::BUTTON),
             Hover::Primary => gpui::white().opacity(fill::PRIMARY_HOVER),
             Hover::Danger => super::danger_fill(),
             Hover::Shade => gpui::black().opacity(fill::BUTTON),
@@ -162,7 +162,7 @@ pub(crate) fn layer(r: f32) -> impl Fn() -> Div {
 
 pub(crate) fn row_fill(id: &SharedString, r: f32, held: bool) -> AnyElement {
     if held && !hover_is(id) {
-        return layer(r)().bg(white(fill::HOVER)).into_any_element();
+        return layer(r)().bg(ink(fill::HOVER)).into_any_element();
     }
     let fill = Hover::Row.fill();
     hover_fade(id, layer(r), move |d, t| d.bg(fill.opacity(fill.a * t)))

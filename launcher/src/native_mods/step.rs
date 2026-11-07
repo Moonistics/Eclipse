@@ -14,7 +14,6 @@ pub fn duration_label(secs: u64) -> String {
     }
 }
 
-/// Where a build is.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Step {
     Rust(f32),

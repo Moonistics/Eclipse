@@ -8,7 +8,6 @@ const MANIFEST: &str = "id = \"ruby\"\nname = \"Ruby\"\napi = \"0.2\"\nside = \"
 const BLOCK: &[u8] = br#"{"template": "minecraft:iron_block"}"#;
 const ITEM: &[u8] = br#"{"template": "minecraft:diamond"}"#;
 
-/// `ruby` at `version` with blocks `blocks` and items `items`, written into `dir`.
 fn ruby(dir: &Path, version: &str, blocks: &[&str], items: &[&str]) -> PathBuf {
     let names: Vec<(String, &[u8])> = blocks
         .iter()
@@ -68,7 +67,6 @@ const PLAY: Context = Context {
     natives: true,
 };
 
-/// The browser's entry for `ruby` at `version`.
 fn entry(version: &str) -> installed::Entry {
     installed::Entry {
         source: SourceId::Eclipse,
@@ -193,7 +191,6 @@ fn a_new_version_that_drops_content_is_named() {
     fs::remove_dir_all(&dir).unwrap();
 }
 
-/// The installed ruby: the browser's entry and the file's bytes.
 fn installed_ruby(home: &Path) -> (String, Vec<u8>) {
     let list = installed::Installed::load(home);
     let e = list.find(SourceId::Eclipse, "ruby").unwrap();

@@ -378,7 +378,6 @@ pub(crate) fn installable_updates(releases: &[Release]) -> Vec<Release> {
 /// How often a launcher left open looks for new releases: they come out several times a day.
 pub const CHECK_EVERY: std::time::Duration = std::time::Duration::from_secs(30 * 60);
 
-/// One release's notes: the tag given, or the newest.
 pub fn release_notes(tag: Option<&str>) -> Result<Release, String> {
     let releases = releases()?;
     match tag {

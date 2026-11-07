@@ -16,7 +16,7 @@ use std::process::Command;
 /// version downloaded from Mojang the first time (then it starts offline too), the Java it needs
 /// (the instance's own, else one found here, else Mojang's, downloaded), and the game in the
 /// instance's folder. The caller wraps it (`launch::wrap`) and never logs it: it holds the token.
-/// A Java instance's game, ready to start; `server` (`host[:port]`) is joined once it has.
+/// `server` (`host[:port]`) is joined once the game has started.
 fn java_game(
     instance: &Instance,
     server: Option<&str>,
@@ -112,12 +112,9 @@ pub fn no_ai() -> bool {
     eclipse_core::no_ai::is_on(&game_home())
 }
 
-/// Turns No AI on or off for the launcher and the game.
 pub fn set_no_ai(on: bool) -> Result<(), String> {
     eclipse_core::no_ai::set(&game_home(), on).map_err(|e| format!("Could not save No AI: {e}"))
 }
-
-// ----- Logs and crash reports ---------------------------------------------------------------------
 
 /// Splits the player's extra game arguments (Settings' one line) into words, the way a shell
 /// would: spaces separate them, single or double quotes group a word with spaces in it, and a
@@ -177,7 +174,6 @@ pub fn split_args(line: &str) -> Vec<String> {
     words
 }
 
-/// The extra game arguments the player set in Settings, split into words.
 pub fn game_args() -> Vec<String> {
     split_args(&Settings::load().game_args)
 }
@@ -270,9 +266,6 @@ pub fn agree_eula(folder: &Path) -> Result<(), String> {
     fs::write(folder.join("eula.txt"), text).map_err(|e| e.to_string())
 }
 
-// ----- Shared steps for the front ends -----------------------------------------------------------
-
-/// The server folder: the one given, the one chosen in the launcher, or `server/` in the data folder.
 pub fn server_dir(requested: Option<PathBuf>) -> PathBuf {
     requested
         .or(Settings::load().server_dir)
@@ -315,7 +308,6 @@ pub struct Play {
     pub world: Option<String>,
     /// A server to join: an address, or one of the instance's list by name or position.
     pub server: Option<String>,
-    /// Creative mode for a new world.
     pub creative: bool,
     /// More game arguments, after the player's own from Settings.
     pub args: Vec<String>,
@@ -344,17 +336,13 @@ pub struct Launched {
     pub cmd: Command,
     /// The instance's own variables, for its after-exit command (`launch::after_exit`).
     pub vars: crate::launch::Vars,
-    /// The game folder it plays in.
     pub home: PathBuf,
-    /// Why the account plays offline this time, if it does.
     pub offline: Option<String>,
     /// A renewed sign-in that couldn't be saved (`account::take_unsaved`).
     pub unsaved: Option<String>,
 }
 
 impl Launched {
-    /// What the player is told as the game starts: why it plays offline, a renewed sign-in that
-    /// wasn't saved.
     pub fn notices(&self) -> Vec<StartNotice> {
         let offline = self.offline.clone().map(StartNotice::Offline);
         let unsaved = self.unsaved.clone().map(StartNotice::Unsaved);
@@ -379,7 +367,6 @@ impl StartNotice {
     }
 }
 
-/// Why a launch didn't start.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum PlayError {
     /// No account in the launcher owns Minecraft: Java Edition (the owner gate).
@@ -418,12 +405,6 @@ impl From<String> for PlayError {
     }
 }
 
-/// Makes the command `play` asks for: for an Eclipse instance the architecture check, the owner
-/// gate and the session, the prepared check, what the resources lack, the instance's folder, the
-/// registry mods taken down turned off there (`browser::eclipse::before_play`), the offline name
-/// and its look, then the launcher's own arguments, the player's (Settings) and `args`; for a Java
-/// instance Mojang's game ([`java_game`]). The instance's variables and what runs around the game
-/// come last (`launch::wrap`). A session written for a launch that fails here is discarded.
 pub fn launch(play: Play, log: &dyn Fn(String)) -> Result<Launched, PlayError> {
     let instance = &play.instance;
     let server = play.server.as_deref().map(|server| {
@@ -454,8 +435,6 @@ pub fn launch(play: Play, log: &dyn Fn(String)) -> Result<Launched, PlayError> {
     Ok(finish(cmd, instance, offline))
 }
 
-/// Eclipse's client for `play`, past the owner gate with `session`, up to the player's own
-/// arguments.
 fn eclipse_command(
     play: &Play,
     tag: &str,
@@ -500,7 +479,6 @@ fn eclipse_command(
     Ok(cmd)
 }
 
-/// `cmd` with the instance's variables and what runs around it.
 fn finish(mut cmd: Command, instance: &Instance, offline: Option<String>) -> Launched {
     let vars = instance.vars(cmd.get_program());
     cmd.envs(vars.iter().map(|(k, v)| (k, v)));

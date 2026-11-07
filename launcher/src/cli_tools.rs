@@ -55,7 +55,6 @@ pub const OPEN_WORLD: &[&str] = &[
     "share-log",
 ];
 
-/// A generated tool: its name, the CLI words it runs and the clap command behind them.
 pub struct Tool {
     pub name: String,
     pub path: Vec<String>,
@@ -167,7 +166,6 @@ impl Tool {
         tool
     }
 
-    /// The CLI words for a call's arguments.
     pub fn argv(&self, args: &Value) -> Result<Vec<String>, String> {
         if self.destructive() && args.get("confirm").and_then(Value::as_bool) != Some(true) {
             return Err(format!(
@@ -380,7 +378,6 @@ fn shown(arg: &clap::Arg) -> bool {
     !arg.is_hide_set() && !generated && arg.get_id() != "json"
 }
 
-/// Whether an argument takes several values (a list).
 fn many(arg: &clap::Arg) -> bool {
     matches!(arg.get_action(), ArgAction::Append)
         || arg.get_num_args().is_some_and(|n| n.max_values() > 1)

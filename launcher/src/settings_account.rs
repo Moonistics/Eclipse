@@ -1,8 +1,4 @@
-//! Settings' Account card: who plays now (a big head, the name, how), the offline names as chips
-//! with a field to add one, and the Microsoft card beside them with its white Sign in with
-//! Microsoft button, the accounts already signed in (Play as, Refresh, Sign out), the name the
-//! game made up (a chip with New name), each offline name's skin (a pencil in its chip) and the
-//! skin panel, the sign-in's code, progress and problems.
+//! Settings' Account card: who plays, the offline names, and the Microsoft accounts.
 
 use crate::fields::{CanAdd, Field};
 use crate::menus::Asking;
@@ -42,7 +38,6 @@ impl Launcher {
             .child(right.when(wide, |d| d.flex_1().min_w(px(MICROSOFT_MIN)).border_l_1()))
     }
 
-    /// The player now, the offline names and the field to add one.
     fn who_plays_card(&mut self, cx: &mut Context<Self>) -> Div {
         let now = self.accounts.player();
         let who = self.who_plays();
@@ -312,8 +307,6 @@ impl Launcher {
 }
 
 impl Launcher {
-    /// The Microsoft accounts signed in here: each one's head, name and state, Play as,
-    /// Refresh and Sign out.
     pub(super) fn microsoft_rows(&mut self, cx: &mut Context<Self>) -> (Div, usize) {
         let mut rows = div().flex().flex_col();
         let mut n = 0;

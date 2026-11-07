@@ -1,10 +1,13 @@
-//! Microsoft's "Sign in with Microsoft" button, as Microsoft publishes it for apps that sign in
-//! with Microsoft accounts (learn.microsoft.com/en-us/entra/identity-platform/howto-add-branding-in-apps):
-//! 41 pixels tall, the four-square symbol (21 pixels) 12 pixels from the edge and from the text,
-//! the text semibold at 15 pixels; dark: `#2F2F2F` with white text, light: white with `#5E5E5E`
-//! text and a `#8C8C8C` border. The symbol is drawn from the official `ms-symbollockup_mssymbol_19.svg`
-//! (its squares, places and colours as they are there), never recoloured or reshaped; see
-//! THIRD_PARTY_NOTICES.md. Square corners, as Microsoft's own: not the launcher's cut plates.
+//! Microsoft's four-square symbol and the two "Sign in with Microsoft" buttons. `white_button` is
+//! the launcher's white 48-tall block with the symbol at 18 (the account card, the sign-in sheet,
+//! Home). `sign_in_button` (adding an account in Settings) is Microsoft's own button as Microsoft
+//! publishes it for apps that sign in with Microsoft accounts
+//! (learn.microsoft.com/en-us/entra/identity-platform/howto-add-branding-in-apps): 41 pixels
+//! tall, the symbol (21 pixels) 12 pixels from the edge and from the text, the text semibold at 15
+//! pixels; dark: `#2F2F2F` with white text, light: white with `#5E5E5E` text and a `#8C8C8C`
+//! border; square corners. The symbol is drawn from the official
+//! `ms-symbollockup_mssymbol_19.svg` (its squares, places and colours as they are there), never
+//! recoloured or reshaped; see THIRD_PARTY_NOTICES.md.
 use super::*;
 
 /// The symbol's squares in its 21-pixel box: left, top, colour.
@@ -17,7 +20,6 @@ const SQUARES: [(f32, f32, u32); 4] = [
 
 const SYMBOL: f32 = 21.;
 
-/// The symbol at `size` pixels square (the sign-in buttons draw it at 18).
 pub(super) fn logo(size: f32) -> Div {
     let u = size / SYMBOL;
     div()
@@ -47,7 +49,7 @@ pub(super) fn white_button(id: &'static str) -> Stateful<Div> {
         .rounded(px(radius::ROW))
         .bg(gpui::white())
         .when(ui::light(), |d| {
-            d.border_1().border_color(ui::white(fill::ACTIVE))
+            d.border_1().border_color(ui::ink(fill::ACTIVE))
         })
         .cursor_pointer()
         .font_family(crate::theme::FONT)
@@ -60,7 +62,6 @@ pub(super) fn white_button(id: &'static str) -> Stateful<Div> {
 
 const WHITE_BUTTON: f32 = 48.;
 
-/// The button, in the dark or light form the launcher's look calls for.
 pub(super) fn sign_in_button(id: &'static str, t: &Theme) -> Stateful<Div> {
     use eclipse_theme::glass::space;
     let (fill, ink, border) = if t.dark {

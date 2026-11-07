@@ -1,7 +1,7 @@
 use super::{
-    hover_is, hoverable, icon, press_text, tip, tip_on_focus, white, Hover, IconSize, TipSide,
+    hover_is, hoverable, icon, ink, press_text, tip, tip_on_focus, Hover, IconSize, TipSide,
 };
-use eclipse_theme::glass::{ink, radius, space};
+use eclipse_theme::glass::{radius, space};
 use gpui::{prelude::*, px, Div, Role, SharedString, Stateful};
 
 const NAV_ROW_LIST: f32 = 32.;
@@ -65,7 +65,7 @@ pub fn nav_row(
         .h(px(density.height()))
         .px(px(density.gap()))
         .cursor_pointer()
-        .text_color(white(tone))
+        .text_color(ink(tone))
         .child(icon(icon_name, IconSize::Px16, super::icon_tone(current)).relative())
         .child(
             press_text()

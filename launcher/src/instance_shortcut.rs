@@ -1,5 +1,5 @@
-//! The Instance row's desktop shortcut (`eclipse_launcher::shortcut`): make one that plays the
-//! selected instance, or take it away.
+//! A sidebar row's desktop shortcut (`eclipse_launcher::shortcut`): make one that plays its
+//! instance, or take it away.
 use crate::Launcher;
 use eclipse_launcher::i18n::trf;
 use eclipse_launcher::{backend, shortcut};

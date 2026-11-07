@@ -77,7 +77,6 @@ pub(crate) fn quote(path: &Path) -> String {
     out
 }
 
-/// The launcher's entry, starting the binary at `exe`.
 fn launcher_entry(exe: &Path) -> String {
     format!(
         "[Desktop Entry]\n\
@@ -97,7 +96,6 @@ fn launcher_entry(exe: &Path) -> String {
     )
 }
 
-/// Every file this module writes, with its contents, under `data`.
 fn files(data: &Path, exe: &Path) -> Vec<(PathBuf, Vec<u8>)> {
     let mut out = vec![
         (

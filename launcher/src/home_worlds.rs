@@ -1,10 +1,8 @@
-//! Home's Worlds tab: one row per world. A world's row plays it, its size turning into "Play →"
-//! under the pointer (or why it can't); its ⋯ menu holds what the launcher does besides (back up,
-//! duplicate, data packs, folder, delete). Deleting asks first, in place.
+//! Home's Worlds tab: one row per world, which plays it.
 use crate::game_run::QuickPlay;
 use crate::home_worlds_state::Action;
 use crate::menus::{Asking, Menu};
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{dates, megabytes, Launcher};
 use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::worlds::{self, World};
@@ -155,7 +153,7 @@ impl Launcher {
                 .child(ui::icon(
                     "arrow-right-01",
                     ui::IconSize::Px16,
-                    white(ink::FULL),
+                    ink(ink::FULL),
                 ))
         } else {
             ui::card_note(megabytes(w.size))
@@ -183,8 +181,6 @@ impl Launcher {
         )
     }
 
-    /// A world's ⋯ menu: Back up world, Duplicate world, its data packs, Open world folder, then
-    /// Delete… (then asked to confirm).
     fn world_menu(&mut self, w: &World, cx: &mut Context<Self>) -> Stateful<Div> {
         let confirming = self.is_asking(&Asking::WorldDelete(w.folder.clone()));
         let act = |this: &mut Self, action: Action, w: &World, cx: &mut Context<Self>| {

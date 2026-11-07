@@ -1,15 +1,13 @@
 //! Window chrome: Windows and Linux client-side decorations are custom drawn; macOS and Linux
 //! server-side decorations use the platform's native chrome.
 use crate::theme::Theme;
-use crate::ui::{self, white};
+use crate::ui::{self, ink};
 use eclipse_launcher::backend::Appearance;
 use eclipse_theme::glass::{ink, space};
 use gpui::{Div, ParentElement, Styled, TitlebarOptions, Window};
 
 fn wordmark() -> Div {
-    ui::press_text()
-        .text_color(white(ink::FULL))
-        .child("Eclipse")
+    ui::press_text().text_color(ink(ink::FULL)).child("Eclipse")
 }
 
 const BAR_HEIGHT: f32 = 32.;
@@ -32,7 +30,7 @@ fn bar(theme: &Theme) -> Div {
         .items_center()
         .h(px(BAR_HEIGHT))
         .bg(theme.side)
-        .text_color(white(ink::MUTED))
+        .text_color(ink(ink::MUTED))
         .border_b_1()
         .border_color(gpui::transparent_black())
 }
@@ -123,9 +121,9 @@ fn control_face(control: Control, maximized: bool) -> gpui::Stateful<Div> {
     let hovered = ui::hover_is(&id);
     let (hover, color) = match control {
         Control::Close if hovered => (ui::Hover::Danger, ui::danger()),
-        Control::Close => (ui::Hover::Danger, white(ink::BODY)),
-        _ if hovered => (ui::Hover::Bare, white(ink::FULL)),
-        _ => (ui::Hover::Bare, white(ink::BODY)),
+        Control::Close => (ui::Hover::Danger, ink(ink::BODY)),
+        _ if hovered => (ui::Hover::Bare, ink(ink::FULL)),
+        _ => (ui::Hover::Bare, ink(ink::BODY)),
     };
     ui::hoverable(id, 0., hover)
         .flex()

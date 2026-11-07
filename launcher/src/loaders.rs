@@ -16,7 +16,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{json, Value};
 use std::path::Path;
 
-/// A mod loader.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Kind {
@@ -138,7 +137,6 @@ fn parse_versions(text: &str) -> Result<Vec<Listed>, String> {
     Ok(listed)
 }
 
-/// `kind`'s versions for `minecraft`.
 pub fn versions(kind: Kind, minecraft: &str, fetch: Fetch) -> Result<Vec<Listed>, String> {
     let listed = match kind {
         Kind::Forge | Kind::NeoForge => forge::versions(kind, minecraft, fetch)?,

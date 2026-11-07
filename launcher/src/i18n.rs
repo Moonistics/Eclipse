@@ -38,7 +38,6 @@ macro_rules! languages {
                 }
             }
 
-            /// The table, as shipped: English text to this language's.
             fn source(self) -> &'static str {
                 match self {
                     Self::English => "{}",
@@ -175,7 +174,6 @@ impl Language {
             .unwrap_or_default()
     }
 
-    /// The system's language, as far as the launcher has it.
     pub fn system() -> Self {
         let locales: Vec<String> = sys_locale::get_locales().collect();
         Self::pick(locales.iter().map(String::as_str))
@@ -184,7 +182,6 @@ impl Language {
 
 static CURRENT: AtomicU8 = AtomicU8::new(0);
 
-/// Shows the launcher in `language` from now on.
 pub fn set(language: Language) {
     let i = Language::ALL
         .iter()
@@ -225,7 +222,6 @@ fn tr_in(language: Language, en: &str) -> &str {
     table(language).get(en).copied().unwrap_or(en)
 }
 
-/// `en` in the launcher's language.
 pub fn tr(en: &str) -> &str {
     tr_in(current(), en)
 }

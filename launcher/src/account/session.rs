@@ -1,5 +1,5 @@
-//! Launcher-owned authentication operations. UI, CLI and a future game bridge receive only
-//! public status; credentials stay behind SecretStore and the existing session-file handoff.
+//! Launcher-owned authentication operations. Callers receive only public status; credentials
+//! stay behind SecretStore and the session-file handoff.
 use super::*;
 use std::fs::{File, OpenOptions};
 use std::sync::MutexGuard;
@@ -125,7 +125,6 @@ pub(super) fn lock_within(
     within: Option<Duration>,
 ) -> Result<Operation<'_>, String> {
     let deadline = within.map(|d| Instant::now() + d);
-    // Waits for `take` to stop answering None (busy), or until the deadline.
     let wait = |take: &mut dyn FnMut() -> Result<Option<()>, String>| loop {
         match take()? {
             Some(()) => return Ok(()),
@@ -220,8 +219,7 @@ fn status_within(
 }
 
 /// Force a renewal even when the access token is fresh. Does not select an account, change
-/// the public account list, or return a token. A future IPC handler can call this same API,
-/// then use write_session_file for an explicit game-session handoff.
+/// the public account list, or return a token.
 pub fn refresh(who: &str) -> Result<Status, String> {
     refresh_with_progress(who, &|_| {})
 }

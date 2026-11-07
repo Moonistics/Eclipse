@@ -1,9 +1,8 @@
-//! Everything that is not UI: GitHub, installs, resource preparation, the game's processes and
-//! updates. The GUI, the CLI and the MCP server all go through this module. Functions here
-//! block; the GUI runs them on threads and reads their messages.
+//! Eclipse versions and the game: GitHub releases, installs, resource preparation, the game's
+//! processes, settings and the launcher's own updates. Functions here block; the window runs
+//! them on threads and reads their messages.
 
 pub const REPO: &str = "Moonistics/Eclipse";
-/// The page on connecting an AI agent.
 pub const AGENT_DOCS_URL: &str =
     "https://github.com/Moonistics/Eclipse/blob/main/docs/agent-control.md";
 /// This launcher's version: the release workflow sets `ECLIPSE_LAUNCHER_VERSION` from the

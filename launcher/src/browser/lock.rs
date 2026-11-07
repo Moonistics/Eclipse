@@ -3,7 +3,7 @@
 //! interleave, overwrite `mod-browser.json` with a stale snapshot, or clobber each other.
 //!
 //! Locks are re-entrant on the current thread for the same game home, so nested operations
-//! (e.g. `auto::run` -> `update` -> `install_version_guarded` -> `Installed::save`) proceed
+//! (e.g. `auto::run` -> `update` -> `install_version` -> `Installed::save`) proceed
 //! without deadlocking.
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
@@ -27,7 +27,6 @@ fn registry() -> &'static Registry {
     REGISTRY.get_or_init(Registry::default)
 }
 
-/// Normalizes a game home folder to a uniform canonical representation for keyed locking.
 fn normalize_home(path: &Path) -> PathBuf {
     let p = if let Ok(c) = path.canonicalize() {
         c

@@ -56,7 +56,6 @@ pub use target::Target;
 
 const PREFIX: &str = "native-";
 
-/// Whether an installed version is a native-mods build.
 pub fn is_native(version: &str) -> bool {
     version.starts_with(PREFIX)
 }

@@ -45,7 +45,6 @@ pub struct Linked {
     pub file: FileRef,
 }
 
-/// What an export wrote.
 #[derive(Debug, PartialEq)]
 pub struct Exported {
     pub path: PathBuf,

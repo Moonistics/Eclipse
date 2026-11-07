@@ -1,6 +1,6 @@
 /// The release assets of each system Eclipse ships for: (OS, architecture, the game, the launcher).
 /// game-build.yml builds the game's, nightly-build.yml signs and publishes them, and launcher.yml
-/// builds the launcher's (`platform_assets_are_published`).
+/// builds the launcher's.
 pub(super) const PLATFORMS: [(&str, &str, &str, &str); 5] = [
     (
         "linux",
@@ -50,7 +50,6 @@ pub(super) const fn same(a: &str, b: &str) -> bool {
     true
 }
 
-/// This system's entry of `PLATFORMS`: the game's asset and the launcher's.
 pub(super) const fn platform_assets(os: &str, arch: &str) -> Option<(&'static str, &'static str)> {
     let mut i = 0;
     while i < PLATFORMS.len() {

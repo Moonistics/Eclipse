@@ -1,9 +1,8 @@
-//! Home's Mods tab: one row per mod, its icon, name and "version · source". The filter, Update
-//! all and Find mods sit in the head, a mod's update, its on/off switch and Remove… at the row's end.
+//! Home's Mods tab: one row per mod of the selected instance.
 use crate::fields::Field;
 use crate::menus::Asking;
 use crate::mod_rows::ModRow;
-use crate::ui::{self, white, ButtonKind, Press};
+use crate::ui::{self, ink, ButtonKind, Press};
 use crate::{layout, mods_state, Launcher};
 use eclipse_launcher::browser::{self, java_instance, Kind as PackKind};
 use eclipse_launcher::i18n::{tr, trf};
@@ -13,7 +12,6 @@ use gpui::prelude::*;
 use gpui::{div, px, ClickEvent, Div, SharedString, Stateful};
 
 impl Launcher {
-    /// Home's Mods tab, for the selected instance.
     pub(super) fn mods_tab(&mut self, cx: &mut Context<Self>) -> Div {
         let busy = self.mods.busy.is_some();
         let updates = self.mods.updates.len();
@@ -203,7 +201,7 @@ impl Launcher {
             .child(icon)
             .child(ui::item_text(row.name.clone(), note))
             .child(controls.relative().flex().flex_none().items_center())
-            .text_color(white(ink::FULL))
+            .text_color(ink(ink::FULL))
     }
 
     fn mod_asked(&self, row: &ModRow) -> Asking {

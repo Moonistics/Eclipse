@@ -15,7 +15,6 @@ pub(super) type Preview = Option<Arc<RenderImage>>;
 
 #[derive(Default)]
 pub(super) struct SkinPanel {
-    /// The offline name it is for.
     pub(super) name: String,
     /// The two previews, baked at the window's scale (skin, cape), or None without one.
     seen: Option<(f32, Preview, Preview)>,

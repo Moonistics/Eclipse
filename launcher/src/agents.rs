@@ -12,16 +12,13 @@ pub struct Client {
     /// `claude-code`, `codex`, `cursor` or `generic`.
     pub id: &'static str,
     pub name: &'static str,
-    /// Where its configuration lives.
     pub file: &'static str,
-    /// What goes in that file.
     pub config: String,
     /// The client's own command that adds the server, when it has a CLI: (program, arguments).
     pub add: Option<(&'static str, Vec<String>)>,
 }
 
 impl Client {
-    /// The add command as a shell line, to show and to copy.
     pub fn add_line(&self) -> Option<String> {
         self.add
             .as_ref()
@@ -40,7 +37,6 @@ fn toml_string(s: &str) -> String {
     format!("\"{}\"", s.replace('\\', "\\\\").replace('"', "\\\""))
 }
 
-/// The clients, for the launcher at `exe`.
 pub fn clients(exe: &Path) -> Vec<Client> {
     let exe_text = exe.display().to_string();
     let add = |args: &[&str]| -> Vec<String> {
@@ -153,7 +149,6 @@ pub fn self_test(exe: &Path) -> Result<usize, String> {
         .ok_or_else(|| "The MCP server did not list its tools.".into())
 }
 
-/// `program args...` quoted for a POSIX shell where a word needs it.
 fn shell_line(program: &str, args: &[String]) -> String {
     let quote = |w: &str| {
         if !w.is_empty()

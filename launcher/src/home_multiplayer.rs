@@ -1,5 +1,4 @@
-//! Home's Multiplayer tab: one row per server, with Join, and Remove under the pointer. Removing
-//! asks first, in place.
+//! Home's Multiplayer tab: the selected instance's saved servers.
 use crate::game_run::QuickPlay;
 use crate::menus::Asking;
 use crate::ui::{self, ButtonKind, Press};
@@ -10,8 +9,6 @@ use gpui::prelude::*;
 use gpui::{div, px, ClickEvent, Div, SharedString, Stateful};
 
 impl Launcher {
-    /// Home's Multiplayer tab: the selected instance's saved servers (the game's own list), and
-    /// a line to add one.
     pub(super) fn multiplayer_tab(&mut self, cx: &mut Context<Self>) -> Option<Div> {
         let home = self.selected_instance()?.home.clone();
         self.load_servers(&home, cx);
@@ -240,7 +237,6 @@ impl Launcher {
     }
 }
 
-/// Add server: opens or closes the line to add one, its address field focused.
 fn toggle_add(cx: &mut Context<Launcher>) -> ui::Listener<ClickEvent> {
     Box::new(cx.listener(|this, _: &ClickEvent, _, cx| {
         this.multiplayer.adding = !this.multiplayer.adding;

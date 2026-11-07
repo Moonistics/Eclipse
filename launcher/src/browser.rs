@@ -25,7 +25,6 @@ use serde::{Deserialize, Serialize};
 /// `crates/eclipse-core/src/version.rs` moves it with everything else (docs/version-ports.md).
 pub const GAME: &str = eclipse_core::version::VERSION_ID;
 
-/// What a project is, as far as Eclipse is concerned.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum Kind {
@@ -87,7 +86,6 @@ impl Kind {
     }
 }
 
-/// Where a project comes from.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum SourceId {
@@ -117,7 +115,6 @@ impl SourceId {
     }
 }
 
-/// How well a project runs in Eclipse.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Support {
     /// Made for the version Eclipse plays, and Eclipse reads everything it uses.
@@ -214,7 +211,6 @@ impl FileRef {
     }
 }
 
-/// A version of a project: its files and what it needs.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Version {
     pub id: String,
@@ -230,7 +226,6 @@ pub struct Version {
 }
 
 impl Version {
-    /// The file to install: the primary one, else the first.
     pub fn file(&self) -> Option<&FileRef> {
         self.files
             .iter()
@@ -239,7 +234,6 @@ impl Version {
     }
 }
 
-/// A search.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Query {
     pub text: String,
@@ -265,7 +259,6 @@ impl Query {
     }
 }
 
-/// A place projects come from.
 pub trait Source: Send + Sync {
     fn id(&self) -> SourceId;
     fn search(&self, query: &Query) -> Result<Vec<Project>, String>;
@@ -305,12 +298,10 @@ pub fn sources() -> Vec<Box<dyn Source>> {
     vec![Box::new(modrinth::Modrinth), Box::new(eclipse::Registry)]
 }
 
-/// The source of that id, when this launcher can use it.
 pub fn source(id: SourceId) -> Option<Box<dyn Source>> {
     sources().into_iter().find(|s| s.id() == id)
 }
 
-/// How well a project of `kind` made for `game_versions` and `loaders` runs in Eclipse.
 pub fn support(kind: Kind, game_versions: &[String], loaders: &[String]) -> Support {
     if loaders.iter().any(|l| l == eclipse::LOADER) {
         return match newest_release(game_versions)

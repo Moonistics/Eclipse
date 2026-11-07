@@ -203,10 +203,10 @@ fn checked_path(path: &Path) -> Result<PathBuf> {
     Ok(crate::files::plain(current))
 }
 
-/// The pointer and its lock sit in the platform config folder, which may be a link (a
-/// dotfiles-managed `~/.config`, Silverblue's `/home`): unlike the data roots, they are never
-/// copied, so a link on the way is followed, not refused. Refusing it would report a broken
-/// data folder at every start to players who never moved their data.
+/// The pointer sits in the platform config folder, which may be a link (a dotfiles-managed
+/// `~/.config`, Silverblue's `/home`): unlike the data roots ([`checked_path`]), a link on the
+/// way is followed, not refused. Refusing it would report a broken data folder at every start
+/// to players who never moved their data.
 fn pointer_path(path: &Path) -> Result<PathBuf> {
     if !path.is_absolute() || path.components().any(|c| matches!(c, Component::ParentDir)) {
         return Err(format!(

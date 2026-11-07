@@ -177,7 +177,6 @@ struct Launcher {
     skin: Option<settings_skin::SkinPanel>,
     /// Why the last picture for Home's background was refused.
     background_error: Option<String>,
-    /// The data folder's startup problem.
     location_error: Option<String>,
     settings: Settings,
     settings_seen: serde_json::Value,
@@ -247,7 +246,7 @@ struct Launcher {
     /// The Mods page: the browser's search, installs and updates (`mods_state.rs`).
     mods: mods_state::Mods,
     github: mods_github::Github,
-    /// The instances, for the sidebar and Play, and their dialog (`instance_state.rs`).
+    /// The instances, for the sidebar and Play, and the New instance page (`instance_state.rs`).
     instances: instance_state::Instances,
     /// Home's Worlds section, of the selected instance (`home_worlds_state.rs`).
     worlds: home_worlds_state::Worlds,
@@ -266,7 +265,7 @@ struct Launcher {
     console: home_console::Console,
     /// What the window did when the game started (`window_aside.rs`).
     aside: window_aside::Aside,
-    /// The selected instance's desktop shortcut (`instance_shortcut.rs`).
+    /// The desktop shortcuts a sidebar row's menu makes (`instance_shortcut.rs`).
     shortcuts: instance_shortcut::Shortcuts,
     /// The name the game made up for an offline player (`eclipse-player.txt`), for the sidebar's
     /// account chip.
@@ -614,8 +613,6 @@ impl Launcher {
     }
 }
 
-// ----- Building blocks ---------------------------------------------------------------------------
-
 /// The name the game made up for a player without an account, once it has run.
 fn offline_name() -> Option<String> {
     eclipse_launcher::game_folder::player_name(&backend::game_home())
@@ -778,7 +775,7 @@ impl Launcher {
             .flex_col()
             .size_full()
             .font_family(theme::FONT)
-            .text_color(ui::white(eclipse_theme::glass::ink::FULL))
+            .text_color(ui::ink(eclipse_theme::glass::ink::FULL))
             .overflow_hidden()
             .child(
                 div()

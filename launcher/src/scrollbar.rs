@@ -79,7 +79,7 @@ impl Scrollbar {
         };
         let (track_color, held_color) = (
             gpui::transparent_black(),
-            crate::ui::white(eclipse_theme::glass::ink::FULL),
+            crate::ui::ink(eclipse_theme::glass::ink::FULL),
         );
         div()
             .relative()

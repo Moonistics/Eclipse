@@ -28,7 +28,6 @@ impl std::fmt::Debug for Player {
     }
 }
 
-/// Everything the command needs besides the version JSON.
 pub struct Launch<'a> {
     /// Holds `versions/`, `libraries/`, `assets/`.
     pub minecraft: &'a Path,
@@ -36,10 +35,8 @@ pub struct Launch<'a> {
     pub game_dir: &'a Path,
     /// Where an old version's natives are unpacked.
     pub natives: &'a Path,
-    /// The `java` program.
     pub java: &'a Path,
     pub memory_mb: u32,
-    /// The player's own JVM arguments.
     pub jvm_args: &'a [String],
     pub player: &'a Player,
     /// `osx`, `linux` or `windows`, as version files name systems.
@@ -77,7 +74,6 @@ fn host_and_port(address: &str) -> (&str, u16) {
     }
 }
 
-/// Whether one of `args`' rules asks for `feature`.
 fn mentions(args: &Value, feature: &str) -> bool {
     args.as_array().into_iter().flatten().any(|a| {
         a["rules"]
@@ -125,7 +121,6 @@ pub(crate) fn allowed(rules: &Value, os: &str, on: &[&str]) -> bool {
     allow
 }
 
-/// A version file.
 pub fn read(path: &Path) -> Result<Value, String> {
     fs::read_to_string(path)
         .map_err(|e| e.to_string())

@@ -97,7 +97,6 @@ struct Built {
     plan: Plan,
     /// The profile it compiled with: the chosen one, unless the source has no `[profile.fast]`.
     profile: Profile,
-    /// How long the whole build took.
     secs: u64,
     /// The mods turned on that it was built without.
     left_out: Vec<LeftOut>,

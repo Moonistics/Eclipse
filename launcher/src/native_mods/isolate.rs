@@ -7,7 +7,6 @@ use super::mixins::Diagnostic;
 use crate::i18n::trf;
 use std::collections::BTreeSet;
 
-/// Why a mod was left out of a build.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Why {
     /// It doesn't apply to, or compile on, the Eclipse the build uses.

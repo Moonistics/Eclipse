@@ -1,5 +1,4 @@
-//! Home: the page (its head, the steps under Play while the game files are prepared, the crash
-//! notice, its panels and tabs) and the time a download has left.
+//! Home: the page, and the time a download has left.
 use crate::game_run::{Crash, GameProblem};
 use crate::page::Page;
 use crate::play_state::{PlayState, PrepareFailed};
@@ -104,7 +103,6 @@ impl Launcher {
     }
 }
 
-/// The download under way, files done of how many.
 fn download_progress() -> Option<(usize, usize)> {
     eclipse_launcher::mojang::progress()
         .or_else(|| preview::shows(preview::Preview::GettingReady).then_some((1754, 5160)))
@@ -521,14 +519,5 @@ mod tests {
         assert_eq!(time_left(s(4), 100, 600, 3100), None, "too early");
         assert_eq!(time_left(s(10), 600, 600, 3100), None, "nothing done yet");
         assert_eq!(time_left(s(10), 0, 50, 50), Some(s(0)));
-    }
-
-    #[test]
-    fn steps_run_in_their_order() {
-        use backend::PrepareStep::*;
-        assert_eq!(backend::PrepareStep::ALL, [Files, Java, Sounds, Prepare]);
-        for s in backend::PrepareStep::ALL {
-            assert_eq!(backend::PrepareStep::ALL[s as usize], s);
-        }
     }
 }

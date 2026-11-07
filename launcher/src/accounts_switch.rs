@@ -91,7 +91,6 @@ impl Launcher {
         done.is_ok()
     }
 
-    /// Everyone the player can play as, with how each signs in.
     pub(super) fn players(&self) -> Vec<(Player, String, &'static str)> {
         let mut out: Vec<_> = (self.accounts.accounts.iter())
             .map(|a| (Player::Microsoft(a.uuid.clone()), a.name.clone()))
@@ -117,7 +116,6 @@ impl Launcher {
         }
     }
 
-    /// Forgets an offline name and its skin.
     pub(super) fn forget_offline(&mut self, name: &str) {
         let skins = eclipse_launcher::skins::dir();
         if let Err(e) = self.change_accounts(|a| a.remove_offline(name, &skins)) {

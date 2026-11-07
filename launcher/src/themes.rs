@@ -116,7 +116,6 @@ impl Accent {
         self.named().map(|n| n.2)
     }
 
-    /// Any hue the player picks.
     pub fn custom(hue: f32) -> Self {
         Self {
             hue: Some(hue.rem_euclid(360.)),

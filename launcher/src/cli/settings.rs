@@ -256,7 +256,6 @@ pub(super) fn set_setting(s: &mut backend::Settings, key: &str, value: &str) -> 
     }
 }
 
-/// Every launcher setting, as `settings` shows them.
 fn settings_json(s: &backend::Settings) -> Value {
     Value::Object(
         KEYS.iter()

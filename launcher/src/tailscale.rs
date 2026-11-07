@@ -196,8 +196,6 @@ pub fn open_app() -> Result<(), String> {
     }
 }
 
-// ----- The API --------------------------------------------------------------------------------------
-
 /// An invitation to use this computer, as the API lists it.
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Invite {
@@ -306,7 +304,6 @@ impl Api {
         }
     }
 
-    /// The invitations to this computer.
     pub fn invites(&self, device: &str) -> Result<Vec<Invite>, String> {
         let (v, _) = self.send(
             "GET",
@@ -364,8 +361,6 @@ impl Api {
             .map(|_| ())
     }
 }
-
-// ----- Limiting what shared friends reach -------------------------------------------------------------
 
 /// What the tailnet's access controls let shared friends reach.
 #[derive(Clone, Copy, Debug, PartialEq)]

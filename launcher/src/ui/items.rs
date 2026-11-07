@@ -1,9 +1,9 @@
 use super::{
-    color, copy_details, danger, disabled, dot, edge, hoverable, icon, light, look, row_fill,
-    starts_menu, text, warn, white, ButtonSize, Hover, IconSize, Tone, TILE_MD, TILE_SM,
+    color, copy_details, danger, disabled, dot, edge, hoverable, icon, ink, light, look, row_fill,
+    starts_menu, text, warn, ButtonSize, Hover, IconSize, Tone, TILE_MD, TILE_SM,
 };
 use eclipse_theme::glass::{
-    fill, ink, radius, space, step, ON_LIGHT, PAPER, SELECTED_EDGE, SELECTED_EDGE_LIGHT,
+    fill, radius, space, step, ON_LIGHT, PAPER, SELECTED_EDGE, SELECTED_EDGE_LIGHT,
 };
 use gpui::{
     div, point, prelude::*, px, AnyElement, BoxShadow, Div, ExternalPaths, FontWeight, ImageSource,
@@ -34,7 +34,7 @@ pub fn selected(d: Stateful<Div>, on: bool) -> Stateful<Div> {
     d.rounded(px(radius::ROW))
         .border(px(ROW_EDGE))
         .when(on, |d| {
-            d.bg(white(fill::SELECTED)).border_color(selected_edge())
+            d.bg(ink(fill::SELECTED)).border_color(selected_edge())
         })
         .when(!on, |d| d.border_color(gpui::transparent_black()))
 }
@@ -225,7 +225,7 @@ pub fn state_note(tone: Tone, state: impl Into<SharedString>) -> Div {
 pub fn state_title(tone: Tone, state: impl Into<SharedString>) -> Div {
     let tint = match tone {
         Tone::Live | Tone::Warn => super::tone_colour(tone),
-        _ => white(ink::DIM),
+        _ => ink(ink::DIM),
     };
     text(step::BODY, FontWeight::MEDIUM, ink::FULL)
         .text_color(tint)
@@ -237,7 +237,7 @@ pub fn row_picture(image: Option<ImageSource>, fallback: &'static str) -> AnyEle
         Some(image) => super::image_tile(image, TILE_MD),
         None => super::tile(TILE_MD)
             .relative()
-            .child(icon(fallback, IconSize::Px16, white(ink::MUTED)))
+            .child(icon(fallback, IconSize::Px16, ink(ink::MUTED)))
             .into_any_element(),
     }
 }
@@ -250,7 +250,7 @@ pub fn chip(
 ) -> Stateful<Div> {
     selected(
         chip_body(hoverable(id, radius::ROW, Hover::Row), face, name)
-            .when(!on, |d| d.bg(white(fill::HOVER)).cursor_pointer()),
+            .when(!on, |d| d.bg(ink(fill::HOVER)).cursor_pointer()),
         on,
     )
 }
@@ -277,7 +277,7 @@ pub fn filter_chip(
             .px(px(space::MD))
             .bg(super::secondary_fill())
             .cursor_pointer()
-            .text_color(white(tone))
+            .text_color(ink(tone))
             .children(on.then(tick))
             .child(super::press_text().relative().child(label)),
         on,
@@ -289,7 +289,7 @@ pub fn filter_chip(
 pub fn person_chip(face: impl IntoElement, name: impl Into<SharedString>) -> Div {
     chip_body(div(), face, name)
         .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
+        .bg(ink(fill::HOVER))
 }
 
 fn chip_body<E: Styled + ParentElement>(
@@ -316,7 +316,7 @@ pub(super) const CHIP: f32 = 44.;
 pub const CHIP_FACE: f32 = TILE_SM;
 
 pub fn drop_target(el: Stateful<Div>) -> Stateful<Div> {
-    el.drag_over::<ExternalPaths>(|s, _, _, _| s.bg(white(fill::SELECTED)))
+    el.drag_over::<ExternalPaths>(|s, _, _, _| s.bg(ink(fill::SELECTED)))
 }
 
 /// A list row, faintly filled under the pointer (`hover_within` tells a row's own code, for
@@ -366,7 +366,7 @@ fn menu_row_in(
         let c = self::danger();
         (c, c, Hover::Danger)
     } else {
-        (white(ink::FULL), white(ink::MUTED), Hover::Row)
+        (ink(ink::FULL), ink(ink::MUTED), Hover::Row)
     };
     hoverable(id, radius::CONTROL, hover)
         .role(Role::MenuItem)
@@ -580,7 +580,7 @@ pub fn notice_line(tone: Tone, text: impl Into<SharedString>) -> Div {
         .px(px(NOTICE_PAD.0))
         .py(px(NOTICE_PAD.1))
         .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
+        .bg(ink(fill::HOVER))
         .child(dot(tone))
         .child(
             self::text(step::BODY, FontWeight::NORMAL, ink::FULL)
@@ -605,8 +605,8 @@ pub fn notice(
 ) -> Div {
     let (plate, mark) = match kind {
         Notice::Warn => (warn().opacity(fill::DANGER), warn()),
-        Notice::Info => (white(fill::HOVER), white(ink::BODY)),
-        Notice::InCard => (gpui::transparent_black(), white(ink::BODY)),
+        Notice::Info => (ink(fill::HOVER), ink(ink::BODY)),
+        Notice::InCard => (gpui::transparent_black(), ink(ink::BODY)),
     };
     div()
         .relative()
@@ -687,7 +687,7 @@ pub fn error_line(said: impl Into<SharedString>, actions: Vec<AnyElement>) -> Di
         .px(px(NOTICE_PAD.0))
         .py(px(NOTICE_PAD.1))
         .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
+        .bg(ink(fill::HOVER))
         .child(error_note(said).flex_1().min_w_0())
         .when(!actions.is_empty(), |d| {
             d.child(
@@ -721,7 +721,7 @@ pub fn error_line_for(
         .px(px(NOTICE_PAD.0))
         .py(px(NOTICE_PAD.1))
         .rounded(px(radius::ROW))
-        .bg(white(fill::HOVER))
+        .bg(ink(fill::HOVER))
         .child(
             div()
                 .flex()

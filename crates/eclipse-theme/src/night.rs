@@ -1,7 +1,8 @@
-//! The launcher's night look ("Night" in `docs/design-system.md`): a pixel night sky that turns to
-//! a sunset at the bottom, plates over it only where text needs them, one violet for the main
-//! action, focus and progress, and Bricolage Grotesque (SIL OFL 1.1, `fonts/OFL-BricolageGrotesque.txt`).
-//! Light players get the same look at dawn ([`DAWN`]). The game's menus don't use it.
+//! The night scene's colours ("Night" in `docs/design-system.md`): [`NIGHT`] in the dark
+//! appearance, [`DAWN`] in the light one. The launcher paints its scene from the sky and takes the
+//! page and sidebar colours; the plates, strokes, the violet accent, the type steps and Bricolage
+//! Grotesque (SIL OFL 1.1, `fonts/OFL-BricolageGrotesque.txt`) reach the website's pages that wear
+//! the night through `tokens.css`. The game's menus don't use it.
 use crate::{step, Step, Web};
 
 /// The UI family (optical size 14: Regular, Medium, SemiBold, Bold) and the display family

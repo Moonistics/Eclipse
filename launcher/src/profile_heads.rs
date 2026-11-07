@@ -171,7 +171,7 @@ fn face_tile(head: Option<&Head>, size: f32, scale: f32) -> Div {
         .flex_none()
         .size(px(size))
         .overflow_hidden()
-        .bg(ui::white(fill::BUTTON))
+        .bg(ui::ink(fill::BUTTON))
         .flex()
         .items_center()
         .justify_center();
@@ -182,7 +182,7 @@ fn face_tile(head: Option<&Head>, size: f32, scale: f32) -> Div {
     };
     match image {
         Some(image) => d.child(img(image).size(px(size))),
-        None => d.child(ui::icon("user", placeholder, ui::white(ink::MUTED))),
+        None => d.child(ui::icon("user", placeholder, ui::ink(ink::MUTED))),
     }
 }
 
@@ -193,40 +193,38 @@ mod tests {
     #[test]
     fn stale_skin_results_are_ignored_and_scaled_images_are_reused() {
         let mut heads = Heads::default();
-        let current = Some("current-skin".to_string());
-        heads.accounts.insert(
-            "player".into(),
-            Head {
-                version: current.clone(),
-                pending: true,
-                face: None,
-                retry_at: None,
-                images: RefCell::default(),
-            },
+        let (tx, _rx) = std::sync::mpsc::channel();
+        heads.request(
+            &[],
+            &["HeadsTest".into()],
+            PathBuf::from("no-resources"),
+            &tx,
         );
+        let player = eclipse_launcher::heads::offline_key("HeadsTest");
+        let current = None;
         heads.loaded(
-            "player",
+            &player,
             &Some("old-skin".into()),
             Some(vec![[255, 0, 0, 255]; 64]),
             false,
         );
-        assert!(heads.accounts["player"].face.is_none());
-        heads.loaded("player", &current, Some(vec![[0, 0, 255, 255]; 64]), true);
+        assert!(heads.accounts[&player].face.is_none());
+        heads.loaded(&player, &current, Some(vec![[0, 0, 255, 255]; 64]), true);
         assert!(
-            heads.accounts["player"].retry_at.is_some(),
+            heads.accounts[&player].retry_at.is_some(),
             "a fallback face is fetched again later"
         );
-        heads.loaded("player", &current, Some(vec![[0, 255, 0, 255]; 64]), false);
-        assert!(heads.accounts["player"].retry_at.is_none());
-        let _ = heads.draw(Some("player"), 32., 2.);
+        heads.loaded(&player, &current, Some(vec![[0, 255, 0, 255]; 64]), false);
+        assert!(heads.accounts[&player].retry_at.is_none());
+        let _ = heads.draw(Some(&player), 32., 2.);
         let key = (32f32.to_bits(), 2f32.to_bits());
-        let image = heads.accounts["player"].images.borrow()[&key].clone();
+        let image = heads.accounts[&player].images.borrow()[&key].clone();
         assert_eq!(image.size(0).width.0, 64);
         assert_eq!(image.size(0).height.0, 64);
-        let _ = heads.draw(Some("player"), 32., 2.);
+        let _ = heads.draw(Some(&player), 32., 2.);
         assert!(Arc::ptr_eq(
             &image,
-            &heads.accounts["player"].images.borrow()[&key]
+            &heads.accounts[&player].images.borrow()[&key]
         ));
     }
 }

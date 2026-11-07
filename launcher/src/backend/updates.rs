@@ -72,7 +72,6 @@ pub(super) fn releases_and_updates_with(
     })
 }
 
-/// A fresh release-list request for both kinds of update (plus older-launcher fallback if needed).
 pub fn check_updates() -> Result<Updates, String> {
     releases_and_updates(|_| {})
 }

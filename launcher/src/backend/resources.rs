@@ -15,7 +15,6 @@ pub(super) fn resources_at(dir: &Path) -> PathBuf {
     resources_in(dir, &game_version_at(dir))
 }
 
-/// The resources of the version folder `dir` for Minecraft `game_version`.
 pub(crate) fn resources_in(dir: &Path, game_version: &str) -> PathBuf {
     dir.join(".local/eclipse-client").join(game_version)
 }
@@ -203,7 +202,6 @@ fn same_preparer(from: &Path, to: &Path, manifest: &serde_json::Value) -> bool {
 /// Where a version folder keeps the preparer's sources (the release package copies them).
 pub(super) const PREPARER_CRATE: &str = "crates/eclipse-prepare";
 
-/// The files under `dir/relative`, as paths relative to `dir`.
 fn files_under(dir: &Path, relative: &Path) -> Vec<PathBuf> {
     let Ok(entries) = fs::read_dir(dir.join(relative)) else {
         return Vec::new();

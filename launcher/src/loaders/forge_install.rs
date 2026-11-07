@@ -32,7 +32,6 @@ pub(super) fn maven_version(kind: Kind, minecraft: &str, version: &str) -> Strin
     }
 }
 
-/// An installer, opened.
 struct Installer {
     path: PathBuf,
     zip: zip::ZipArchive<fs::File>,
@@ -204,7 +203,6 @@ fn data(
     Ok(data)
 }
 
-/// The `Main-Class` a jar's manifest names.
 fn main_class(jar: &Path) -> Result<String, String> {
     let file = fs::File::open(jar).map_err(|e| format!("{}: {e}", jar.display()))?;
     let mut zip = zip::ZipArchive::new(file).map_err(|e| format!("{}: {e}", jar.display()))?;
@@ -276,7 +274,6 @@ fn steps(profile: &Value, data: &HashMap<String, String>, dir: &Path) -> Result<
     Ok(steps)
 }
 
-/// Runs the client's processors on `java`.
 fn run_processors(
     profile: &Value,
     data: &HashMap<String, String>,

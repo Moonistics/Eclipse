@@ -8,7 +8,6 @@ const SITE: &str = "https://modrinth.com";
 
 pub struct Modrinth;
 
-/// Modrinth's project type for a kind.
 fn project_type(kind: Kind) -> &'static str {
     match kind {
         Kind::ResourcePack => "resourcepack",

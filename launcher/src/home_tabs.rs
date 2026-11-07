@@ -1,7 +1,4 @@
-//! The selected instance's tabs under Home's head: its mods, worlds, servers, packs, screenshots,
-//! once the game has said something its console, and last the patch notes of the Eclipse version
-//! it plays. One at a time, instead of one long page. The strip, and under it one card with the
-//! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
+//! The selected instance's tabs under Home's head, one at a time instead of one long page.
 use crate::page::Page;
 use crate::tab_strip::{Strip, StripTab};
 use crate::ui::Press;

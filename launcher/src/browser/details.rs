@@ -3,7 +3,6 @@
 //! the lists of values each source offers for them. Data only: `mods_page` draws it.
 use super::{Kind, GAME};
 
-/// How results are ordered.
 #[derive(Clone, Copy, Debug, Default, PartialEq, Eq, Hash)]
 pub enum Sort {
     #[default]
@@ -43,7 +42,6 @@ impl Sort {
     }
 }
 
-/// Where a project runs.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Environment {
     Client,
@@ -77,7 +75,6 @@ pub struct Filters {
 }
 
 impl Filters {
-    /// The sort a search uses.
     pub fn sort(&self, text: &str) -> Sort {
         self.sort.unwrap_or(if text.is_empty() {
             Sort::Downloads
@@ -85,13 +82,11 @@ impl Filters {
             Sort::Relevance
         })
     }
-    /// A game version other than the one Eclipse plays was asked for.
     pub fn other_version(&self) -> bool {
         self.game_version.as_deref().is_some_and(|v| v != GAME)
     }
 }
 
-/// One value a filter can take.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Tag {
     pub name: String,
@@ -99,7 +94,6 @@ pub struct Tag {
     pub header: String,
 }
 
-/// The values each filter can take for a kind.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Tags {
     pub categories: Vec<Tag>,
@@ -126,7 +120,6 @@ pub fn category_label(slug: &str) -> String {
     crate::i18n::capitalised(&words)
 }
 
-/// A gallery image.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Image {
     pub url: String,
@@ -151,7 +144,6 @@ pub struct GitHub {
     pub stars: u64,
 }
 
-/// A project's page.
 #[derive(Clone, Debug, Default, PartialEq, Eq)]
 pub struct Details {
     /// Markdown (Modrinth's body; HTML blocks in it are left as text the renderer skips).

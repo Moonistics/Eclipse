@@ -11,16 +11,13 @@ use gpui::{
 };
 use std::{cell::RefCell, rc::Rc};
 
-/// What a key did to the field.
 #[derive(Debug, PartialEq)]
 pub(super) enum Key {
     Enter,
     Escape,
     /// Not the field's: Tab (focus), shortcuts.
     Pass,
-    /// The caret or the selection moved; the text is the same.
     Moved,
-    /// The text changed.
     Edited,
     /// Ctrl/Cmd-V: `handle` inserts the clipboard's first line.
     Paste,
@@ -114,14 +111,12 @@ impl LineEdit {
         *self = LineEdit::new(text, self.max, self.visible);
     }
 
-    /// The text, leaving the field empty.
     pub(super) fn take(&mut self) -> String {
         let text = self.text.clone();
         self.set(String::new());
         text
     }
 
-    /// How many characters the box shows.
     pub(super) fn show(&mut self, visible: usize) {
         self.visible = visible;
         self.reveal();
@@ -414,7 +409,6 @@ impl LineEdit {
         out
     }
 
-    /// Scrolls the field so the caret shows.
     fn reveal(&mut self) {
         if self.caret < self.scroll {
             self.scroll = self.caret;
@@ -522,7 +516,7 @@ pub(super) fn content_with(
     mask: bool,
     placeholder: gpui::SharedString,
 ) -> Div {
-    let (color, full) = (ui::white(ink::DIM), ui::white(ink::FULL));
+    let (color, full) = (ui::ink(ink::DIM), ui::ink(ink::FULL));
     if edit.text.is_empty() && !focused {
         return div()
             .min_w_0()
@@ -567,7 +561,8 @@ pub(super) fn content_with(
             d.child(
                 text(selected)
                     .rounded(px(SELECTION_ROUND))
-                    .bg(ui::color(ui::look().accent_soft).opacity(theme::SELECTION)),
+                    .bg(ui::color(ui::look().accent_soft)
+                        .opacity(eclipse_theme::glass::fill::TEXT_SELECTION)),
             )
         })
         .when(focused && !caret_first, |d| d.child(caret()))

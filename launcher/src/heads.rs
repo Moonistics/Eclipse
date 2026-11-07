@@ -30,7 +30,6 @@ fn default_skin(uuid: u128) -> &'static str {
     SKINS[hash.rem_euclid(SKINS.len() as i32) as usize]
 }
 
-/// A UUID written with or without dashes.
 fn parse_uuid(text: &str) -> Option<u128> {
     let hex: String = text.chars().filter(|c| *c != '-').collect();
     (hex.len() == 32).then(|| u128::from_str_radix(&hex, 16).ok())?

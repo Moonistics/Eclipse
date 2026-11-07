@@ -1,5 +1,5 @@
 //! Automatic updates of what the browser installed from Eclipse's registry (Settings: "Update
-//! registry mods automatically", on by default): at the launcher's start and before Play, each
+//! registry mods automatically", on by default): when the window opens and before it plays, each
 //! installed registry project moves to its newest version for this game ([`Index::installable`]),
 //! checked as an install is. What it never touches:
 //!
@@ -32,7 +32,6 @@ use std::path::{Path, PathBuf};
 const KEPT_DIR: &str = "mod-browser/replaced";
 const KEPT: &str = "mod-browser/replaced.json";
 
-/// What happens to one installed project.
 #[derive(Debug, PartialEq)]
 enum Decision<'a> {
     Update(&'a index::Version),
@@ -60,7 +59,6 @@ pub struct Report {
 }
 
 impl Report {
-    /// The lines the launcher shows: nothing when nothing happened.
     pub fn lines(&self) -> Vec<String> {
         let mut out = Vec::new();
         if !self.updated.is_empty() {
@@ -80,7 +78,6 @@ pub fn in_pack(home: &Path) -> bool {
     home.ends_with(crate::game_folder::PROFILE) && home.parent().is_some_and(super::pack::is_pack)
 }
 
-/// Whether `entry` updates automatically, and to what.
 fn decide<'a>(index: &'a Index, entry: &installed::Entry, ctx: &Context) -> Decision<'a> {
     let native = crate::native_status::is_native_file(&entry.file);
     let skip_native = native && !ctx.natives;
@@ -110,7 +107,6 @@ fn decide<'a>(index: &'a Index, entry: &installed::Entry, ctx: &Context) -> Deci
     Decision::Update(target)
 }
 
-/// The blocks, items, entities, effects, menus and creative tabs a content mod adds.
 fn content_ids(path: &Path) -> Result<BTreeSet<String>, String> {
     let manifest = eclipse_mods::Package::read(path)?.manifest;
     let c = eclipse_mods::Content::read(path, &manifest)?;
@@ -128,7 +124,6 @@ fn content_ids(path: &Path) -> Result<BTreeSet<String>, String> {
         .collect())
 }
 
-/// What the content mod at `old` has that the one at `new` lacks.
 fn dropped(old: &Path, new: &Path) -> Result<Vec<String>, String> {
     let new = content_ids(new)?;
     Ok(content_ids(old)?.difference(&new).cloned().collect())
@@ -174,7 +169,6 @@ fn finished(home: &Path, kept: &Kept) -> bool {
             .is_some_and(|h| h.eq_ignore_ascii_case(hash))
 }
 
-/// Puts `kept` back: its file where it was and its entry in the browser's list.
 fn restore(home: &Path, kept: &Kept) -> Result<(), String> {
     let (Some(target), copy) = (kept.entry.path(home), home.join(&kept.copy)) else {
         return Err(format!("{} is outside the game folder", kept.entry.file));
@@ -210,7 +204,6 @@ fn recover(home: &Path) {
     let _ = save_kept(home, &mine);
 }
 
-/// Keeps the file `entry` installed before it is replaced.
 fn keep(home: &Path, entry: &installed::Entry) -> Result<Kept, String> {
     let from = entry
         .path(home)

@@ -177,7 +177,6 @@ pub struct JavaGame {
     /// Extra JVM arguments, split on whitespace.
     #[serde(default, skip_serializing_if = "String::is_empty")]
     pub jvm_args: String,
-    /// The mod loader it plays with, if any.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub loader: Option<crate::loaders::Loader>,
     /// The game window's size, width then height; none: the game's own 854×480.
@@ -528,12 +527,10 @@ fn playing_at<'a>(
     }
 }
 
-/// The id of the instance an imported modpack plays as, by its folder name.
 pub fn port_id(slug: &str) -> String {
     format!("{PORT_ID}{slug}")
 }
 
-/// The id of the instance a registry modpack plays as, by its id.
 pub fn pack_id(id: &str) -> String {
     format!("{PACK_ID}{id}")
 }

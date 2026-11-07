@@ -7,7 +7,6 @@ use gpui::prelude::*;
 use gpui::{div, px, Div};
 
 impl Launcher {
-    /// Settings' row for it.
     pub(super) fn while_playing_row(&self, cx: &mut Context<Self>) -> Div {
         let mut options = vec![
             (WhilePlaying::Stay, "Keep launcher open"),

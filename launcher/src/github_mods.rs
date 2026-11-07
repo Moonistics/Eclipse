@@ -28,7 +28,6 @@ const MAX_ARCHIVE: u64 = 256 << 20;
 /// How deep below the archive's root a mod folder is looked for.
 const DEPTH: usize = 6;
 
-/// What a link points at.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Target {
     /// The repository: its latest release, else its default branch.
@@ -126,7 +125,6 @@ pub fn parse(text: &str) -> Result<Link, String> {
     })
 }
 
-/// A release's file.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Asset {
     pub name: String,
@@ -140,7 +138,6 @@ pub struct Asset {
 pub struct Resolved {
     pub owner: String,
     pub repo: String,
-    /// The release it came from, if any.
     pub tag: Option<String>,
     /// The full commit: what the source link names, and what a commit install fetches.
     pub commit: String,
@@ -295,7 +292,6 @@ fn at_commit(commit: String, link: &Link) -> Resolved {
     }
 }
 
-/// Resolves `link` to an exact release asset or commit, through `api`.
 pub fn resolve(link: &Link, api: Api) -> Result<Resolved, String> {
     let base = format!("repos/{}/{}", link.owner, link.repo);
     match &link.target {
@@ -319,11 +315,9 @@ pub struct Origin {
     pub version: String,
     pub owner: String,
     pub repo: String,
-    /// The release it came from, when it is a release's asset.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tag: Option<String>,
     pub commit: String,
-    /// The release asset's name, when it came from one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asset: Option<String>,
     /// The SHA-256 of the installed `.hnmod`.
@@ -611,12 +605,10 @@ fn origin_path(home: &Path, id: &str) -> PathBuf {
     home.join(INSTALLED).join(format!("{id}.origin.json"))
 }
 
-/// The origin of mod `id` installed in `home`, if it came from GitHub.
 pub fn origin(home: &Path, id: &str) -> Option<Origin> {
     serde_json::from_str(&fs::read_to_string(origin_path(home, id)).ok()?).ok()
 }
 
-/// Every mod of `home` installed from GitHub.
 pub fn origins(home: &Path) -> Vec<Origin> {
     let mut found: Vec<Origin> = fs::read_dir(home.join(INSTALLED))
         .map(|dir| {

@@ -120,7 +120,6 @@ impl<H: Fn(&str) -> Result<Option<u32>, String>> Lookup for Played<'_, H> {
     }
 }
 
-/// What the player reads about `fit`.
 pub fn describe(fit: &Fit, plays: &Plays) -> String {
     match fit {
         Fit::Fits => tr("Builds on the Eclipse you play").to_owned(),

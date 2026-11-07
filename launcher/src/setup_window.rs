@@ -31,7 +31,7 @@ enum Event {
 pub struct Setup {
     mode: Mode,
     theme: Theme,
-    /// The redesign's scene behind the window (as the launcher draws it).
+    /// The launcher's scene behind the window.
     scene: gpui::Entity<scene::Scene>,
     wake: Option<(Instant, Task<()>)>,
     /// The settings file's write time and size as last read: a change (the launcher's Settings

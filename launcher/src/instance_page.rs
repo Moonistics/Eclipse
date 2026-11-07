@@ -1,6 +1,4 @@
-//! The New instance page: its name and group, what the instance plays, its version and its icon
-//! in cards (on Edit, its memory and launch options too); at the foot the instance as it will be,
-//! with Cancel and Create.
+//! The New instance page, which Edit instance shares.
 use crate::fields::Field;
 use crate::instance_icons::{IconKey, Mark};
 use crate::instance_state::{NewKind, VersionList};
@@ -33,7 +31,6 @@ const LOGO_ICONS: [Loader; 4] = [
     Loader::Quilt,
     Loader::Forge,
 ];
-/// The colours offered.
 const COLOURS: [u32; 7] = [
     0x3b82f6, 0x14b8a6, 0x22c55e, 0xeab308, 0xf97316, 0xef4444, 0x8b8a99,
 ];
@@ -315,7 +312,6 @@ impl Launcher {
             .or_else(|| self.eclipse_choices().into_iter().next())
     }
 
-    /// The Eclipse versions the page offers: see [`eclipse_choices`].
     pub(super) fn eclipse_choices(&self) -> Vec<String> {
         let releases = match &self.versions.releases {
             Load::Ready(r) => r.as_slice(),
@@ -324,7 +320,6 @@ impl Launcher {
         eclipse_choices(releases, &self.versions.installed)
     }
 
-    /// The release to download for the Eclipse version `tag`, when it isn't installed.
     pub(super) fn release_to_install(&self, tag: &str) -> Option<Release> {
         let Load::Ready(releases) = &self.versions.releases else {
             return None;
@@ -557,7 +552,6 @@ pub(super) fn eclipse_choices(releases: &[Release], installed: &[String]) -> Vec
 }
 
 impl Launcher {
-    /// The foot: the instance as it will be, Cancel and Create.
     fn instance_foot(
         &mut self,
         editing: Option<&Instance>,
@@ -783,8 +777,6 @@ impl Launcher {
         )
     }
 
-    /// The icons: the instance's own mark, the loaders' logos and the prepared files' blocks and
-    /// items, then the colours and Choose image….
     fn icon_choice(
         &mut self,
         editing: Option<&Instance>,

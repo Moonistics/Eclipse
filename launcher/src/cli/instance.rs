@@ -655,7 +655,6 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
     Ok(())
 }
 
-/// The other launchers' instances in `folder`, else in their default folders.
 fn other_instances(folder: Option<&Path>) -> Result<Vec<other_launchers::Found>, String> {
     use eclipse_launcher::sources::{Folders, Os};
     Ok(match folder {
