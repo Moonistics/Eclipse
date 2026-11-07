@@ -1,4 +1,11 @@
-use super::*;
+use crate::native_build::Phase;
+use crate::ui::{white, ButtonKind, Press};
+use crate::{ui, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{native_mods, native_status};
+use eclipse_theme::glass::{ink, space, step};
+use gpui::prelude::*;
+use gpui::{div, px, ClickEvent, Div, FontWeight, Stateful};
 
 impl Launcher {
     /// The selected instance's native build (docs/native-mods.md): which build it plays, the
@@ -6,14 +13,14 @@ impl Launcher {
     /// Needs rebuild, Not built), with Build, and Update when a newer Eclipse is installed. Both
     /// open the trust warning first (`native_warning`). A build under way, or its error, shows
     /// only on the instance it is for.
-    pub(crate) fn native_build(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+    pub(super) fn native_build(&self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
         use native_status::State;
         let instance = self.selected_instance()?;
         let version = self.version_of(instance).cloned();
         let home = self.mods.home();
         let key = native_status::fingerprint(&home, version.as_deref());
         let build = version.as_deref().and_then(|v| self.native_build_of(v));
-        let mut memo = self.mods.native_state.borrow_mut();
+        let mut memo = self.native.state.borrow_mut();
         let (state, pinned) = match memo.as_ref() {
             Some((k, state, pinned)) if *k == key => (*state, pinned.clone()),
             _ => {
@@ -43,18 +50,16 @@ impl Launcher {
                 })
             });
         let mine = self.native.for_instance.as_deref() == Some(instance.id.as_str());
-        let step = self.native.step.as_ref().filter(|_| mine);
-        let error = self.native.error.as_ref().filter(|_| mine);
+        let step = self.native.step_since().filter(|_| mine);
+        let error = match &self.native.ended {
+            Some(Err(e)) if mine => Some(e),
+            _ => None,
+        };
         let name = [("instance", instance.name.as_str())];
         let line = |s: String| div().child(s);
         let (status, badge) = match (step, error, state) {
-            (Some(step), _, _) => (
-                line(format!(
-                    "{step} - {}",
-                    native_mods::duration_label(
-                        self.native.started.map_or(0, |(s, _)| s.elapsed().as_secs())
-                    )
-                ))
+            (Some((step, secs)), _, _) => (
+                line(format!("{step} - {}", native_mods::duration_label(secs)))
                 .text_color(ui::color(ui::look().accent_soft)),
                 Some((ui::Tone::Busy, tr("Building"))),
             ),
@@ -84,7 +89,12 @@ impl Launcher {
             .flex_col()
             .gap(px(space::XS))
             .child(status);
-        if let Some(done) = self.native.done.as_ref().filter(|_| mine && step.is_none()) {
+        if let Some(Ok(done)) = self
+            .native
+            .ended
+            .as_ref()
+            .filter(|_| mine && step.is_none())
+        {
             detail = detail.child(div().text_color(white(ink::MUTED)).child(done.clone()));
         }
         if let (Some(tag), Some(build)) = (&version, &build) {
@@ -108,7 +118,7 @@ impl Launcher {
                 detail = detail.child(ui::state_note(ui::Tone::Warn, left.label()));
             }
         }
-        if self.native.step.is_some() && !mine {
+        if self.native.building() && !mine {
             let other = self
                 .native
                 .for_instance
@@ -119,14 +129,11 @@ impl Launcher {
                 &[("instance", other.map_or("", |i| i.name.as_str()))],
             )));
         }
-        let mismatch = self
-            .native
-            .step
-            .is_none()
-            .then_some(self.native.mismatch.as_ref())
-            .flatten();
-        let idle =
-            self.native.step.is_none() && self.native.confirm.is_none() && mismatch.is_none();
+        let mismatch = match &self.native.phase {
+            Phase::Mismatch(list) => Some(list),
+            _ => None,
+        };
+        let idle = matches!(self.native.phase, Phase::Idle);
         let can_build =
             idle && (error.is_some() || matches!(state, State::NotBuilt | State::Outdated));
         let mut right = div()
@@ -151,9 +158,8 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                    this.native.update = Some(newer.clone());
-                    this.native.on_base = true;
-                    this.native.confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
+                    let mods = this.native_mods_to_build().map(|(_, b)| b);
+                    this.native.confirm(mods, Some(newer.clone()));
                     cx.notify();
                 })),
             );
@@ -168,9 +174,8 @@ impl Launcher {
                     ui::ButtonSize::Md,
                 )
                 .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.native.update = None;
-                    this.native.on_base = false;
-                    this.native.confirm = Some(this.native_mods_to_build().map(|(_, b)| b));
+                    let mods = this.native_mods_to_build().map(|(_, b)| b);
+                    this.native.confirm(mods, None);
                     cx.notify();
                 })),
             );
@@ -189,8 +194,8 @@ impl Launcher {
         if let Some(list) = mismatch {
             detail = detail.child(self.native_mismatch_panel(list, cx));
         }
-        if let Some(mods) = &self.native.confirm {
-            detail = detail.child(self.native_warning(mods, cx));
+        if let Phase::Confirm { mods, update } = &self.native.phase {
+            detail = detail.child(self.native_warning(mods, update.as_deref(), cx));
         }
         Some(
             ui::well()
@@ -220,6 +225,7 @@ impl Launcher {
     pub(super) fn native_warning(
         &self,
         mods: &Result<Vec<native_mods::Bundle>, String>,
+        update: Option<&str>,
         cx: &mut Context<Self>,
     ) -> Div {
         let list = match mods {
@@ -241,7 +247,7 @@ impl Launcher {
             .child(tr("They can read, change or delete your files and use your accounts. Build them only if you trust their authors."))
             .child(trf("Mods: {mods}", &[("mods", &list)]))
             .child(tr("The first build takes 20 to 30 minutes and a few GB of disk. Later ones take a few minutes."))
-            .children(self.native.update.as_ref().map(|newer| {
+            .children(update.map(|newer| {
                 ui::state_note(
                     ui::Tone::Warn,
                     trf(
@@ -258,9 +264,7 @@ impl Launcher {
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.native.confirm = None;
-            this.native.update = None;
-            this.native.on_base = false;
+            this.native.phase = Phase::Idle;
             cx.notify();
         }));
         let mut actions = vec![cancel.into_any_element()];
@@ -304,7 +308,7 @@ impl Launcher {
             ui::ButtonSize::Md,
         )
         .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
-            this.native.mismatch = None;
+            this.native.phase = Phase::Idle;
             cx.notify();
         }));
         let anyway = ui::button(
@@ -325,5 +329,40 @@ impl Launcher {
             vec![cancel.into_any_element(), anyway.into_any_element()],
         )
         .mt(px(space::MD))
+    }
+
+    fn native_profile_picker(
+        &self,
+        id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> (Stateful<Div>, &'static str) {
+        let profile = native_mods::Profile::chosen(&self.settings);
+        let picker = ui::segments(
+            id,
+            tr("Build profile"),
+            &ui::translated(&[
+                (native_mods::Profile::Performance, "Performance"),
+                (native_mods::Profile::Dev, "Dev"),
+                (native_mods::Profile::Release, "Release"),
+            ]),
+            profile,
+            {
+                let this = cx.entity().downgrade();
+                move |choice, _, cx| {
+                    let _ = this.update(cx, |this, cx| {
+                        this.settings.set_native_profile(Some(choice));
+                        this.native.ended = this.native.ended.take().filter(Result::is_err);
+                        this.save_settings();
+                        cx.notify();
+                    });
+                }
+            },
+        );
+        let said = match profile {
+            native_mods::Profile::Performance => tr("The everyday build for playing with mods"),
+            native_mods::Profile::Dev => tr("For mod authors: faster rebuilds, slower game"),
+            native_mods::Profile::Release => tr("Slower to build, slightly faster game"),
+        };
+        (picker, said)
     }
 }

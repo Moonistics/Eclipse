@@ -1,14 +1,18 @@
 //! A Java instance's part of the New instance page (`instance_page.rs`): Mojang's versions to
 //! pick from, and for Modded the loaders, each with its logo, as many as `loaders::Kind` knows.
-use super::*;
-use crate::ui;
+use crate::fields::Field;
+use crate::instance_page::loaders;
+use crate::instance_state::{JavaChoice, NewKind, VersionList};
+use crate::ui::{ButtonKind, Press};
+use crate::{dates, instance_icons, layout, ui, Launcher};
+use eclipse_launcher::backend;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::{self, Instance, Plays, Unkept};
 use eclipse_launcher::loaders::Loader;
 use eclipse_launcher::minecraft_versions::Kind as VersionKind;
 use eclipse_theme::glass::{ink, space};
-use fields::Field;
-use instance_page::loaders;
-use instance_state::{JavaChoice, NewKind, VersionList};
+use gpui::prelude::*;
+use gpui::{div, px, ClickEvent, Div, FontWeight, SharedString, Stateful, Window};
 
 /// Mojang versions listed at most: the search finds the others.
 const ROWS: usize = 60;
@@ -225,10 +229,7 @@ impl Launcher {
         let mut cards = Vec::new();
         let all = loaders();
         for &loader in &all {
-            let logo = self.choice_icon(
-                instance_icons::Mark::Loader(loader.id().to_string()),
-                loader.name(),
-            );
+            let logo = self.choice_icon(instance_icons::Mark::Loader(loader), loader.name());
             let note = match loader.id() {
                 "fabric" => tr("Most mods for new versions"),
                 "quilt" => tr("Fabric mods run here too"),

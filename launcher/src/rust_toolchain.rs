@@ -1390,7 +1390,7 @@ mod tests {
         );
         let executable = target_dir.join("fast").join(crate::backend::CLIENT);
         assert_eq!(
-            crate::native_mods::pe_machine(&executable).unwrap(),
+            crate::backend::pe_machine(&executable).unwrap(),
             backend::PE_ARM64,
             "managed native-mod game must be ARM64"
         );

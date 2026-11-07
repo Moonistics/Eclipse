@@ -6,7 +6,7 @@ use std::io::{IsTerminal, Write};
 use std::path::PathBuf;
 use std::process::Command;
 
-mod account;
+pub(crate) mod account;
 mod agents;
 mod data;
 mod instance;

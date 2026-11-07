@@ -250,6 +250,21 @@ impl Tool {
     }
 }
 
+#[cfg(test)]
+pub(crate) fn tool_of(words: &str) -> Option<Tool> {
+    let mut command = crate::cli::command();
+    let mut path = Vec::new();
+    for word in words.split(' ') {
+        command = command.find_subcommand(word)?.clone();
+        path.push(word.to_owned());
+    }
+    Some(Tool {
+        name: tool_name(&path),
+        path,
+        command,
+    })
+}
+
 /// The tools mcp.rs runs itself for a CLI command, and what an agent uses instead of the
 /// player-only ones.
 #[cfg(test)]
@@ -358,7 +373,11 @@ fn collect(cmd: &Command, path: &mut Vec<String>, out: &mut Vec<(String, Command
 
 /// Whether an argument is part of a tool (not --help, --version or the global --json).
 fn shown(arg: &clap::Arg) -> bool {
-    !arg.is_hide_set() && !matches!(arg.get_id().as_str(), "help" | "version" | "json")
+    let generated = matches!(
+        arg.get_action(),
+        ArgAction::Help | ArgAction::HelpShort | ArgAction::HelpLong | ArgAction::Version
+    );
+    !arg.is_hide_set() && !generated && arg.get_id() != "json"
 }
 
 /// Whether an argument takes several values (a list).
@@ -480,6 +499,36 @@ mod tests {
                 tool.name
             );
         }
+    }
+
+    #[test]
+    fn a_commands_own_version_option_is_a_tool_argument() {
+        let prepare = tool("prepare");
+        let schema = prepare.describe();
+        assert_eq!(
+            schema["inputSchema"]["properties"]["version"]["type"],
+            "string"
+        );
+        assert_eq!(
+            prepare.argv(&json!({ "version": "v2026.10.13" })).unwrap(),
+            ["prepare", "--version=v2026.10.13"]
+        );
+        let loader = tool("instance_loader").describe();
+        assert!(loader["inputSchema"]["properties"]["version"].is_object());
+        assert_eq!(
+            tool("instance_version")
+                .argv(&json!({ "instance": "Survival", "version": "latest" }))
+                .unwrap(),
+            ["instance", "version", "Survival", "latest"]
+        );
+        let names = |cmd: &Command| -> Vec<String> {
+            cmd.get_arguments()
+                .filter(|a| shown(a))
+                .map(|a| a.get_id().to_string())
+                .collect()
+        };
+        assert!(!names(&crate::cli::command()).contains(&"version".to_string()));
+        assert!(!names(&prepare.command).contains(&"help".to_string()));
     }
 
     #[test]

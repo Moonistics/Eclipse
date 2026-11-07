@@ -2,6 +2,7 @@
 //! message per line), so AI agents can install, prepare and run Eclipse. Every tool goes through
 //! `backend`. A server started here lives as long as the session. The running game's own tools
 //! come from its `eclipse-ctl` as `game_*` (game_tools.rs).
+use crate::cli;
 use crate::cli_tools;
 use crate::game_tools::{self, GameTools};
 use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
@@ -205,19 +206,8 @@ impl Session {
                     SignInState::Done(Ok(a)) => json!({ "state": "signed in", "name": a.name }),
                     SignInState::Done(Err(e)) => json!({ "state": "failed", "error": e }),
                 });
-                Ok(serde_json::to_string_pretty(&json!({
-                    "accounts": accounts.accounts.iter().map(|a| json!({ "name": a.name, "uuid": a.uuid, "authentication": account::session::status(account::store(), &a.uuid) })).collect::<Vec<_>>(),
-                    "plays_as": accounts.selected().map(|a| a.name.clone()),
-                    "sign_in_configured": account::client_id().is_some(),
-                    // Sign-ins outlast the launcher: in the keychain, or in the secrets file
-                    // where it refused them (`secrets_file`: the file holds a sign-in).
-                    "keychain": account::store().persistent(),
-                    "secrets_file": eclipse_launcher::secrets::in_secrets_file(),
-                    // Play needs an account that owns the game (the owner gate).
-                    "owner": accounts.has_owner(account::store()),
-                    "sign_in": sign_in,
-                }))
-                .unwrap())
+                let listing = cli::account::Listing::session(&accounts, sign_in);
+                serde_json::to_string_pretty(&listing).map_err(|e| e.to_string())
             }
             "account_sign_in" => {
                 account::client_id().ok_or(account::NOT_CONFIGURED)?;
@@ -338,6 +328,32 @@ pub fn serve() -> Result<(), String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    const SESSION_ONLY: [(&str, &str); 1] = [("play", "offscreen")];
+
+    #[test]
+    fn session_tools_take_their_cli_commands_arguments() {
+        let tools = session_tools();
+        let mut checked = 0;
+        for tool in tools.as_array().unwrap() {
+            let about = tool["description"].as_str().unwrap();
+            let Some((_, words)) = about.split_once("CLI: eclipse-launcher ") else {
+                continue;
+            };
+            let cli = cli_tools::tool_of(words).unwrap().describe();
+            let ours = tool["inputSchema"]["properties"].as_object().unwrap();
+            for (name, schema) in ours {
+                if SESSION_ONLY.contains(&(words, name.as_str())) {
+                    continue;
+                }
+                let theirs = &cli["inputSchema"]["properties"][name];
+                assert_eq!(theirs["type"], schema["type"], "{words}: {name}");
+                assert_eq!(theirs["items"], schema["items"], "{words}: {name}");
+                checked += 1;
+            }
+        }
+        assert!(checked >= 10, "{checked}");
+    }
 
     #[test]
     fn the_server_advertises_what_it_serves() {

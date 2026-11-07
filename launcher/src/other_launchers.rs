@@ -527,17 +527,12 @@ pub fn import(found: &Found, name: &str, minecraft: Option<&str>) -> Result<Inst
     };
     let versions = crate::minecraft_versions::load()?;
     let version = versions.find(minecraft)?.id.clone();
-    let instance = instances::create_java(name, &version)?;
+    let instance = instances::create_java(name, &version, loader(found))?;
     if let Err(e) = copy_game(found, &instance.home) {
         let _ = instances::delete(&instance.id);
         return Err(format!("Could not copy {}: {e}", found.game.display()));
     }
-    match loader(found) {
-        Some(l) => instances::edit(&instance.id, |m| {
-            m.java.get_or_insert_with(Default::default).loader = Some(l)
-        }),
-        None => Ok(instance),
-    }
+    Ok(instance)
 }
 
 #[cfg(test)]

@@ -570,13 +570,22 @@ pub fn create(name: &str, from: Option<&str>) -> Result<Instance, String> {
 
 /// Creates a Minecraft: Java Edition instance named `name` playing `minecraft` (a version id
 /// from Mojang's list), with an empty game folder: the real game keeps its own options.
-pub fn create_java(name: &str, minecraft: &str) -> Result<Instance, String> {
+pub fn create_java(
+    name: &str,
+    minecraft: &str,
+    loader: Option<crate::loaders::Loader>,
+) -> Result<Instance, String> {
+    let java = JavaGame {
+        minecraft: minecraft.to_string(),
+        loader,
+        ..JavaGame::default()
+    };
     create_in(
         &backend::game_home(),
         &backend::data_dir(),
         name,
         None,
-        Some(minecraft),
+        Some(java),
     )
 }
 
@@ -593,7 +602,7 @@ fn create_in(
     data: &Path,
     name: &str,
     from: Option<&Instance>,
-    minecraft: Option<&str>,
+    java: Option<JavaGame>,
 ) -> Result<Instance, String> {
     let name = name.trim();
     if name.is_empty() {
@@ -625,7 +634,7 @@ fn create_in(
     let dir = game_home.join(OWN).join(&slug);
     let made = match from {
         Some(from) => crate::files::copy_dir(&from.home, &dir, &game_folder::copy_leaves_out()),
-        None if minecraft.is_some() => fs::create_dir_all(&dir),
+        None if java.is_some() => fs::create_dir_all(&dir),
         None => fs::create_dir_all(&dir).and_then(|()| {
             for f in game_folder::FROM_PLAYER {
                 let own = game_home.join(f);
@@ -644,12 +653,7 @@ fn create_in(
         name: (name != slug).then(|| name.to_string()),
         icon: from.and_then(|f| f.icon.clone()),
         group: from.and_then(|f| f.group.clone()),
-        java: from.and_then(|f| f.java.clone()).or_else(|| {
-            minecraft.map(|v| JavaGame {
-                minecraft: v.to_string(),
-                ..JavaGame::default()
-            })
-        }),
+        java: from.and_then(|f| f.java.clone()).or(java),
         ..Meta::default()
     };
     Store::change(data, |store| {

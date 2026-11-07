@@ -1,9 +1,13 @@
 //! Settings' accent colour and Home background rows (`eclipse_launcher::themes`).
-use super::*;
 use crate::fields::Field;
-use crate::ui;
+use crate::ui::{ButtonKind, Press};
+use crate::{layout, ui, Launcher, Pick};
+use eclipse_launcher::backend;
+use eclipse_launcher::i18n::tr;
 use eclipse_launcher::themes::{self, Accent};
 use eclipse_theme::glass::space;
+use gpui::prelude::*;
+use gpui::{div, px, ClickEvent, Div, SharedString, Stateful};
 use std::path::PathBuf;
 
 const SWATCH: f32 = ui::TILE_MD;
@@ -43,7 +47,7 @@ impl Launcher {
     /// under them) and the hex field, which takes the colour as soon as it is one.
     pub(super) fn accent_row(&mut self, cx: &mut Context<Self>) -> Div {
         self.sync_accent_hex(cx);
-        let beside = self.wide_controls_beside();
+        let beside = layout::settings_controls_beside(self.window_width);
         let current = self.settings.accent;
         let custom = !Accent::ALL.contains(&current);
         let swatch = |id: SharedString, on: bool| {
@@ -254,25 +258,11 @@ impl Launcher {
     }
 
     fn choose_background(&mut self, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(tr("Choose").to_string().into()),
-        });
-        cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(mut paths))) = paths.await else {
-                return;
-            };
-            let Some(path) = paths.pop() else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
+        self.pick_paths(Pick::File, tr("Choose"), cx, |this, mut paths, _| {
+            if let Some(path) = paths.pop() {
                 this.take_background(&path);
-                cx.notify();
-            });
-        })
-        .detach();
+            }
+        });
     }
 
     fn take_background(&mut self, path: &std::path::Path) {
@@ -291,7 +281,7 @@ impl Launcher {
         let mut actions = div().flex().gap(px(space::XS)).child(
             ui::button(
                 "background-choose",
-                Some("folder-01"),
+                Some(crate::icons::OPEN_FOLDER),
                 tr("Choose image…"),
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,

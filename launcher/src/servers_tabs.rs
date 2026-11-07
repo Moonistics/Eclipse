@@ -1,4 +1,20 @@
-use super::*;
+use crate::fields::{CanAdd, Field};
+use crate::menus::Asking;
+use crate::servers_state::{
+    backup_label, bytes, plays_offline, Event, GameMode, ServerJob, DELETE_CONTROLS, DIFFICULTIES,
+    FACE,
+};
+use crate::ui::{ButtonKind, Press};
+use crate::{layout, ui, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::server_list::DEFAULT_PORT;
+use eclipse_launcher::servers;
+use eclipse_launcher::servers::{Key, Problem, Status};
+use eclipse_theme::glass::space;
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, App, ClickEvent, Div, SharedString, Window};
+use serde_json::Value;
+use std::path::Path;
 
 impl Launcher {
     pub(super) fn players_tab(
@@ -100,7 +116,7 @@ impl Launcher {
         // Who can join.
         let friends_only = self
             .servers
-            .setting(ServerKey::Whitelist)
+            .setting(Key::Whitelist)
             .and_then(Value::as_bool)
             .unwrap_or(true);
         let friends = ui::toggle_row(
@@ -118,7 +134,7 @@ impl Launcher {
         )
         .mx(px(-ui::SETTING_ROW_PADDING))
         .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.set_setting(ServerKey::Whitelist, (!friends_only).to_string());
+            this.set_setting(Key::Whitelist, (!friends_only).to_string());
             cx.notify();
         }));
         let can_add = if idle { CanAdd::Yes } else { CanAdd::Busy };
@@ -266,16 +282,6 @@ impl Launcher {
         tab
     }
 
-    /// A row of the settings form: a name, one line on it, and its control.
-    pub(super) fn server_setting_row(
-        &self,
-        name: impl Into<SharedString>,
-        about: String,
-        control: AnyElement,
-    ) -> Div {
-        self.setting_row_checked(name, about, None, control)
-    }
-
     /// A setting row whose text gives way to `error` when the value was refused.
     pub(super) fn setting_row_checked(
         &self,
@@ -307,7 +313,7 @@ impl Launcher {
                 None => ui::disabled(ui::toggle(id, on)),
             };
             return self
-                .server_setting_row(name, about, switch.into_any_element())
+                .setting_row_checked(name, about, None, switch.into_any_element())
                 .into_any_element();
         };
         ui::toggle_row(id, name, Some(about.into()), on)
@@ -318,7 +324,7 @@ impl Launcher {
     /// − value + for a number setting within `range`.
     pub(super) fn server_stepper(
         &self,
-        key: ServerKey,
+        key: Key,
         range: std::ops::RangeInclusive<i64>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -332,7 +338,7 @@ impl Launcher {
         &self,
         id: &'static str,
         name: &str,
-        key: ServerKey,
+        key: Key,
         options: Vec<(&'static str, SharedString)>,
         cx: &mut Context<Self>,
     ) -> AnyElement {
@@ -375,11 +381,11 @@ impl Launcher {
             });
         }
         if !self.fields.has_focus(Field::ServerMotd) && !self.fields.holds(Field::ServerMotd) {
-            let motd = self.servers.shown(ServerKey::Motd);
+            let motd = self.servers.shown(Key::Motd);
             self.fields.text(Field::ServerMotd).set(motd);
         }
         if !self.fields.has_focus(Field::ServerPort) && !self.fields.holds(Field::ServerPort) {
-            let port = self.servers.shown(ServerKey::Port);
+            let port = self.servers.shown(Key::Port);
             self.fields.text(Field::ServerPort).set(port);
         }
         let save = |id: &'static str, f: Field, cx: &mut Context<Self>| {
@@ -414,7 +420,7 @@ impl Launcher {
             .gap(px(space::SM))
             .child(self.field(
                 Field::ServerPort,
-                "25565",
+                DEFAULT_PORT.to_string(),
                 layout::FIELD_XS,
                 ui::ButtonSize::Md,
                 cx,
@@ -442,7 +448,7 @@ impl Launcher {
         );
         let accounts = self
             .servers
-            .setting(ServerKey::OnlineMode)
+            .setting(Key::OnlineMode)
             .and_then(Value::as_bool)
             .unwrap_or(false);
         let live = if running {
@@ -477,7 +483,7 @@ impl Launcher {
             },
             accounts,
             Some(cx.listener(move |this, _: &ClickEvent, _, cx| {
-                this.set_setting(ServerKey::OnlineMode, (!accounts).to_string());
+                this.set_setting(Key::OnlineMode, (!accounts).to_string());
                 cx.notify();
             })),
             None,
@@ -486,47 +492,57 @@ impl Launcher {
             .flex()
             .flex_col()
             .mx(px(-ui::SETTING_ROW_PADDING))
-            .child(self.server_setting_row(tr("Message in the server list"), later.into(), motd))
-            .child(self.server_setting_row(
+            .child(self.setting_row_checked(
+                tr("Message in the server list"),
+                later.into(),
+                None,
+                motd,
+            ))
+            .child(self.setting_row_checked(
                 tr("Game mode"),
                 format!("{} {live}", tr("For players who join for the first time.")),
+                None,
                 self.server_segments(
                     "set-mode",
                     tr("Game mode"),
-                    ServerKey::GameMode,
+                    Key::GameMode,
                     GameMode::options(),
                     cx,
                 ),
             ))
-            .child(self.server_setting_row(
+            .child(self.setting_row_checked(
                 tr("Difficulty"),
                 live.into(),
+                None,
                 self.server_segments(
                     "set-difficulty",
                     tr("Difficulty"),
-                    ServerKey::Difficulty,
+                    Key::Difficulty,
                     ui::translated(&DIFFICULTIES),
                     cx,
                 ),
             ))
             .child(pvp)
-            .child(self.server_setting_row(
+            .child(self.setting_row_checked(
                 tr("Max players"),
                 format!("{} {later}", tr("Operators can always join.")),
-                self.server_stepper(ServerKey::MaxPlayers, 1..=100, cx),
+                None,
+                self.server_stepper(Key::MaxPlayers, 1..=100, cx),
             ))
-            .child(self.server_setting_row(
+            .child(self.setting_row_checked(
                 tr("View distance"),
                 format!("{} {later}", tr("In chunks, 2 to 32. Lower runs lighter.")),
-                self.server_stepper(ServerKey::ViewDistance, 2..=32, cx),
+                None,
+                self.server_stepper(Key::ViewDistance, 2..=32, cx),
             ))
-            .child(self.server_setting_row(
+            .child(self.setting_row_checked(
                 tr("Simulation distance"),
                 format!(
                     "{} {later}",
                     tr("How far from players crops grow and mobs move, in chunks.")
                 ),
-                self.server_stepper(ServerKey::SimulationDistance, 2..=32, cx),
+                None,
+                self.server_stepper(Key::SimulationDistance, 2..=32, cx),
             ))
             .child(
                 self.setting_row_checked(
@@ -622,9 +638,10 @@ impl Launcher {
                     .text_align(gpui::TextAlign::Right),
             );
         }
-        self.server_setting_row(
+        self.setting_row_checked(
             tr("Delete server"),
             tr("Remove this server from Eclipse and move its worlds, settings and backups to the trash.").into(),
+            None,
             controls.into_any_element(),
         )
         .items_start()
@@ -753,18 +770,20 @@ impl Launcher {
             .flex()
             .flex_col()
             .mx(px(-ui::SETTING_ROW_PADDING))
-            .child(self.server_setting_row(
+            .child(self.setting_row_checked(
                 tr("Eclipse version"),
                 about,
+                None,
                 control.into_any_element(),
             ));
-        if self.servers.setting(ServerKey::UpdatesKeep).is_some() {
-            rows = rows.child(self.server_setting_row(
+        if self.servers.setting(Key::UpdatesKeep).is_some() {
+            rows = rows.child(self.setting_row_checked(
                 tr("Older versions kept"),
                 tr("Downloaded versions kept besides the one in use and the one an update can go back \
                  to.")
                     .into(),
-                self.server_stepper(ServerKey::UpdatesKeep, 0..=5, cx),
+                None,
+                self.server_stepper(Key::UpdatesKeep, 0..=5, cx),
             ));
         }
         ui::field_group("server-updates-title", tr("Updates"), None, rows)
@@ -778,9 +797,9 @@ impl Launcher {
 
     pub(super) fn backups_tab(&mut self, status: &Status, cx: &mut Context<Self>) -> Div {
         let idle = self.servers.busy.is_none();
-        let every = self.servers.shown(ServerKey::BackupsEvery);
+        let every = self.servers.shown(Key::BackupsEvery);
         let auto = !every.is_empty() && every != "0";
-        let keep = self.servers.shown(ServerKey::BackupsKeep);
+        let keep = self.servers.shown(Key::BackupsKeep);
         let now = {
             let b = ui::button(
                 "backup-now",
@@ -894,7 +913,7 @@ impl Launcher {
             .mx(px(-ui::SETTING_ROW_PADDING))
             .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
                 this.set_setting(
-                    ServerKey::BackupsEvery,
+                    Key::BackupsEvery,
                     if auto { "0".into() } else { "6h".into() },
                 );
                 cx.notify();

@@ -2,21 +2,21 @@
 //! `servers.dat`): each server with the picture the game last saw, Join (the game starts straight
 //! into it), Remove after a confirmation, and a line to add one. The official server is put on top
 //! once, as the game does, at the address links.json gives (`server_list::add_official`).
-use super::*;
+use crate::fields::Field;
+use crate::folder_list::FolderList;
 use crate::menus::Asking;
+use crate::Launcher;
 use eclipse_launcher::server_list::{self, Server};
-use fields::Field;
+use gpui::prelude::*;
 use gpui::{Image, ImageFormat};
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::path::Path;
 use std::sync::Arc;
 
 #[derive(Default)]
 pub(super) struct Multiplayer {
-    /// The game folder the list is of, and the list as last read with each picture decoded.
-    home: Option<PathBuf>,
-    pub(super) list: Vec<(Server, Option<Arc<Image>>)>,
-    fresh: bool,
+    /// The list as last read, with each picture decoded.
+    pub(super) list: FolderList<(Server, Option<Arc<Image>>)>,
     pub(super) adding: bool,
     pub(super) error: Option<String>,
     /// What each address answered to the status ping, asked once per list.
@@ -29,13 +29,6 @@ pub(super) enum Reach {
     Asking,
     Online { players: u64, max: u64 },
     Offline,
-}
-
-impl Multiplayer {
-    /// Read again on the next frame: the game may have changed its list.
-    pub(super) fn stale(&mut self) {
-        self.fresh = false;
-    }
 }
 
 impl Launcher {
@@ -73,48 +66,41 @@ impl Launcher {
         }
     }
 
-    pub(super) fn load_servers(&mut self, home: PathBuf) {
-        if self.multiplayer.home.as_ref() != Some(&home) {
-            self.multiplayer = Multiplayer {
-                home: Some(home.clone()),
-                ..Multiplayer::default()
-            };
+    pub(super) fn load_servers(&mut self, home: &Path, cx: &mut Context<Self>) {
+        if self.multiplayer.list.home() != Some(home) {
+            self.multiplayer = Multiplayer::default();
         }
-        if self.multiplayer.fresh {
-            return;
-        }
-        // A list that can't be read is the game's to report: the page shows it empty.
-        let _ = server_list::add_official(
-            &home,
-            &self.links.official_server,
-            &self.links.official_server_previous,
-        );
-        // A few servers and their 64×64 pictures: small enough to read while drawing.
-        self.multiplayer.list = server_list::List::load(&home)
-            .servers()
-            .into_iter()
-            .map(|s| {
-                let icon = s
-                    .icon
-                    .clone()
-                    .map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png)));
-                (s, icon)
-            })
-            .collect();
-        self.multiplayer.fresh = true;
+        let official = self.links.official_server.clone();
+        let previous = self.links.official_server_previous.clone();
+        let read = move |home: &Path| {
+            // A list that can't be read is the game's to report: the page shows it empty.
+            let _ = server_list::add_official(home, &official, &previous);
+            server_list::List::load(home)
+                .servers()
+                .into_iter()
+                .map(|s| {
+                    let icon = s
+                        .icon
+                        .clone()
+                        .map(|png| Arc::new(Image::from_bytes(ImageFormat::Png, png)));
+                    (s, icon)
+                })
+                .collect()
+        };
+        self.read_folder(home, |this| &mut this.multiplayer.list, read, |_| {}, cx);
     }
 
     pub(super) fn edit_servers(
         &mut self,
         edit: impl FnOnce(&mut server_list::List) -> Result<(), String>,
     ) {
-        let Some(home) = self.multiplayer.home.clone() else {
+        let Some(home) = self.multiplayer.list.home().map(Path::to_path_buf) else {
             return;
         };
         let mut list = server_list::List::load(&home);
         self.multiplayer.error = edit(&mut list).and_then(|()| list.save(&home)).err();
         self.stop_asking(|a| matches!(a, Asking::SavedServer(_)));
-        self.multiplayer.stale();
+        self.multiplayer.list.stale();
     }
 
     /// Enter in the address field, or Save server.
@@ -134,12 +120,13 @@ impl Launcher {
         }
     }
 
-    /// How many servers the selected instance's list has.
-    pub(super) fn servers_count(&mut self) -> usize {
-        let Some(home) = self.selected_instance().map(|i| i.home.clone()) else {
-            return 0;
-        };
-        self.load_servers(home);
-        self.multiplayer.list.len()
+    /// How many servers the selected instance's list has; None while it is read.
+    pub(super) fn servers_count(&mut self, cx: &mut Context<Self>) -> Option<usize> {
+        let home = self.selected_instance()?.home.clone();
+        self.load_servers(&home, cx);
+        self.multiplayer
+            .list
+            .fresh()
+            .then_some(self.multiplayer.list.len())
     }
 }

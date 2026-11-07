@@ -8,6 +8,9 @@
 //! A picture is made at the size it is drawn ([`drawn_side`]), never above what the GPU's texture
 //! atlas holds ([`gpu_limit`]): GPUI's atlas makes a new max-size texture on every frame for a
 //! picture that doesn't fit, and never caches it (1 GiB a frame for a 32768 px screenshot).
+pub(super) mod cache;
+
+pub(super) use cache::{Look, Pictures};
 use std::collections::HashMap;
 use std::fs::File;
 use std::hash::Hash;

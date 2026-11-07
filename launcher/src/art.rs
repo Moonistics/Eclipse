@@ -15,13 +15,17 @@ pub fn bake(texels: &[[u8; 4]], w: usize, h: usize, texel: f32, scale: f32) -> A
         let ty = (y * h / dh as usize).min(h - 1);
         for (x, px) in row.enumerate() {
             let tx = (x * w / dw as usize).min(w - 1);
-            let [r, g, b, a] = texels[ty * w + tx];
-            // GPUI wants BGRA, its alpha premultiplied.
-            let pre = |c: u8| (c as u32 * a as u32 / 255) as u8;
-            *px = image::Rgba([pre(b), pre(g), pre(r), a]);
+            *px = image::Rgba(texels[ty * w + tx]);
         }
     }
-    Arc::new(RenderImage::new([image::Frame::new(buf)]))
+    gpu_image(buf)
+}
+
+pub fn gpu_image(mut image: image::RgbaImage) -> Arc<RenderImage> {
+    for p in image.pixels_mut() {
+        p.0.swap(0, 2);
+    }
+    Arc::new(RenderImage::new([image::Frame::new(image)]))
 }
 
 #[cfg(test)]

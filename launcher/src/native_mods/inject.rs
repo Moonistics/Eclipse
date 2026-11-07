@@ -1,5 +1,6 @@
 //! Trait-backed injections, prepared as build-script input alongside the staged game.
-use super::{api, Bundle, MANIFEST};
+use super::api;
+use super::manifest::{Bundle, MANIFEST};
 use eclipse_mod_api_gen::{TraitContract as Contract, TraitInjection as Injection};
 use std::{
     collections::{HashMap, HashSet},
@@ -17,9 +18,9 @@ pub(super) fn prepare(mods: &[Bundle], source: &Path) -> Result<Vec<Injection>, 
         .collect();
     // These are the copied bundles under mods.incoming, never the player's originals.
     for bundle in mods {
-        api::strip(bundle)?;
         let path = bundle.dir.join(MANIFEST);
-        let mut manifest = api::read(&path)?;
+        let mut manifest = bundle.manifest.clone();
+        api::strip(&mut manifest);
         let entries = manifest
             .get_mut("injection")
             .and_then(toml::Value::as_array_mut);
@@ -198,7 +199,7 @@ mod tests {
             format!("[mod]\nid = 'example'\nversion = '1'\n[api]\npath = 'engine'\n{injection}"),
         )
         .unwrap();
-        let bundle = super::super::bundle(&root, None).unwrap();
+        let bundle = super::super::manifest::bundle(&root, None).unwrap();
         (root, bundle)
     }
 
@@ -466,7 +467,7 @@ mod tests {
         let (root, first) = fixture("order", "");
         let mut second = first.clone();
         second.id = "second".into();
-        let a = super::super::version_for(
+        let a = super::super::key::version_for(
             "0123456789012345678901234567890123456789",
             "mixins",
             super::super::Profile::Performance,
@@ -475,7 +476,7 @@ mod tests {
             &[first.clone(), second.clone()],
         )
         .unwrap();
-        let b = super::super::version_for(
+        let b = super::super::key::version_for(
             "0123456789012345678901234567890123456789",
             "mixins",
             super::super::Profile::Performance,

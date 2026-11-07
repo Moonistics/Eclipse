@@ -9,17 +9,20 @@
 //!   source lists for the kind.
 //! - Icons and gallery images come from the source's image servers at run time, cached on disk;
 //!   a placeholder stands in until one arrives.
-use super::mods_page::{licence_name, Checking, Event};
-use super::*;
+use super::mods_state::{licence_name, Checking, Event};
 use crate::tab_strip::{Strip, StripTab};
-use crate::ui::{self, white};
+use crate::ui::{self, white, ButtonKind, Press};
+use crate::{cull, dates, icons, layout, menus, thousands, Launcher};
 use eclipse_launcher::browser::{
     self,
     details::{self, Details, Environment, Filters, Image, Sort, Tags},
     images, java, Kind as PackKind, Project, SourceId, Version,
 };
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{backend, i18n};
 use eclipse_theme::glass::{ink, pixel_text, radius, space, step};
-use gpui::img;
+use gpui::prelude::*;
+use gpui::{div, img, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, Stateful};
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 use std::rc::Rc;
@@ -97,11 +100,17 @@ pub(super) enum Tab {
     Versions,
 }
 
-const TABS: [(Tab, &str); 3] = [
-    (Tab::Description, "Description"),
-    (Tab::Gallery, "Gallery"),
-    (Tab::Versions, "Versions"),
-];
+impl Tab {
+    const ALL: [Tab; 3] = [Tab::Description, Tab::Gallery, Tab::Versions];
+
+    fn label(self) -> &'static str {
+        match self {
+            Tab::Description => tr("Description"),
+            Tab::Gallery => tr("Gallery"),
+            Tab::Versions => tr("Versions"),
+        }
+    }
+}
 
 /// The open project page.
 pub(super) struct Opened {
@@ -713,18 +722,11 @@ impl Launcher {
         let busy = self.mods.busy.clone();
         let installed = self.mods.entry(&p).is_some();
         let checking = self.mods.checking(&p);
-        let instance = self
-            .selected_instance()
-            .map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
+        let instance = self.target_name();
         let vanilla = self.mods_vanilla_target();
         let status = match checking {
             true => Some((ui::Tone::Busy, tr("Checking its jar…").to_string(), None)),
-            false => self
-                .mods_status(&p, &instance)
-                .map(|(tone, said, reason)| match tone {
-                    ui::Tone::Warn if vanilla.is_some() => (ui::Tone::Off, said, reason),
-                    tone => (tone, said, reason),
-                }),
+            false => self.status_shown(&p, &instance),
         };
         let state = |tone: ui::Tone, said: String| {
             ui::text(step::NOTE, FontWeight::MEDIUM, ink::BODY).child(ui::state_line(tone, said))
@@ -743,21 +745,14 @@ impl Launcher {
                 trf("Installed in {instance}", &[("instance", &instance)]),
             ));
         } else if self.mods.support(&p).installable() && !checking {
-            let label = if p.kind == PackKind::Modpack {
-                tr("Install as an instance").to_string()
-            } else {
-                trf("Install in {instance}", &[("instance", &instance)])
-            };
             let mut install = ui::primary(
                 "mods-page-install",
-                Some("download-04"),
-                label,
+                Some(crate::icons::DOWNLOAD),
+                Self::install_label(&p, &instance),
                 ui::ButtonSize::Md,
             );
-            if let Some(why) = self.mods_wait() {
+            if let Some(why) = self.install_refusal(&p) {
                 install = ui::unavailable(install, why);
-            } else if self.mods.needs_world(&p) {
-                install = ui::unavailable(install, tr("Create a world in the game first"));
             } else {
                 let p = p.clone();
                 install = install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
@@ -892,12 +887,12 @@ impl Launcher {
         }
         // No Gallery tab for a project without images.
         let no_gallery = matches!(&details, Some(Ok(d)) if d.gallery.is_empty());
-        let named = TABS
+        let named = Tab::ALL
             .into_iter()
-            .filter(|(shown, _)| !(no_gallery && *shown == Tab::Gallery))
-            .map(|(shown, label)| StripTab {
+            .filter(|shown| !(no_gallery && *shown == Tab::Gallery))
+            .map(|shown| StripTab {
                 value: shown,
-                label: tr(label).into(),
+                label: shown.label().into(),
                 count: None,
             })
             .collect();
@@ -936,7 +931,7 @@ impl Launcher {
                 Some(Err(e)) => failed(e, cx),
                 Some(Ok(d)) => div()
                     .max_w(px(PAGE_TEXT))
-                    .child(markdown::render(&d.body))
+                    .child(ui::markdown::render(&d.body))
                     .into_any_element(),
             },
             Tab::Gallery => match &details {

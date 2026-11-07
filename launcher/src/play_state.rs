@@ -3,6 +3,39 @@ use crate::game_run::Phase;
 use crate::ui::Tone;
 use eclipse_launcher::instances::Instance;
 
+pub(super) struct PrepareFailed {
+    pub(super) missing: bool,
+    pub(super) title: String,
+    pub(super) cause: String,
+}
+
+impl PrepareFailed {
+    pub(super) fn of(error: &str, version: &str) -> Self {
+        let args = [("version", version)];
+        match minecraft_missing(error, version) {
+            true => Self {
+                missing: true,
+                title: trf("Minecraft {version} not found", &args),
+                cause: trf(
+                    "Play {version} once in your Minecraft launcher, then try again.",
+                    &args,
+                ),
+            },
+            false => Self {
+                missing: false,
+                title: tr("Couldn't set up the game").into(),
+                cause: ui::told_cause(error).unwrap_or_else(|| {
+                    trf("Eclipse couldn't get Minecraft {version} ready.", &args)
+                }),
+            },
+        }
+    }
+}
+
+pub(super) fn minecraft_missing(error: &str, version: &str) -> bool {
+    error.starts_with(&eclipse_launcher::sources::not_found_line(version))
+}
+
 #[derive(Clone, Copy, Debug, PartialEq)]
 pub(super) enum PlayState {
     Idle,

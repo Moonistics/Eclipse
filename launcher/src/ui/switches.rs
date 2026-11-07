@@ -47,7 +47,7 @@ pub fn stepper(
     };
     let (less, more) = (
         side_button("less", "minus-sign", value - 1),
-        side_button("more", "plus-sign", value + 1),
+        side_button("more", crate::icons::ADD, value + 1),
     );
     div()
         .id(id.clone())

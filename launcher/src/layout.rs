@@ -16,7 +16,7 @@ pub const CARD_GAP: f32 = space::LG;
 
 pub const SHORT_WINDOW: f32 = 720.;
 pub const HOME_HEAD_WIDE: f32 = 1280.;
-pub const PACK_GRID_WIDE: f32 = 1280.;
+pub const SCREENSHOT_GRID_WIDE: f32 = 1280.;
 pub const MODS_DETAIL_BESIDE: f32 = 1280.;
 pub const ACCOUNT_CARDS_BESIDE: f32 = 1500.;
 pub const SETTINGS_LIST_BESIDE: f32 = 1440.;
@@ -67,6 +67,15 @@ pub fn content_width(window: f32) -> f32 {
 
 pub fn page_margin(window: f32) -> f32 {
     (window - sidebar(window) - content_width(window)) / 2.
+}
+
+pub fn settings_controls_beside(window: f32) -> bool {
+    let list = if window < SETTINGS_LIST_BESIDE {
+        0.
+    } else {
+        SETTINGS_RAIL + CARD_GAP
+    };
+    content_width(window) - list >= SETTINGS_CONTROL_BESIDE
 }
 
 pub fn default_window(display: Option<(f32, f32)>) -> (f32, f32) {

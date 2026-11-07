@@ -1,5 +1,5 @@
 //! The launcher's generated executable for trait mods.
-use super::{Bundle, MANIFEST};
+use super::manifest::{Bundle, MANIFEST};
 use std::fs;
 use std::path::Path;
 
@@ -16,18 +16,11 @@ pub(super) fn write(path: &Path, value: &toml::Table) -> Result<(), String> {
     fs::write(path, text).map_err(|e| format!("{}: {e}", path.display()))
 }
 
-/// Remove launcher-only tables from the incoming copy before horizon-mixins reads it.
-pub(super) fn strip(bundle: &Bundle) -> Result<(), String> {
-    let path = bundle.dir.join(MANIFEST);
-    let mut manifest = read(&path)?;
-    let removed = LAUNCHER_ONLY
-        .iter()
-        .filter(|table| manifest.remove(**table).is_some())
-        .count();
-    if removed > 0 {
-        write(&path, &manifest)?;
+/// Remove launcher-only tables before horizon-mixins reads it.
+pub(super) fn strip(manifest: &mut toml::Table) {
+    for table in LAUNCHER_ONLY {
+        manifest.remove(table);
     }
-    Ok(())
 }
 
 /// Read and validate the trait package folder at the manifest boundary.
@@ -167,7 +160,7 @@ pub(super) fn stage(
         let relative = format!("native-api/{}", bundle.id);
         let dest = stage.join(&relative);
         let source = bundle.dir.join(bundle.api.as_ref().expect("filtered"));
-        super::sync(&source, &dest)?;
+        super::stage::sync(&source, &dest)?;
         let path = dest.join("Cargo.toml");
         let mut manifest = read(&path)?;
         let package = package_name(&manifest, &path)?;
@@ -313,7 +306,11 @@ mod tests {
             let dir = fixture(&format!(
                 "[mod]\nid = 'example'\nversion = '1'\n[api]\npath = {path:?}\n"
             ));
-            assert_eq!(super::super::bundle(&dir, None).is_ok(), valid, "{path}");
+            assert_eq!(
+                super::super::manifest::bundle(&dir, None).is_ok(),
+                valid,
+                "{path}"
+            );
             fs::remove_dir_all(dir).unwrap();
         }
     }
@@ -323,7 +320,7 @@ mod tests {
         let dir = fixture(
             "[mod]\nid = 'example'\nversion = '1'\n[api]\npath = 'engine'\nentry = 'other'\n",
         );
-        assert!(super::super::bundle(&dir, None)
+        assert!(super::super::manifest::bundle(&dir, None)
             .unwrap_err()
             .contains("accepts only path"));
         fs::remove_dir_all(dir).unwrap();
@@ -334,9 +331,9 @@ mod tests {
         let dir = fixture(
             "[mod]\nid = 'example'\nversion = '1'\n[api]\npath = 'engine'\n[dependencies]\nbase = '^1'\n[[injection]]\nid = 'test'\n",
         );
-        let bundle = super::super::bundle(&dir, None).unwrap();
+        let bundle = super::super::manifest::bundle(&dir, None).unwrap();
         assert!(bundle.mixins_content);
-        strip(&bundle).unwrap();
+        super::super::inject::prepare(std::slice::from_ref(&bundle), &dir).unwrap();
         let value = read(&dir.join(MANIFEST)).unwrap();
         assert!(!value.contains_key("api"));
         assert!(!value.contains_key("dependencies"));
@@ -381,7 +378,7 @@ mod tests {
     #[test]
     fn stages_api_without_a_dependency_cycle() {
         let dir = fixture("[mod]\nid = 'example'\nversion = '1'\n[api]\npath = 'engine'\n");
-        let bundle = super::super::bundle(&dir, None).unwrap();
+        let bundle = super::super::manifest::bundle(&dir, None).unwrap();
         let stage_dir = dir.join("workspace");
         fs::create_dir_all(stage_dir.join("crates/eclipse-client")).unwrap();
         fs::write(stage_dir.join("Cargo.toml"), "[workspace]\nmembers = []\n").unwrap();
@@ -448,7 +445,7 @@ mod tests {
         )
         .unwrap();
         fs::write(stage_dir.join("crates/eclipse-client/Cargo.toml"), "[package]\nname = 'eclipse-client'\nversion = '0.1.0'\n[build-dependencies]\neclipse-mod-api-gen = { path = '../eclipse-mod-api-gen' }\n").unwrap();
-        let bundle = super::super::bundle(&dir, None).unwrap();
+        let bundle = super::super::manifest::bundle(&dir, None).unwrap();
         stage(&stage_dir, &[bundle], &resolution).unwrap();
         assert!(main().contains(r#"name_mods(&["example"]);"#));
         let game = read(&stage_dir.join(GAME).join("Cargo.toml")).unwrap();
@@ -462,7 +459,7 @@ mod tests {
     #[test]
     fn api_only_skips_mixins() {
         let dir = fixture("[mod]\nid = 'example'\nversion = '1'\n[api]\npath = 'engine'\n");
-        let bundle = super::super::bundle(&dir, None).unwrap();
+        let bundle = super::super::manifest::bundle(&dir, None).unwrap();
         assert!(!bundle.mixins_content);
         fs::remove_dir_all(dir).unwrap();
     }

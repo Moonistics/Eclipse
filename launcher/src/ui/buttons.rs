@@ -613,7 +613,24 @@ pub fn open_folder_button(
     dir: std::path::PathBuf,
     size: ButtonSize,
 ) -> Stateful<Div> {
-    button(id, Some("folder-01"), label, ButtonKind::Secondary, size)
+    button(
+        id,
+        Some(crate::icons::OPEN_FOLDER),
+        label,
+        ButtonKind::Secondary,
+        size,
+    )
+    .on_press(move |_, _, cx| open_folder(&dir, cx))
+}
+
+pub fn open_folder_icon(
+    id: impl Into<SharedString>,
+    label: impl Into<SharedString>,
+    dir: std::path::PathBuf,
+    kind: ButtonKind,
+    size: ButtonSize,
+) -> Stateful<Div> {
+    icon_button(id, crate::icons::OPEN_FOLDER, label, kind, size, false)
         .on_press(move |_, _, cx| open_folder(&dir, cx))
 }
 

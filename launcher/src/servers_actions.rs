@@ -1,4 +1,21 @@
-use super::*;
+use crate::fields::Field;
+use crate::menus::Asking;
+use crate::page::Page;
+use crate::scrollbar::Scrollbar;
+use crate::servers_state::{
+    bytes, plays_offline, Create, Event, GameMode, ServerJob, Tab, CONSOLE_KEEP, POLL_LIST,
+    POLL_OPEN, STARTED_HERE,
+};
+use crate::ui::{ButtonKind, Press};
+use crate::{ui, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::servers::{Fix, Key, NewServer, Phase, Problem, Status, World};
+use eclipse_launcher::{account, backend, instances, servers};
+use gpui::prelude::*;
+use gpui::{ClickEvent, Div, SharedString, Stateful};
+use serde_json::Value;
+use std::path::PathBuf;
+use std::time::Instant;
 
 impl Launcher {
     // ----- Background work ------------------------------------------------------------------
@@ -27,7 +44,7 @@ impl Launcher {
     }
 
     /// `eclipse-server <args>` on the open server, as a job.
-    pub(crate) fn server_command(&mut self, what: ServerJob, args: Vec<String>) {
+    pub(super) fn server_command(&mut self, what: ServerJob, args: Vec<String>) {
         let Some(dir) = self.servers.open.clone() else {
             return;
         };
@@ -56,7 +73,7 @@ impl Launcher {
         });
     }
 
-    pub(crate) fn open_server(&mut self, dir: PathBuf) {
+    pub(super) fn open_server(&mut self, dir: PathBuf) {
         if self.servers.open.as_ref() == Some(&dir) {
             return;
         }
@@ -82,7 +99,7 @@ impl Launcher {
     }
 
     /// Called with the launcher's other work: what the background sent, and the next status poll.
-    pub(crate) fn servers_tick(&mut self) -> bool {
+    pub(super) fn servers_tick(&mut self) -> bool {
         // The page shows how friends reach the server beside it, whatever the tab.
         let overview = self.page == Page::Servers && self.servers.open.is_some();
         let mut changed = self.internet_tick(overview);
@@ -167,7 +184,7 @@ impl Launcher {
                     }
                     s.log_next = next;
                 }
-                let read_pvp = status.phase == "running" && s.pvp.is_none();
+                let read_pvp = status.phase() == Phase::Running && s.pvp.is_none();
                 s.statuses.insert(dir, *status);
                 if read_pvp {
                     self.read_pvp();
@@ -276,25 +293,13 @@ impl Launcher {
         };
         let tx = self.servers.tx.clone();
         std::thread::spawn(move || {
-            let on = servers::Api::open(&dir)
-                .and_then(|a| a.command("gamerule pvp").ok())
-                .and_then(|out| {
-                    let text = out.join(" ");
-                    let text = text.trim_end();
-                    if text.ends_with("true") {
-                        Some(true)
-                    } else if text.ends_with("false") {
-                        Some(false)
-                    } else {
-                        None
-                    }
-                });
+            let on = servers::Api::open(&dir).and_then(|a| a.pvp());
             let _ = tx.send(Event::Pvp(on));
         });
     }
 
     /// Queues a setting for `eclipse-server config set`; they go one batch at a time.
-    pub(crate) fn set_setting(&mut self, key: ServerKey, value: String) {
+    pub(super) fn set_setting(&mut self, key: Key, value: String) {
         self.servers.queued.retain(|(k, _)| *k != key);
         self.servers.queued.push((key, value));
         self.servers.note = None;
@@ -368,7 +373,7 @@ impl Launcher {
         self.servers.problem = None;
         match fix {
             Fix::UsePort(port) => {
-                self.set_setting(ServerKey::Port, port.to_string());
+                self.set_setting(Key::Port, port.to_string());
                 self.fields.clear(Field::ServerPort);
                 self.servers.note = Some(trf(
                     "The server now uses port {port}. Press Start again.",
@@ -411,7 +416,7 @@ impl Launcher {
             Fix::ShowLog => {
                 self.servers.tab = Tab::Players;
                 if let Some(dir) = &self.servers.open {
-                    ui::open_folder(&dir.join("logs"), cx);
+                    ui::open_folder(&backend::logs_dir_in(dir), cx);
                 }
             }
         }
@@ -425,7 +430,7 @@ impl Launcher {
         let worlds = servers::player_worlds();
         // The dialog starts with an empty name (its placeholder says the default) and the player
         // as the first friend.
-        let own = own_name(&self.accounts).filter(|name| !name.is_empty());
+        let own = self.own_name();
         self.fields.text(Field::NewServerName).set(String::new());
         self.fields.selected = None;
         self.fields.text(Field::NewServerSeed).set(String::new());
@@ -519,7 +524,7 @@ impl Launcher {
     // ----- Building blocks ------------------------------------------------------------------
 
     /// Escape closes the Create dialog. Whether it did.
-    pub(crate) fn servers_escape(&mut self) -> bool {
+    pub(super) fn servers_escape(&mut self) -> bool {
         if self.servers.create.is_none() || self.servers.creating {
             return false;
         }
@@ -528,7 +533,7 @@ impl Launcher {
         true
     }
 
-    pub(crate) fn server_field_enter(&mut self, f: Field) {
+    pub(super) fn server_field_enter(&mut self, f: Field) {
         match f {
             // The dialog's friend field adds the name typed.
             Field::NewServerFriend => self.add_create_friend(),
@@ -547,7 +552,7 @@ impl Launcher {
                     self.servers.problem =
                         Some(Problem::plain("Type the line players see under the name."));
                 } else {
-                    self.set_setting(ServerKey::Motd, motd);
+                    self.set_setting(Key::Motd, motd);
                 }
             }
             Field::ServerPort => self.save_port(),
@@ -557,7 +562,7 @@ impl Launcher {
 
     pub(super) fn save_port(&mut self) {
         match self.fields.value(Field::ServerPort).trim().parse::<u16>() {
-            Ok(port) if port >= 1024 => self.set_setting(ServerKey::Port, port.to_string()),
+            Ok(port) if port >= 1024 => self.set_setting(Key::Port, port.to_string()),
             _ => {
                 self.fields.invalid = Some((
                     Field::ServerPort,
@@ -569,9 +574,7 @@ impl Launcher {
 
     pub(super) fn add_player(&mut self) {
         let name = self.fields.value(Field::ServerPlayer).trim().to_string();
-        let valid = (3..=16).contains(&name.len())
-            && name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_');
-        if !valid {
+        if !account::valid_offline_name(&name) {
             self.fields.invalid = Some((
                 Field::ServerPlayer,
                 Some("A Minecraft name has 3 to 16 letters, digits or underscores."),

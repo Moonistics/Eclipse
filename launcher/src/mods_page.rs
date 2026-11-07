@@ -1,975 +1,1249 @@
-//! The Mods page: its tabs are the kinds (mods, modpacks, resource packs, shader packs, data
-//! packs). Search Eclipse's own registry for what was made for Eclipse, or Modrinth for Java
-//! mods, modpacks, resource packs and data packs (a Java instance's files
-//! always come from Modrinth, for its version), see where each comes
-//! from and how well it runs (a Java mod's jar is checked first; a Eclipse mod says whether it is
-//! signed and what it may do), install it with its checksum checked, turn Eclipse mods on and
-//! off, and update or remove what was installed (`eclipse_launcher::browser`). Imported modpacks
-//! are listed on its Modpacks tab.
-use super::*;
-use crate::menus::Asking;
-use crate::ui::{self, white};
-use eclipse_launcher::browser::{
-    self, eclipse, installed, java, java_instance, Kind as PackKind, Project, Query, SourceId,
-    Support,
+//! The Mods page's look: the kinds as tabs under its title, then two cards: the search and
+//! what it found (icon, name, author, summary, then downloads for the registry's and how it runs
+//! for Modrinth's, a tick on what the instance has), and the picked project's card (its icon,
+//! name, line, summary, what it may do, downloads, and Install in or Remove from the instance).
+//! A kind's sources lead the search: Eclipse's registry or Modrinth, on the kinds both
+//! serve (`Kind::picks_source`); shader packs are Eclipse's registry's only, and a Java instance's files
+//! always Modrinth's. Modrinth's Java mods are offered to an Eclipse instance too, each marked
+//! Works or Partly in Eclipse; those that don't run show only when asked. Above the two cards:
+//! the install's progress, the instance's installed list (folded when long) and its native
+//! build; under them, adding an Eclipse mod from GitHub.
+
+use crate::fields::Field;
+use crate::menus::{Asking, Menu};
+use crate::mods_state::{
+    count, goes_to_trash, kind_words, licence_name, removal, DETAIL_FLOAT, KINDS, SOURCES,
 };
-use eclipse_launcher::modpacks;
-use eclipse_launcher::native_status;
-use eclipse_port_pack::check::Check;
-use eclipse_theme::glass::{ink, space, step};
-use java_instance::Target;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use crate::page::Page;
+use crate::tab_strip::{Strip, StripTab};
+use crate::ui::{self, ButtonKind, Press};
+use crate::{instance_state, layout, menus, mods_project, Launcher};
+use eclipse_launcher::browser::{Kind as PackKind, Project, SourceId, Support};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::instances::{Instance, Kind as InstanceKind};
+use eclipse_launcher::worlds::World;
+use eclipse_launcher::{browser, native_status};
+use eclipse_theme::glass::{ink, radius, space};
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, Stateful};
 
-/// The kinds, as the Mods page's tabs.
-const KINDS: [(PackKind, &str); 5] = [
-    (PackKind::Mod, "Mods"),
-    (PackKind::Modpack, "Modpacks"),
-    (PackKind::ResourcePack, "Resource packs"),
-    (PackKind::Shader, "Shader packs"),
-    (PackKind::DataPack, "Data packs"),
-];
-/// Java mods checked at once.
-const CHECKING: usize = 2;
-/// The sources to pick from on the tabs that have both ([`switches`]).
-pub(super) const SOURCES: [(SourceId, &str); 2] = [
-    (SourceId::Eclipse, "Eclipse"),
-    (SourceId::Modrinth, "Modrinth"),
-];
-const PAGE: usize = 20;
+const DETAIL: f32 = 360.;
+const VANILLA_ACTION: ui::ButtonSize = ui::ButtonSize::Md;
 
-#[path = "mods_view.rs"]
-mod mods_view;
+const DETAIL_CLOSE: &str = "mods-detail-close";
+const FLOAT_MIN_HEIGHT: f32 = ui::TILE_LG + 2. * ui::CARD_PADDING;
+const SEARCH_FIELD_MIN: f32 = 200.;
 
-pub(super) const DETAIL_FLOAT: &str = "mods-detail-float";
+pub(super) const RESULTS: &str = "mods-results";
+const TOOLBAR_INSET: f32 = ui::CARD_PADDING - ui::LIST_INSET;
+const ROW_PLATE_INSET: f32 = space::MD - ui::LIST_INSET;
+const ROW_CONTENT_INSET: f32 = ui::CARD_PADDING - space::MD - ui::ROW_EDGE;
 
-#[path = "native_build_view.rs"]
-mod native_build_view;
-
-pub(super) enum Event {
-    /// A search's answer, for the search it was (stale answers are dropped) at that offset.
-    Found(u64, usize, Result<Vec<Project>, String>),
-    Progress(String, f32),
-    Done(Result<String, String>, Option<PathBuf>),
-    Updates(HashMap<(SourceId, String), String>),
-    /// A Java mod's check: its jar read, or why it couldn't be.
-    Checked((SourceId, String), Result<Box<Check>, String>),
-    /// What a Eclipse registry project says before install: signed or not, what it may do.
-    About(HashMap<String, Vec<String>>),
-    /// Registry files taken down that the launcher turned off.
-    TakenDown(Vec<String>),
-    /// What the automatic updates did (`eclipse::auto`), and the instances (ids) whose native
-    /// mods moved on: their game is built again before it plays.
-    AutoUpdated(Vec<String>, Vec<String>),
-    /// A project page's part, an image or a filter's values (`mods_project`).
-    Loaded(super::mods_project::Loaded),
-    /// The palette's mods for its search of that number, or why the search failed.
-    Palette(u64, Result<Vec<Project>, String>),
-}
-
-/// Where a Java mod's check is.
-pub(super) enum Checking {
-    Running,
-    Done(Box<Check>),
-    Failed(String),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum ModsBusy {
-    Install {
-        id: String,
-        name: String,
-        line: String,
-        bar: (f32, f32),
-    },
-    UpdateAll {
-        line: String,
-        bar: (f32, f32),
-    },
-}
-
-impl ModsBusy {
-    pub(super) fn installs(&self, project: &str) -> bool {
-        matches!(self, ModsBusy::Install { id, .. } if id == project)
-    }
-
-    fn moved(&mut self, now: String, to: f32) {
-        let (ModsBusy::Install { line, bar, .. } | ModsBusy::UpdateAll { line, bar }) = self;
-        *line = now;
-        *bar = (bar.1, to);
-    }
-}
-
-pub(super) struct Mods {
-    pub(super) kind: PackKind,
-    pub(super) source: SourceId,
-    everything: bool,
-    show_unrunnable: bool,
-    /// Which search is the current one; answers for older ones are dropped.
-    search: u64,
-    searching: bool,
-    searched: bool,
-    results: Vec<Project>,
-    results_list: cull::Cull,
-    installed_list: cull::Cull,
-    installed_open: bool,
-    pub(super) report_list: cull::Cull,
-    more: bool,
-    error: Option<String>,
-    pub(super) installed: Vec<installed::Entry>,
-    pub(super) installed_read: u64,
-    loaded: bool,
-    /// Whether the page searched for the instance as it is (its version and loader).
-    asked: bool,
-    /// The game folder the browser installs into and lists: the selected instance's.
-    home: Option<PathBuf>,
-    /// The selected Java instance's version and loader: its mods and resource packs are the
-    /// source's own files for them, put in as they are.
-    pub(super) java: Option<Target>,
-    loads_shaders: bool,
-    palette_failed: Option<u64>,
-    /// Its worlds (folder, name), the last played first, and the one data packs go into.
-    worlds: Vec<(PathBuf, String)>,
-    world: Option<PathBuf>,
-    pub(super) busy: Option<ModsBusy>,
-    pub(super) failed: Option<String>,
-    pub(super) updates: HashMap<(SourceId, String), String>,
-    /// Instances (ids) whose native mods the automatic update moved on: Play builds their game
-    /// first (`build_native`), then plays it.
-    pub(super) rebuild: Vec<String>,
-    /// The project the detail card shows; the first result when none is.
-    pub(super) picked: Option<String>,
-    /// The project the detail card showed last.
-    pub(super) shown: Option<Project>,
-    float_at: std::rc::Rc<std::cell::Cell<(f32, f32)>>,
-    float_scroll: gpui::ScrollHandle,
-    float_for: Option<String>,
-    /// A native mod's Install waiting for the one-time trust notice (`native_status::NOTICE`).
-    native_notice: Option<(SourceId, String, Option<Project>)>,
-    /// The selected instance's native build state, and the `native_status::fingerprint` it was
-    /// read for: read again only when that changes.
-    /// With it, the mods turned on that pin the commit an older build compiled
-    /// (`native_status::pinning`, for builds that didn't record it).
-    native_state: std::cell::RefCell<Option<(String, native_status::State, Vec<String>)>>,
-    native_files:
-        std::cell::RefCell<Option<(String, Vec<eclipse_launcher::github_mods::Installed>)>>,
-    /// Java mods' checks, by source and project.
-    pub(super) checks: HashMap<(SourceId, String), Checking>,
-    /// Eclipse registry projects' trust and capabilities, by id ([`eclipse::trust_and_capabilities`]).
-    pub(super) about: HashMap<String, Vec<String>>,
-    /// The project page, filters and images.
-    pub(super) browse: super::mods_project::Browse,
-    pub(super) tx: Sender<Event>,
-    rx: Receiver<Event>,
-}
-
-impl Mods {
-    pub(super) fn reset_lists(&self) {
-        self.results_list.reset();
-        self.installed_list.reset();
-        self.report_list.reset();
-    }
-
-    /// The game folder installs go into: the selected instance's, once the page has read it.
-    pub(super) fn home(&self) -> PathBuf {
-        self.home.clone().unwrap_or_else(backend::game_home)
-    }
-
-    fn read_installed(&mut self) {
-        let home = self.home();
-        self.installed = installed::Installed::load(&home).entries;
-        self.installed_read += 1;
-        self.installed_list.reset();
-        self.loads_shaders = java_instance::loads_shaders(&home);
-    }
-
-    /// Reads the instance's worlds again; the world picked for data packs stays when it is
-    /// still there, else the last played.
-    fn read_worlds(&mut self) {
-        self.worlds = eclipse_launcher::worlds::list(&self.home())
-            .into_iter()
-            .map(|w| (w.path, w.name))
-            .collect();
-        if !self
-            .worlds
-            .iter()
-            .any(|(p, _)| Some(p) == self.world.as_ref())
+impl Launcher {
+    /// The search's placeholder: the registry's count when it is listed whole.
+    pub(super) fn mods_placeholder(&self) -> SharedString {
+        let m = &self.mods;
+        let registry = m.source == SourceId::Eclipse && m.java.is_none();
+        if registry
+            && m.kind == PackKind::Mod
+            && m.searched
+            && !m.searching
+            && m.error.is_none()
+            && !m.results.is_empty()
+            && mods_project::active_filters(&m.browse.filters) == 0
+            && self.fields.value(Field::ModsSearch).is_empty()
         {
-            self.world = self.worlds.first().map(|(p, _)| p.clone());
-        }
-    }
-
-    /// Whether the Modpacks tab is open (the sidebar marks the pack shown there).
-    pub(super) fn on_modpacks(&self) -> bool {
-        self.kind == PackKind::Modpack
-    }
-
-    pub(super) fn new() -> Self {
-        let (tx, rx) = channel();
-        let kind = match preview::preview() {
-            Some(preview::Preview::Mods(kind)) => kind,
-            _ => PackKind::Mod,
-        };
-        Self {
-            kind,
-            source: source_for(kind, false),
-            everything: false,
-            show_unrunnable: false,
-            search: 0,
-            searching: false,
-            searched: false,
-            results: Vec::new(),
-            results_list: cull::Cull::default(),
-            installed_list: cull::Cull::default(),
-            installed_open: false,
-            report_list: cull::Cull::default(),
-            more: false,
-            error: None,
-            installed: Vec::new(),
-            installed_read: 0,
-            loaded: false,
-            asked: false,
-            home: None,
-            java: None,
-            loads_shaders: false,
-            palette_failed: None,
-            worlds: Vec::new(),
-            world: None,
-            busy: None,
-            failed: None,
-            native_notice: None,
-            native_state: Default::default(),
-            native_files: Default::default(),
-            updates: HashMap::new(),
-            rebuild: Vec::new(),
-            picked: None,
-            shown: None,
-            float_at: Default::default(),
-            float_scroll: Default::default(),
-            float_for: None,
-            checks: HashMap::new(),
-            about: HashMap::new(),
-            browse: Default::default(),
-            tx,
-            rx,
-        }
-    }
-
-    pub(super) fn entry(&self, p: &Project) -> Option<&installed::Entry> {
-        self.installed
-            .iter()
-            .find(|e| e.source == p.source && e.project == p.id)
-    }
-
-    /// The Java instance `kind` goes into as files, when one is selected.
-    pub(super) fn java_for(&self, kind: PackKind) -> Option<&Target> {
-        self.java.as_ref().filter(|t| t.takes(kind))
-    }
-
-    pub(super) fn needs_world(&self, p: &Project) -> bool {
-        p.kind == PackKind::DataPack && self.world.is_none()
-    }
-
-    /// Whether a Java mod's check is still to come before it can be installed.
-    pub(super) fn checking(&self, p: &Project) -> bool {
-        self.java_for(p.kind).is_none()
-            && p.kind == PackKind::Mod
-            && p.source != SourceId::Eclipse
-            && matches!(
-                self.checks.get(&(p.source, p.id.clone())),
-                None | Some(Checking::Running)
-            )
-            && p.support().installable()
-    }
-
-    fn use_source(&mut self, source: SourceId) -> bool {
-        if self.source == source {
-            return false;
-        }
-        self.source = source;
-        self.browse.filters = Default::default();
-        self.browse.open = None;
-        self.picked = None;
-        true
-    }
-
-    fn may_hide_unrunnable(&self) -> bool {
-        self.java.is_none() && self.kind == PackKind::Mod && self.source == SourceId::Modrinth
-    }
-
-    fn listed(&self, p: &Project) -> bool {
-        self.show_unrunnable
-            || !self.may_hide_unrunnable()
-            || !self.checking(p) && self.support(p).installable()
-    }
-
-    fn runnable_first(&mut self) {
-        if self.results.iter().any(|p| self.checking(p)) {
-            return;
-        }
-        let mut results = std::mem::take(&mut self.results);
-        results.sort_by_key(|p| !self.support(p).installable());
-        self.results = results;
-    }
-
-    /// How well a result runs: a Java mod's from its check once it has one. In a Java
-    /// instance, whether it has the loader and version the result was made for.
-    pub(super) fn support(&self, p: &Project) -> Support {
-        if let Some(target) = self.java_for(p.kind) {
-            return match target.support(p) {
-                Support::Works if p.kind == PackKind::Shader && !self.loads_shaders => {
-                    let needs = tr("Needs a shader mod like Iris").to_string();
-                    match target.loader {
-                        Some(_) => Support::Partial(needs),
-                        None => Support::No(needs),
-                    }
-                }
-                support => support,
-            };
-        }
-        let metadata = p.support();
-        if p.kind != PackKind::Mod || p.source == SourceId::Eclipse || !metadata.installable() {
-            return metadata;
-        }
-        match self.checks.get(&(p.source, p.id.clone())) {
-            Some(Checking::Done(c)) => java::support_of(c),
-            Some(Checking::Failed(e)) => {
-                Support::Partial(trf("Not checked: {error}", &[("error", e)]))
+            // Results come in pages: only a last page gives the real count.
+            if m.more {
+                return tr("Search Eclipse mods").into();
             }
-            _ => Support::Partial(tr("Checking its jar…").into()),
+            trf(
+                "Search {count} Eclipse mods",
+                &[("count", &m.results.len().to_string())],
+            )
+            .into()
+        } else {
+            tr(kind_words(m.kind).search).into()
         }
     }
-}
 
-fn titles(done: &[installed::Entry]) -> String {
-    let names: Vec<&str> = done.iter().map(|e| e.title.as_str()).collect();
-    names.join(", ")
-}
+    pub(super) fn mods_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let instance = self.target_name();
+        let target = self.mods_target(cx);
+        let open = self.mods.kind;
+        let kinds = KINDS
+            .into_iter()
+            .map(|kind| StripTab {
+                value: kind,
+                label: tr(kind_words(kind).tab).into(),
+                count: None,
+            })
+            .collect();
+        let (tabs, panel) = self.tab_strip(
+            Strip::Mods,
+            kinds,
+            open,
+            layout::content_width(self.window_width),
+            |this, kind, _| this.mods_set_kind(kind),
+            cx,
+        );
+        let header = div()
+            .flex()
+            .flex_col()
+            .child(ui::page_head_with(
+                Page::Mods.title(),
+                None,
+                target.map(IntoElement::into_any_element),
+            ))
+            .child(tabs);
 
-fn switched_line(name: &str, on: bool) -> String {
-    let args = [("name", name)];
-    match on {
-        true => trf(
-            "{name} is on. Applies the next time the game starts.",
-            &args,
-        ),
-        false => trf(
-            "{name} is off. Applies the next time the game starts.",
-            &args,
-        ),
+        // Installation can pause for consent in either view. Keep the notice before
+        // the project or results, rather than below a potentially long detail card.
+        let notice = self
+            .native_notice(cx)
+            .map(|notice| notice.mb(px(layout::CARD_GAP)));
+        // A project's own page replaces the two cards.
+        if let Some(project) = self.mods_project_page(cx) {
+            return div().flex().flex_col().child(header).child(
+                panel.flex().flex_col().children(notice).child(
+                    ui::card()
+                        .p(px(ui::CARD_PADDING))
+                        .children(self.mods_busy_plate())
+                        .child(project),
+                ),
+            );
+        }
+
+        let java = self.mods.java_for(self.mods.kind).is_some();
+        let registry = self.mods.source == SourceId::Eclipse && !java;
+        let everything = self.mods.everything;
+        let other_versions = !registry && !java && self.mods.kind != PackKind::Modpack;
+        let versions = other_versions.then(|| {
+            ui::toggle_label(
+                "mods-everything",
+                tr("Include other Minecraft versions"),
+                everything,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods.everything = !this.mods.everything;
+                this.mods_search(0);
+                cx.notify();
+            }))
+        });
+        let unrunnable = self.mods.may_hide_unrunnable().then(|| {
+            ui::toggle_label(
+                "mods-show-unrunnable",
+                tr("Show mods that don't run in Eclipse"),
+                self.mods.show_unrunnable,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods.show_unrunnable = !this.mods.show_unrunnable;
+                cx.notify();
+            }))
+        });
+        let toggles = (versions.is_some() || unrunnable.is_some()).then(|| {
+            div()
+                .flex()
+                .flex_wrap()
+                .gap_x(px(space::XL))
+                .gap_y(px(space::MD))
+                .children(versions)
+                .children(unrunnable)
+        });
+        let extras = div()
+            .flex()
+            .flex_col()
+            .gap(px(space::MD))
+            .px(px(TOOLBAR_INSET))
+            .pb(px(space::SM))
+            .children(toggles)
+            .children(self.mods_filters(cx))
+            .children(self.mods_target_line(cx));
+        let source = (self.mods.kind.picks_source() && !java).then(|| self.source_switch(cx));
+        let search = div()
+            .mx(px(TOOLBAR_INSET))
+            .mt(px(TOOLBAR_INSET))
+            .mb(px(space::SM))
+            .flex()
+            .flex_wrap()
+            .items_center()
+            .gap(px(space::SM))
+            .children(source)
+            .child(
+                div()
+                    .flex_1()
+                    .min_w(px(SEARCH_FIELD_MIN))
+                    .child(self.mods_field(cx)),
+            )
+            .child(
+                div()
+                    .flex()
+                    .flex_none()
+                    .items_center()
+                    .gap(px(space::SM))
+                    .child(self.mods_sort(cx))
+                    .child(self.mods_filters_button(cx)),
+            );
+        let list = ui::card()
+            .flex()
+            .flex_col()
+            .flex_1()
+            .min_w_0()
+            .p(px(ui::LIST_INSET))
+            .child(search)
+            .child(extras);
+        let (rows, more) = self.mods_list(cx);
+        // The card stays in view as the list scrolls (`sticky.rs`).
+        let wide = self.window_width >= crate::layout::MODS_DETAIL_BESIDE;
+        let close = (!wide).then(|| {
+            ui::icon_button(
+                DETAIL_CLOSE,
+                "cancel-01",
+                tr("Close"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Sm,
+                false,
+            )
+            .absolute()
+            .top(px(space::LG))
+            .right(px(space::LG))
+            .when_some(ui::try_focus_for(DETAIL_CLOSE), |d, handle| {
+                ui::keep_focus(d, &handle)
+            })
+            .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.close_mod_detail(window, cx);
+                cx.notify();
+            }))
+        });
+        let detail = if wide || self.mods.picked.is_some() {
+            self.mod_detail(&instance, close, cx)
+        } else {
+            None
+        };
+        let floats = !wide && detail.is_some();
+        let fresh = floats && self.mods.float_for != self.mods.picked;
+        self.mods.float_for = self.mods.picked.clone().filter(|_| floats);
+        let detail = detail.map(|d| {
+            let down = self.mods_sticky.offset(&self.content_scroll.handle);
+            if wide {
+                return d
+                    .flex_none()
+                    .w(px(DETAIL))
+                    .top(px(down))
+                    .child(self.mods_sticky.panel())
+                    .into_any_element();
+            }
+            let scroll = &self.mods.float_scroll;
+            ui::float_card()
+                .id(DETAIL_FLOAT)
+                .when_some(ui::try_focus_for(DETAIL_FLOAT), |d, handle| {
+                    d.track_focus(&handle.tab_stop(false))
+                })
+                .flex_none()
+                .flex()
+                .flex_col()
+                .w(px(DETAIL))
+                .max_h(px(self.mods_float_room(down)))
+                .ml(px(-DETAIL))
+                .top(px(down))
+                .occlude()
+                .child(
+                    ui::hand_back_at_ends(ui::scroll_pane("mods-detail-scroll", scroll), scroll)
+                        .min_h_0()
+                        .child(d),
+                )
+                .children(
+                    ui::more_below_fade(scroll, ui::surface_colour(ui::Surface::Float))
+                        .map(|fade| fade.rounded_b(px(radius::POPOVER))),
+                )
+                .child(self.mods_sticky.panel())
+                .child(self.mods_float_at(down, fresh, cx))
+                .into_any_element()
+        });
+        let sticky = self.mods_sticky.row(&self.content_scroll.handle);
+        let cards = if wide {
+            div()
+                .relative()
+                .flex()
+                .items_start()
+                .gap(px(layout::CARD_GAP))
+                .child(sticky)
+                .child(list.child(rows).children(more))
+                .children(detail)
+        } else {
+            list.child(
+                div()
+                    .relative()
+                    .flex()
+                    .items_start()
+                    .child(sticky)
+                    .child(rows.flex_1().min_w_0())
+                    .children(detail),
+            )
+            .children(more)
+        };
+
+        let card = |inner: Div| ui::card().p(px(ui::CARD_PADDING)).child(inner);
+        let packs = (self.mods.kind == PackKind::Modpack).then(|| {
+            card(self.imported_packs(cx))
+                .id("mods-imported-packs")
+                .mb(px(layout::CARD_GAP))
+        });
+        let plate = self.mods_busy_plate();
+        let installed = self.mods_installed_list(cx);
+        let installed = (installed.is_some() || !plate.is_empty()).then(|| {
+            card(
+                div()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::LG))
+                    .children(plate)
+                    .children(installed),
+            )
+            .id("mods-installed")
+            .mb(px(layout::CARD_GAP))
+        });
+        let github = (self.mods.kind == PackKind::Mod && self.mods.java.is_none())
+            .then(|| card(self.github_panel(cx)).mt(px(layout::CARD_GAP)));
+        let advice: Vec<_> = self
+            .mods_vanilla_notice(cx)
+            .or_else(|| self.mods_shader_notice(cx))
+            .or_else(|| self.mods_world_notice(cx))
+            .into_iter()
+            .chain(self.mods_datapack_notice())
+            .collect();
+        let advice = (!advice.is_empty()).then(|| {
+            ui::card()
+                .flex()
+                .flex_col()
+                .gap(px(space::LG))
+                .p(px(ui::CARD_PADDING))
+                .mb(px(layout::CARD_GAP))
+                .children(advice)
+        });
+        div().flex().flex_col().child(header).child(
+            panel
+                .flex()
+                .flex_col()
+                .children(notice)
+                .children(advice)
+                .children(packs)
+                .children(installed)
+                .child(cards)
+                .children(github),
+        )
+    }
+
+    fn mods_float_room(&self, down: f32) -> f32 {
+        let (top, foot) = self.mods.float_at.get();
+        let pane = &self.content_scroll.handle;
+        let top = f32::from(pane.bounds().top() + pane.offset().y) + top + down;
+        (foot - top - layout::CARD_GAP).max(FLOAT_MIN_HEIGHT)
+    }
+
+    fn mods_float_at(&self, down: f32, fresh: bool, cx: &mut Context<Self>) -> impl IntoElement {
+        let (at, detail, pane, this) = (
+            self.mods.float_at.clone(),
+            self.mods.float_scroll.clone(),
+            self.content_scroll.handle.clone(),
+            cx.entity().downgrade(),
+        );
+        gpui::canvas(
+            move |bounds, window, _| {
+                let foot = f32::from(window.viewport_size().height);
+                let top = f32::from(bounds.top() - pane.bounds().top() - pane.offset().y) - down;
+                let (was, was_foot) = at.replace((top, foot));
+                let room = foot - f32::from(bounds.top()) - layout::CARD_GAP;
+                let short = match fresh {
+                    true => {
+                        let whole = f32::from(detail.bounds().size.height + detail.max_offset().y);
+                        let most = foot - f32::from(pane.bounds().top()) - layout::CARD_GAP;
+                        let above = f32::from(bounds.top() - pane.bounds().top());
+                        (whole.min(most) - room).min(above)
+                    }
+                    false => 0.,
+                };
+                let moved = (was - top).abs() >= 1. || (was_foot - foot).abs() >= 1.;
+                if moved || short >= 1. {
+                    let pane = pane.clone();
+                    window.on_next_frame(move |_, cx| {
+                        if short >= 1. {
+                            let at = pane.offset();
+                            pane.set_offset(gpui::point(at.x, at.y - px(short)));
+                        }
+                        let _ = this.update(cx, |_, cx| cx.notify());
+                    });
+                }
+            },
+            |_, _, _, _| {},
+        )
+        .absolute()
+        .top_0()
+        .left_0()
+        .size_full()
+    }
+
+    fn mods_target(&mut self, cx: &mut Context<Self>) -> Option<Div> {
+        let row = div()
+            .flex()
+            .items_center()
+            .gap(px(space::MD))
+            .h(px(ui::ButtonSize::Md.height()));
+        if self.mods.kind == PackKind::Modpack {
+            let fixed = ui::labelled_dropdown(
+                "mods-target",
+                tr("Install to"),
+                None,
+                tr("New instance"),
+                false,
+                ui::ButtonSize::Md,
+            );
+            return Some(row.child(ui::unavailable(
+                fixed,
+                tr("Modpacks install as a new instance"),
+            )));
+        }
+        let current = self.selected_instance()?.clone();
+        let choices = self.mods_targets(&current);
+        let open = self.menu_is(&Menu::ModsTarget);
+        let button = ui::labelled_dropdown(
+            "mods-target",
+            tr("Install to"),
+            Some(self.instance_icon(&current, ui::TILE_SM)),
+            current.name.clone(),
+            open,
+            ui::ButtonSize::Md,
+        );
+        let button = match menus::opener_focus("mods-target") {
+            Some(focus) => ui::keep_focus(button, &focus),
+            None => button,
+        };
+        let button = self.menu_opener(button, Menu::ModsTarget, cx);
+        let mut wrap = div().relative().flex_none().child(button);
+        if open {
+            let mut menu = self.menu_popover("mods-target-menu", tr("Install to"), cx);
+            for i in choices {
+                let picked = i.id == current.id;
+                let game = match (&i.java, self.version_of(&i)) {
+                    (Some(java), _) => java.line(),
+                    (None, Some(tag)) => eclipse_launcher::nightly::display_name(tag),
+                    (None, None) => tr("Eclipse").to_string(),
+                };
+                menu = menu.child(
+                    ui::pick_item(
+                        SharedString::from(format!("mods-target-pick-{}", i.id)),
+                        i.name.clone(),
+                        game,
+                        picked,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.close_menu();
+                            if !picked {
+                                this.select_instance(&i);
+                            }
+                            cx.notify();
+                        },
+                    )),
+                );
+            }
+            wrap = wrap.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::End,
+                menu,
+            ));
+        }
+        Some(row.child(wrap))
+    }
+
+    fn mods_targets(&self, current: &Instance) -> Vec<Instance> {
+        let kind = self.mods.kind;
+        self.instances
+            .list
+            .iter()
+            .filter(|i| matches!(i.kind, InstanceKind::Default | InstanceKind::Own))
+            .filter(|i| {
+                i.id == current.id
+                    || i.java.as_ref().is_none_or(|j| {
+                        kind == PackKind::DataPack || j.target().folder(kind).is_ok()
+                    })
+            })
+            .cloned()
+            .collect()
+    }
+
+    fn mods_vanilla_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let minecraft = self.mods_vanilla_target()?;
+        let current = self.selected_instance()?.clone();
+        let name = [("instance", current.name.as_str())];
+        let create = self.mods_new_fabric_button("mods-new-fabric", minecraft, cx);
+        let add = ui::button(
+            "mods-add-fabric",
+            None,
+            trf("Add Fabric to {instance}…", &name),
+            ButtonKind::Secondary,
+            VANILLA_ACTION,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.mods_add_fabric(cx);
+            cx.notify();
+        }));
+        let choose = self.mods_choose_instance_button("mods-choose-instance", cx);
+        let said = match self.mods.kind {
+            PackKind::Shader => trf(
+                "{instance} is vanilla. Shader packs need Iris, which runs on Fabric.",
+                &name,
+            ),
+            _ => trf(
+                "{instance} is vanilla. Mods need Fabric, Quilt, NeoForge or Forge.",
+                &name,
+            ),
+        };
+        let actions = [create.into_any_element(), add.into_any_element()]
+            .into_iter()
+            .chain(choose)
+            .collect();
+        Some(div().id("mods-vanilla").child(ui::notice(
+            ui::Notice::InCard,
+            crate::icons::INFO,
+            said,
+            actions,
+        )))
+    }
+
+    fn mods_choose_instance_button(
+        &mut self,
+        id: &'static str,
+        cx: &mut Context<Self>,
+    ) -> Option<AnyElement> {
+        let current = self.selected_instance()?.clone();
+        (self.mods_targets(&current).len() > 1).then(|| {
+            ui::button(
+                id,
+                None,
+                tr("Choose another instance"),
+                ButtonKind::Secondary,
+                VANILLA_ACTION,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.open_menu_for(Menu::ModsTarget, "mods-target", window, cx);
+                cx.notify();
+            }))
+            .into_any_element()
+        })
+    }
+
+    fn mods_shader_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let (slug, name) = self.mods_missing_shader_mod()?;
+        let current = self.selected_instance()?.name.clone();
+        let installing = self.mods.busy.as_ref().is_some_and(|b| b.installs(slug));
+        let install = ui::button(
+            "mods-install-shader-mod",
+            None,
+            match installing {
+                true => tr("Installing…").to_string(),
+                false => trf("Install {name}", &[("name", name)]),
+            },
+            ButtonKind::Secondary,
+            VANILLA_ACTION,
+        );
+        let install = match self.mods_wait() {
+            Some(why) => ui::unavailable(install, why),
+            None => install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.mods_install(SourceId::Modrinth, slug.to_string(), None);
+                cx.notify();
+            })),
+        };
+        Some(div().id("mods-shader-mod").child(ui::notice(
+            ui::Notice::InCard,
+            crate::icons::INFO,
+            trf(
+                "Shader packs need a shader mod like Iris, and {instance} has none.",
+                &[("instance", &current)],
+            ),
+            vec![install.into_any_element()],
+        )))
+    }
+
+    fn mods_world_notice(&mut self, cx: &mut Context<Self>) -> Option<Stateful<Div>> {
+        let worlds = self.worlds.list.of(&self.mods.home());
+        if self.mods.kind != PackKind::DataPack || worlds.is_none_or(|w| !w.is_empty()) {
+            return None;
+        }
+        let current = self.selected_instance()?.clone();
+        let choose = self.mods_choose_instance_button("mods-world-choose-instance", cx);
+        Some(div().id("mods-no-worlds").child(ui::notice(
+            ui::Notice::InCard,
+            crate::icons::INFO,
+            trf(
+                "{instance} has no worlds yet. Create one in the game first.",
+                &[("instance", &current.name)],
+            ),
+            choose.into_iter().collect(),
+        )))
+    }
+
+    fn mods_datapack_notice_shown(&self) -> bool {
+        self.mods.kind == PackKind::DataPack
+            && self.mods.source == SourceId::Modrinth
+            && self.mods.java_for(PackKind::DataPack).is_none()
+    }
+
+    fn mods_datapack_notice(&self) -> Option<Stateful<Div>> {
+        self.mods_datapack_notice_shown().then(|| {
+            div().id("mods-datapack-support").child(ui::notice(
+                ui::Notice::InCard,
+                crate::icons::INFO,
+                tr(browser::DATAPACK_SUPPORT),
+                Vec::new(),
+            ))
+        })
+    }
+
+    /// The source switch (`Kind::picks_source`): Eclipse's registry or Modrinth.
+    fn source_switch(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
+        let this = cx.entity().downgrade();
+        ui::segments_sized(
+            "mods-source",
+            tr("Search in"),
+            &ui::translated(&SOURCES),
+            self.mods.source,
+            ui::ButtonSize::Md,
+            move |source, _, cx| {
+                let _ = this.update(cx, |this, cx| {
+                    this.mods_set_source(source);
+                    cx.notify();
+                });
+            },
+        )
+    }
+
+    /// The "Sort by" dropdown beside the search; the choices on a popover under it, the chosen one
+    /// ticked.
+    fn mods_sort(&mut self, cx: &mut Context<Self>) -> Div {
+        let sorts = self.mods_sorts();
+        let current = self.mods.browse.filters.sort;
+        // A sort the source can't do (Follows, picked on Modrinth) reads as the default.
+        let shown = sorts
+            .iter()
+            .find(|(value, _)| *value == current)
+            .or(sorts.first())
+            .map(|(value, _)| *value);
+        let name = sorts
+            .iter()
+            .find(|(value, _)| Some(*value) == shown)
+            .map_or("", |(_, label)| *label);
+        let open = self.menu_is(&Menu::ModsSort);
+        let button = ui::labelled_dropdown(
+            "mods-sort",
+            tr("Sort by"),
+            None,
+            tr(name),
+            open,
+            ui::ButtonSize::Md,
+        );
+        let button = self.menu_opener(button, Menu::ModsSort, cx);
+        let mut wrap = div().relative().flex_none().child(button);
+        if open {
+            let mut menu = self.menu_popover("mods-sort-menu", tr("Sort by"), cx);
+            for &(value, label) in &sorts {
+                menu = menu.child(
+                    ui::pick_row(
+                        SharedString::from(format!("mods-sort-pick-{value:?}")),
+                        tr(label).to_string(),
+                        Some(value) == shown,
+                    )
+                    .on_press(cx.listener(
+                        move |this, _: &ClickEvent, _, cx| {
+                            this.close_menu();
+                            this.mods_filter(|f| f.sort = value);
+                            cx.notify();
+                        },
+                    )),
+                );
+            }
+            wrap = wrap.child(ui::menu_under(
+                ui::ButtonSize::Md.height(),
+                ui::Align::End,
+                menu,
+            ));
+        }
+        wrap
+    }
+
+    /// The search's results as rows: a click picks one for the card beside.
+    fn mods_list(&mut self, cx: &mut Context<Self>) -> (Div, Option<Div>) {
+        let m = &self.mods;
+        if let Some(e) = &m.error {
+            let title = match (m.java_for(m.kind), m.source) {
+                (None, SourceId::Eclipse) => tr(kind_words(m.kind).load_failed),
+                _ => tr("Couldn't search Modrinth"),
+            };
+            let error = e.clone();
+            let retry = match self.mods_vanilla_target() {
+                Some(_) => ButtonKind::Secondary,
+                None => ButtonKind::Primary,
+            };
+            let failed = div().child(ui::error_state_with(
+                "mods-failed",
+                title,
+                &error,
+                cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.mods_search(0);
+                    cx.notify();
+                }),
+                vec![Self::proxy_settings_button("mods-failed", cx)],
+                retry,
+            ));
+            return (failed, None);
+        }
+        if m.results.is_empty() {
+            if m.searching || !m.searched {
+                let searching = ui::loading_state("mods-searching", tr("Searching…"));
+                return (div().child(searching), None);
+            }
+            let mut actions = Vec::new();
+            let filtered = mods_project::active_filters(&m.browse.filters) > 0;
+            let (title, note) = if let Some(target) = m.java_for(m.kind) {
+                (
+                    trf(
+                        "Nothing found for {target}",
+                        &[("target", &target.describe(m.kind))],
+                    ),
+                    tr("Try other words or another instance."),
+                )
+            } else if !self.fields.value(Field::ModsSearch).trim().is_empty() {
+                (
+                    trf(
+                        "Nothing matches “{query}”",
+                        &[("query", self.fields.value(Field::ModsSearch).trim())],
+                    ),
+                    tr("Try other words."),
+                )
+            } else if m.source == SourceId::Eclipse && !filtered {
+                let title = tr(kind_words(m.kind).none_yet);
+                if !m.kind.picks_source() {
+                    (title.to_string(), tr("None have been published yet."))
+                } else {
+                    actions.push(
+                        ui::button(
+                            "mods-search-modrinth",
+                            None,
+                            tr("Search Modrinth"),
+                            ButtonKind::Secondary,
+                            ui::ButtonSize::Md,
+                        )
+                        .on_press(cx.listener(
+                            |this, _: &ClickEvent, _, cx| {
+                                this.mods_set_source(SourceId::Modrinth);
+                                cx.notify();
+                            },
+                        )),
+                    );
+                    (title.to_string(), tr("Search Modrinth instead."))
+                }
+            } else if filtered || m.everything || m.kind == PackKind::Modpack {
+                (
+                    tr("Nothing found").to_string(),
+                    tr("Try other words or clear the filters."),
+                )
+            } else {
+                actions.push(
+                    ui::button(
+                        "mods-show-all",
+                        None,
+                        tr("Include other Minecraft versions"),
+                        ButtonKind::Secondary,
+                        ui::ButtonSize::Md,
+                    )
+                    .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.mods.everything = true;
+                        this.mods_search(0);
+                        cx.notify();
+                    })),
+                );
+                (
+                    tr("Nothing found that runs in Eclipse").to_string(),
+                    tr("Some made for other Minecraft versions still run."),
+                )
+            };
+            let empty = div().child(ui::empty_state(
+                "mods-no-results",
+                "search-01",
+                title,
+                note,
+                actions,
+            ));
+            return (empty, None);
+        }
+        let shown: Vec<Project> = m.results.iter().filter(|p| m.listed(p)).cloned().collect();
+        let checking = m.may_hide_unrunnable()
+            && !m.show_unrunnable
+            && m.results.iter().any(|p| m.checking(p));
+        if shown.is_empty() && checking {
+            let checking = div().child(ui::loading_state(
+                "mods-checking",
+                tr("Checking which mods run in Eclipse…"),
+            ));
+            return (checking, None);
+        }
+        if shown.is_empty() {
+            let show = ui::primary(
+                "mods-show-eclipse",
+                None,
+                tr("Show Eclipse mods"),
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.mods_set_source(SourceId::Eclipse);
+                cx.notify();
+            }));
+            let more = m
+                .more
+                .then(|| self.mods_more_button(tr("Check more mods"), cx));
+            let none = div().child(ui::empty_state(
+                "mods-none-run",
+                "search-01",
+                tr("Nothing found that runs in Eclipse"),
+                tr("Most Modrinth mods are made for Fabric or Forge."),
+                std::iter::once(show).chain(more).collect(),
+            ));
+            return (none, None);
+        }
+        let picked = if self.window_width >= crate::layout::MODS_DETAIL_BESIDE
+            || self.mods.picked.is_some()
+        {
+            self.mods_picked().map(|p| p.id.clone())
+        } else {
+            None
+        };
+        let advised =
+            self.mods_vanilla_target().is_some() || self.mods_missing_shader_mod().is_some();
+        let said_above = self.mods_datapack_notice_shown();
+        let cursor = ui::options_cursor(RESULTS);
+        let keyboard = ui::options_has_keyboard(RESULTS);
+        let floats = self.mod_detail_floats();
+        let instance = self.target_name();
+        let mut rows = Vec::new();
+        let mut ids = Vec::new();
+        for (i, p) in shown.into_iter().enumerate() {
+            let icon = self.mods_icon(&p, ui::TILE_MD);
+            let m = &self.mods;
+            let installed = m.entry(&p).is_some();
+            let busy = m.busy.as_ref().is_some_and(|b| b.installs(&p.id));
+            let checking = m.checking(&p);
+            let row_id = SharedString::from(format!("mods-row-{}", p.id));
+            let current = picked.as_deref() == Some(p.id.as_str());
+            let install_label = tr("Install");
+            let action_room = ui::button_width(
+                install_label,
+                true,
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
+            );
+            let state = |tone: ui::Tone, said: &str| {
+                ui::card_note(ui::state_line(tone, said.to_string())).into_any_element()
+            };
+            let action: AnyElement = if installed {
+                state(ui::Tone::Off, tr("Installed"))
+            } else if busy {
+                state(ui::Tone::Busy, tr("Installing…"))
+            } else if checking {
+                state(ui::Tone::Busy, tr("Checking…"))
+            } else if m.support(&p).installable() {
+                let known = p.clone();
+                let button_id = SharedString::from(format!("mods-row-install-{}", p.id));
+                let button = ui::button(
+                    button_id,
+                    Some(crate::icons::DOWNLOAD),
+                    install_label,
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Sm,
+                );
+                let shown = current || (keyboard && i == cursor) || ui::hover_within(&row_id);
+                let why = self.install_refusal(&p);
+                let button = match why {
+                    Some(why) => ui::unavailable(button, why),
+                    None => button.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        cx.stop_propagation();
+                        this.mods_install(known.source, known.id.clone(), Some(known.clone()));
+                        cx.notify();
+                    })),
+                };
+                let button = button.when(i != cursor || floats, ui::skipped_by_tab);
+                ui::shown_on_focus(button, shown).into_any_element()
+            } else {
+                div().into_any_element()
+            };
+            let action = div()
+                .flex()
+                .flex_none()
+                .justify_end()
+                .min_w(px(action_room))
+                .child(action);
+            // The registry's rows end with downloads, the others' with how they run.
+            let right = if p.source == SourceId::Eclipse {
+                Some(
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::DIM,
+                    )
+                    .child(count(p.downloads).to_uppercase()),
+                )
+            } else {
+                let support = m.support(&p);
+                let said = (p.kind != PackKind::Modpack)
+                    .then(|| self.mods_status(&p, &instance))
+                    .flatten()
+                    .map(|(_, said, _)| said);
+                let noticed = said_above && support.reason() == Some(browser::DATAPACK_SUPPORT);
+                let said =
+                    said.filter(|_| !advised && !noticed && support != Support::Works && !checking);
+                let quiet = advised || !support.installable();
+                said.map(|said| {
+                    ui::card_note(ui::state_line(
+                        if quiet { ui::Tone::Off } else { ui::Tone::Warn },
+                        said,
+                    ))
+                })
+            };
+            ids.push(p.id.clone());
+            let by = p.author.clone();
+            let summary = p.summary.split_whitespace().collect::<Vec<_>>().join(" ");
+            rows.push((
+                ui::row(row_id, p.title.clone(), current)
+                    .px(px(ROW_CONTENT_INSET))
+                    .aria_description(summary.clone())
+                    .child(div().relative().child(icon))
+                    .child(ui::item_text_by(p.title.clone(), by, summary))
+                    .children(right.map(|r| r.flex_none()))
+                    .child(action),
+                SharedString::from(p.title.clone()),
+                current,
+            ));
+        }
+        let open = cx.listener(move |this, i: &usize, window, cx| {
+            this.mods.picked = ids.get(*i).cloned();
+            this.mods
+                .float_scroll
+                .set_offset(gpui::point(px(0.), px(0.)));
+            this.asking = None;
+            if this.mod_detail_floats() && window.last_input_was_keyboard() {
+                cx.on_next_frame(window, |_, window, cx| {
+                    if let Some(close) = ui::try_focus_for(DETAIL_CLOSE) {
+                        window.focus(&close, cx);
+                    }
+                });
+            }
+            cx.notify();
+        });
+        let more = self.mods.more.then(|| {
+            div()
+                .flex()
+                .px(px(TOOLBAR_INSET))
+                .py(px(space::SM))
+                .child(self.mods_more_button(tr("Load more"), cx))
+        });
+        let still = checking.then(|| {
+            div()
+                .px(px(TOOLBAR_INSET))
+                .py(px(space::SM))
+                .child(ui::progress_line(
+                    "",
+                    None,
+                    tr("Checking which mods run in Eclipse…"),
+                ))
+        });
+        let list = div()
+            .flex()
+            .flex_col()
+            .child(ui::options(
+                div().id(RESULTS).flex().flex_col().px(px(ROW_PLATE_INSET)),
+                tr("Results"),
+                rows,
+                false,
+                move |i, window, cx| open(&i, window, cx),
+            ))
+            .children(still);
+        (list, more)
+    }
+
+    fn mods_more_button(&self, label: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let searching = self.mods.searching;
+        let offset = self.mods.results.len();
+        ui::button(
+            "mods-more",
+            None,
+            if searching { tr("Loading…") } else { label },
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .when(searching, ui::disabled)
+        .when(!searching, |d| {
+            d.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.mods_search(offset);
+                ui::focus_option(RESULTS, offset);
+                cx.notify();
+            }))
+        })
+    }
+
+    /// The picked result, else the first; when a search finds nothing, the card shown last
+    /// stays.
+    fn mods_picked(&mut self) -> Option<Project> {
+        let m = &mut self.mods;
+        let found = m
+            .picked
+            .as_ref()
+            .and_then(|id| m.results.iter().find(|p| &p.id == id))
+            .or(m.results.iter().find(|p| m.listed(p)))
+            .cloned();
+        match found {
+            Some(p) => {
+                m.shown = Some(p.clone());
+                Some(p)
+            }
+            None if m.searched && !m.searching && m.error.is_none() => m
+                .shown
+                .clone()
+                .filter(|p| p.kind == m.kind && p.source == m.source),
+            None => None,
+        }
+    }
+
+    /// The picked project's card.
+    fn mod_detail(
+        &mut self,
+        instance: &str,
+        close: Option<Stateful<Div>>,
+        cx: &mut Context<Self>,
+    ) -> Option<Div> {
+        let p = self.mods_picked()?;
+        let icon = self.mods_icon(&p, ui::TILE_LG);
+        let m = &self.mods;
+        let support = m.support(&p);
+        let entry = m.entry(&p).cloned();
+        let busy = m.busy.clone();
+        let checking = m.checking(&p);
+        let mut by = Vec::new();
+        if !p.author.is_empty() {
+            by.push(trf("by {author}", &[("author", &p.author)]));
+        }
+        if let Some(source) = p.source.shown_for(&p.id) {
+            by.push(trf("from {source}", &[("source", source)]));
+        }
+        if !p.license.is_empty() {
+            by.push(licence_name(&p.license));
+        }
+        let said_above = self.mods_datapack_notice_shown()
+            && support.reason() == Some(browser::DATAPACK_SUPPORT);
+        let status = self.status_shown(&p, instance).filter(|_| !said_above);
+        let status = status.map(|(tone, said, reason)| {
+            div()
+                .mt(px(space::LG))
+                .flex()
+                .flex_col()
+                .gap(px(space::XS))
+                .child(ui::state_title(tone, said))
+                .children(reason.map(|r| {
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::DIM,
+                    )
+                    .child(r)
+                }))
+        });
+        let about = m
+            .about
+            .get(&p.id)
+            .filter(|_| p.source == SourceId::Eclipse)
+            .map(|lines| lines.join(" · "));
+
+        let button: Option<AnyElement> = if let Some(e) = &entry {
+            let confirming = self.is_asking(&Asking::Mod(e.project.clone()));
+            let remove_id = SharedString::from(format!("mods-detail-remove-{}", p.id));
+            let id = e.project.clone();
+            let trash = goes_to_trash(e.kind);
+            if confirming {
+                let asked = removal(e.kind, &e.title);
+                ui::confirm(
+                    remove_id,
+                    asked,
+                    cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.asking = None;
+                        cx.notify();
+                    }),
+                    cx.listener(move |this, _: &ClickEvent, _, cx| {
+                        let _ = this.mods_remove(&id);
+                        cx.notify();
+                    }),
+                )
+                .into_any_element()
+                .into()
+            } else {
+                let ask = match trash {
+                    true => trf("Delete from {instance}…", &[("instance", instance)]),
+                    false => trf("Remove from {instance}…", &[("instance", instance)]),
+                };
+                let short = if trash {
+                    tr("Delete…")
+                } else {
+                    tr("Remove…")
+                };
+                let ask = fitted(ask, short, false, ButtonKind::Secondary);
+                ui::button(
+                    remove_id,
+                    None,
+                    ask,
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Lg,
+                )
+                .w_full()
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.asking = Some(Asking::Mod(id.clone()));
+                    cx.notify();
+                }))
+                .into_any_element()
+                .into()
+            }
+        } else if busy.as_ref().is_some_and(|b| b.installs(&p.id)) || checking {
+            ui::disabled(
+                ui::primary(
+                    SharedString::from(format!("mods-detail-install-{}", p.id)),
+                    Some(crate::icons::DOWNLOAD),
+                    if checking {
+                        tr("Checking…")
+                    } else {
+                        tr("Installing…")
+                    },
+                    ui::ButtonSize::Lg,
+                )
+                .w_full(),
+            )
+            .into_any_element()
+            .into()
+        } else if support.installable() {
+            let short = match p.kind {
+                PackKind::Modpack => tr("Install as instance"),
+                _ => tr("Install"),
+            };
+            let label = Self::install_label(&p, instance);
+            let label = fitted(label, short, true, ButtonKind::Primary);
+            let known = p.clone();
+            let why = self.install_refusal(&p);
+            let install = ui::primary(
+                SharedString::from(format!("mods-detail-install-{}", p.id)),
+                Some(crate::icons::DOWNLOAD),
+                label,
+                ui::ButtonSize::Lg,
+            )
+            .w_full();
+            match why {
+                Some(why) => ui::unavailable(install, why),
+                None => install.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.mods_install(known.source, known.id.clone(), Some(known.clone()));
+                    cx.notify();
+                })),
+            }
+            .into_any_element()
+            .into()
+        } else {
+            None
+        };
+        let open = p.clone();
+        Some(
+            ui::card()
+                .flex()
+                .flex_col()
+                .p(px(ui::CARD_PADDING))
+                .children(close)
+                .child(icon)
+                .child(
+                    ui::entity_title(
+                        p.title.clone(),
+                        eclipse_theme::glass::pixel_text::CARD_TITLE,
+                    )
+                    .mt(px(space::XL)),
+                )
+                .child(
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::DIM,
+                    )
+                    .mt(px(space::XS))
+                    .child(by.join(" · ")),
+                )
+                .child(
+                    ui::text(
+                        eclipse_theme::glass::step::BODY,
+                        FontWeight::NORMAL,
+                        ink::BODY,
+                    )
+                    .mt(px(space::LG))
+                    .child(p.summary.clone()),
+                )
+                .children(about.map(|a| {
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::DIM,
+                    )
+                    .mt(px(space::LG))
+                    .child(a)
+                }))
+                .children(status)
+                .child(
+                    ui::text(
+                        eclipse_theme::glass::step::NOTE,
+                        FontWeight::NORMAL,
+                        ink::DIM,
+                    )
+                    .mt(px(space::LG))
+                    .child(trf(
+                        "{count} downloads",
+                        &[("count", &super::thousands(p.downloads))],
+                    )),
+                )
+                .child(
+                    div()
+                        .flex()
+                        .flex_col()
+                        .gap(px(space::SM))
+                        .mt(px(space::XL))
+                        .children(button)
+                        .child(
+                            ui::button(
+                                "mods-page-link",
+                                None,
+                                tr(kind_words(p.kind).open_page),
+                                ButtonKind::Secondary,
+                                ui::ButtonSize::Md,
+                            )
+                            .w_full()
+                            .on_press(cx.listener(
+                                move |this, _: &ClickEvent, _, cx| {
+                                    this.mods_open(open.clone());
+                                    cx.notify();
+                                },
+                            )),
+                        ),
+                ),
+        )
     }
 }
 
-fn installed_line(done: &[installed::Entry]) -> String {
-    trf("Installed {names}", &[("names", &titles(done))])
-}
-
-/// `51404735` → `51.4M`.
-fn count(n: u64) -> String {
-    match n {
-        0..1_000 => n.to_string(),
-        1_000..1_000_000 => format!("{:.1}k", n as f64 / 1e3),
-        _ => format!("{:.1}M", n as f64 / 1e6),
-    }
-}
-
-pub(super) fn licence_name(id: &str) -> String {
-    match id.strip_prefix("LicenseRef-") {
-        Some("" | "Custom") => tr("Custom licence").to_string(),
-        Some(words) => words.replace('-', " "),
-        None => id.to_string(),
+fn fitted(label: String, short: &str, icon: bool, kind: ButtonKind) -> String {
+    let room = DETAIL - 2. * ui::CARD_PADDING;
+    match ui::button_width(&label, icon, kind, ui::ButtonSize::Lg) <= room {
+        true => label,
+        false => short.to_string(),
     }
 }
 
 impl Launcher {
-    pub(super) fn mod_detail_floats(&self) -> bool {
-        self.mods.picked.is_some() && self.window_width < layout::MODS_DETAIL_BESIDE
-    }
-
-    pub(super) fn close_mod_detail(&mut self, window: &mut Window, cx: &mut App) {
-        self.mods.picked = None;
-        self.asking = None;
-        let inside =
-            ui::try_focus_for(DETAIL_FLOAT).is_some_and(|float| float.contains_focused(window, cx));
-        if let Some(results) = ui::options_focus(mods_view::RESULTS).filter(|_| inside) {
-            window.focus(&results, cx);
-        }
-    }
-
-    pub(super) fn mods_escape(&mut self, window: &mut Window, cx: &mut Context<Self>) -> bool {
-        if !self.mods.browse.show_filters {
-            return false;
-        }
-        self.mods.browse.show_filters = false;
-        let toggle = menus::opener_focus(crate::mods_project::FILTERS_TOGGLE);
-        Self::focus_if_removed(window.focused(cx), toggle, window, cx);
-        true
-    }
-
-    pub(super) fn mods_scrolled(&mut self, window: &mut Window, cx: &mut Context<Self>) {
-        cx.on_next_frame(window, |this, _, cx| {
-            if this.mod_detail_floats() || this.mods_sticky.moved(&this.content_scroll.handle) {
-                cx.notify();
-            }
-        });
-    }
-
-    /// Opens the Mods page on its Modpacks tab, with the pack `slug` open when given (the
-    /// sidebar's packs and its + button).
-    pub(super) fn show_modpack(&mut self, slug: Option<String>) {
-        self.show_mods(PackKind::Modpack);
-        if slug.is_some() {
-            self.modpacks.open = slug;
-            self.mods.report_list.reset();
-        }
-    }
-
-    /// Called with the launcher's other work: what the background sent.
-    pub(super) fn mods_tick(&mut self) -> bool {
-        let mut changed = false;
-        let mut to_check = Vec::new();
-        let mut loaded = Vec::new();
-        let mut done = false;
-        let mut new_pack = None;
-        while let Ok(event) = self.mods.rx.try_recv() {
-            changed = true;
-            let m = &mut self.mods;
-            match event {
-                Event::Palette(search, found) => {
-                    if let Some(p) = self.palette.as_mut().filter(|p| p.search == search) {
-                        m.palette_failed = found.is_err().then_some(search);
-                        p.mods = found.unwrap_or_default();
-                    }
-                }
-                Event::Found(search, offset, result) if search == m.search => {
-                    m.searching = false;
-                    m.searched = true;
-                    match result {
-                        Ok(found) => {
-                            m.more = found.len() == PAGE;
-                            m.results.truncate(offset);
-                            if offset == 0 {
-                                m.results_list.reset();
-                            }
-                            m.results.extend(found.iter().cloned());
-                            m.error = None;
-                            to_check.extend(found);
-                        }
-                        Err(e) => {
-                            if offset == 0 {
-                                m.results.clear();
-                                m.more = false;
-                                m.results_list.reset();
-                            }
-                            m.error = Some(e);
-                        }
-                    }
-                }
-                Event::Found(..) => {}
-                Event::Progress(line, f) => {
-                    if let Some(busy) = &mut m.busy {
-                        busy.moved(line, f);
-                    }
-                }
-                Event::Done(result, pack) => {
-                    done = true;
-                    m.busy = None;
-                    if let Ok(said) = &result {
-                        crate::toast::say(said.clone());
-                    }
-                    m.failed = result.err();
-                    m.read_installed();
-                    if pack.is_some() {
-                        // The Modpacks page reads its list again.
-                        self.modpacks.loaded = None;
-                        new_pack = pack;
-                    }
-                }
-                Event::Updates(found) => m.updates = found,
-                Event::Checked(key, result) => {
-                    let state = match result {
-                        Ok(c) => Checking::Done(c),
-                        Err(e) => Checking::Failed(e),
-                    };
-                    m.checks.insert(key, state);
-                }
-                Event::Loaded(l) => loaded.push(l),
-                Event::About(about) => {
-                    // Rows grow by a line: measure them again (`cull`).
-                    m.about.extend(about);
-                    m.results_list.reset();
-                }
-                Event::AutoUpdated(lines, rebuild) => {
-                    m.rebuild.extend(rebuild);
-                    if !lines.is_empty() {
-                        crate::toast::say(lines.join(" "));
-                        m.read_installed();
-                    }
-                }
-                Event::TakenDown(lines) => {
-                    crate::toast::say_error(lines.join(" "));
-                    m.read_installed();
-                }
-            }
-        }
-        if self.mods.browse.open.is_none() {
-            let wanted = preview::project().and_then(|want| {
-                (self.mods.results.iter()).find(|p| p.id == want || p.slug == want)
-            });
-            if let Some(p) = wanted.cloned() {
-                preview::project_opened();
-                self.mods_open(p);
-            }
-        }
-        self.mods_check(to_check);
-        if changed {
-            self.mods.runnable_first();
-        }
-        if done {
-            // A data pack put into a world shows in its list on Home.
-            self.world_packs.reread();
-        }
-        if let Some(work) = new_pack {
-            self.load_packs();
-            let made = self.instances.list.iter().find(|i| i.work == work).cloned();
-            if let Some(instance) = made {
-                self.select_instance(&instance);
-            }
-        }
-        for l in loaded {
-            self.mods_loaded(l);
-        }
-        changed
-    }
-
-    pub(super) fn mods_search(&mut self, offset: usize) {
-        self.mods_search_keeping(offset, false);
-    }
-
-    /// Searches; with `keep`, the rows already listed stay on screen until the new ones arrive,
-    /// so the page doesn't shrink (and the scroll doesn't jump to the top) while it waits.
-    pub(super) fn mods_search_keeping(&mut self, offset: usize, keep: bool) {
-        let text = self.fields.value(Field::ModsSearch).to_owned();
-        let instance = self.selected_instance().cloned();
-        let m = &mut self.mods;
-        m.search += 1;
-        m.searching = true;
-        m.asked = true;
-        if offset == 0 {
-            if !keep {
-                m.results.clear();
-                m.more = false;
-                m.results_list.reset();
-            }
-            m.installed_list.reset();
-        }
-        let query = match m.java_for(m.kind) {
-            Some(target) => Query {
-                offset,
-                limit: PAGE,
-                ..target.search(&text, m.kind, &m.browse.filters)
-            },
-            None => Query {
-                everything: m.everything,
-                offset,
-                limit: PAGE,
-                filters: m.browse.filters.clone(),
-                ..Query::new(&text, m.kind)
-            },
-        };
-        // A Java instance's files are Modrinth's; Eclipse's registry is for Eclipse.
-        let source = match m.java_for(m.kind) {
-            Some(_) => SourceId::Modrinth,
-            None => m.source,
-        };
-        let (tx, search) = (m.tx.clone(), m.search);
-        std::thread::spawn(move || {
-            let result = browser::source(source)
-                .ok_or_else(|| format!("{} isn't set up.", source.label()))
-                .and_then(|s| s.search(&query));
-            let about: HashMap<String, Vec<String>> = match (&result, source) {
-                (Ok(found), SourceId::Eclipse) => found
-                    .iter()
-                    .map(|p| {
-                        let lines = eclipse::trust_and_capabilities(&p.id, instance.as_ref());
-                        (p.id.clone(), lines)
-                    })
-                    .collect(),
-                _ => HashMap::new(),
-            };
-            let _ = tx.send(Event::Found(search, offset, result));
-            if !about.is_empty() {
-                let _ = tx.send(Event::About(about));
-            }
-        });
-    }
-
-    /// Reads the registry's index again when something installed came from it, and turns off
-    /// what it took down since (`eclipse::turn_off_revoked`).
-    fn mods_taken_down(&mut self) {
-        if !self
-            .mods
-            .installed
-            .iter()
-            .any(|e| e.source == SourceId::Eclipse)
-        {
-            return;
-        }
-        let tx = self.mods.tx.clone();
-        let home = self.mods.home();
-        std::thread::spawn(move || {
-            let Ok(index) = eclipse::index() else {
-                return;
-            };
-            let lines = eclipse::turn_off_revoked(&index, &home);
-            if !lines.is_empty() {
-                let _ = tx.send(Event::TakenDown(lines));
-            }
-        });
-    }
-
-    /// At start, with the setting on: every Eclipse instance's registry projects update on a
-    /// thread ([`auto_update`]), the selected instance's list read again after.
-    pub(super) fn mods_auto_update(&mut self) {
-        if !self.settings.auto_updates_mods() {
-            return;
-        }
-        let list: Vec<AutoTarget> = self
-            .instances
-            .list
-            .iter()
-            .map(|i| AutoTarget {
-                level: self.version_of(i).map(|tag| backend::mod_api_level(tag)),
-                natives: !pinned_to_nightly(i),
-                instance: i.clone(),
-            })
-            .collect();
-        let tx = self.mods.tx.clone();
-        std::thread::spawn(move || {
-            let (lines, rebuild) = auto_update(&list);
-            if !lines.is_empty() || !rebuild.is_empty() {
-                let _ = tx.send(Event::AutoUpdated(lines, rebuild));
-            }
-        });
-    }
-
-    /// Turns a Eclipse mod the browser installed on or off, as the game's Options > Mods does;
-    /// in a Java instance, renames its file.
-    pub(super) fn mods_switch(&mut self, e: &installed::Entry) {
-        let home = self.mods.home();
-        // An update holds the folder: the window doesn't wait for it.
-        let Some(_lock) = browser::try_lock_home(&home) else {
-            self.mods.failed = Some(tr("Wait for the current operation to finish.").into());
-            return;
-        };
-        if self.mods.java.is_some() {
-            let on = !java_instance::is_on(&home, e);
-            self.mods_said(
-                java_instance::set_on(&home, e, on).map(|()| switched_line(&e.title, on)),
-            );
-            self.mods.read_installed();
-            return;
-        }
-        let Some(id) = eclipse::mod_id(e) else {
-            return;
-        };
-        let on = !java::is_enabled(&home, id);
-        let revoked = eclipse::known_index().and_then(|index| {
-            let hash = e.checksum.trim_start_matches("SHA-256:");
-            index.revoked(&e.project, hash).map(|r| r.reason.clone())
-        });
-        self.mods_said(match revoked.filter(|_| on) {
-            Some(reason) => Err(trf(
-                "{name} was taken down: {reason}",
-                &[("name", &e.title), ("reason", &reason)],
-            )),
-            None => java::set_enabled(&home, id, on).map(|()| switched_line(&e.title, on)),
-        });
-        self.mods.read_installed();
-    }
-
-    /// Checks the Java mods among `found` that aren't checked yet, a few at a time, on threads:
-    /// a cached check answers at once, else the jar is downloaded and read.
-    fn mods_check(&mut self, found: Vec<Project>) {
-        let m = &mut self.mods;
-        if m.java.is_some() {
-            return;
-        }
-        let todo: Vec<Project> = found
-            .into_iter()
-            .filter(|p| p.kind == PackKind::Mod && p.source != SourceId::Eclipse)
-            .filter(|p| p.support().installable())
-            .filter(|p| !m.checks.contains_key(&(p.source, p.id.clone())))
-            .collect();
-        if todo.is_empty() {
-            return;
-        }
-        for p in &todo {
-            m.checks.insert((p.source, p.id.clone()), Checking::Running);
-        }
-        // A version other than 26.3 asked for: check the newest file for 1.21 and later.
-        let everything = m.everything || m.browse.filters.other_version();
-        let tx = m.tx.clone();
-        let queue = std::sync::Mutex::new(todo.into_iter());
-        std::thread::spawn(move || {
-            // Checks are kept in the default game folder, shared by every instance.
-            let home = backend::game_home();
-            std::thread::scope(|s| {
-                for _ in 0..CHECKING {
-                    s.spawn(|| {
-                        while let Some(p) = queue.lock().ok().and_then(|mut q| q.next()) {
-                            let result = browser::source(p.source)
-                                .ok_or_else(|| format!("{} isn't set up.", p.source.label()))
-                                .and_then(|source| {
-                                    java::check_project(&home, &*source, &p, everything, &|_| {})
-                                });
-                            // The project's page, if open, shows the verdict beside its version.
-                            if let Ok((version, check)) = &result {
-                                let key = (p.source, p.id.clone());
-                                let _ =
-                                    tx.send(Event::Loaded(super::mods_project::Loaded::Checked(
-                                        key,
-                                        version.id.clone(),
-                                        check.verdict,
-                                    )));
-                            }
-                            let result = result.map(|(_, check)| Box::new(check));
-                            let _ = tx.send(Event::Checked((p.source, p.id), result));
-                        }
-                    });
-                }
-            });
-        });
-    }
-
-    /// Looks for newer versions of what the browser installed.
-    fn mods_check_updates(&mut self) {
-        let entries = self.mods.installed.clone();
-        if entries.is_empty() {
-            return;
-        }
-        let tx = self.mods.tx.clone();
-        let game = installed::Game::of(self.mods.java.clone());
-        std::thread::spawn(move || {
-            let mut found = HashMap::new();
-            for e in entries {
-                let Some(source) = browser::source(e.source) else {
-                    continue;
-                };
-                let newer = game.update_for(&*source, &e);
-                if let Ok(Some(v)) = newer {
-                    found.insert((e.source, e.project.clone()), v.number);
-                }
-            }
-            let _ = tx.send(Event::Updates(found));
-        });
-    }
-
-    /// Updates every installed pack a newer version was found for, one after the other on a
-    /// thread, each checked as an install is. One failing doesn't stop the others.
-    pub(super) fn mods_update_all(&mut self) {
-        if self.mods.busy.is_some() || self.mods.updates.is_empty() {
-            return;
-        }
-        let mut todo: Vec<(SourceId, String, String)> = self
-            .mods
-            .installed
-            .iter()
-            .filter(|e| {
-                self.mods
-                    .updates
-                    .contains_key(&(e.source, e.project.clone()))
-            })
-            .map(|e| (e.source, e.project.clone(), e.title.clone()))
-            .collect();
-        todo.dedup_by(|a, b| a.0 == b.0 && a.1 == b.1);
-        self.mods.failed = None;
-        self.mods.busy = Some(ModsBusy::UpdateAll {
-            line: tr("Updating…").into(),
-            bar: (0., 0.),
-        });
-        self.mods.updates.clear();
-        let tx = self.mods.tx.clone();
-        let home = self.mods.home();
-        let game = installed::Game::of(self.mods.java.clone());
-        std::thread::spawn(move || {
-            let count = todo.len();
-            let (mut done, mut failed) = (Vec::new(), Vec::new());
-            for (i, (source_id, id, title)) in todo.into_iter().enumerate() {
-                let step = |line: &str, f: f32| {
-                    let overall = (i as f32 + f) / count as f32;
-                    let _ = tx.send(Event::Progress(
-                        format!("{} of {count}: {line}", i + 1),
-                        overall,
-                    ));
-                };
-                let updated = browser::source(source_id)
-                    .ok_or_else(|| format!("{} isn't set up", source_id.label()))
-                    .and_then(|source| {
-                        let p = source.project(&id)?;
-                        game.install(&*source, &p, true, &home, &step)
-                    });
-                match updated {
-                    Ok(entries) => done.extend(
-                        entries
-                            .into_iter()
-                            .filter(|e| e.project == id)
-                            .map(|e| e.title),
-                    ),
-                    Err(e) => failed.push(format!("{title}: {e}")),
-                }
-            }
-            let (names, failed) = (done.join(", "), failed.join("; "));
-            let result = match (done.is_empty(), failed.is_empty()) {
-                (true, true) => Ok(String::new()),
-                (false, true) => Ok(trf("Updated {names}", &[("names", &names)])),
-                (true, false) => Err(trf("Not updated: {failed}", &[("failed", &failed)])),
-                (false, false) => Err(trf(
-                    "Updated {names}. Not updated: {failed}",
-                    &[("names", &names), ("failed", &failed)],
-                )),
-            };
-            let _ = tx.send(Event::Done(result, None));
-        });
-    }
-
-    /// Installs (or updates) a project on a thread: a pack into its folder, a modpack into
-    /// Modpacks. `known` is the project when the page has it; else it is asked for first.
-    pub(super) fn mods_install(&mut self, source: SourceId, id: String, known: Option<Project>) {
-        if self.mods.busy.is_some() {
-            return;
-        }
-        // The first native mod: the trust notice, before anything is installed.
-        let first_native = source == SourceId::Eclipse
-            && !self.settings.native_mods_noticed
-            && eclipse::is_native_mod(&id);
-        if first_native {
-            self.mods.native_notice = Some((source, id, known));
-            self.content_scroll
-                .handle
-                .set_offset(gpui::point(px(0.), px(0.)));
-            return;
-        }
-        self.mods.native_notice = None;
-        self.mods.failed = None;
-        let name = known
-            .as_ref()
-            .map(|p| p.title.clone())
-            .or_else(|| {
-                let had = self.mods.installed.iter().find(|e| e.project == id);
-                had.map(|e| e.title.clone())
-            })
-            .unwrap_or_else(|| id.clone());
-        self.mods.busy = Some(ModsBusy::Install {
-            id: id.clone(),
-            name,
-            line: trf("Asking {source}…", &[("source", source.label())]),
-            bar: (0., 0.),
-        });
-        self.mods.updates.remove(&(source, id.clone()));
-        let everything = self.mods.everything || self.mods.browse.filters.other_version();
-        // A modpack is ported for the selected version as soon as it is imported.
-        let resources = self
-            .selected_version()
-            .filter(|tag| backend::is_prepared(tag))
-            .map(|tag| backend::resources(tag));
-        let tx = self.mods.tx.clone();
-        let home = self.mods.home();
-        let java = self.mods.java.clone();
-        let instance = self
-            .selected_instance()
-            .map_or_else(|| "Eclipse".to_string(), |i| i.name.clone());
-        let world = self.mods.world.clone().and_then(|path| {
-            let (_, name) = self.mods.worlds.iter().find(|(p, _)| *p == path)?;
-            Some((path, name.clone()))
-        });
-        std::thread::spawn(move || {
-            let last = std::cell::Cell::new(-1);
-            let progress = |line: &str, f: f32| {
-                let pct = (f * 100.) as i32;
-                if last.replace(pct) != pct {
-                    let _ = tx.send(Event::Progress(line.to_string(), f));
-                }
-            };
-            let mut pack = None;
-            let result = browser::source(source)
-                .ok_or_else(|| format!("{} isn't set up.", source.label()))
-                .and_then(|source| {
-                    let p = match known {
-                        Some(p) => p,
-                        None => source.project(&id)?,
-                    };
-                    if p.kind == PackKind::DataPack {
-                        let (world, name) =
-                            world.ok_or("Pick the world the data pack goes into first.")?;
-                        let into = |f| progress(&p.title, f);
-                        if let Some(target) = &java {
-                            java_instance::install_datapack(&*source, target, &p, &world, &into)?;
-                        } else {
-                            installed::install_datapack(&*source, &p, everything, &world, &into)?;
-                        }
-                        return Ok(trf(
-                            "Added {title} to {world}",
-                            &[("title", &p.title), ("world", &name)],
-                        ));
-                    }
-                    if let Some(target) = java.as_ref().filter(|t| t.takes(p.kind)) {
-                        let done = java_instance::install(&*source, target, &p, &home, &progress)?;
-                        return Ok(installed_line(&done));
-                    }
-                    if p.kind == PackKind::Modpack && p.source == SourceId::Eclipse {
-                        let installed = eclipse::pack::install(&p.id, &progress)?;
-                        if let Some(url) = &p.icon {
-                            eclipse_launcher::instances::adopt_icon(
-                                &eclipse::pack::home(&installed.work),
-                                url,
-                            );
-                        }
-                        pack = Some(installed.work);
-                        return Ok(trf(
-                            "Installed {pack} as a new instance",
-                            &[("pack", &installed.name)],
-                        ));
-                    }
-                    if p.kind == PackKind::Modpack {
-                        let folder = modpacks::ports_dir().join("downloads");
-                        let file = installed::fetch_modpack(&*source, &p, &folder, &|f| {
-                            progress(&p.title, f)
-                        })?;
-                        let log = |line: String| progress(&line, 1.);
-                        let imported =
-                            modpacks::import_and_port(&file, resources.as_deref(), &log)?;
-                        if let Some(url) = &p.icon {
-                            eclipse_launcher::instances::adopt_icon(
-                                &modpacks::profile_home(&imported.work),
-                                url,
-                            );
-                        }
-                        pack = Some(imported.work.clone());
-                        return Ok(trf(
-                            "Installed {pack} as a new instance",
-                            &[("pack", imported.title())],
-                        ));
-                    }
-                    let done = installed::install(&*source, &p, everything, &home, &progress)?;
-                    if done.iter().any(|e| native_status::is_native_file(&e.file)) {
-                        return Ok(trf(
-                            "Installed {names} in {instance}. Build to play with it.",
-                            &[("names", &titles(&done)), ("instance", &instance)],
-                        ));
-                    }
-                    if p.kind == PackKind::ResourcePack {
-                        return Ok(trf(
-                            "Installed {names}. Turn it on in the game: Options > Resource Packs.",
-                            &[("names", &titles(&done))],
-                        ));
-                    }
-                    Ok(installed_line(&done))
-                });
-            let _ = tx.send(Event::Done(result, pack));
-        });
-    }
-
     pub(super) fn mods_field(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let placeholder = self.mods_placeholder();
         self.field_with(
@@ -984,233 +1258,25 @@ impl Launcher {
         .w_full()
     }
 
-    /// Reads what the browser installed in the selected instance (once per instance) and looks
-    /// for updates: the Mods page and Home's Mods tab (`instance_mods.rs`) show it. Packs and mods
-    /// go into the selected instance: picking another reads its list.
-    pub(super) fn mods_load(&mut self) {
-        let home = self.selected_instance().map(|i| i.home.clone());
-        let java = self
-            .selected_instance()
-            .and_then(|i| i.java.as_ref())
-            .map(|j| j.target());
-        // Another version or loader: other results, on the page's next draw.
-        if java != self.mods.java {
-            self.mods.asked = false;
-        }
-        let to_eclipse = java.is_none() && (!self.mods.loaded || self.mods.java.is_some());
-        let to_java = java.is_some() && self.mods.java.is_none();
-        if (to_eclipse || to_java) && self.mods.use_source(source_for(self.mods.kind, to_eclipse)) {
-            self.mods.asked = false;
-        }
-        self.mods.java = java;
-        if !self.mods.loaded || (home.is_some() && self.mods.home != home) {
-            self.mods.home = home;
-            self.mods.read_installed();
-            self.mods.updates.clear();
-            self.stop_asking(|a| matches!(a, Asking::Mod(_)));
-            self.mods.read_worlds();
-            self.mods_check_updates();
-            self.mods_taken_down();
-            self.mods.loaded = true;
-        }
-    }
-
-    pub(super) fn show_mods(&mut self, kind: PackKind) {
-        self.go(Page::Mods);
-        self.mods_load();
-        self.mods.browse.open = None;
-        if self.mods.kind != kind {
-            self.mods_set_kind(kind);
-        } else {
-            self.mods_set_source(source_for(kind, self.mods.java.is_none()));
-        }
-    }
-
-    /// Opens a kind's tab: its first source, its own filters, a new search.
-    pub(super) fn mods_set_kind(&mut self, kind: PackKind) {
-        if self.mods.kind != kind {
-            self.mods.kind = kind;
-            self.mods.source = source_for(kind, self.mods.java.is_none());
-            // A data pack goes into a world: one may have been made since.
-            if kind == PackKind::DataPack {
-                self.mods.read_worlds();
-            }
-            // Categories and loaders differ by kind.
-            self.mods.browse.filters = Default::default();
-            self.mods.browse.open = None;
-            self.mods.picked = None;
-            self.mods_search(0);
-        }
-    }
-
-    pub(super) fn mods_set_source(&mut self, source: SourceId) {
-        if self.mods.use_source(source) {
-            self.mods_search(0);
-        }
-    }
-
-    /// The project `id` leaves the selected instance now; what happened.
-    pub(super) fn mods_remove(&mut self, id: &str) -> Result<String, String> {
-        let home = self.mods.home();
-        let Some(_lock) = browser::try_lock_home(&home) else {
-            let busy: Result<String, String> =
-                Err(tr("Wait for the current operation to finish.").into());
-            self.mods.failed = busy.clone().err();
-            return busy;
-        };
-        let removed = installed::Game::of(self.mods.java.clone())
-            .remove(&home, id, &eclipse_launcher::desktop_seams::to_trash)
-            .map(|e| match goes_to_trash(e.kind) {
-                true => trf("{name} moved to the trash", &[("name", &e.title)]),
-                false => trf("Removed {name}", &[("name", &e.title)]),
-            });
-        if let Ok(said) = &removed {
-            crate::toast::say(said.clone());
-        }
-        self.mods.failed = removed.clone().err();
-        self.mods.read_installed();
-        self.stop_asking(|a| matches!(a, Asking::Mod(_)));
-        removed
-    }
-
-    /// The palette's search (`palette`): up to four mods for `text` that go in the selected
-    /// instance (Eclipse's registry's, or Modrinth's for a Java instance's loader and version),
-    /// answered as [`Event::Palette`].
-    pub(super) fn palette_mods(&mut self, text: &str, search: u64) {
-        self.mods_load();
-        let (source, query) = match &self.mods.java {
-            Some(target) if target.folder(PackKind::Mod).is_err() => return,
-            Some(target) => (SourceId::Modrinth, target.query(text, PackKind::Mod)),
-            None => (SourceId::Eclipse, Query::new(text, PackKind::Mod)),
-        };
-        let query = Query { limit: 4, ..query };
-        self.mods.palette_failed = None;
-        let tx = self.mods.tx.clone();
-        std::thread::spawn(move || {
-            let found = browser::source(source)
-                .ok_or_else(|| format!("{} isn't set up.", source.label()))
-                .and_then(|s| s.search(&query));
-            let _ = tx.send(Event::Palette(search, found));
-        });
-    }
-
-    pub(super) fn palette_search_failed(&self, search: u64) -> bool {
-        self.mods.palette_failed == Some(search)
-    }
-
-    pub(super) fn mods_status(
-        &self,
-        p: &Project,
-        instance: &str,
-    ) -> Option<(ui::Tone, String, Option<String>)> {
-        let support = self.mods.support(p);
-        let reason = support.reason().map(|r| tr(r).to_owned());
-        if self.mods.java_for(p.kind).is_some() {
-            return Some(match support {
-                Support::Works => (
-                    ui::Tone::Off,
-                    trf("Works in {instance}", &[("instance", instance)]),
-                    None,
-                ),
-                _ => (ui::Tone::Warn, reason.unwrap_or_default(), None),
-            });
-        }
-        if self.mods.java.is_some() && p.kind != PackKind::Modpack {
-            return None;
-        }
-        let in_eclipse = trf("{support} in Eclipse", &[("support", tr(support.label()))]);
-        Some(match support {
-            Support::Works => (ui::Tone::Off, in_eclipse, None),
-            Support::Partial(_) => (ui::Tone::Warn, in_eclipse, reason),
-            Support::No(_) => (ui::Tone::Off, in_eclipse, reason),
-        })
-    }
-
-    pub(super) fn mods_new_fabric_button(
-        &self,
-        id: &'static str,
-        minecraft: String,
-        cx: &mut Context<Self>,
-    ) -> Stateful<Div> {
-        ui::primary(
-            id,
-            Some("plus-sign"),
-            tr("Create a Fabric instance…"),
-            ui::ButtonSize::Md,
-        )
-        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
-            this.open_instance_page(None);
-            this.pick_kind(instance_state::NewKind::Modded, cx);
-            this.change(|j| {
-                j.loader = eclipse_launcher::loaders::Kind::Fabric;
-                j.version = Some(minecraft.clone());
-            });
-            cx.notify();
-        }))
-    }
-
-    pub(super) fn mods_add_fabric(&mut self, cx: &mut Context<Self>) {
-        let Some(instance) = self.selected_instance().cloned() else {
-            return;
-        };
-        self.open_instance_page(Some(instance.clone()));
-        self.sync_launch_options(&instance, true);
-        self.remember_draft();
-        self.pick_kind(instance_state::NewKind::Modded, cx);
-        self.change(|j| j.loader = eclipse_launcher::loaders::Kind::Fabric);
-    }
-
-    pub(super) fn mods_vanilla_target(&self) -> Option<String> {
-        self.mods
-            .java_for(self.mods.kind)
-            .filter(|t| {
-                t.loader.is_none() && matches!(self.mods.kind, PackKind::Mod | PackKind::Shader)
-            })
-            .map(|t| t.minecraft.clone())
-    }
-
-    pub(super) fn mods_missing_shader_mod(&self) -> Option<(&'static str, &'static str)> {
-        let target = self.mods.java_for(PackKind::Shader)?;
-        (self.mods.kind == PackKind::Shader && !self.mods.loads_shaders)
-            .then(|| target.shader_mod())
-            .flatten()
-    }
-
-    pub(super) fn mods_wait(&self) -> Option<SharedString> {
-        Some(match self.mods.busy.as_ref()? {
-            ModsBusy::Install { name, .. } => {
-                trf("Wait for {name} to finish installing", &[("name", name)]).into()
-            }
-            ModsBusy::UpdateAll { .. } => tr("Wait for the updates to finish").into(),
-        })
-    }
-
-    /// Whether the selected instance has `p` (the palette's Install or Remove).
-    pub(super) fn mods_has(&self, p: &Project) -> bool {
-        self.mods.entry(p).is_some()
-    }
-
-    pub(super) fn mods_ask_remove(&mut self, id: String) {
-        self.show_mods(PackKind::Mod);
-        self.mods.picked = Some(id.clone());
-        self.asking = Some(menus::Asking::Mod(id));
-    }
-
     pub(super) fn mods_page(&mut self, cx: &mut Context<Self>) -> Div {
         self.mods_load();
+        if self.mods.kind == PackKind::DataPack {
+            self.load_worlds(&self.mods.home(), cx);
+        }
         if !self.mods.asked {
             self.mods_search(0);
         }
         self.mods_view(cx)
     }
 
-    fn mods_target_line(&self, cx: &mut Context<Self>) -> Option<Div> {
-        (self.mods.kind == PackKind::DataPack && !self.mods.worlds.is_empty())
-            .then(|| self.mods_world_picker(cx))
+    pub(super) fn mods_target_line(&self, cx: &mut Context<Self>) -> Option<Div> {
+        let worlds = self.worlds.list.of(&self.mods.home())?;
+        (self.mods.kind == PackKind::DataPack && !worlds.is_empty())
+            .then(|| self.mods_world_picker(worlds, cx))
     }
 
     /// The world data packs go into: one of the instance's, picked here.
-    fn mods_world_picker(&self, cx: &mut Context<Self>) -> Div {
+    fn mods_world_picker(&self, worlds: &[World], cx: &mut Context<Self>) -> Div {
         let note = |s: String| ui::card_note(s);
         let mut chips = div()
             .flex()
@@ -1218,24 +1284,26 @@ impl Launcher {
             .items_center()
             .gap(px(space::SM))
             .child(note(tr("World").to_string()).mr(px(space::SM)));
-        for (path, name) in &self.mods.worlds {
-            let on = self.mods.world.as_ref() == Some(path);
-            let folder = path.file_name().unwrap_or_default().to_string_lossy();
-            let id = SharedString::from(format!("mods-world-{folder}"));
-            let path = path.clone();
-            chips = chips.child(ui::filter_chip(id, name.clone(), on).on_press(cx.listener(
-                move |this, _: &ClickEvent, _, cx| {
-                    this.mods.world = Some(path.clone());
-                    cx.notify();
-                },
-            )));
+        let picked = self.datapack_world().map(|w| w.path.clone());
+        for w in worlds {
+            let on = picked.as_ref() == Some(&w.path);
+            let id = SharedString::from(format!("mods-world-{}", w.folder));
+            let path = w.path.clone();
+            chips = chips.child(
+                ui::filter_chip(id, w.name.clone(), on).on_press(cx.listener(
+                    move |this, _: &ClickEvent, _, cx| {
+                        this.mods.world = Some(path.clone());
+                        cx.notify();
+                    },
+                )),
+            );
         }
         chips
     }
 
     /// The one-time notice before the first native mod is installed: native mods aren't
     /// sandboxed, and what the build takes. Its button installs the mod.
-    fn native_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
+    pub(super) fn native_notice(&self, cx: &mut Context<Self>) -> Option<Div> {
         self.mods.native_notice.as_ref()?;
         let cancel = ui::button(
             "native-notice-cancel",
@@ -1250,7 +1318,7 @@ impl Launcher {
         }));
         let install = ui::button(
             "native-notice-install",
-            Some("download-04"),
+            Some(crate::icons::DOWNLOAD),
             tr("Install"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -1271,146 +1339,26 @@ impl Launcher {
         )))
     }
 
-    /// The install under way and the last change that failed.
-    pub(super) fn mods_busy_plate(&self) -> Vec<Div> {
-        let mut out = Vec::new();
-        match &self.mods.busy {
-            Some(ModsBusy::Install { line, bar, .. }) => out.push(ui::progress_line(
-                tr("Installing"),
-                Some(*bar),
-                line.clone(),
-            )),
-            Some(ModsBusy::UpdateAll { line, bar }) => {
-                out.push(ui::progress_line(tr("Updating"), Some(*bar), line.clone()))
-            }
-            None => {}
-        }
-        if let Some(e) = &self.mods.failed {
-            let instance = self
-                .selected_instance()
-                .map_or_else(|| "Eclipse".to_string(), |i| i.name.clone());
-            out.push(div().child(ui::error_line_for(
-                "mods-failed-step",
-                trf("Couldn't change {instance}", &[("instance", &instance)]),
-                e,
-                None,
-                Vec::new(),
-            )))
-        }
-        out
-    }
-
-    pub(super) fn mods_said(&mut self, said: Result<String, String>) {
-        if let Ok(line) = &said {
-            crate::toast::say(line.clone());
-        }
-        self.mods.failed = said.err();
-    }
-
-    /// Re-read local/GitHub files when the folder changes, not on every frame.
-    fn native_files(&self) -> Vec<eclipse_launcher::github_mods::Installed> {
-        let home = self.mods.home();
-        let key = native_status::fingerprint(&home, None);
-        let mut memo = self.mods.native_files.borrow_mut();
-        if memo.as_ref().is_none_or(|(k, _)| *k != key) {
-            *memo = Some((key, eclipse_launcher::github_mods::untracked(&home)));
-            self.mods.installed_list.reset();
-        }
-        memo.as_ref().unwrap().1.clone()
-    }
-}
-
-/// An instance whose registry projects may update: the mod API level of the game it plays, and
-/// whether its native mods may (`eclipse::auto::Context`).
-pub(super) struct AutoTarget {
-    pub(super) instance: instances::Instance,
-    pub(super) level: Option<u32>,
-    pub(super) natives: bool,
-}
-
-/// Whether `instance` keeps a Nightly, or a native build made on one: its native mods stay as
-/// they are, built for that Eclipse.
-pub(super) fn pinned_to_nightly(instance: &instances::Instance) -> bool {
-    let nightly = |v: &str| v.starts_with("nightly-");
-    instance
-        .version
-        .as_deref()
-        .is_some_and(|v| nightly(v) || native_mods::about(v).is_some_and(|a| nightly(&a.base)))
-}
-
-/// Updates the registry projects of `targets`: Eclipse's own instances only, never a modpack's
-/// profile, whose pack pins its mods. What happened, for the page's notice, and the instances
-/// whose native mods were updated.
-pub(super) fn auto_update(targets: &[AutoTarget]) -> (Vec<String>, Vec<String>) {
-    let (mut lines, mut rebuild) = (Vec::new(), Vec::new());
-    for t in targets {
-        let i = &t.instance;
-        use eclipse_launcher::instances::Kind;
-        let pack = matches!(i.kind, Kind::Port { .. } | Kind::Pack { .. });
-        let (false, None, Some(level)) = (pack, &i.java, t.level) else {
-            continue;
-        };
-        let ctx = eclipse::auto::Context {
-            in_pack: eclipse::auto::in_pack(&i.home),
-            level,
-            natives: t.natives,
-        };
-        if let Some(report) = eclipse::auto::run(&i.home, &ctx, &|_, _| {}) {
-            lines.extend(report.lines());
-            if report.rebuild {
-                rebuild.push(i.id.clone());
-            }
-        }
-    }
-    (lines, rebuild)
-}
-
-fn source_for(kind: PackKind, eclipse: bool) -> SourceId {
-    match kind {
-        PackKind::Mod | PackKind::Shader if eclipse => SourceId::Eclipse,
-        PackKind::Mod
-        | PackKind::Shader
-        | PackKind::ResourcePack
-        | PackKind::Modpack
-        | PackKind::DataPack => SourceId::Modrinth,
-    }
-}
-
-fn goes_to_trash(kind: PackKind) -> bool {
-    kind != PackKind::Mod
-}
-
-fn removal(kind: PackKind, name: &str) -> ui::Confirm<'_> {
-    match goes_to_trash(kind) {
-        true => ui::Confirm::Delete(name),
-        false => ui::Confirm::Remove(name),
-    }
-}
-
-/// Whether a kind's tab picks its source: mods, modpacks, resource packs and data packs are on
-/// both Eclipse's registry and Modrinth; Eclipse's shader packs are on its registry only.
-pub(super) fn switches(kind: PackKind) -> bool {
-    kind != PackKind::Shader
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn licences_read_as_words() {
-        assert_eq!(licence_name("MIT"), "MIT");
-        assert_eq!(
-            licence_name("LicenseRef-Polyform-Shield-1.0.0"),
-            "Polyform Shield 1.0.0"
-        );
-        assert_eq!(licence_name("LicenseRef-Custom"), "Custom licence");
-    }
-
-    #[test]
-    fn counts_read_short() {
-        assert_eq!(count(999), "999");
-        assert_eq!(count(1_500), "1.5k");
-        assert_eq!(count(51_404_735), "51.4M");
+    pub(super) fn mods_new_fabric_button(
+        &self,
+        id: &'static str,
+        minecraft: String,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        ui::primary(
+            id,
+            Some(crate::icons::ADD),
+            tr("Create a Fabric instance…"),
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+            this.open_instance_page(None);
+            this.pick_kind(instance_state::NewKind::Modded, cx);
+            this.change(|j| {
+                j.loader = eclipse_launcher::loaders::Kind::Fabric;
+                j.version = Some(minecraft.clone());
+            });
+            cx.notify();
+        }))
     }
 }

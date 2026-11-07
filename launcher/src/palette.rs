@@ -113,7 +113,7 @@ impl Launcher {
     /// The commands for `q` (lower case, trimmed).
     fn palette_commands(&self, q: &str) -> Vec<Command> {
         let selected = self.selected_instance();
-        let instance = selected.map_or_else(|| "Eclipse".to_owned(), |i| i.name.clone());
+        let instance = self.target_name();
         let playable = |i: &&Instance| matches!(i.kind, InstanceKind::Default | InstanceKind::Own);
         let selected_id = selected.map(|i| i.id.as_str());
         let mut plays: Vec<&Instance> = self.instances.list.iter().filter(playable).collect();

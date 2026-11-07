@@ -312,7 +312,7 @@ pub(super) fn post_builds(stage: &Path) -> Result<Vec<PostBuild>, String> {
         Ok(text) => {
             let steps: Vec<PostBuild> =
                 serde_json::from_str(&text).map_err(|e| format!("{}: {e}", path.display()))?;
-            match steps.iter().find(|s| !super::valid_id(&s.mod_id)) {
+            match steps.iter().find(|s| !super::manifest::valid_id(&s.mod_id)) {
                 Some(bad) => Err(format!(
                     "{}: invalid mod id {:?}",
                     path.display(),
@@ -796,7 +796,7 @@ checksum = "def"
         let bundle = root.join("bundle");
         fs::create_dir_all(&bundle).unwrap();
         fs::write(
-            bundle.join(super::super::MANIFEST),
+            bundle.join(super::super::manifest::MANIFEST),
             "[mod]\nid = \"My-Mod\"\nversion = \"1.0.0\"\n",
         )
         .unwrap();

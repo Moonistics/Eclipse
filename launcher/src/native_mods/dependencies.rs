@@ -89,7 +89,7 @@ pub(super) fn parse(owner: &str, value: Option<&toml::Value>) -> Result<Vec<Depe
     table
         .iter()
         .map(|(id, value)| {
-            if !super::valid_id(id) {
+            if !super::manifest::valid_id(id) {
                 return Err(invalid(id, "invalid mod id"));
             }
             let (version, optional) = if let Some(version) = value.as_str() {

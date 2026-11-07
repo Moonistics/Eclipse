@@ -1,8 +1,12 @@
 //! Profile-head I/O stays on workers; every account surface shares the same pixel-sharp cache.
-use super::*;
-use crate::ui;
+use crate::messages::Msg;
+use crate::{art, ui};
+use eclipse_launcher::account;
 use eclipse_theme::glass::{fill, ink};
-use gpui::{img, RenderImage};
+use gpui::prelude::*;
+use gpui::{div, img, px, Div, RenderImage};
+use std::collections::HashMap;
+use std::sync::mpsc::Sender;
 use std::{
     cell::RefCell,
     path::{Path, PathBuf},
@@ -16,10 +20,13 @@ const RETRY: Duration = Duration::from_secs(60);
 const BIG_HEAD: f32 = 64.;
 
 #[derive(Default)]
-pub(super) struct Heads(HashMap<String, Head>, HashMap<String, Head>);
+pub(super) struct Heads {
+    accounts: HashMap<String, Head>,
+    players: HashMap<String, Head>,
+}
 
 struct Head {
-    url: Option<String>,
+    version: Option<String>,
     pending: bool,
     face: Option<Vec<[u8; 4]>>,
     /// Set while `face` is a fallback because the skin download failed.
@@ -27,15 +34,9 @@ struct Head {
     images: RefCell<HashMap<(u32, u32), Arc<RenderImage>>>,
 }
 
-/// The key an offline name's head is kept under: its offline UUID, as the game makes it, whose
-/// default skin it wears without one of its own.
-pub fn offline_key(name: &str) -> String {
-    format!("{:032x}", eclipse_protocol::crypto::offline_uuid(name))
-}
-
 impl Heads {
     /// Asks for the heads of `accounts` and of the offline names `offline` (drawn by
-    /// [`offline_key`]); forgets the others.
+    /// [`heads::offline_key`]); forgets the others.
     pub fn request(
         &mut self,
         accounts: &[account::Account],
@@ -43,28 +44,31 @@ impl Heads {
         resources: PathBuf,
         tx: &Sender<Msg>,
     ) {
-        let keys: Vec<String> = offline.iter().map(|n| offline_key(n)).collect();
-        self.0
+        let keys: Vec<String> = offline
+            .iter()
+            .map(|n| eclipse_launcher::heads::offline_key(n))
+            .collect();
+        self.accounts
             .retain(|uuid, _| accounts.iter().any(|a| &a.uuid == uuid) || keys.contains(uuid));
         for (name, key) in offline.iter().zip(keys) {
             // The name's own skin, by when it was last changed, so a new one is read again.
             let file = eclipse_launcher::skins::files(&eclipse_launcher::skins::dir(), name).0;
-            let url = std::fs::metadata(&file)
+            let version = std::fs::metadata(&file)
                 .and_then(|m| m.modified())
                 .ok()
                 .map(|t| format!("{t:?}"));
             if self
-                .0
+                .accounts
                 .get(&key)
-                .is_some_and(|h| h.url == url && (h.pending || h.face.is_some()))
+                .is_some_and(|h| h.version == version && (h.pending || h.face.is_some()))
             {
                 continue;
             }
-            let previous = self.0.remove(&key).and_then(|h| h.face);
-            self.0.insert(
+            let previous = self.accounts.remove(&key).and_then(|h| h.face);
+            self.accounts.insert(
                 key.clone(),
                 Head {
-                    url: url.clone(),
+                    version: version.clone(),
                     pending: true,
                     face: previous,
                     retry_at: None,
@@ -77,23 +81,23 @@ impl Heads {
                     .ok()
                     .and_then(|png| eclipse_launcher::heads::face(&png))
                     .or_else(|| eclipse_launcher::heads::default_face(&resources, &key));
-                let _ = tx.send(Msg::AccountHead(key, url, face, false));
+                let _ = tx.send(Msg::AccountHead(key, version, face, false));
             });
         }
         for account in accounts {
             let url = account.skin.as_ref().map(|s| s.0.clone());
-            if self.0.get(&account.uuid).is_some_and(|h| {
-                h.url == url
+            if self.accounts.get(&account.uuid).is_some_and(|h| {
+                h.version == url
                     && (h.pending
                         || h.face.is_some() && h.retry_at.is_none_or(|t| Instant::now() < t))
             }) {
                 continue;
             }
-            let previous = self.0.remove(&account.uuid).and_then(|h| h.face);
-            self.0.insert(
+            let previous = self.accounts.remove(&account.uuid).and_then(|h| h.face);
+            self.accounts.insert(
                 account.uuid.clone(),
                 Head {
-                    url: url.clone(),
+                    version: url.clone(),
                     pending: true,
                     face: previous,
                     retry_at: None,
@@ -104,7 +108,7 @@ impl Heads {
             std::thread::spawn(move || {
                 let (face, failed) = eclipse_launcher::heads::profile_face(
                     &account,
-                    &backend::data_dir().join("profile-heads"),
+                    &eclipse_launcher::heads::cache_dir(),
                     &resources,
                 );
                 let _ = tx.send(Msg::AccountHead(account.uuid, url, face, failed));
@@ -115,11 +119,15 @@ impl Heads {
     pub fn loaded(
         &mut self,
         uuid: &str,
-        url: &Option<String>,
+        version: &Option<String>,
         face: Option<Vec<[u8; 4]>>,
         failed: bool,
     ) {
-        if let Some(head) = self.0.get_mut(uuid).filter(|h| &h.url == url) {
+        if let Some(head) = self
+            .accounts
+            .get_mut(uuid)
+            .filter(|h| &h.version == version)
+        {
             head.pending = false;
             head.retry_at = failed.then(|| Instant::now() + RETRY);
             if face.is_some() {
@@ -130,17 +138,20 @@ impl Heads {
     }
 
     pub fn draw(&self, uuid: Option<&str>, size: f32, scale: f32) -> Div {
-        face_tile(uuid.and_then(|uuid| self.0.get(uuid)), size, scale)
+        face_tile(uuid.and_then(|uuid| self.accounts.get(uuid)), size, scale)
     }
 
     pub fn draw_player(&mut self, uuid: &str, resources: &Path, size: f32, scale: f32) -> Div {
-        let head = self.1.entry(uuid.to_string()).or_insert_with(|| Head {
-            url: None,
-            pending: false,
-            face: eclipse_launcher::heads::default_face(resources, uuid),
-            retry_at: None,
-            images: RefCell::default(),
-        });
+        let head = self
+            .players
+            .entry(uuid.to_string())
+            .or_insert_with(|| Head {
+                version: None,
+                pending: false,
+                face: eclipse_launcher::heads::default_face(resources, uuid),
+                retry_at: None,
+                images: RefCell::default(),
+            });
         face_tile(Some(head), size, scale)
     }
 }
@@ -183,10 +194,10 @@ mod tests {
     fn stale_skin_results_are_ignored_and_scaled_images_are_reused() {
         let mut heads = Heads::default();
         let current = Some("current-skin".to_string());
-        heads.0.insert(
+        heads.accounts.insert(
             "player".into(),
             Head {
-                url: current.clone(),
+                version: current.clone(),
                 pending: true,
                 face: None,
                 retry_at: None,
@@ -199,23 +210,23 @@ mod tests {
             Some(vec![[255, 0, 0, 255]; 64]),
             false,
         );
-        assert!(heads.0["player"].face.is_none());
+        assert!(heads.accounts["player"].face.is_none());
         heads.loaded("player", &current, Some(vec![[0, 0, 255, 255]; 64]), true);
         assert!(
-            heads.0["player"].retry_at.is_some(),
+            heads.accounts["player"].retry_at.is_some(),
             "a fallback face is fetched again later"
         );
         heads.loaded("player", &current, Some(vec![[0, 255, 0, 255]; 64]), false);
-        assert!(heads.0["player"].retry_at.is_none());
+        assert!(heads.accounts["player"].retry_at.is_none());
         let _ = heads.draw(Some("player"), 32., 2.);
         let key = (32f32.to_bits(), 2f32.to_bits());
-        let image = heads.0["player"].images.borrow()[&key].clone();
+        let image = heads.accounts["player"].images.borrow()[&key].clone();
         assert_eq!(image.size(0).width.0, 64);
         assert_eq!(image.size(0).height.0, 64);
         let _ = heads.draw(Some("player"), 32., 2.);
         assert!(Arc::ptr_eq(
             &image,
-            &heads.0["player"].images.borrow()[&key]
+            &heads.accounts["player"].images.borrow()[&key]
         ));
     }
 }

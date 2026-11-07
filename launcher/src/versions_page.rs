@@ -3,10 +3,19 @@
 //! versions take, Import a version from file, the native and imported builds, install progress
 //! and errors, the confirmation before a removal.
 
-use super::*;
 use crate::menus::Asking;
-use crate::ui::{self, Tone};
+use crate::messages::Msg;
+use crate::page::Page;
+use crate::ui::{self, ButtonKind, Press, Tone};
+use crate::{dates, layout, megabytes, Launcher, Load};
+use eclipse_launcher::backend::Release;
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{backend, build_import, native_mods};
 use eclipse_theme::glass::space;
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div, SharedString, Stateful};
+
+const INSTALL_BAR: f32 = layout::FIELD_MD;
 
 impl Launcher {
     /// The Versions page; `on_disk` as `versions_page` measured it.
@@ -70,16 +79,12 @@ impl Launcher {
                 );
                 return page
                     .children(offline)
-                    .child(ui::empty_card(ui::error_state_with(
+                    .child(ui::empty_card(Self::releases_failed(
                         "releases-failed",
                         ui::page_only(tr("Couldn't load versions")),
                         e,
-                        cx.listener(|this, _: &ClickEvent, _, cx| {
-                            this.fetch_releases();
-                            cx.notify();
-                        }),
-                        vec![Self::proxy_settings_button("releases-failed", cx)],
                         ButtonKind::Primary,
+                        cx,
                     )));
             }
             Load::Ready(r) if r.is_empty() => {
@@ -242,7 +247,7 @@ impl Launcher {
             if backend::needs_game_architecture_install(&tag, release) {
                 let b = ui::button(
                     SharedString::from(format!("install-selected-architecture-{tag}")),
-                    Some("download-04"),
+                    Some(crate::icons::DOWNLOAD),
                     tr("Install selected build"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
@@ -271,7 +276,7 @@ impl Launcher {
         }
         let b = ui::button(
             SharedString::from(format!("install-{tag}")),
-            Some("download-04"),
+            Some(crate::icons::DOWNLOAD),
             tr("Install"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -331,7 +336,7 @@ impl Launcher {
             d = d.child(
                 ui::button(
                     SharedString::from(format!("reinstall-{tag}")),
-                    Some("download-04"),
+                    Some(crate::icons::DOWNLOAD),
                     tr("Reinstall"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
@@ -449,4 +454,43 @@ fn on_disk_aside(total: u64) -> Option<AnyElement> {
     (total > 0).then(|| {
         ui::card_note(trf("{size} on disk", &[("size", &megabytes(total))])).into_any_element()
     })
+}
+
+impl Launcher {
+    pub(super) fn install_bar(&self) -> Option<Div> {
+        let install = self.versions.installing.as_ref()?;
+        Some(
+            div()
+                .w_full()
+                .max_w(px(INSTALL_BAR))
+                .child(ui::progress_line(tr("Installing"), Some(install.bar), "")),
+        )
+    }
+
+    pub(super) fn eclipse_install_state(&self, id: &str) -> Option<Stateful<Div>> {
+        let bar = self.install_bar()?;
+        Some(
+            ui::loading_state(id.to_string(), ui::page_only(tr("Installing Eclipse")))
+                .child(bar.mt(px(space::LG))),
+        )
+    }
+
+    pub(super) fn import_build_button(&self, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let busy = self.versions.importing;
+        let button = ui::button(
+            id.to_string(),
+            Some(crate::icons::OPEN_FOLDER),
+            tr(if busy {
+                "Importing…"
+            } else {
+                "Import a version from file…"
+            }),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
+        if busy {
+            return ui::disabled(button);
+        }
+        button.on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
+    }
 }

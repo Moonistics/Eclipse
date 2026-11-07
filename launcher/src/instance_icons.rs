@@ -2,11 +2,14 @@
 //! modpack's icon) first; else the block or colour chosen for it; else its mark: the loader
 //! it plays with, the grass block for plain Minecraft, Eclipse's own for Eclipse. The letter tile
 //! is the last resort. Each is decoded once per size and kept in `Instances::icons`.
-use super::*;
+use crate::{art, instance_state, ui, Launcher, Pick};
 use eclipse_launcher::browser::images;
+use eclipse_launcher::i18n::tr;
 use eclipse_launcher::instances::{self, Instance, Kind as InstanceKind};
+use eclipse_launcher::loaders::Kind as Loader;
 use eclipse_theme::mark;
-use gpui::RenderImage;
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, Div, RenderImage};
 use std::sync::Arc;
 
 /// The loaders' logos, each its project's own: see THIRD_PARTY_NOTICES.md.
@@ -16,8 +19,6 @@ const NEOFORGE: &[u8] = include_bytes!("../assets/logos/neoforge.png");
 const FORGE: &[u8] = include_bytes!("../assets/logos/forge.png");
 /// Vanilla's mark: our own grass block (`tools/launcher_grass_block.py`), not Mojang's art.
 pub(super) const GRASS: &[u8] = include_bytes!("../assets/logos/grass-block.png");
-/// The loaders a logo is drawn for.
-const LOADERS: [&str; 4] = ["fabric", "quilt", "forge", "neoforge"];
 const SMALL_MARK: [&str; 12] = [
     "....oooo....",
     "...occcco...",
@@ -38,11 +39,21 @@ const SHARP_FILL: f32 = 0.75;
 const MARK_SHARE: f32 = 2. / 3.;
 const ICON_GRID: f32 = 8.;
 
-#[derive(Clone, PartialEq, Debug)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 pub(super) enum Mark {
     Eclipse,
     Grass,
-    Loader(String),
+    Loader(Loader),
+}
+
+#[derive(Clone, PartialEq, Eq, Hash, Debug)]
+pub(super) enum IconKey {
+    Picture(String),
+    Chosen(u64),
+    Grass,
+    Eclipse,
+    Loader(&'static str),
+    Texture(String),
 }
 
 pub(super) enum Picture {
@@ -83,10 +94,10 @@ impl Launcher {
     }
 
     fn mark_of(&self, i: &Instance) -> Mark {
-        match self.instance_loader(i) {
-            Some(loader) if LOADERS.contains(&loader.as_str()) => Mark::Loader(loader),
-            _ if i.java.is_some() => Mark::Grass,
-            _ => Mark::Eclipse,
+        match self.instance_loader(i).and_then(|l| Loader::parse(&l).ok()) {
+            Some(loader) => Mark::Loader(loader),
+            None if i.java.is_some() => Mark::Grass,
+            None => Mark::Eclipse,
         }
     }
 
@@ -101,12 +112,8 @@ impl Launcher {
             Picture::None => None,
             Picture::Saved(i) => self.instance_picture(&i, inner),
             Picture::Picked(png) => {
-                use std::hash::{Hash, Hasher};
-                let mut h = std::collections::hash_map::DefaultHasher::new();
-                png.hash(&mut h);
-                self.icon_image(format!("chosen:{:x}", h.finish()), inner, false, || {
-                    Some(png)
-                })
+                let key = IconKey::Chosen(instance_state::picture_key(&png));
+                self.icon_image(key, inner, false, || Some(png))
             }
         };
         let mut colour = ui::look().accent;
@@ -135,7 +142,7 @@ impl Launcher {
         let image = match mark {
             Mark::Eclipse => return Some(self.eclipse_mark(size)),
             Mark::Grass => self.grass_mark(size),
-            Mark::Loader(loader) => self.loader_logo(loader, size),
+            Mark::Loader(loader) => self.loader_logo(*loader, size),
         }?;
         Some(centred(image, size, self.scale).into_any_element())
     }
@@ -148,7 +155,7 @@ impl Launcher {
         size: f32,
     ) -> Option<Arc<RenderImage>> {
         let file = instance.home.join(instances::PICTURE);
-        let key = format!("picture:{}", instance.id);
+        let key = IconKey::Picture(instance.id.clone());
         self.icon_image(key, size, true, || std::fs::read(file).ok())
     }
 
@@ -168,7 +175,7 @@ impl Launcher {
 
     /// Vanilla's grass block, `size` points square.
     pub(super) fn grass_mark(&mut self, size: f32) -> Option<Arc<RenderImage>> {
-        self.icon_image("mark:grass".into(), size, false, || Some(GRASS.to_vec()))
+        self.icon_image(IconKey::Grass, size, false, || Some(GRASS.to_vec()))
     }
 
     /// Eclipse's own mark, `size` points square.
@@ -183,16 +190,17 @@ impl Launcher {
         let scale = self.scale;
         self.instances
             .icons
-            .entry(("mark:eclipse".into(), (size * scale) as u32))
+            .entry((IconKey::Eclipse, (size * scale) as u32))
             .or_insert_with(|| Some(pixel_mark(size, scale)))
             .clone()
     }
 
-    /// A mod loader's logo by its id (`fabric`, `quilt`, `forge`, `neoforge`): None for another
-    /// id.
-    pub(super) fn loader_logo(&mut self, loader: &str, size: f32) -> Option<Arc<RenderImage>> {
-        let png = logo_png(loader)?;
-        self.icon_image(format!("mark:{loader}"), size, false, || Some(png.to_vec()))
+    /// A mod loader's logo, `size` points square.
+    pub(super) fn loader_logo(&mut self, loader: Loader, size: f32) -> Option<Arc<RenderImage>> {
+        let png = logo_png(loader);
+        self.icon_image(IconKey::Loader(loader.id()), size, false, || {
+            Some(png.to_vec())
+        })
     }
 
     /// The image under `key` at `size` points, made from `bytes` the first time. A missing one is
@@ -200,7 +208,7 @@ impl Launcher {
     /// again next frame (a logo still downloading).
     pub(super) fn icon_image(
         &mut self,
-        key: String,
+        key: IconKey,
         size: f32,
         remember_missing: bool,
         bytes: impl FnOnce() -> Option<Vec<u8>>,
@@ -290,14 +298,13 @@ pub(super) fn modded_mark() -> gpui::Svg {
     )
 }
 
-/// A loader's logo file by its id.
-pub(super) fn logo_png(loader: &str) -> Option<&'static [u8]> {
+/// A loader's logo file.
+pub(super) fn logo_png(loader: Loader) -> &'static [u8] {
     match loader {
-        "fabric" => Some(FABRIC),
-        "quilt" => Some(QUILT),
-        "neoforge" => Some(NEOFORGE),
-        "forge" => Some(FORGE),
-        _ => None,
+        Loader::Fabric => FABRIC,
+        Loader::Quilt => QUILT,
+        Loader::NeoForge => NEOFORGE,
+        Loader::Forge => FORGE,
     }
 }
 
@@ -337,33 +344,27 @@ impl Launcher {
     /// Asks for an image file and makes it the page's picture, read and scaled off the UI
     /// thread.
     pub(super) fn choose_instance_picture(&mut self, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some("Choose".into()),
+        self.pick_paths(Pick::File, tr("Choose"), cx, |this, mut paths, cx| {
+            if let Some(path) = paths.pop() {
+                this.read_instance_picture(path, cx);
+            }
+        });
+    }
+
+    fn read_instance_picture(&mut self, path: std::path::PathBuf, cx: &mut Context<Self>) {
+        let made = cx.background_executor().spawn(async move {
+            let too_big =
+                std::fs::metadata(&path).map_err(|e| e.to_string())?.len() > MAX_PICTURE_FILE;
+            let bytes = (!too_big)
+                .then(|| std::fs::read(&path).ok())
+                .flatten()
+                .ok_or_else(|| format!("{}: too big, or unreadable", path.display()))?;
+            Ok::<_, String>(Chosen {
+                png: instances::picture(bytes)?,
+            })
         });
         cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(paths))) = paths.await else {
-                return;
-            };
-            let Some(path) = paths.into_iter().next() else {
-                return;
-            };
-            let made = cx
-                .background_executor()
-                .spawn(async move {
-                    let too_big = std::fs::metadata(&path).map_err(|e| e.to_string())?.len()
-                        > MAX_PICTURE_FILE;
-                    let bytes = (!too_big)
-                        .then(|| std::fs::read(&path).ok())
-                        .flatten()
-                        .ok_or_else(|| format!("{}: too big, or unreadable", path.display()))?;
-                    Ok::<_, String>(Chosen {
-                        png: instances::picture(bytes)?,
-                    })
-                })
-                .await;
+            let made = made.await;
             let _ = this.update(cx, |this, cx| {
                 if let Some(d) = &mut this.instances.draft {
                     match made {

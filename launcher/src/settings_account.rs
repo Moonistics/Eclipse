@@ -4,12 +4,17 @@
 //! game made up (a chip with New name), each offline name's skin (a pencil in its chip) and the
 //! skin panel, the sign-in's code, progress and problems.
 
-use super::*;
-use crate::fields::Field;
+use crate::fields::{CanAdd, Field};
 use crate::menus::Asking;
-use crate::ui;
-use account::Player;
+use crate::messages::Msg;
+use crate::ui::{ButtonKind, Press};
+use crate::{layout, microsoft, ui, Launcher};
+use eclipse_launcher::account::{Accounts, Player, SignInState};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{account, instances};
 use eclipse_theme::glass::{ink, space, step};
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, Stateful};
 
 const HEAD: f32 = ui::TILE_LG;
 const MICROSOFT_MIN: f32 = 280.;
@@ -230,7 +235,7 @@ impl Launcher {
 
     /// An offline name's chip: its head and name, a tick and a stronger fill on the one playing.
     fn name_chip(&self, id: impl Into<SharedString>, name: String, plays: bool) -> Stateful<Div> {
-        let face = profile_heads::offline_key(&name);
+        let face = eclipse_launcher::heads::offline_key(&name);
         let head = self
             .profile_heads
             .draw(Some(&face), ui::CHIP_FACE, self.scale);

@@ -92,6 +92,7 @@ impl Launcher {
         self.mods_sticky.reset();
         if self.page == Page::Mods {
             self.mods.reset_lists();
+            self.modpacks.report_list.reset();
         }
     }
 

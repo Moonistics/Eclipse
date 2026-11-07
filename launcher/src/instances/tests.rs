@@ -11,6 +11,13 @@ fn scratch(name: &str) -> PathBuf {
     root
 }
 
+fn java_of(minecraft: &str) -> JavaGame {
+    JavaGame {
+        minecraft: minecraft.into(),
+        ..JavaGame::default()
+    }
+}
+
 fn put(path: &Path, text: &str) {
     fs::create_dir_all(path.parent().unwrap()).unwrap();
     fs::write(path, text).unwrap();
@@ -334,7 +341,14 @@ fn a_java_instance_plays_one_minecraft_version_in_its_own_folder() {
     let root = scratch("java");
     let (home, data) = (root.join("eclipse"), root.join("launcher"));
     player_home(&home);
-    let java = create_in(&home, &data, "Vanilla 1.21.4", None, Some("1.21.4")).unwrap();
+    let java = create_in(
+        &home,
+        &data,
+        "Vanilla 1.21.4",
+        None,
+        Some(java_of("1.21.4")),
+    )
+    .unwrap();
     assert_eq!(java.home, home.join(OWN).join("vanilla-1-21-4"));
     assert_eq!(fs::read_dir(&java.home).unwrap().count(), 0);
     assert_eq!(java.java.as_ref().unwrap().minecraft, "1.21.4");
@@ -571,12 +585,30 @@ fn switching_what_an_instance_plays_keeps_its_worlds_mods_and_settings() {
 }
 
 #[test]
+fn a_java_instance_is_made_with_its_loader() {
+    let root = scratch("java-loader");
+    let (home, data) = (root.join("eclipse"), root.join("launcher"));
+    player_home(&home);
+    let loader = crate::loaders::Loader {
+        kind: crate::loaders::Kind::Fabric,
+        version: "0.16.9".into(),
+    };
+    let java = JavaGame {
+        loader: Some(loader.clone()),
+        ..java_of("1.21.4")
+    };
+    let made = create_in(&home, &data, "Fabric", None, Some(java)).unwrap();
+    let listed = find_in(&list_in(&home, &data), &made.id).unwrap();
+    assert_eq!(listed.java.unwrap().loader, Some(loader));
+}
+
+#[test]
 fn every_reader_of_the_version_an_instance_plays_gets_the_same_answer() {
     let root = scratch("plays");
     let (home, data) = (root.join("eclipse"), root.join("launcher"));
     player_home(&home);
     create_in(&home, &data, "Pinned", None, None).unwrap();
-    create_in(&home, &data, "Vanilla", None, Some("1.21.4")).unwrap();
+    create_in(&home, &data, "Vanilla", None, Some(java_of("1.21.4"))).unwrap();
     edit_in(&home, &data, "Pinned", |m| {
         m.version = Some("v0.2.0".into())
     })

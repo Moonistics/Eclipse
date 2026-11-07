@@ -62,7 +62,7 @@ impl Launcher {
     pub(super) fn apply_launcher_update(&mut self, cx: &mut App) {
         match eclipse_launcher::update_handoff::start_now() {
             Ok(true) => {
-                servers_page::keep_running_through_update();
+                servers_state::keep_running_through_update();
                 shut_down(cx)
             }
             Ok(false) => self.self_update = SelfUpdate::Failed(backend::restart()),

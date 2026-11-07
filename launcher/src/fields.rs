@@ -1,8 +1,15 @@
 use super::line_edit::{self, Key, LineEdit};
-use super::*;
-use crate::ui;
+use crate::ui::Press;
+use crate::{ui, Launcher};
+use eclipse_launcher::i18n::tr;
 use eclipse_theme::glass::{space, step, GEIST_ADVANCE};
+use gpui::prelude::*;
+use gpui::{
+    div, px, AnyElement, App, ClickEvent, Div, FocusHandle, KeyDownEvent, SharedString, Stateful,
+    Window,
+};
 use std::cell::Cell;
+use std::collections::HashMap;
 use std::rc::Rc;
 
 #[derive(Clone, Copy, PartialEq, Eq, Hash, Debug)]
@@ -23,18 +30,18 @@ pub(super) enum Field {
     VersionSearch,
     /// Home's Mods tab's filter (`home_mods.rs`).
     InstanceModsFilter,
-    /// Home's Multiplayer tab's (`home_lists.rs`).
+    /// Home's Multiplayer tab's (`home_worlds.rs`).
     MultiplayerName,
     MultiplayerAddress,
-    /// Home's Console's search (`console_page.rs`).
+    /// Home's Console's search (`home_console.rs`).
     ConsoleSearch,
-    /// Edit instance's launch options (`launch_page.rs`).
+    /// Edit instance's launch options (`instance_launch.rs`).
     PreLaunch,
     LaunchWrapper,
     LaunchEnv,
     PostExit,
     InstanceGameArgs,
-    /// Edit instance's memory row (`launch_page.rs`).
+    /// Edit instance's memory row (`instance_launch.rs`).
     MemoryLimit,
     /// Settings' new offline name (`settings_account.rs`).
     OfflineName,
@@ -277,7 +284,7 @@ impl Launcher {
     ) -> Stateful<Div> {
         let add = ui::button(
             format!("{id}-add"),
-            Some("plus-sign"),
+            Some(crate::icons::ADD),
             tr("Add"),
             ui::ButtonKind::Secondary,
             ui::ButtonSize::Sm,

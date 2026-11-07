@@ -7,10 +7,11 @@
 //! list (`minecraft_versions`), fetched once when the page first needs it; the game itself comes
 //! with the first Play, for an account that owns it.
 use super::*;
+use crate::fields::Field;
+use crate::instance_icons::{IconKey, Mark};
 use eclipse_launcher::instances::{self, Icon, Instance, Kind as InstanceKind};
 use eclipse_launcher::loaders::{self, Kind as Loader};
 use eclipse_launcher::minecraft_versions::Versions;
-use fields::Field;
 use gpui::RenderImage;
 use std::collections::HashMap;
 use std::sync::Arc;
@@ -59,8 +60,8 @@ pub(super) struct InstanceDraft {
     pub(super) java: instance_state::JavaChoice,
     /// The Eclipse version it keeps (`Instance::version`); None follows the launcher's.
     pub(super) pin: Option<String>,
-    /// The loader logo `picture` was made from, when it was one.
-    pub(super) logo: Option<&'static str>,
+    /// The mark `picture` was made from (the grass block or a loader's logo), when it was one.
+    pub(super) logo: Option<Mark>,
     pub(super) reveal_version: bool,
     pub(super) opened: Option<DraftShape>,
 }
@@ -111,7 +112,7 @@ pub(super) struct Instances {
     pub(super) list: Vec<Instance>,
     pub(super) draft: Option<InstanceDraft>,
     /// Textures, pictures and marks as images, by name and size in device pixels.
-    pub(super) icons: HashMap<(String, u32), Option<Arc<RenderImage>>>,
+    pub(super) icons: HashMap<(IconKey, u32), Option<Arc<RenderImage>>>,
     /// Mojang's versions, for a new Java instance.
     pub(super) versions: instance_state::VersionList,
 }
@@ -130,7 +131,7 @@ impl Launcher {
         // A picture may have come or gone with the change.
         self.instances
             .icons
-            .retain(|(key, _), _| !key.starts_with("picture:"));
+            .retain(|(key, _), _| !matches!(key, IconKey::Picture(_)));
     }
 
     /// The instance Play starts.
@@ -183,8 +184,7 @@ impl Launcher {
 
     pub(super) fn select_instance(&mut self, instance: &Instance) {
         // A native build's warning names the mods of the instance it was opened for.
-        self.native.confirm = None;
-        self.native.update = None;
+        self.native.close_warning();
         self.settings.instance =
             (instance.kind != InstanceKind::Default).then(|| instance.id.clone());
         self.save_settings();
@@ -199,7 +199,7 @@ impl Launcher {
         let scale = self.scale;
         self.instances
             .icons
-            .entry((name.to_string(), (size * scale) as u32))
+            .entry((IconKey::Texture(name.to_string()), (size * scale) as u32))
             .or_insert_with(|| {
                 let path = Icon::Texture(name.into()).texture(&backend::resources(&tag))?;
                 let png = image::open(path).ok()?.to_rgba8();
@@ -770,13 +770,7 @@ pub(super) fn create_java(
             )
         })
         .transpose()?;
-    let made = instances::create_java(name, minecraft)?;
-    match loader {
-        Some(loader) => instances::edit(&made.id, |m| {
-            m.java.get_or_insert_with(Default::default).loader = Some(loader)
-        }),
-        None => Ok(made),
-    }
+    instances::create_java(name, minecraft, loader)
 }
 
 /// `to`, with the newest stable version of a loader it names without one (asked of its service

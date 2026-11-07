@@ -29,7 +29,7 @@ impl Launcher {
         let who = self.accounts.player();
         let how = how_signed_in(&who);
         let offline = |name: String| WhoPlays {
-            face: profile_heads::offline_key(&name),
+            face: eclipse_launcher::heads::offline_key(&name),
             name,
             how,
             means: tr("Offline account · can't join online-mode servers"),

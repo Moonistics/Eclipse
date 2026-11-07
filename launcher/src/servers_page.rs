@@ -1,636 +1,947 @@
-//! The Servers page: create a server in one dialog, then start, stop and watch it, give friends its
-//! address, manage who may join, change its settings, back it up and update it, all with buttons. Every
-//! action runs `eclipse-server` or calls the running server's control API (`eclipse_launcher::servers`).
-use super::*;
-use crate::menus::Asking;
-use crate::ui;
-use eclipse_launcher::account::Player;
-use eclipse_launcher::servers::{
-    self, Applied, Backup, Entry, Fix, NewServer, Problem, Status, World,
+//! The Servers page: the open server's card with its state, name, numbers, Start or Restart and
+//! Stop, its console and command line; beside it the list of servers and how friends reach the
+//! open one. Below, the server's Players, Settings and Backups.
+use crate::fields::Field;
+use crate::page::Page;
+use crate::play_state::{PlayState, PrepareFailed};
+use crate::servers_state::{
+    phase_label, set_up_label, setting_name, uptime, GameMode, Needs, ServerJob, Tab,
 };
-use eclipse_theme::glass::space;
-use gpui::ScrollHandle;
+use crate::tab_strip::{Strip, StripTab};
+use crate::ui::{self, white, ButtonKind, Press, Tone};
+use crate::{clipboard, layout, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::server_list::DEFAULT_PORT;
+use eclipse_launcher::servers::{Fix, Key, Problem, Status};
+use eclipse_launcher::{backend, servers};
+use eclipse_theme::glass::{ink, pixel_text, space, step, TextStep};
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div, FontWeight, SharedString, Stateful};
 use serde_json::Value;
-use std::collections::{BTreeSet, HashMap};
 use std::path::{Path, PathBuf};
 
-#[path = "server_dialog.rs"]
-mod server_dialog;
-#[path = "servers_actions.rs"]
-mod servers_actions;
-#[path = "servers_tabs.rs"]
-mod servers_tabs;
-#[path = "servers_view.rs"]
-mod servers_view;
+/// The right column's width.
+const SIDE: f32 = 380.;
 
-/// The servers this launcher started in this session, stopped when it closes unless they run as a
-/// service (`stop_on_quit`).
-static STARTED_HERE: Mutex<Vec<PathBuf>> = Mutex::new(Vec::new());
+const LIST_ROW_PAD: f32 = space::SM + space::XXS;
 
-/// How often the open server's status and log are read, and the list's.
-const POLL_OPEN: Duration = Duration::from_millis(1000);
-const POLL_LIST: Duration = Duration::from_secs(3);
-
-/// Lines of the server's log kept on the page.
-const CONSOLE_KEEP: usize = 1000;
-
-const FACE: f32 = ui::TILE_SM;
-
-const DELETE_CONTROLS: f32 = 260.;
-
-#[derive(Clone, Copy, PartialEq, Debug)]
-pub(super) enum Tab {
-    Players,
-    Settings,
-    Backups,
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum GameMode {
-    Survival,
-    Creative,
-    Adventure,
-}
-
-impl GameMode {
-    const ALL: [GameMode; 3] = [GameMode::Survival, GameMode::Creative, GameMode::Adventure];
-
-    fn id(self) -> &'static str {
-        match self {
-            GameMode::Survival => "survival",
-            GameMode::Creative => "creative",
-            GameMode::Adventure => "adventure",
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            GameMode::Survival => tr("Survival"),
-            GameMode::Creative => tr("Creative"),
-            GameMode::Adventure => tr("Adventure"),
-        }
-    }
-
-    fn options() -> Vec<(&'static str, SharedString)> {
-        GameMode::ALL
-            .map(|m| (m.id(), SharedString::from(m.label())))
-            .to_vec()
-    }
-
-    fn label_of(id: &str) -> String {
-        GameMode::ALL
-            .into_iter()
-            .find(|m| m.id() == id)
-            .map_or_else(|| id.to_string(), |m| m.label().to_string())
-    }
-}
-
-const DIFFICULTIES: [(&str, &str); 4] = [
-    ("peaceful", "Peaceful"),
-    ("easy", "Easy"),
-    ("normal", "Normal"),
-    ("hard", "Hard"),
-];
-
-/// What the background work reports.
-pub(super) enum Event {
-    Polled {
-        dir: PathBuf,
-        status: Box<Status>,
-        logs: Option<(u64, Vec<String>)>,
-    },
-    Statuses(Vec<(PathBuf, Status)>),
-    Line(String),
-    Done(Result<String, Problem>),
-    Created(Result<Entry, Problem>),
-    Deleted {
-        dir: PathBuf,
-        result: Result<(), String>,
-    },
-    Details {
-        dir: PathBuf,
-        config: Option<Value>,
-        backups: Vec<Backup>,
-        service: bool,
-    },
-    Applied(Result<Applied, Problem>),
-    Pvp(Option<bool>),
-    UpdateCheck(Result<Value, Problem>),
-    Failed(String),
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum ServerJob {
-    Starting,
-    Restarting,
-    Stopping,
-    Trashing,
-    CopyingGameFiles,
-    ChangingOperators,
-    UpdatingList,
-    LettingIn(String),
-    RunInBackground(bool),
-    UpdatingTo(String),
-    BackingUp,
-    Restoring,
-}
-
-impl ServerJob {
-    pub(super) fn label(&self) -> String {
-        match self {
-            ServerJob::Starting => tr("Starting").into(),
-            ServerJob::Restarting => tr("Restarting").into(),
-            ServerJob::Stopping => tr("Stopping").into(),
-            ServerJob::Trashing => tr("Moving server to trash").into(),
-            ServerJob::CopyingGameFiles => tr("Copying the game files").into(),
-            ServerJob::ChangingOperators => tr("Changing operators").into(),
-            ServerJob::UpdatingList => tr("Updating the list").into(),
-            ServerJob::LettingIn(name) => trf("Letting {name} in", &[("name", name)]),
-            ServerJob::RunInBackground(true) => tr("Setting it to run in the background").into(),
-            ServerJob::RunInBackground(false) => tr("Turning off running in the background").into(),
-            ServerJob::UpdatingTo(tag) => trf("Updating to {tag}", &[("tag", tag)]),
-            ServerJob::BackingUp => tr("Backing up").into(),
-            ServerJob::Restoring => tr("Restoring").into(),
-        }
-    }
-}
-
-#[derive(Clone, Debug, PartialEq)]
-pub(super) enum Needs {
-    Eclipse,
-    GameFiles { minecraft: String },
-    ServerProgram { version: String },
-}
-
-impl Needs {
-    pub(super) fn line(&self) -> String {
-        match self {
-            Needs::Eclipse => tr("Servers run Eclipse, which isn't installed yet.").into(),
-            Needs::GameFiles { minecraft } => trf(
-                "Servers need Minecraft {version} from your Minecraft launcher.",
-                &[("version", minecraft)],
-            ),
-            Needs::ServerProgram { version } => trf(
-                "{version} can't host servers. Install a newer version.",
-                &[("version", version)],
-            ),
-        }
-    }
-}
-
-fn set_up_label(minecraft: &str) -> String {
-    trf("Set up Minecraft {version}", &[("version", minecraft)])
-}
-
-#[derive(Clone, Copy, Debug, PartialEq)]
-pub(super) enum ServerKey {
-    Motd,
-    Port,
-    MaxPlayers,
-    ViewDistance,
-    SimulationDistance,
-    Whitelist,
-    OnlineMode,
-    WorldName,
-    GameMode,
-    Difficulty,
-    BackupsEvery,
-    BackupsKeep,
-    UpdatesKeep,
-}
-
-impl ServerKey {
-    const ALL: [ServerKey; 13] = [
-        ServerKey::Motd,
-        ServerKey::Port,
-        ServerKey::MaxPlayers,
-        ServerKey::ViewDistance,
-        ServerKey::SimulationDistance,
-        ServerKey::Whitelist,
-        ServerKey::OnlineMode,
-        ServerKey::WorldName,
-        ServerKey::GameMode,
-        ServerKey::Difficulty,
-        ServerKey::BackupsEvery,
-        ServerKey::BackupsKeep,
-        ServerKey::UpdatesKeep,
-    ];
-
-    fn path(self) -> (&'static str, &'static str) {
-        match self {
-            ServerKey::Motd => ("server", "motd"),
-            ServerKey::Port => ("server", "port"),
-            ServerKey::MaxPlayers => ("server", "max_players"),
-            ServerKey::ViewDistance => ("server", "view_distance"),
-            ServerKey::SimulationDistance => ("server", "simulation_distance"),
-            ServerKey::Whitelist => ("server", "whitelist"),
-            ServerKey::OnlineMode => ("server", "online_mode"),
-            ServerKey::WorldName => ("world", "name"),
-            ServerKey::GameMode => ("world", "game_mode"),
-            ServerKey::Difficulty => ("world", "difficulty"),
-            ServerKey::BackupsEvery => ("backups", "every"),
-            ServerKey::BackupsKeep => ("backups", "keep"),
-            ServerKey::UpdatesKeep => ("updates", "keep"),
-        }
-    }
-
-    fn dotted(self) -> String {
-        let (section, name) = self.path();
-        format!("{section}.{name}")
-    }
-
-    fn label(self) -> Option<&'static str> {
-        match self {
-            ServerKey::Motd => Some(tr("the message in the server list")),
-            ServerKey::Port => Some(tr("the port")),
-            ServerKey::MaxPlayers => Some(tr("max players")),
-            ServerKey::ViewDistance => Some(tr("view distance")),
-            ServerKey::SimulationDistance => Some(tr("simulation distance")),
-            ServerKey::OnlineMode => Some(tr("Microsoft sign-in")),
-            _ => None,
-        }
-    }
-}
-
-/// The Create dialog's answers.
-pub(super) struct Create {
-    new_world: bool,
-    copy: Option<PathBuf>,
-    worlds: Vec<(String, PathBuf)>,
-    /// The dialog's line under each world: its name and "Eclipse · mode · size", read
-    /// once when the dialog opens.
-    details: HashMap<PathBuf, (String, String)>,
-    mode: GameMode,
-    difficulty: &'static str,
-    max_players: u32,
-    friends_only: bool,
-    check_accounts: bool,
-    offline: bool,
-    eula: bool,
-    /// Create was pressed without the EULA ticked.
-    eula_missing: bool,
-    /// The dialog's friends let in, the first an operator.
-    friends: Vec<String>,
-}
-
-/// What the sidebar shows of the Servers page: its list, and whether a server answers.
-impl Servers {
-    /// A stopped server's line in the list: "Survival · stopped". The open
-    /// server's mode is the one its settings show now, once read; the others' (and the open one's
-    /// until then) come from their files.
-    pub(super) fn stopped_line(&mut self, dir: &std::path::Path) -> String {
-        let open = Some(self.shown(ServerKey::GameMode))
-            .filter(|m| !m.is_empty() && self.open.as_deref() == Some(dir));
-        let mode = open.or_else(|| {
-            self.modes
-                .entry(dir.to_path_buf())
-                .or_insert_with(|| servers::game_mode(dir))
-                .clone()
-        });
-        match mode {
-            Some(mode) => trf("{mode} · stopped", &[("mode", &GameMode::label_of(&mode))]),
-            None => tr("Stopped").to_string(),
-        }
-    }
-
-    pub(super) fn listed(&self) -> &[Entry] {
-        &self.list
-    }
-
-    pub(super) fn is_up(&self, dir: &std::path::Path) -> bool {
-        self.statuses.get(dir).is_some_and(Status::serving)
-    }
-}
-
-pub(super) struct Servers {
-    list: Vec<Entry>,
-    loaded: bool,
-    pub(super) open: Option<PathBuf>,
-    tab: Tab,
-    statuses: HashMap<PathBuf, Status>,
-    /// Each listed server's game mode from its `server.toml`, read once while it is listed.
-    modes: HashMap<PathBuf, Option<String>>,
-    polling: bool,
-    polled: Option<Instant>,
-    log: VecDeque<String>,
-    log_next: u64,
-    log_dir: Option<PathBuf>,
-    console_scroll: ScrollHandle,
-    create_scroll: Scrollbar,
-    /// The action under way, and what it printed.
-    busy: Option<ServerJob>,
-    job_log: VecDeque<String>,
-    problem: Option<Problem>,
-    note: Option<String>,
-    pub(super) create: Option<Create>,
-    pub(super) creating: bool,
-    config: Option<Value>,
-    /// Settings waiting for `config set`, and whether one runs.
-    queued: Vec<(ServerKey, String)>,
-    applying: bool,
-    /// Settings saved while the server ran that wait for its next start.
-    restart_needed: BTreeSet<String>,
-    backups: Vec<Backup>,
-    service: Option<bool>,
-    update: Option<Value>,
-    /// `update --check` is under way.
-    checking: bool,
-    pvp: Option<bool>,
-    tx: Sender<Event>,
-    rx: Receiver<Event>,
-}
-
-impl Servers {
-    pub(super) fn new() -> Self {
-        let (tx, rx) = channel();
-        Self {
-            list: servers::list(),
-            loaded: false,
-            open: None,
-            tab: Tab::Players,
-            statuses: HashMap::new(),
-            modes: HashMap::new(),
-            polling: false,
-            polled: None,
-            log: VecDeque::new(),
-            log_next: 0,
-            log_dir: None,
-            console_scroll: ScrollHandle::new(),
-            create_scroll: Scrollbar::default(),
-            busy: None,
-            job_log: VecDeque::new(),
-            problem: None,
-            note: None,
-            create: None,
-            creating: false,
-            config: None,
-            queued: Vec::new(),
-            applying: false,
-            restart_needed: BTreeSet::new(),
-            backups: Vec::new(),
-            service: None,
-            update: None,
-            checking: false,
-            pvp: None,
-            tx,
-            rx,
-        }
-    }
-
-    fn status(&self) -> Status {
-        self.open
-            .as_ref()
-            .and_then(|d| self.statuses.get(d).cloned())
-            .unwrap_or_else(Status::stopped)
-    }
-
-    /// A setting from server.toml (as `config --json` gave it).
-    fn setting(&self, key: ServerKey) -> Option<&Value> {
-        let (section, name) = key.path();
-        self.config
-            .as_ref()
-            .map(|c| &c[section][name])
-            .filter(|v| !v.is_null())
-    }
-
-    /// A setting as shown: what was just asked for, else what server.toml holds.
-    fn shown(&self, key: ServerKey) -> String {
-        if let Some((_, v)) = self.queued.iter().rev().find(|(k, _)| *k == key) {
-            return v.clone();
-        }
-        match self.setting(key) {
-            Some(Value::String(s)) => s.clone(),
-            None => String::new(),
-            Some(v) => v.to_string(),
-        }
-    }
-}
-
-/// Stops the servers this launcher started, unless they run in the background as a service.
-pub(super) fn stop_on_quit() {
-    for dir in STARTED_HERE.lock().unwrap().drain(..) {
-        if servers::service_installed(&dir) {
-            continue;
-        }
-        if let Some(api) = servers::Api::open(&dir) {
-            let _ = api.call("POST", "/api/v1/stop", None);
-        }
-    }
-}
-
-/// Update closes the window to open the new launcher at once: a server is its own process and the
-/// new window finds it running, so an update doesn't end anyone's game. It stays up when that new
-/// window closes too, until it is stopped on the Servers page.
-pub(super) fn keep_running_through_update() {
-    STARTED_HERE.lock().unwrap().clear();
-}
-
-/// The player's own name, to let them in on a friends-only server: the Microsoft account or the
-/// offline name that plays, else the name the game made up for them (`eclipse-player.txt`).
-fn own_name(accounts: &Accounts) -> Option<String> {
-    match accounts.player() {
-        Player::Offline(name) => Some(name),
-        _ => accounts
-            .selected()
-            .map(|a| a.name.clone())
-            .or_else(crate::offline_name),
-    }
-}
-
-fn plays_offline(accounts: &Accounts) -> bool {
-    !matches!(accounts.player(), Player::Microsoft(_))
-}
-
-fn bytes(n: u64) -> String {
-    match n {
-        0..1_000_000 => format!("{} kB", n.div_ceil(1000)),
-        1_000_000..1_000_000_000 => format!("{:.1} MB", n as f64 / 1e6),
-        _ => format!("{:.2} GB", n as f64 / 1e9),
-    }
-}
-
-/// A backup's date and kind from its name (`2026-10-19_11-28-57-manual.zip`, UTC), for people.
-fn backup_label(b: &Backup) -> (String, String) {
-    let stem = b.name.trim_end_matches(".zip");
-    let (when, kind) = match stem.get(..19) {
-        Some(when) if stem.len() > 20 => (when, &stem[20..]),
-        _ => return (stem.to_string(), String::new()),
-    };
-    let (date, time) = when.split_once('_').unwrap_or((when, ""));
-    let label = format!("{date} {} UTC", time.replace('-', ":"));
-    let kind = match kind {
-        "auto" => "Automatic".to_string(),
-        "manual" => "Made by hand".to_string(),
-        "before-update" => "Before an update".to_string(),
-        // eclipse-server writes the tag with dashes (before-v2026-10-19-10).
-        k if k.starts_with("before-v")
-            && k[8..].chars().all(|c| c.is_ascii_digit() || c == '-') =>
-        {
-            format!("Before updating to {}", k[7..].replace('-', "."))
-        }
-        k if k.starts_with("before-") => format!("Before updating to {}", &k[7..]),
-        k => k.to_string(),
-    };
-    (label, kind)
-}
-
-fn uptime(secs: u64) -> String {
-    match secs {
-        0..60 => format!("{secs} s"),
-        60..3600 => format!("{} min", secs / 60),
-        3600..86_400 => format!("{} h {:02} min", secs / 3600, secs / 60 % 60),
-        _ => format!("{} d {} h", secs / 86_400, secs / 3600 % 24),
+/// A dot's tone for a server's state.
+fn tone(status: &Status) -> Tone {
+    match () {
+        _ if status.serving() && status.crashes > 0 => Tone::Warn,
+        _ if status.serving() => Tone::Live,
+        _ if !status.running() => Tone::Off,
+        _ => Tone::Busy,
     }
 }
 
 impl Launcher {
-    pub(super) fn servers_page(&mut self, cx: &mut Context<Self>) -> Div {
-        if !self.servers.loaded {
-            self.servers.list = servers::list();
-            self.servers.modes.clear();
-            self.servers.loaded = true;
-            if self.servers.open.is_none() && self.servers.list.len() == 1 {
-                let dir = self.servers.list[0].dir.clone();
+    pub(super) fn servers_view(&mut self, cx: &mut Context<Self>) -> Div {
+        let head = ui::page_head(Page::Servers.title(), None);
+        // A server is always shown: the open one, else the first.
+        let listed = |d: &PathBuf| self.servers.list.iter().any(|e| &e.dir == d);
+        if !self.servers.open.as_ref().is_some_and(listed) {
+            if let Some(first) = self.servers.list.first() {
+                let dir = first.dir.clone();
                 self.open_server(dir);
             }
         }
-        self.servers_view(cx)
+        let open = self
+            .servers
+            .open
+            .clone()
+            .filter(|d| self.servers.list.iter().any(|e| &e.dir == d));
+        let main = match &open {
+            Some(dir) => self.server_card(dir, cx),
+            None => {
+                return div()
+                    .flex()
+                    .flex_col()
+                    .child(head)
+                    .child(self.no_server(cx))
+            }
+        };
+        let status = self.servers.status();
+        let content = layout::content_width(self.window_width);
+        let beside = content >= layout::SERVER_CARD_MIN + layout::CARD_GAP + SIDE;
+        let list = self.server_list(cx);
+        let addresses = self.server_addresses(cx);
+        let side = if beside {
+            div()
+                .flex()
+                .flex_col()
+                .flex_none()
+                .w(px(SIDE))
+                .gap(px(layout::CARD_GAP))
+                .child(list)
+                .child(addresses)
+        } else if content >= 2. * SIDE + layout::CARD_GAP {
+            div()
+                .flex()
+                .items_start()
+                .gap(px(layout::CARD_GAP))
+                .child(list.flex_1().min_w_0())
+                .child(addresses.flex_1().min_w_0())
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(layout::CARD_GAP))
+                .child(list)
+                .child(addresses)
+        };
+        let columns = if beside {
+            div()
+                .flex()
+                .items_start()
+                .gap(px(layout::CARD_GAP))
+                .child(main.flex_1().min_w_0())
+                .child(side)
+        } else {
+            div()
+                .flex()
+                .flex_col()
+                .gap(px(layout::CARD_GAP))
+                .child(main)
+                .child(side)
+        };
+        let tabs = open.map(|dir| self.server_tabs(&dir, &status, cx));
+        div()
+            .flex()
+            .flex_col()
+            .child(head)
+            .child(columns)
+            .children(tabs)
     }
 
-    fn server_needs(&self) -> Option<Needs> {
-        if servers::program().is_some() && servers::game_files_ready() {
-            return None;
+    /// The open server's card: its state, name and numbers, its buttons, then its console.
+    fn server_card(&mut self, dir: &Path, cx: &mut Context<Self>) -> Div {
+        let status = self.servers.status();
+        let running = status.running();
+        let idle = self.servers.busy.is_none();
+        let name = self
+            .servers
+            .list
+            .iter()
+            .find(|e| e.dir == dir)
+            .map(|e| e.name.clone())
+            .unwrap_or_default();
+        let mut state = phase_label(&status);
+        if let Some(up) = status.uptime.filter(|_| running) {
+            state = format!("{state} · {}", trf("up {time}", &[("time", &uptime(up))]));
         }
-        let Some(tag) = self.selected_version() else {
-            return Some(Needs::Eclipse);
+        let numbers = if running {
+            let mut parts = vec![trf(
+                "{online} of {max} players",
+                &[
+                    ("online", &status.players.len().to_string()),
+                    ("max", &status.max_players.unwrap_or(0).to_string()),
+                ],
+            )];
+            if let Some(tps) = status.tps {
+                parts.push(trf("{tps} TPS", &[("tps", &format!("{tps:.1}"))]));
+            }
+            if let Some(mspt) = status.mspt {
+                parts.push(trf("{ms} ms a tick", &[("ms", &format!("{mspt:.1}"))]));
+            }
+            if let Some(ram) = status.ram_bytes {
+                parts.push(format!("{:.2} GB", ram as f64 / 1e9));
+            }
+            parts.join(" · ")
+        } else {
+            let mode = GameMode::label_of(&self.servers.shown(Key::GameMode));
+            let max = self.servers.shown(Key::MaxPlayers);
+            [
+                mode,
+                self.servers.shown(Key::WorldName),
+                if max.is_empty() {
+                    max
+                } else {
+                    trf("up to {max} players", &[("max", &max)])
+                },
+            ]
+            .into_iter()
+            .filter(|s| !s.is_empty())
+            .collect::<Vec<_>>()
+            .join(" · ")
         };
-        if !backend::is_prepared(tag) {
-            return Some(Needs::GameFiles {
-                minecraft: backend::game_version(tag),
+
+        let (panel_icon, panel_label) = (crate::icons::SERVER_PANEL, tr("Open the web panel"));
+        let panel = if running {
+            let d = dir.to_path_buf();
+            ui::icon_button(
+                "server-panel",
+                panel_icon,
+                panel_label,
+                ButtonKind::Ghost,
+                ui::ButtonSize::Sm,
+                false,
+            )
+            .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                match servers::Api::open(&d).map(|a| a.panel_link()) {
+                    Some(Ok(url)) => cx.open_url(&url),
+                    Some(Err(e)) => this.servers.problem = Some(Problem::plain(e)),
+                    None => {}
+                }
+                cx.notify();
+            }))
+        } else {
+            ui::icon_button_unavailable(
+                "server-panel",
+                panel_icon,
+                panel_label,
+                ui::ButtonSize::Sm,
+                tr("Start the server first"),
+            )
+        };
+        let folder = dir.to_path_buf();
+        let folder = ui::open_folder_icon(
+            "server-folder",
+            tr("Open server folder"),
+            folder,
+            ButtonKind::Ghost,
+            ui::ButtonSize::Sm,
+        );
+
+        let mut buttons = div().flex().flex_none().items_center().gap(px(space::SM));
+        if running {
+            let restart = ui::button(
+                "server-restart",
+                None,
+                tr("Restart"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Lg,
+            );
+            buttons = buttons.child(if idle {
+                restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.servers.restart_needed.clear();
+                    this.server_command(ServerJob::Restarting, vec!["restart".into()]);
+                    cx.notify();
+                }))
+            } else {
+                ui::disabled(restart)
+            });
+            let stop = ui::button(
+                "server-stop",
+                Some("stop"),
+                tr("Stop"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Lg,
+            );
+            buttons = buttons.child(if idle {
+                stop.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.server_command(ServerJob::Stopping, vec!["stop".into()]);
+                    cx.notify();
+                }))
+            } else {
+                ui::disabled(stop)
+            });
+        } else if self.servers.busy == Some(ServerJob::Starting) {
+            buttons = buttons.child(ui::primary_busy(
+                "server-start",
+                tr("Starting"),
+                None,
+                ui::ButtonSize::Lg,
+            ));
+        } else {
+            let start = ui::primary(
+                "server-start",
+                Some("play"),
+                tr("Start"),
+                ui::ButtonSize::Lg,
+            );
+            buttons = buttons.child(if idle {
+                start.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.start_server();
+                    cx.notify();
+                }))
+            } else {
+                ui::disabled(start)
             });
         }
-        servers::can_host(tag).err().map(|_| Needs::ServerProgram {
-            version: eclipse_launcher::nightly::display_name(tag),
-        })
+
+        let mut card = ui::card()
+            .flex()
+            .flex_col()
+            .p(px(ui::CARD_PADDING))
+            .child(
+                div()
+                    .relative()
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(space::MD))
+                    .child(
+                        ui::text(step::NOTE, FontWeight::NORMAL, ink::BODY)
+                            .min_w_0()
+                            .child(ui::state_line(tone(&status), state)),
+                    )
+                    .child(
+                        div()
+                            .flex()
+                            .flex_none()
+                            .gap(px(space::XS))
+                            .child(panel)
+                            .child(folder),
+                    ),
+            )
+            .child(
+                div()
+                    .relative()
+                    .mt(px(space::MD))
+                    .flex()
+                    .items_center()
+                    .justify_between()
+                    .gap(px(space::XL))
+                    .child(
+                        ui::entity_title(name, pixel_text::CARD_TITLE)
+                            .min_w_0()
+                            .truncate(),
+                    )
+                    .child(buttons),
+            )
+            .child(
+                ui::text(step::BODY, FontWeight::NORMAL, ink::BODY)
+                    .relative()
+                    .mt(px(space::SM))
+                    .truncate()
+                    .child(numbers),
+            );
+        // What the launcher says besides: a crash count, the action under way, a problem, a
+        // note, settings that wait for a restart.
+        if status.crashes > 0 {
+            card = card.child(
+                ui::card_note(trf(
+                    "The server crashed {count} times and restarted itself.",
+                    &[("count", &status.crashes.to_string())],
+                ))
+                .relative()
+                .mt(px(space::SM)),
+            );
+        }
+        card = card.children(self.server_notes(running, idle, cx));
+        card.child(self.server_console(running, cx))
     }
 
-    fn add_server_folder(&mut self, cx: &mut Context<Self>) {
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some("Add".into()),
-        });
-        cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(mut paths))) = paths.await {
-                if let Some(dir) = paths.pop() {
-                    let _ = this.update(cx, |this, cx| {
-                        this.add_existing(dir);
-                        cx.notify();
-                    });
-                }
+    /// The action under way, a problem, a note and settings waiting for a restart.
+    fn server_notes(&mut self, running: bool, idle: bool, cx: &mut Context<Self>) -> Vec<Div> {
+        let mut out = Vec::new();
+        if let Some(job) = self.servers.busy.clone() {
+            let last = self.servers.job_log.back().cloned().unwrap_or_default();
+            out.push(div().relative().mt(px(space::LG)).child(ui::progress_line(
+                job.label(),
+                None,
+                last,
+            )));
+        }
+        if let Some(bar) = self.servers_preparing() {
+            out.push(div().relative().mt(px(space::LG)).child(bar));
+        }
+        if let Some(p) = self.servers.problem.clone() {
+            let mut actions = Vec::new();
+            if let Some(fix) = p.fix {
+                let label = match &fix {
+                    Fix::UsePort(port) => trf("Use port {port}", &[("port", &port.to_string())]),
+                    Fix::Prepare => set_up_label(&self.servers_minecraft()),
+                    Fix::AgreeEula => tr("I agree to the EULA").into(),
+                    Fix::ShowLog => tr("Open the logs").into(),
+                };
+                let button = ui::button(
+                    "problem-fix",
+                    None,
+                    label,
+                    ButtonKind::Secondary,
+                    ui::ButtonSize::Sm,
+                );
+                actions.push(self.fix_button(button, fix, cx).into_any_element());
             }
-        })
-        .detach();
+            actions.push(
+                ui::button(
+                    "problem-dismiss",
+                    None,
+                    tr("Dismiss"),
+                    ButtonKind::Ghost,
+                    ui::ButtonSize::Sm,
+                )
+                .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                    this.servers.problem = None;
+                    cx.notify();
+                }))
+                .into_any_element(),
+            );
+            out.push(ui::error_line(p.message.clone(), actions).mt(px(space::LG)));
+        }
+        if let Some(n) = self.servers.note.clone() {
+            out.push(ui::notice_line(ui::Tone::Off, n).mt(px(space::LG)));
+        }
+        if running && !self.servers.restart_needed.is_empty() {
+            let names: Vec<String> = self
+                .servers
+                .restart_needed
+                .iter()
+                .map(|k| setting_name(k))
+                .collect();
+            let restart = ui::button(
+                "restart-apply",
+                None,
+                tr("Restart now"),
+                ButtonKind::Secondary,
+                ui::ButtonSize::Sm,
+            );
+            out.push(
+                ui::notice_line(
+                    ui::Tone::Accent(ui::look().accent_soft),
+                    trf(
+                        "Saved. Restart to apply: {settings}.",
+                        &[("settings", &names.join(", "))],
+                    ),
+                )
+                .mt(px(space::LG))
+                .child(if idle {
+                    restart.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                        this.servers.restart_needed.clear();
+                        this.server_command(ServerJob::Restarting, vec!["restart".into()]);
+                        cx.notify();
+                    }))
+                } else {
+                    ui::disabled(restart)
+                }),
+            );
+        }
+        out
     }
 
-    /// A folder with a server.toml joins the list; a vanilla server folder is set up first (its
-    /// server.properties becomes server.toml; its world, lists and EULA stay).
-    fn add_existing(&mut self, dir: PathBuf) {
-        let name = dir
-            .file_name()
-            .map(|n| n.to_string_lossy().into_owned())
-            .unwrap_or_else(|| "Server".into());
-        let tag = self.selected_version().cloned();
-        let tx = self.servers.tx.clone();
-        self.servers.creating = true;
-        self.servers.problem = None;
-        std::thread::spawn(move || {
-            let result = (|| {
-                if servers::program().is_none() {
-                    let tag =
-                        tag.ok_or_else(|| Problem::plain("Install an Eclipse version first."))?;
-                    servers::set_up(&tag).map_err(Problem::plain)?;
-                }
-                if !dir.join("server.toml").is_file() {
-                    servers::run(&dir, &["init", "--yes"])?;
-                }
-                let entry = Entry { name, dir };
-                servers::add(entry.clone()).map_err(Problem::plain)?;
-                Ok(entry)
-            })();
-            let _ = tx.send(Event::Created(result));
-        });
-    }
-}
-
-/// The state, in a few words.
-fn phase_label(status: &Status) -> String {
-    if let Some(busy) = &status.update_busy {
-        return trf("Updating: {step}", &[("step", busy)]);
-    }
-    match status.phase.as_str() {
-        "running" if status.crashes > 0 => tr("Running · restarted after a crash").into(),
-        "running" if status.paused => tr("Running · paused while nobody plays").into(),
-        "running" => tr("Running").into(),
-        "starting" => tr("Starting").into(),
-        "restarting" => tr("Restarting").into(),
-        "stopping" => tr("Stopping").into(),
-        _ => tr("Stopped").into(),
-    }
-}
-
-/// A setting's name for people.
-fn setting_name(dotted: &str) -> String {
-    ServerKey::ALL
-        .into_iter()
-        .find(|k| k.dotted() == dotted)
-        .and_then(ServerKey::label)
-        .unwrap_or(dotted)
-        .to_string()
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn backups_read_for_people() {
-        let b = |name: &str| Backup {
-            name: name.into(),
-            bytes: 1,
-            modified: None,
+    /// The console and the command line under it, or what a stopped server shows instead.
+    fn server_console(&mut self, running: bool, cx: &mut Context<Self>) -> Div {
+        let console = div().relative().mt(px(space::XL)).flex().flex_col();
+        if !running {
+            return console.child(
+                ui::well()
+                    .flex()
+                    .items_center()
+                    .gap(px(space::MD))
+                    .child(ui::icon(
+                        crate::icons::CONSOLE,
+                        ui::IconSize::Px16,
+                        white(ink::MUTED),
+                    ))
+                    .child(ui::empty_line(
+                        "server-console-stopped",
+                        tr("Start the server to see its console."),
+                    )),
+            );
+        }
+        let log = ui::log_well("server-console", &self.servers.console_scroll);
+        let log = if self.servers.log.is_empty() {
+            log.flex()
+                .items_center()
+                .justify_center()
+                .child(ui::empty_line(
+                    "server-console-waiting",
+                    tr("Waiting for the server's log…"),
+                ))
+        } else {
+            let accent = ui::color(ui::look().accent_soft);
+            log.text_color(white(ink::BODY))
+                .children(self.servers.log.iter().map(|l| {
+                    div()
+                        .when(l.starts_with("> "), |d| d.text_color(accent))
+                        .child(l.clone())
+                }))
         };
-        assert_eq!(
-            backup_label(&b("2026-10-19_11-28-57-manual.zip")),
-            ("2026-10-19 11:28:57 UTC".into(), "Made by hand".into())
+        let send = ui::button(
+            "server-send",
+            None,
+            tr("Send"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Sm,
         );
-        assert_eq!(
-            backup_label(&b("2026-10-19_11-28-57-before-v2026.10.20.zip")).1,
-            "Before updating to v2026.10.20"
-        );
-        assert_eq!(
-            backup_label(&b("2026-10-19_13-35-36-before-v2026-10-19-10.zip")).1,
-            "Before updating to v2026.10.19.10"
-        );
-        assert_eq!(
-            backup_label(&b("2026-10-14_17-46-40-before-update.zip")).1,
-            "Before an update"
-        );
-        assert_eq!(
-            backup_label(&b("2026-10-19_11-28-57-auto.zip")).1,
-            "Automatic"
-        );
-        assert_eq!(backup_label(&b("odd.zip")), ("odd".into(), String::new()));
-        assert_eq!(bytes(5_292_542), "5.3 MB");
-        assert_eq!(uptime(3725), "1 h 02 min");
+        let typed = !self.fields.value(Field::ServerCommand).trim().is_empty();
+        let send = if typed {
+            send.on_press(cx.listener(|this, _: &ClickEvent, window, cx| {
+                this.field_enter(Field::ServerCommand, window, cx);
+                cx.notify();
+            }))
+        } else {
+            ui::unavailable(send, tr("Type a command first"))
+        };
+        let slash = div()
+            .text_color(white(ink::DIM))
+            .child("/")
+            .into_any_element();
+        console.child(log).child(
+            self.field_with(
+                Field::ServerCommand,
+                Some(slash),
+                tr("Type a command, like list or time set day"),
+                layout::FIELD_XL,
+                ui::ButtonSize::Md,
+                Some(send.into_any_element()),
+                cx,
+            )
+            .w_full()
+            .mt(px(space::SM))
+            .pr(px(space::XS)),
+        )
     }
 
-    #[test]
-    fn settings_and_modes_read_for_people() {
-        assert_eq!(setting_name("server.port"), "the port");
-        assert_eq!(setting_name("world.seed"), "world.seed");
-        assert_eq!(GameMode::label_of("creative"), "Creative");
-        assert_eq!(GameMode::label_of("hardcore"), "hardcore");
+    fn no_server(&mut self, cx: &mut Context<Self>) -> Div {
+        let needs = self.server_needs();
+        if let Some(state) = self
+            .eclipse_install_state("servers-installing")
+            .filter(|_| needs == Some(Needs::Eclipse))
+        {
+            return ui::empty_card(state);
+        }
+        let game_files = matches!(needs, Some(Needs::GameFiles { .. }));
+        if let Some(bar) = self.servers_preparing().filter(|_| game_files) {
+            let title = trf(
+                "Setting up Minecraft {version}",
+                &[("version", &self.servers_minecraft())],
+            );
+            return ui::empty_card(
+                ui::loading_state("servers-preparing", ui::page_only(title))
+                    .child(bar.mt(px(space::LG))),
+            );
+        }
+        if let Some(e) = self.shown_prepare_error().cloned().filter(|_| game_files) {
+            return ui::empty_card(self.servers_prepare_failed(&e, cx));
+        }
+        let first = match needs.clone() {
+            Some(need) => self.server_need_button("servers-empty", need, ButtonKind::Primary, cx),
+            None => ui::primary(
+                "server-create-empty",
+                Some(crate::icons::ADD),
+                tr("Create a server"),
+                ui::ButtonSize::Md,
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.open_create(cx);
+                cx.notify();
+            })),
+        };
+        let add = self.server_import_button("server-import-empty", cx);
+        let problem = self
+            .servers
+            .problem
+            .clone()
+            .map(|p| ui::error_note(p.message).mt(px(space::LG)));
+        let note = needs.map_or_else(
+            || tr("Host a world your friends can join.").to_string(),
+            |need| need.line(),
+        );
+        ui::empty_card(
+            ui::empty_state(
+                "servers-empty",
+                Page::Servers.icon(),
+                ui::page_only(tr("No servers yet")),
+                note,
+                vec![first, add],
+            )
+            .children(problem),
+        )
     }
+
+    pub(super) fn server_need_button(
+        &mut self,
+        prefix: &str,
+        need: Needs,
+        kind: ButtonKind,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        let size = ui::ButtonSize::Md;
+        let button = |id: String, icon, label: SharedString| match kind {
+            ButtonKind::Primary => ui::primary(id, icon, label, size),
+            _ => ui::button(id, icon, label, kind, size),
+        };
+        match need {
+            Needs::Eclipse if self.updates.eclipse.is_some() => button(
+                format!("{prefix}-install-eclipse"),
+                Some(crate::icons::DOWNLOAD),
+                tr("Install Eclipse").into(),
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.install_update();
+                cx.notify();
+            })),
+            Needs::Eclipse => button(
+                format!("{prefix}-choose-version"),
+                None,
+                tr("Choose a version").into(),
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.servers.create = None;
+                this.servers.problem = None;
+                this.go(Page::Versions);
+                cx.notify();
+            })),
+            Needs::GameFiles { minecraft } => {
+                let label = set_up_label(&minecraft).into();
+                self.fix_button(
+                    button(format!("{prefix}-prepare"), None, label),
+                    Fix::Prepare,
+                    cx,
+                )
+            }
+            Needs::ServerProgram { .. } => button(
+                format!("{prefix}-versions"),
+                None,
+                tr("Manage versions").into(),
+            )
+            .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.servers.create = None;
+                this.servers.problem = None;
+                this.go(Page::Versions);
+                cx.notify();
+            })),
+        }
+    }
+
+    fn server_import_button(&mut self, id: &'static str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let add = ui::button(
+            id,
+            Some(crate::icons::OPEN_FOLDER),
+            tr("Import a server…"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        );
+        let needs = self.server_needs().filter(|_| servers::program().is_none());
+        if self.servers.creating {
+            ui::disabled(add)
+        } else if let Some(need) = needs {
+            ui::unavailable(add, need.line())
+        } else {
+            add.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+                this.add_server_folder(cx);
+                cx.notify();
+            }))
+        }
+    }
+
+    pub(super) fn servers_minecraft(&self) -> String {
+        self.selected_version().map_or_else(
+            || servers::GAME_VERSION.to_string(),
+            |tag| backend::game_version(tag),
+        )
+    }
+
+    pub(super) fn fix_button(
+        &self,
+        button: Stateful<Div>,
+        fix: Fix,
+        cx: &mut Context<Self>,
+    ) -> Stateful<Div> {
+        match self.busy_reason().filter(|_| fix == Fix::Prepare) {
+            Some(why) => ui::unavailable(button, why),
+            None => button.on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                this.fix(fix.clone(), cx);
+                cx.notify();
+            })),
+        }
+    }
+
+    pub(super) fn servers_preparing(&self) -> Option<Div> {
+        let PlayState::Preparing(done) = self.selected_play_state() else {
+            return None;
+        };
+        let last = self.game.log.back().cloned().unwrap_or_default();
+        Some(
+            div()
+                .w_full()
+                .max_w(px(layout::FIELD_MD))
+                .child(ui::progress_line(
+                    tr("Preparing"),
+                    done.map(|d| (d, d)),
+                    last,
+                )),
+        )
+    }
+
+    fn servers_prepare_failed(&self, error: &str, cx: &mut Context<Self>) -> Stateful<Div> {
+        let minecraft = self
+            .selected_version()
+            .map(|tag| backend::game_version(tag))
+            .unwrap_or_default();
+        let again = cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.fix(Fix::Prepare, cx);
+            cx.notify();
+        });
+        let failed = PrepareFailed::of(error, &minecraft);
+        let versions = ui::button(
+            "servers-prepare-failed-versions",
+            None,
+            tr("Manage versions"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.go(Page::Versions);
+            cx.notify();
+        }));
+        ui::error_state_told(
+            "servers-prepare-failed",
+            ui::page_only(failed.title),
+            failed.cause,
+            error,
+            again,
+            (!failed.missing).then_some(versions).into_iter().collect(),
+            ButtonKind::Primary,
+        )
+    }
+
+    /// The servers, the open one lit, then Create a server and adding a server folder.
+    fn server_list(&mut self, cx: &mut Context<Self>) -> Div {
+        let mut rows = Vec::new();
+        for e in self.servers.list.clone() {
+            let status = self
+                .servers
+                .statuses
+                .get(&e.dir)
+                .cloned()
+                .unwrap_or_else(Status::stopped);
+            let current = self.servers.open.as_ref() == Some(&e.dir);
+            let line = match () {
+                _ if status.serving() => trf(
+                    "{online} of {max} online",
+                    &[
+                        ("online", &status.players.len().to_string()),
+                        ("max", &status.max_players.unwrap_or(0).to_string()),
+                    ],
+                ),
+                _ if !status.running() => self.servers.stopped_line(&e.dir),
+                _ => phase_label(&status),
+            };
+            let row = ui::row(
+                format!("server-row-{}", e.dir.display()),
+                e.name.clone(),
+                current,
+            )
+            .pr(px(space::MD))
+            .child(ui::item_text(
+                e.name.clone(),
+                ui::state_line(tone(&status), line),
+            ));
+            rows.push((row, SharedString::from(e.name.clone()), current));
+        }
+        let dirs: Vec<PathBuf> = self.servers.list.iter().map(|e| e.dir.clone()).collect();
+        let this = cx.entity().downgrade();
+        let servers = ui::options(
+            div().id("server-rows").flex().flex_col(),
+            tr("Servers"),
+            rows,
+            true,
+            move |i, _, cx| {
+                let Some(dir) = dirs.get(i).cloned() else {
+                    return;
+                };
+                let _ = this.update(cx, |this, cx| {
+                    this.servers.polled = None;
+                    this.servers.problem = None;
+                    this.servers.note = None;
+                    this.open_server(dir);
+                    cx.notify();
+                });
+            },
+        );
+        let list = ui::card()
+            .flex()
+            .flex_col()
+            .p(px(ui::LIST_INSET))
+            .child(servers);
+        let create = ui::button(
+            "server-create",
+            Some(crate::icons::ADD),
+            tr("Create a server"),
+            ButtonKind::Secondary,
+            ui::ButtonSize::Md,
+        )
+        .on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
+            this.open_create(cx);
+            cx.notify();
+        }));
+        let add = self.server_import_button("server-import", cx);
+        list.child(
+            div()
+                .flex()
+                .flex_wrap()
+                .gap(px(space::SM))
+                .p(px(space::SM))
+                .child(create)
+                .child(add),
+        )
+    }
+
+    /// How friends reach the open server: on this network and over the internet (Tailscale).
+    fn server_addresses(&mut self, cx: &mut Context<Self>) -> Div {
+        let port = port_of(self);
+        let lan = match servers::lan_address() {
+            Some(ip) if port == DEFAULT_PORT => ip.to_string(),
+            Some(ip) => format!("{ip}:{port}"),
+            None => format!("localhost:{port}"),
+        };
+        let copy = |id: &'static str, text: String| {
+            ui::icon_button(
+                id,
+                crate::icons::COPY,
+                tr("Copy the address"),
+                ButtonKind::Ghost,
+                ui::ButtonSize::Md,
+                false,
+            )
+            .on_press(move |_, _, cx| {
+                clipboard::copy_to_clipboard(cx, gpui::ClipboardItem::new_string(text.clone()))
+            })
+        };
+        let address = |value: String, size: TextStep, button: Stateful<Div>| {
+            div()
+                .mt(px(space::XS))
+                .flex()
+                .items_center()
+                .justify_between()
+                .gap(px(space::MD))
+                .child(
+                    ui::text(size, FontWeight::MEDIUM, ink::FULL)
+                        .min_w_0()
+                        .truncate()
+                        .child(value),
+                )
+                .child(button)
+        };
+        let here = ui::field_group(
+            "server-lan-title",
+            tr("On this network"),
+            None,
+            div()
+                .flex()
+                .flex_col()
+                .child(address(
+                    lan.clone(),
+                    step::FIGURE,
+                    copy("address-copy", lan),
+                ))
+                .child(
+                    ui::card_note(tr("Friends on the same Wi-Fi can join with this address."))
+                        .mt(px(space::XS)),
+                ),
+        );
+        let internet = ui::field_group(
+            "server-internet-title",
+            tr("Over the internet"),
+            None,
+            self.internet_card(port, cx),
+        );
+        ui::card()
+            .flex()
+            .flex_col()
+            .gap(px(space::XL))
+            .p(px(ui::CARD_PADDING))
+            .child(here.relative())
+            .child(internet.relative())
+    }
+
+    /// The server's Players, Settings and Backups, on a card under it.
+    fn server_tabs(&mut self, dir: &Path, status: &Status, cx: &mut Context<Self>) -> Div {
+        let tabs = Tab::ALL
+            .into_iter()
+            .map(|tab| StripTab {
+                value: tab,
+                label: tab.label().into(),
+                count: None,
+            })
+            .collect();
+        let (strip, panel) = self.tab_strip(
+            Strip::Server,
+            tabs,
+            self.servers.tab,
+            layout::content_width(self.window_width) - 2. * ui::CARD_PADDING,
+            |this, tab, _| {
+                this.servers.tab = tab;
+                this.asking = None;
+            },
+            cx,
+        );
+        let players = self.servers.tab == Tab::Players;
+        let body = match self.servers.tab {
+            Tab::Settings => self.settings_tab(status, cx),
+            Tab::Backups => self.backups_tab(status, cx),
+            Tab::Players => self.players_tab(dir, status, cx),
+        };
+        ui::card()
+            .mt(px(layout::CARD_GAP))
+            .flex()
+            .flex_col()
+            .p(px(ui::CARD_PADDING))
+            .child(strip.relative())
+            .child(
+                panel
+                    .relative()
+                    .flex()
+                    .flex_col()
+                    .gap(px(space::XL))
+                    .child(body)
+                    .when(players, |d| {
+                        d.child(self.internet_invites(port_of(self), cx))
+                    }),
+            )
+    }
+
+    /// A row of a tab's list (players, backups): what leads it, the name over its detail, then
+    /// what is on its right.
+    pub(super) fn static_row(
+        &self,
+        lead: Option<Div>,
+        name: impl Into<SharedString>,
+        detail: Option<String>,
+        right: Option<AnyElement>,
+    ) -> Div {
+        let text = match detail {
+            Some(detail) => ui::item_text(name, detail),
+            None => div().flex_1().min_w_0().child(
+                ui::text(step::BODY, FontWeight::SEMIBOLD, ink::FULL)
+                    .truncate()
+                    .child(name.into()),
+            ),
+        };
+        div()
+            .flex()
+            .items_center()
+            .gap(px(space::MD))
+            .py(px(LIST_ROW_PAD))
+            .children(lead)
+            .child(text)
+            .children(right)
+    }
+
+    /// − value + for a number within `range`; `set` takes the new value.
+    pub(super) fn number_stepper(
+        &self,
+        id: &str,
+        value: i64,
+        range: std::ops::RangeInclusive<i64>,
+        cx: &mut Context<Self>,
+        set: impl Fn(&mut Self, i64) + Clone + 'static,
+    ) -> AnyElement {
+        let this = cx.entity().downgrade();
+        ui::stepper(
+            SharedString::from(id.to_string()),
+            value,
+            range,
+            move |to, _, cx| {
+                let set = set.clone();
+                let _ = this.update(cx, |this, cx| {
+                    set(this, to);
+                    cx.notify();
+                });
+            },
+        )
+        .into_any_element()
+    }
+}
+
+/// The open server's port.
+fn port_of(this: &Launcher) -> u16 {
+    this.servers
+        .setting(Key::Port)
+        .and_then(Value::as_u64)
+        .map_or(DEFAULT_PORT, |port| port as u16)
 }

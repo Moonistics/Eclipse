@@ -259,13 +259,7 @@ pub(super) fn instance(action: InstanceCmd, as_json: bool) -> Result<(), String>
             let loader = loader
                 .map(|kind| loaders::choose(&kind, id, loader_version.as_deref()))
                 .transpose()?;
-            let made = instances::create_java(&name, id)?;
-            match loader {
-                Some(loader) => changed(instances::edit(&made.id, |m| {
-                    m.java.get_or_insert_with(Default::default).loader = Some(loader)
-                })?),
-                None => changed(made),
-            }
+            changed(instances::create_java(&name, id, loader)?)
         }
         InstanceCmd::Loader {
             instance,

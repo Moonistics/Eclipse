@@ -1,9 +1,17 @@
 //! Home's head: the instance's icon and name, how long it was played, then Play with its menu,
 //! the version, Edit, the instance's folder, and joining a friend on the right.
-use super::*;
+use crate::fields::Field;
+use crate::game_run::QuickPlay;
 use crate::menus::Menu;
-use crate::ui::{self};
+use crate::page::Page;
+use crate::play_state::PlayState;
+use crate::ui::{self, ButtonKind, Press};
+use crate::{dates, layout, play_state, scene, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{backend, instances};
 use eclipse_theme::glass::space;
+use gpui::prelude::*;
+use gpui::{div, px, ClickEvent, Div, SharedString, Stateful};
 
 const PLAY: f32 = 240.;
 const PLAY_WIDE: f32 = 280.;
@@ -18,14 +26,18 @@ fn tall() -> f32 {
 }
 
 impl Launcher {
-    /// The head: what Home shows above its tabs. `tag`: the Eclipse version it plays (empty for a
-    /// Java instance); `prepared`: whether that version's files are ready.
-    pub(super) fn home_head(&mut self, tag: &str, prepared: bool, cx: &mut Context<Self>) -> Div {
-        let java = self.selected_instance().and_then(|i| i.java.clone());
-        let play = self.play_group(tag, cx);
-        let invite = java.is_none().then(|| {
-            let width = self.invite_width(tag);
-            self.invite_field(tag, width, cx)
+    /// The head: what Home shows above its tabs. `eclipse`: the Eclipse version it plays (none
+    /// for a Java instance); `prepared`: whether that version's files are ready.
+    pub(super) fn home_head(
+        &mut self,
+        eclipse: Option<&str>,
+        prepared: bool,
+        cx: &mut Context<Self>,
+    ) -> Div {
+        let play = self.play_group(eclipse, cx);
+        let invite = eclipse.map(|_| {
+            let width = self.invite_width();
+            self.invite_field(width, cx)
         });
         let icons: Vec<_> = [self.edit_button(cx), self.folder_button()]
             .into_iter()
@@ -39,7 +51,7 @@ impl Launcher {
             .items_center()
             .gap(px(space::MD))
             .child(play)
-            .children(java.is_none().then(|| self.version_picker(cx)))
+            .children(eclipse.is_some().then(|| self.version_picker(cx)))
             .children(icons)
             .children(invite);
         div()
@@ -49,7 +61,7 @@ impl Launcher {
             .min_w_0()
             .pt(px(ui::page_top()))
             .child(self.home_title(cx))
-            .children(self.played_text(tag, prepared))
+            .children(self.played_text(eclipse.filter(|_| !prepared)))
             .child(actions)
             .child(scene::track_home_head(&self.scene))
     }
@@ -87,21 +99,22 @@ impl Launcher {
 
     /// "41 hours played · last played 1 hour ago" and a Java instance's game ("Vanilla 1.21.4"),
     /// or how long it has run now.
-    fn played_text(&self, tag: &str, prepared: bool) -> Option<Div> {
-        let line = match (self.game.run().map(|r| r.since), self.selected_instance()) {
-            (Some(since), _) => trf(
+    fn played_text(&self, unprepared: Option<&str>) -> Option<Div> {
+        let run = self.game.run().map(|r| r.since);
+        let line = match (run, self.selected_instance(), unprepared) {
+            (Some(since), _, _) => trf(
                 "Playing for {time} now. Have fun!",
                 &[("time", &instances::play_time(since.elapsed()))],
             ),
-            (None, Some(_)) if self.head_note_says_no_sign_in() => tr(
+            (None, Some(_), _) if self.head_note_says_no_sign_in() => tr(
                 "Playing needs Microsoft sign-in, which this copy of the launcher can't do yet.",
             )
             .into(),
-            (None, Some(i)) if i.java.is_none() && !prepared => {
+            (None, Some(_), Some(tag)) => {
                 let version = backend::game_version(tag);
                 let said_below = self
                     .shown_prepare_error()
-                    .is_some_and(|e| home::minecraft_missing(e, &version));
+                    .is_some_and(|e| play_state::minecraft_missing(e, &version));
                 if self.owner == Some(true) {
                     trf(
                         "The first Play downloads Minecraft {version} from Mojang.",
@@ -116,7 +129,7 @@ impl Launcher {
                     )
                 }
             }
-            (None, Some(i)) => {
+            (None, Some(i), None) => {
                 let played = match i.last_played {
                     Some(when) => trf(
                         "{time} played · last played {when}",
@@ -132,19 +145,19 @@ impl Launcher {
                     None => played,
                 }
             }
-            (None, None) => return None,
+            (None, None, _) => return None,
         };
         Some(ui::page_note("home-played", line))
     }
 
     /// Play and its ⋯ menu: Stop while the game runs, Update when the launcher's version has a
     /// newer one, the progress while preparing, updating or starting.
-    fn play_group(&mut self, tag: &str, cx: &mut Context<Self>) -> Div {
+    fn play_group(&mut self, eclipse: Option<&str>, cx: &mut Context<Self>) -> Div {
         let state = self.selected_play_state();
         let running = state == PlayState::Running;
-        let update = self.play_update(tag);
+        let update = eclipse.and_then(|_| self.play_update());
         let busy = state.busy();
-        let open = self.menu_is(&Menu::Play) && !tag.is_empty();
+        let menu = eclipse.filter(|_| self.menu_is(&Menu::Play));
         let no_sign_in = self.why_no_sign_in();
         let held = no_sign_in.filter(|_| busy.is_none() && !running && update.is_none());
         let kind = if (running && busy.is_none()) || held.is_some() {
@@ -185,7 +198,7 @@ impl Launcher {
             }
             (None, None) => {
                 let (label, icon) = match &update {
-                    Some(_) => (tr("Update"), "download-04"),
+                    Some(_) => (tr("Update"), crate::icons::DOWNLOAD),
                     None => (tr("Play"), "play"),
                 };
                 let main = ui::keep_focus(
@@ -206,9 +219,10 @@ impl Launcher {
             }
         };
         let width = px(self.play_width(update.is_some()));
-        let play = if tag.is_empty() {
+        let play = if eclipse.is_none() {
             main.min_w(width).into_any_element()
         } else {
+            let open = menu.is_some();
             let more = if busy.is_some() {
                 ui::more_busy("play-more", tr("Play options"), ui::ButtonSize::Hero, open)
             } else {
@@ -224,7 +238,7 @@ impl Launcher {
             ui::split(main, more, kind).min_w(width).into_any_element()
         };
         let mut wrap = div().relative().child(play);
-        if open {
+        if let Some(tag) = menu {
             let locked = running || busy.is_some();
             let wait = self.busy_reason().filter(|_| locked);
             let set_up: SharedString = if backend::is_prepared(tag) {
@@ -257,7 +271,7 @@ impl Launcher {
             });
             items.push(PlayRow {
                 key: "play-minecraft-folder",
-                icon: "folder-01",
+                icon: crate::icons::OPEN_FOLDER,
                 label: tr("Choose Minecraft folder…").into(),
                 locked: false,
                 why: None,
@@ -368,23 +382,18 @@ impl Launcher {
 
     fn folder_button(&self) -> Option<Stateful<Div>> {
         let home = self.selected_instance()?.home.clone();
-        Some(
-            ui::icon_button(
-                "home-folder",
-                "folder-01",
-                tr("Open instance folder"),
-                ButtonKind::Secondary,
-                ui::ButtonSize::Hero,
-                false,
-            )
-            .on_press(move |_, _, cx| ui::open_folder(&home, cx)),
-        )
+        Some(ui::open_folder_icon(
+            "home-folder",
+            tr("Open instance folder"),
+            home,
+            ButtonKind::Secondary,
+            ui::ButtonSize::Hero,
+        ))
     }
 
-    fn play_update(&self, tag: &str) -> Option<String> {
+    fn play_update(&self) -> Option<String> {
         self.selected_instance()
             .and_then(|i| self.update_for(i))
-            .filter(|_| !tag.is_empty())
             .map(|r| r.tag.clone())
     }
 
@@ -407,9 +416,9 @@ impl Launcher {
         }
     }
 
-    fn invite_width(&self, tag: &str) -> Option<f32> {
+    fn invite_width(&self) -> Option<f32> {
         let room = layout::content_width(self.window_width);
-        let pair = self.play_width(self.play_update(tag).is_some()) + space::MD + PICKER;
+        let pair = self.play_width(self.play_update().is_some()) + space::MD + PICKER;
         let icon = space::MD + tall();
         let row = pair + ICON_BUTTONS * icon;
         if row + space::MD + INVITE_MIN <= room {
@@ -425,10 +434,10 @@ impl Launcher {
 
     /// The invite code field, `width` wide or what its row leaves; the icon inside on the left,
     /// Join inside on the right.
-    fn invite_field(&mut self, tag: &str, width: Option<f32>, cx: &mut Context<Self>) -> Div {
+    fn invite_field(&mut self, width: Option<f32>, cx: &mut Context<Self>) -> Div {
         let code = self.fields.value(Field::InviteCode);
         let valid = eclipse_friends::invite::parse(code).is_some();
-        let can = valid && self.can_start(tag);
+        let refused = self.start_refusal(&QuickPlay::Friend(code.to_string()));
         let join = ui::button(
             "join-friend",
             None,
@@ -438,15 +447,13 @@ impl Launcher {
         );
         let join = if !valid {
             ui::unavailable(join, tr("Paste a friend's invite code first"))
-        } else if let Some(why) = self.why_no_sign_in() {
+        } else if let Some(why) = refused {
             ui::unavailable(join, why)
-        } else if can {
+        } else {
             join.on_press(cx.listener(|this, _: &ClickEvent, _, cx| {
                 this.join_friend();
                 cx.notify();
             }))
-        } else {
-            ui::unavailable(join, self.why_not_start())
         };
         let field = self
             .field_with(

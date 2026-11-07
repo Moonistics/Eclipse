@@ -4,6 +4,7 @@
 mod buttons;
 mod hover;
 mod items;
+pub mod markdown;
 mod nav;
 mod press;
 mod sliders;

@@ -2,10 +2,15 @@
 //! once the game has said something its console, and last the patch notes of the Eclipse version
 //! it plays. One at a time, instead of one long page. The strip, and under it one card with the
 //! open tab. Patch notes shows the changes in the Eclipse version the instance plays.
-use super::*;
+use crate::page::Page;
 use crate::tab_strip::{Strip, StripTab};
-use crate::ui;
+use crate::ui::Press;
+use crate::{layout, notes_page, ui, Launcher, Load};
+use eclipse_launcher::backend::Release;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_theme::glass::space;
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div};
 
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(super) enum HomeTab {
@@ -37,9 +42,9 @@ impl Launcher {
             tabs.push((HomeTab::Mods, self.instance_mods_count(cx)));
         }
         tabs.push((HomeTab::Worlds, self.worlds_count(cx)));
-        tabs.push((HomeTab::Multiplayer, Some(self.servers_count())));
-        tabs.push((HomeTab::Packs, Some(self.packs_count())));
-        tabs.push((HomeTab::Screenshots, Some(self.screenshots_count())));
+        tabs.push((HomeTab::Multiplayer, self.servers_count(cx)));
+        tabs.push((HomeTab::Packs, self.packs_count(cx)));
+        tabs.push((HomeTab::Screenshots, self.screenshots_count(cx)));
         if self.console_log().is_some() {
             tabs.push((HomeTab::Console, None));
         }
@@ -53,6 +58,18 @@ impl Launcher {
 const NOTES_WIDTH: f32 = layout::MEASURE_TEXT;
 
 impl HomeTab {
+    fn label(self) -> &'static str {
+        match self {
+            HomeTab::PatchNotes => tr("Patch notes"),
+            HomeTab::Mods => tr("Mods"),
+            HomeTab::Worlds => tr("Worlds"),
+            HomeTab::Multiplayer => tr("Multiplayer"),
+            HomeTab::Packs => tr("Packs"),
+            HomeTab::Screenshots => tr("Screenshots"),
+            HomeTab::Console => tr("Console"),
+        }
+    }
+
     fn counted(self, n: usize) -> String {
         let count = n.to_string();
         let counted = [("count", count.as_str())];
@@ -104,16 +121,7 @@ impl Launcher {
             .into_iter()
             .map(|(tab, count)| StripTab {
                 value: tab,
-                label: match tab {
-                    HomeTab::PatchNotes => tr("Patch notes"),
-                    HomeTab::Mods => tr("Mods"),
-                    HomeTab::Worlds => tr("Worlds"),
-                    HomeTab::Multiplayer => tr("Multiplayer"),
-                    HomeTab::Packs => tr("Packs"),
-                    HomeTab::Screenshots => tr("Screenshots"),
-                    HomeTab::Console => tr("Console"),
-                }
-                .into(),
+                label: tab.label().into(),
                 count: count.filter(|n| *n > 0).map(|n| (n, tab.counted(n).into())),
             })
             .collect();
@@ -187,11 +195,7 @@ impl Launcher {
             .flex()
             .items_center()
             .gap(px(space::LG))
-            .child(ui::release_head(
-                eclipse_launcher::nightly::display_name(&release.tag),
-                dates::published(&release.date, ""),
-                Vec::new(),
-            ))
+            .child(notes_page::notes_head(release))
             .child(
                 ui::link("patch-notes-all", tr("All patch notes")).on_press(cx.listener(
                     |this, _: &ClickEvent, _, cx| {
@@ -207,7 +211,11 @@ impl Launcher {
                 .gap(px(space::LG))
                 .p(px(space::MD))
                 .child(head)
-                .child(div().max_w(px(NOTES_WIDTH)).child(markdown::render(&notes))),
+                .child(
+                    div()
+                        .max_w(px(NOTES_WIDTH))
+                        .child(ui::markdown::render(&notes)),
+                ),
         )
     }
 }
@@ -222,7 +230,7 @@ fn patch_source<'a>(
         .iter()
         .filter(|r| Some(r.tag.as_str()) == played)
         .chain(releases)
-        .map(|r| (r, notes_page::release_notes(&r.body)))
+        .map(|r| (r, r.notes()))
         .find(|(_, notes)| !notes.is_empty())
 }
 

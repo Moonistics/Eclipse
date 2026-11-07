@@ -92,18 +92,13 @@ impl Launcher {
             Some(perf::Step::Wait) | None => {}
         }
         // The running build's clock moves on each second.
-        if let Some((started, shown)) = &mut self.native.started {
-            if started.elapsed().as_secs() != *shown {
-                *shown = started.elapsed().as_secs();
-                changed = true;
-            }
-        }
+        changed |= self.native.tick();
         while let Ok(msg) = self.rx.try_recv() {
             changed = true;
             match msg {
                 Msg::Releases(r) => self.releases_arrived(r),
                 Msg::Links(links) => {
-                    self.multiplayer.stale();
+                    self.multiplayer.list.stale();
                     self.links = links;
                 }
                 // The page reads is_prepared when drawn; `changed` redraws it.
@@ -129,7 +124,7 @@ impl Launcher {
                 Msg::Imported(result) => self.imported(result),
                 Msg::Pruned(gone) => self.pruned(gone),
                 Msg::Updates(updates) => self.updates_arrived(updates),
-                Msg::NativeProgress(step) => self.native.step = Some(step),
+                Msg::NativeProgress(step) => self.native_moved(step),
                 Msg::Native(result) => self.native_built(result),
                 Msg::LauncherProgress(p) => self.launcher_update_moved(p),
                 Msg::LauncherUpdated(result) => self.launcher_updated(result),

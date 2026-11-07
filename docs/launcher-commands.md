@@ -51,6 +51,7 @@ Install a game program you have, such as a eclipse-client built on your fork's A
     eclipse-launcher import-build <PATH>
 
 - `PATH`: The program (eclipse-client, eclipse-client.exe on Windows), or a zip holding it
+- `--version`: The installed release or Nightly whose game files it plays with (default: the selected one, else the newest)
 - `--trust-unsigned`: You picked this build yourself and trust it with full access to this computer
 
 MCP: none: the player's switch.
@@ -63,6 +64,7 @@ Prepare a version's resources from your own Minecraft install, or from Mojang.
 
 - `--minecraft`: The game folder of the official launcher, Prism Launcher, MultiMC, the Modrinth App, ATLauncher or GDLauncher (default: the launcher's, then every launcher's default)
 - `--download`: Download Minecraft from Mojang for the signed-in account that owns it, instead of using an install
+- `--version`: The installed version (default: the selected one)
 
 MCP: `prepare`.
 
@@ -72,6 +74,7 @@ Start the client (needs a signed-in Microsoft account that owns Minecraft: Java 
 
     eclipse-launcher play
 
+- `--version`
 - `--instance`: The instance to play (its name or id; default: the selected one). A Java instance starts its Minecraft: Java Edition, downloaded with its Java the first time
 - `--world`: Open or create this world (a folder under saves) at once
 - `--creative`: Creative mode for a new world
@@ -89,6 +92,7 @@ Run a dedicated server here; type commands into its console.
     eclipse-launcher server
 
 - `--dir`: The server's folder (default: the one the launcher uses)
+- `--version`
 - `--accept-eula`: Agree to the Minecraft EULA (https://aka.ms/MinecraftEULA)
 
 MCP: `server`, `server_command`, `server_log`, `server_stop`.
@@ -112,6 +116,7 @@ Native mods (docs/native-mods.md): compile mixin bundles on the Eclipse revision
 - `FOLDER`: A mod folder (eclipse-mixin.toml, or an unpacked .hnmod), or a folder of them (default: the native mods installed and turned on in the instance)
 - `--server-output`: Export mode: build a standalone dedicated-server engine into this folder instead of an instance's build. Needs a mod FOLDER; no instance is read or changed, and no launcher config is written
 - `--instance`: The instance whose installed native mods to build, and which then plays the build (default: the selected one)
+- `--version`: The installed version whose game files the build reuses, and whose commit it builds on when no mod pins one (default: the one the instance plays, so a rebuild stays on its Eclipse)
 - `--update`: Move to the newest installed release or Nightly instead of the Eclipse the instance plays (a full rebuild)
 - `--trust-native-code`: You read the mods' source and trust it with full access to this computer
 - `--allow-version-mismatch`: Build mods made for different Eclipse versions together anyway, on the newest of them
@@ -434,6 +439,7 @@ A Java instance's mod loader: fabric, quilt, forge or neoforge, or none. --list 
 
 - `INSTANCE`
 - `LOADER`
+- `--version`: The loader's version (default: its newest stable one)
 - `--list`: List the loader's versions for the instance's Minecraft instead
 
 MCP: `instance_loader`.
@@ -498,6 +504,7 @@ Keep an instance on one installed Eclipse version, or "latest" to follow updates
     eclipse-launcher instance version <INSTANCE> <VERSION>
 
 - `INSTANCE`
+- `VERSION`
 
 MCP: `instance_version`.
 
@@ -811,6 +818,7 @@ Get the jars of what this computer can port and carry them over.
 
 - `PACK`: The pack's folder name, as list shows it
 - `--from`: A folder with your own jars (an installed instance, a downloads folder)
+- `--version`: The installed version the ports are for (default: the selected one)
 
 MCP: `modpack_port`.
 
@@ -821,6 +829,7 @@ Play a ported pack as its own profile.
     eclipse-launcher modpack play <PACK>
 
 - `PACK`
+- `--version`
 
 MCP: `modpack_play`.
 
@@ -1003,6 +1012,7 @@ Create a server; with no options it is a new world, survival, normal, 10 players
 - `--open`: Let anyone in (no whitelist)
 - `--offline`: Do not check players' Minecraft accounts (offline mode: anyone can use any name)
 - `--player`: Who may join (repeatable); the first becomes an operator
+- `--version`: The installed version whose programs and game files servers use, if none are set up yet
 - `--accept-eula`: Agree to the Minecraft EULA (https://aka.ms/MinecraftEULA)
 
 MCP: `servers_create`, only when the player asks.
@@ -1012,6 +1022,8 @@ MCP: `servers_create`, only when the player asks.
 Copy an installed, prepared version's programs and game files for the servers (again).
 
     eclipse-launcher servers set-up
+
+- `--version`
 
 MCP: `servers_set_up`.
 

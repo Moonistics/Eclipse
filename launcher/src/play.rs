@@ -1,5 +1,6 @@
 use super::*;
 use crate::game_run::{Crash, GameProblem, Phase, QuickPlay, Run, Start, Started};
+use eclipse_launcher::browser::eclipse;
 use eclipse_launcher::instances::Instance;
 
 /// What the Play button does for the selected version.
@@ -26,6 +27,19 @@ fn play_press(prepared: bool, busy: bool) -> PlayPress {
 /// the game would open on half-written files.
 fn starts_now(prepared: bool, preparing: bool, running: bool) -> bool {
     play_press(prepared, preparing || running) == PlayPress::Play
+}
+
+fn pack_instance<'a>(
+    list: &'a [Instance],
+    work: &std::path::Path,
+    default: Option<&'a String>,
+    installed: &'a [String],
+) -> Option<(&'a Instance, &'a String)> {
+    let instance = list.iter().find(|i| i.work == work)?;
+    let tag = instance
+        .eclipse_version(default, installed)?
+        .installed_tag()?;
+    Some((instance, tag))
 }
 
 fn launch_of(start: Start, offline_without_owner: bool) -> backend::Play {
@@ -174,8 +188,8 @@ impl Launcher {
         // Native mods the start's automatic update moved on: the game they are built into is
         // built again first (the Mods page's Build), then plays.
         let id = start.instance.id.clone();
-        if self.mods.rebuild.contains(&id) && self.native.step.is_none() {
-            self.mods.rebuild.retain(|r| *r != id);
+        if self.native.rebuild.contains(&id) && !self.native.building() {
+            self.native.rebuild.retain(|r| *r != id);
             if native_mods::is_native(&start.tag) {
                 self.build_native(false, Some(start));
                 return;
@@ -200,23 +214,28 @@ impl Launcher {
         self.play(Some(QuickPlay::Friend(code)));
     }
 
-    pub(super) fn play_pack(&mut self, work: std::path::PathBuf) {
-        // The pack's instance plays its own version, if it has one.
-        let Some(instance) = self.instances.list.iter().find(|i| i.work == work) else {
-            return;
-        };
-        let Some(tag) = self.version_of(instance).cloned() else {
-            return;
-        };
-        if !self.can_start(&tag) {
-            return;
+    pub(super) fn pack_start(&self, work: &std::path::Path) -> Result<Start, String> {
+        let found = pack_instance(
+            &self.instances.list,
+            work,
+            self.settings.default_version.as_ref(),
+            &self.versions.installed,
+        );
+        match found {
+            Some((instance, tag)) if self.can_start(tag) => Ok(Start {
+                instance: instance.clone(),
+                tag: tag.clone(),
+                to: None,
+                updates_mods: false,
+            }),
+            _ => Err(self.why_not_start()),
         }
-        self.start_client(Start {
-            instance: instance.clone(),
-            tag,
-            to: None,
-            updates_mods: false,
-        });
+    }
+
+    pub(super) fn play_pack(&mut self, work: &std::path::Path) {
+        if let Ok(start) = self.pack_start(work) {
+            self.start_client(start);
+        }
     }
 
     /// Starts a Java instance's Minecraft, joining `server` if given: its files and Java first
@@ -239,7 +258,7 @@ impl Launcher {
         // Registry mods update before the game reads them (`eclipse::auto`); native mods only
         // at start, where a build can follow.
         let auto = (self.settings.auto_updates_mods() && start.updates_mods).then(|| {
-            mods_page::AutoTarget {
+            eclipse::auto::Target {
                 instance: start.instance.clone(),
                 level: Some(backend::mod_api_level(&start.tag)),
                 natives: false,
@@ -249,13 +268,13 @@ impl Launcher {
         self.launch_in_background(play, auto);
     }
 
-    fn launch_in_background(&mut self, play: backend::Play, auto: Option<mods_page::AutoTarget>) {
+    fn launch_in_background(&mut self, play: backend::Play, auto: Option<eclipse::auto::Target>) {
         let mods_tx = self.mods.tx.clone();
         self.in_background(move |tell| {
             if let Some(auto) = auto {
-                let (lines, _) = mods_page::auto_update(&[auto]);
+                let (lines, _) = eclipse::auto::update_all(&[auto]);
                 if !lines.is_empty() {
-                    let _ = mods_tx.send(mods_page::Event::AutoUpdated(lines, Vec::new()));
+                    let _ = mods_tx.send(mods_state::Event::AutoUpdated(lines, Vec::new()));
                 }
             }
             let log = |line: String| tell.send(Msg::Line(Job::Client, line));
@@ -282,6 +301,21 @@ impl Launcher {
             && self
                 .selected_version()
                 .is_some_and(|tag| self.can_start(tag))
+    }
+
+    pub(super) fn start_refusal(&self, to: &QuickPlay) -> Option<String> {
+        let server = matches!(to, QuickPlay::Server(_));
+        if !server && self.selected_instance().is_some_and(|i| i.java.is_some()) {
+            return Some(tr("Start it from the game's menu").into());
+        }
+        if let Some(why) = self.why_no_sign_in() {
+            return Some(why.into());
+        }
+        let ready = match server {
+            true => self.can_join_selected(),
+            false => self.can_start_selected(),
+        };
+        (!ready).then(|| self.why_not_start())
     }
 
     /// Whether a server's Join starts the selected instance now: a Java instance too, as Play
@@ -344,10 +378,7 @@ impl Launcher {
         account::discard_unread_sessions();
         self.come_back(cx);
         // The game saved: last played, sizes and pictures changed.
-        self.worlds.stale();
-        self.multiplayer.stale();
-        self.screenshots.stale();
-        self.game_packs.stale();
+        self.game_folder_changed();
         let owner = self.game.owner.clone();
         if let (Some(run), Some(id)) = (&run, owner) {
             if let Some(i) = self.instances.list.iter().find(|i| i.id == id) {
@@ -419,6 +450,30 @@ impl Launcher {
 mod tests {
     use super::*;
     use crate::game_run::test_instance;
+
+    #[test]
+    fn a_pack_plays_its_own_instance_on_the_version_that_instance_plays() {
+        let mut selected = test_instance("survival", instances::Kind::Own);
+        selected.version = Some("v0.3.0".into());
+        let mut pack = test_instance("pack:create", instances::Kind::Own);
+        pack.work = "packs/create".into();
+        let mut pinned = test_instance("port:skyfactory", instances::Kind::Own);
+        pinned.work = "ports/skyfactory".into();
+        pinned.version = Some("v0.1.0".into());
+        let list = [selected, pack, pinned];
+        let installed = ["v0.3.0".to_string(), "v0.1.0".to_string()];
+        let default = Some(&installed[0]);
+        let plays = |work: &str| {
+            pack_instance(&list, std::path::Path::new(work), default, &installed)
+                .map(|(i, tag)| (i.id.as_str(), tag.as_str()))
+        };
+        assert_eq!(plays("packs/create"), Some(("pack:create", "v0.3.0")));
+        assert_eq!(
+            plays("ports/skyfactory"),
+            Some(("port:skyfactory", "v0.1.0"))
+        );
+        assert_eq!(plays("packs/gone"), None);
+    }
 
     #[test]
     fn a_play_that_waits_for_a_native_build_still_goes_where_it_was_sent() {

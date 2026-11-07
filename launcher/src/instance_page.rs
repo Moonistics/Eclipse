@@ -1,19 +1,38 @@
 //! The New instance page: its name and group, what the instance plays, its version and its icon
 //! in cards (on Edit, its memory and launch options too); at the foot the instance as it will be,
 //! with Cancel and Create.
-use super::*;
-use crate::ui;
+use crate::fields::Field;
+use crate::instance_icons::{IconKey, Mark};
+use crate::instance_state::{NewKind, VersionList};
+use crate::play_state::PlayState;
+use crate::ui::{ButtonKind, Press};
+use crate::{
+    instance_icons, instance_state, instance_versions, layout, menus, scene, ui, Launcher, Load,
+};
+use eclipse_launcher::backend::Release;
+use eclipse_launcher::i18n;
+use eclipse_launcher::i18n::{tr, trf};
 use eclipse_launcher::instances::{self, Icon, Instance};
 use eclipse_launcher::loaders::Kind as Loader;
 use eclipse_theme::glass::space;
-use fields::Field;
-use instance_state::{NewKind, VersionList};
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div, SharedString, Stateful};
 
 /// The loaders Prism Launcher offers. Those `loaders::Kind` can install are shown; the others
 /// join when the launcher learns them.
-const LOADERS: [&str; 5] = ["fabric", "quilt", "neoforge", "forge", "liteloader"];
+const LOADERS: [Loader; 4] = [
+    Loader::Fabric,
+    Loader::Quilt,
+    Loader::NeoForge,
+    Loader::Forge,
+];
 /// Logos offered as icons (not Minecraft's, which is Mojang's).
-const LOGO_ICONS: [&str; 4] = ["neoforge", "fabric", "quilt", "forge"];
+const LOGO_ICONS: [Loader; 4] = [
+    Loader::NeoForge,
+    Loader::Fabric,
+    Loader::Quilt,
+    Loader::Forge,
+];
 /// The colours offered.
 const COLOURS: [u32; 7] = [
     0x3b82f6, 0x14b8a6, 0x22c55e, 0xeab308, 0xf97316, 0xef4444, 0x8b8a99,
@@ -22,15 +41,12 @@ const PREVIEW_ICON: f32 = ui::TILE_LG;
 const PREVIEW_ICON_SHORT: f32 = ui::TILE_MD;
 const CHOICE_ICON: f32 = ui::TILE_MD;
 const CHOICE_NOTE_LINES: usize = 2;
-const KINDS: [NewKind; 3] = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
+pub(super) const KINDS: [NewKind; 3] = [NewKind::Eclipse, NewKind::Vanilla, NewKind::Modded];
 const CHOICE_MIN_WIDTH: f32 = 2. * space::MD + ui::TILE_LG + space::LG + layout::FIELD_SM;
 
 /// The loaders a new modded instance can use now.
 pub(super) fn loaders() -> Vec<Loader> {
-    LOADERS
-        .iter()
-        .filter_map(|id| Loader::parse(id).ok())
-        .collect()
+    LOADERS.to_vec()
 }
 
 fn foot(switching: Option<Div>, row: Div) -> Stateful<Div> {
@@ -189,7 +205,10 @@ impl Launcher {
                 &scroll,
                 layout::page_margin(self.window_width),
             ))
-            .children(ui::more_above_fade(&scroll.handle, self.sky_under_title()));
+            .children(ui::more_above_fade(
+                &scroll.handle,
+                scene::sky_under_title(&self.theme.night),
+            ));
         div()
             .flex()
             .flex_col()
@@ -321,7 +340,7 @@ impl Launcher {
         match kind {
             NewKind::Eclipse => instance_icons::Mark::Eclipse,
             NewKind::Vanilla => instance_icons::Mark::Grass,
-            NewKind::Modded => instance_icons::Mark::Loader(loader.id().to_string()),
+            NewKind::Modded => instance_icons::Mark::Loader(loader),
         }
     }
 
@@ -445,7 +464,7 @@ impl Launcher {
         let importing = self.modpacks.busy;
         let import = ui::button(
             "instance-import",
-            Some("folder-01"),
+            Some(crate::icons::OPEN_FOLDER),
             if importing {
                 tr("Importing…")
             } else {
@@ -739,16 +758,12 @@ impl Launcher {
                 ui::loading_state("eclipse-versions-loading", tr("Loading versions…"))
                     .into_any_element()
             }
-            (Load::Failed(e), true) => ui::error_state_with(
+            (Load::Failed(e), true) => Self::releases_failed(
                 "eclipse-versions-failed",
                 tr("Couldn't load versions"),
                 e,
-                cx.listener(|this, _: &ClickEvent, _, cx| {
-                    this.fetch_releases();
-                    cx.notify();
-                }),
-                vec![Self::proxy_settings_button("eclipse-versions-failed", cx)],
                 ButtonKind::Secondary,
+                cx,
             )
             .into_any_element(),
             (_, true) => ui::empty_state(
@@ -792,7 +807,7 @@ impl Launcher {
         if file_picture || has_saved_picture {
             let picture_img = match &d_picture {
                 Some(Some(chosen)) => self.icon_image(
-                    format!("chosen:{:x}", instance_state::picture_key(&chosen.png)),
+                    IconKey::Chosen(instance_state::picture_key(&chosen.png)),
                     CHOICE_ICON,
                     false,
                     || Some(chosen.png.clone()),
@@ -818,11 +833,6 @@ impl Launcher {
         }
         let loader = self.draft_loader();
         let auto_mark = Self::auto_mark(kind, loader);
-        let auto_logo = match &auto_mark {
-            instance_icons::Mark::Grass => Some("grass"),
-            instance_icons::Mark::Loader(id) => Some(id.as_str()),
-            instance_icons::Mark::Eclipse => None,
-        };
         let auto = self
             .mark(&auto_mark, CHOICE_ICON)
             .unwrap_or_else(|| div().into_any_element());
@@ -834,38 +844,33 @@ impl Launcher {
             IconPick::Icon(None),
         ));
         // Our grass block, then the loaders' logos: each becomes the instance's picture.
-        let mut logos: Vec<(&'static str, Vec<u8>)> =
-            vec![("grass", instance_icons::GRASS.to_vec())];
-        for id in LOGO_ICONS {
-            if let Some(png) = instance_icons::logo_png(id) {
-                logos.push((id, png.to_vec()));
-            }
-        }
-        logos.retain(|(id, _)| Some(*id) != auto_logo || logo == Some(*id));
-        for (id, png) in logos {
-            let shown = match id {
-                "grass" => {
-                    self.icon_image("mark:grass".into(), CHOICE_ICON, false, || {
-                        Some(png.clone())
-                    })
-                    .map(|i| instance_icons::centred(i, CHOICE_ICON, self.scale).into_any_element())
-                }
-                _ => self
-                    .loader_logo(id, ui::TILE_MD)
-                    .map(|i| ui::image_tile(i, ui::TILE_MD)),
+        let logos = std::iter::once(Mark::Grass).chain(LOGO_ICONS.map(Mark::Loader));
+        for mark in logos.filter(|m| *m != auto_mark || logo == Some(*m)) {
+            let (id, name, png, shown) = match mark {
+                Mark::Loader(loader) => (
+                    loader.id(),
+                    SharedString::from(loader.name()),
+                    instance_icons::logo_png(loader),
+                    self.loader_logo(loader, ui::TILE_MD)
+                        .map(|i| ui::image_tile(i, ui::TILE_MD)),
+                ),
+                _ => (
+                    "grass",
+                    tr("Grass block").into(),
+                    instance_icons::GRASS,
+                    self.grass_mark(CHOICE_ICON).map(|i| {
+                        instance_icons::centred(i, CHOICE_ICON, self.scale).into_any_element()
+                    }),
+                ),
             };
             let Some(shown) = shown else {
                 continue;
             };
-            let name: SharedString = match id {
-                "grass" => tr("Grass block").into(),
-                _ => Loader::parse(id).map_or(id.into(), |l| l.name().into()),
-            };
             first.push((
-                icon_choice(format!("icon-logo-{id}"), logo == Some(id)).child(shown),
+                icon_choice(format!("icon-logo-{id}"), logo == Some(mark)).child(shown),
                 name,
-                logo == Some(id),
-                IconPick::Logo(id, png),
+                logo == Some(mark),
+                IconPick::Logo(mark, png.to_vec()),
             ));
         }
         for texture in instance_state::TEXTURES {
@@ -925,7 +930,7 @@ impl Launcher {
         let colours = picker("instance-colours", tr("Icon colour"), colours, cx);
         let choose = ui::button(
             "instance-picture",
-            Some("folder-01"),
+            Some(crate::icons::OPEN_FOLDER),
             tr("Choose image…"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -951,7 +956,7 @@ impl Launcher {
 enum IconPick {
     Picture { active: bool, saved: bool },
     Icon(Option<Icon>),
-    Logo(&'static str, Vec<u8>),
+    Logo(Mark, Vec<u8>),
 }
 
 fn texture_name(texture: &str) -> String {
@@ -979,12 +984,12 @@ impl Launcher {
                     d.logo = None;
                 }
             }
-            IconPick::Logo(id, png) => {
+            IconPick::Logo(mark, png) => {
                 let made = instance_icons::chosen(png.clone());
                 if let (Some(d), Some(made)) = (&mut self.instances.draft, made) {
                     d.picture = Some(Some(made));
                     d.icon = None;
-                    d.logo = Some(id);
+                    d.logo = Some(*mark);
                     d.error = None;
                 }
             }

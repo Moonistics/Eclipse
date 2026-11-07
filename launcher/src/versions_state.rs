@@ -1,7 +1,11 @@
-use super::*;
-use eclipse_theme::glass::space;
-
-const INSTALL_BAR: f32 = layout::FIELD_MD;
+use crate::messages::Msg;
+use crate::play_state::PlayState;
+use crate::{menus, Launcher, Load, Pick};
+use eclipse_launcher::backend::{Release, Updates};
+use eclipse_launcher::i18n::tr;
+use eclipse_launcher::{backend, build_import};
+use gpui::prelude::*;
+use std::time::Instant;
 
 pub(super) struct Versions {
     pub(super) releases: Load<Vec<Release>>,
@@ -51,6 +55,13 @@ impl Versions {
 
     pub(super) fn queued(&self, tag: &str) -> bool {
         self.install_next.as_ref().is_some_and(|r| r.tag == tag)
+    }
+
+    pub(super) fn update_error(&self, updates: &Updates) -> Option<&str> {
+        let newest = updates.eclipse.as_ref()?;
+        (self.install_error.as_ref())
+            .filter(|(tag, _)| self.installing.is_none() && *tag == newest.tag)
+            .map(|(_, e)| e.as_str())
     }
 
     pub(super) fn release(&self, tag: &str) -> Option<&Release> {
@@ -302,25 +313,12 @@ impl Launcher {
         if !self.can_import_build() {
             return;
         }
-        let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: true,
-            directories: false,
-            multiple: false,
-            prompt: Some(tr("Import").into()),
-        });
-        cx.spawn(async move |this, cx| {
-            let Ok(Ok(Some(mut paths))) = paths.await else {
-                return;
-            };
-            let Some(path) = paths.pop() else {
-                return;
-            };
-            let _ = this.update(cx, |this, cx| {
-                // Another picker's import, or a removal, may have started meanwhile.
+        self.pick_paths(Pick::File, tr("Import"), cx, |this, mut paths, cx| {
+            // Another picker's import, or a removal, may have started meanwhile.
+            if let Some(path) = paths.pop() {
                 this.start_build_import(path, cx);
-            });
-        })
-        .detach();
+            }
+        });
     }
     /// Whether a build may be imported now. A removal still running could take
     /// the folder of the same program imported again.
@@ -351,45 +349,6 @@ impl Launcher {
             Ok(_) => self.pull_settings(),
             Err(e) => self.versions.import_error = Some(e),
         }
-    }
-}
-
-impl Launcher {
-    pub(super) fn install_bar(&self) -> Option<Div> {
-        let install = self.versions.installing.as_ref()?;
-        Some(
-            div()
-                .w_full()
-                .max_w(px(INSTALL_BAR))
-                .child(ui::progress_line(tr("Installing"), Some(install.bar), "")),
-        )
-    }
-
-    pub(super) fn eclipse_install_state(&self, id: &str) -> Option<Stateful<Div>> {
-        let bar = self.install_bar()?;
-        Some(
-            ui::loading_state(id.to_string(), ui::page_only(tr("Installing Eclipse")))
-                .child(bar.mt(px(space::LG))),
-        )
-    }
-
-    pub(super) fn import_build_button(&self, id: &str, cx: &mut Context<Self>) -> Stateful<Div> {
-        let busy = self.versions.importing;
-        let button = ui::button(
-            id.to_string(),
-            Some("folder-01"),
-            tr(if busy {
-                "Importing…"
-            } else {
-                "Import a version from file…"
-            }),
-            ButtonKind::Secondary,
-            ui::ButtonSize::Md,
-        );
-        if busy {
-            return ui::disabled(button);
-        }
-        button.on_press(cx.listener(|this, _: &ClickEvent, _, cx| this.import_build(cx)))
     }
 }
 

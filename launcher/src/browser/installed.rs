@@ -268,6 +268,15 @@ impl Game {
         }
     }
 
+    pub fn is_on(&self, home: &Path, entry: &Entry) -> bool {
+        match self {
+            Game::Java(_) => java_instance::is_on(home, entry),
+            Game::Eclipse => {
+                super::eclipse::mod_id(entry).is_some_and(|id| super::java::is_enabled(home, id))
+            }
+        }
+    }
+
     /// Turns the mod `entry` on or off: in a Java instance by renaming its file, else as the
     /// game's Options > Mods does. A registry mod `index` says was taken down doesn't turn on.
     pub fn set_on(

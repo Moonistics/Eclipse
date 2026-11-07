@@ -2,7 +2,8 @@
 //! the same support module as another mod) is left out, with the mods that need it, and the
 //! build runs again without them: the player still gets a game with the others, and is told
 //! which mods were left out and why.
-use super::Bundle;
+use super::manifest::Bundle;
+use super::mixins::Diagnostic;
 use crate::i18n::trf;
 use std::collections::BTreeSet;
 
@@ -102,8 +103,8 @@ impl TryFrom<Kept> for LeftOut {
 /// e8cd0aa) but the module (`support module 'x' collides …`) or its destination (`file`, which
 /// this Eclipse may not have); between two mods, neither: the later one is left out.
 pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
-    let value: serde_json::Value = serde_json::from_str(&output[output.find('{')?..]).ok()?;
-    let message = value["message"].as_str().unwrap_or_default();
+    let found = Diagnostic::read(output)?;
+    let message = found.message.as_deref().unwrap_or_default();
     let declared: Vec<(&Bundle, &[(String, String)])> =
         mods.iter().map(|b| (b, b.modules.as_slice())).collect();
     // The first mod declaring the same module as `bundle`, other than itself.
@@ -115,9 +116,8 @@ pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
             })
             .map(|(other, _)| other.id.clone())
     };
-    let named = value["mod_id"]
-        .as_str()
-        .or_else(|| value["file"].as_str().and_then(super::mod_id_from_file))
+    let named = found
+        .mod_id()
         .and_then(|id| mods.iter().find(|b| b.id == id))
         .or_else(|| {
             let name = message
@@ -131,7 +131,7 @@ pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
                 .map(|(b, _)| *b)
         })
         .or_else(|| {
-            let file = value["file"].as_str()?;
+            let file = found.file.as_deref()?;
             let mut declaring = declared
                 .iter()
                 .filter(|(_, theirs)| theirs.iter().any(|(f, _)| f == file));
@@ -141,13 +141,13 @@ pub(super) fn from_mixins(output: &str, mods: &[Bundle]) -> Option<LeftOut> {
             }
         });
     if let Some(bundle) = named {
-        let why = match value["code"].as_str() {
+        let why = match found.code.as_deref() {
             Some("E_MODULE_CONFLICT") => clash(bundle).map_or(Why::OtherVersion, Why::Clash),
             _ => Why::OtherVersion,
         };
         return Some(LeftOut::new(bundle, why));
     }
-    if value["code"].as_str() != Some("E_MODULE_CONFLICT") {
+    if found.code.as_deref() != Some("E_MODULE_CONFLICT") {
         return None;
     }
     // Two mods' modules: the later of the first pair declaring the same one.
@@ -204,7 +204,7 @@ mod tests {
                 "[[module]]\nid = \"m\"\nfile = \"{file}\"\nname = \"{name}\"\nsource = \"m.rs\"\n"
             );
         }
-        fs::write(dir.join(super::super::MANIFEST), text).unwrap();
+        fs::write(dir.join(super::super::manifest::MANIFEST), text).unwrap();
         super::super::bundles(&dir).unwrap().remove(0)
     }
 

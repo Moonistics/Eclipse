@@ -5,66 +5,78 @@
 
 mod accounts_switch;
 mod accounts_ui;
-mod agents_page;
 mod art;
 mod cli;
 mod cli_tools;
 mod clipboard;
-mod collection;
+mod consent_sheet;
 mod console;
-mod console_page;
 mod cull;
-mod datapacks_page;
 mod dates;
-mod dev_options;
-mod export_page;
+mod dropped_files;
 mod fields;
+mod folder_list;
 mod frame;
 mod game_run;
 mod game_tools;
-mod github_mods_page;
-mod home;
+mod home_console;
 mod home_head;
-mod home_lists;
 mod home_mods;
+mod home_mods_state;
+mod home_multiplayer;
 mod home_multiplayer_state;
 mod home_packs;
 mod home_packs_state;
+mod home_page;
 mod home_screenshots;
 mod home_screenshots_state;
 mod home_tabs;
+mod home_world_packs;
+mod home_worlds;
 mod home_worlds_state;
 mod icons;
-mod import_page;
+mod instance_export;
 mod instance_icons;
-mod instance_mods;
+mod instance_launch;
 mod instance_page;
 mod instance_state;
 mod instance_versions;
-mod internet;
-mod launch_page;
 mod launcher_update;
 mod layout;
 mod line_edit;
-mod location_page;
-mod markdown;
+mod mod_rows;
+mod mods_actions;
+mod mods_github;
+mod servers_actions;
+mod servers_create;
+mod servers_internet;
+mod servers_page;
+mod servers_tabs;
+mod settings_ai;
+mod settings_data_collection;
+mod settings_developer;
+mod startup_location;
+
+mod instance_memory;
 mod mcp;
-mod memory;
 mod menus;
 mod messages;
 mod microsoft;
-mod modpacks_page;
+mod mods_modpacks;
 mod mods_page;
 mod mods_project;
+mod mods_state;
 mod motion;
 mod native_build;
-mod native_log_page;
+mod native_build_log;
+mod native_build_view;
 mod notes_page;
-mod owner_page;
+mod owner_gate;
 mod page;
 mod palette;
 mod perf;
-mod picture_cache;
+
+mod instance_shortcut;
 mod pictures;
 mod play;
 mod play_state;
@@ -72,16 +84,15 @@ mod preview;
 mod profile_heads;
 mod scene;
 mod scrollbar;
-mod servers_page;
+mod servers_state;
 mod settings_account;
 mod settings_appearance;
+mod settings_game;
 mod settings_language;
 mod settings_page;
+mod settings_skin;
 #[cfg(windows)]
-mod setup_page;
-mod shortcut_page;
-mod shot_blur;
-mod skin_page;
+mod setup_window;
 mod sticky;
 mod tab_strip;
 mod theme;
@@ -90,21 +101,19 @@ mod toast;
 mod ui;
 mod versions_page;
 mod versions_state;
-mod while_playing;
+mod window_aside;
 
 use eclipse_launcher::account::{self, Accounts, SignIn, SignInState};
 use eclipse_launcher::backend::{self, Release, Running, Settings, Updates};
-use eclipse_launcher::build_import;
 use eclipse_launcher::i18n::{self, tr, trf};
 use eclipse_launcher::instances;
 use eclipse_launcher::native_mods;
-use eclipse_launcher::native_status;
 use eclipse_launcher::telemetry;
-use fields::{CanAdd, Field};
-use game_run::{Crash, QuickPlay};
+use fields::Field;
+use game_run::Crash;
 use gpui::{
     actions, div, prelude::*, px, size, AnimationExt, AnyElement, App, Bounds, ClickEvent, Context,
-    Div, ElementId, FocusHandle, FontWeight, Hsla, KeyBinding, KeyDownEvent, Menu, MenuItem,
+    Div, ElementId, FocusHandle, FontWeight, KeyBinding, KeyDownEvent, Menu, MenuItem,
     MouseDownEvent, PathPromptOptions, Pixels, Point, SharedString, Stateful, Subscription, Window,
     WindowBounds, WindowOptions,
 };
@@ -116,7 +125,6 @@ use scrollbar::Scrollbar;
 use std::borrow::Cow;
 use std::collections::{HashMap, VecDeque};
 use std::sync::mpsc::{channel, Receiver, Sender};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use theme::Theme;
 use ui::{ButtonKind, Press};
@@ -128,6 +136,13 @@ enum Load<T> {
 }
 
 const LOG_LINES: usize = 2000;
+
+#[derive(Clone, Copy, PartialEq)]
+enum Pick {
+    File,
+    Files,
+    Folder,
+}
 
 struct Launcher {
     theme: Theme,
@@ -148,8 +163,8 @@ struct Launcher {
     self_update_hidden: bool,
     versions: versions_state::Versions,
     native: native_build::NativeBuild,
-    /// The Mod build log panel, opened from the sidebar's foot (`native_log_page.rs`).
-    native_log: native_log_page::NativeLog,
+    /// The Mod build log panel, opened from the sidebar's foot (`native_build_log.rs`).
+    native_log: native_build_log::NativeLog,
     open_menu: Option<menus::Menu>,
     asking: Option<menus::Asking>,
     /// Where the sidebar's rows were drawn, for the ⋯ menu beside them (`frame.rs`).
@@ -158,8 +173,8 @@ struct Launcher {
     /// Where the mouse went down to close a menu by pressing outside it, so that the
     /// same press, ending on the menu's own button, doesn't open it again.
     menu_closed_at: Option<Point<Pixels>>,
-    /// Settings > Account's skin panel for an offline name (`skin_page.rs`).
-    skin: Option<skin_page::SkinPanel>,
+    /// Settings > Account's skin panel for an offline name (`settings_skin.rs`).
+    skin: Option<settings_skin::SkinPanel>,
     /// Why the last picture for Home's background was refused.
     background_error: Option<String>,
     /// The data folder's startup problem.
@@ -172,10 +187,10 @@ struct Launcher {
     links: backend::Links,
     game: game_run::GameRun,
     fields: fields::Fields,
-    /// The Servers page (`servers_page.rs`).
-    servers: servers_page::Servers,
-    /// Its Friends over the internet panel (`internet.rs`).
-    internet: internet::Internet,
+    /// The Servers page (`servers_state.rs`).
+    servers: servers_state::Servers,
+    /// Its Friends over the internet panel (`servers_internet.rs`).
+    internet: servers_internet::Internet,
     /// The palette (⌘K), while open (`palette`).
     palette: Option<palette::Palette>,
     /// The toast last drawn (`toast`), by its number.
@@ -199,17 +214,17 @@ struct Launcher {
     /// Play was refused (or Home's Sign in pressed): the owner gate's screen is open.
     owner_screen_open: bool,
     /// Clicks on the sidebar's launcher version, and whether they revealed the developer options
-    /// (`dev_options`) for this run.
+    /// (`settings_developer`) for this run.
     dev_clicks: u8,
     dev_options: bool,
     /// The window's width at the last frame: the sidebar and Home's head lay out by it.
     window_width: f32,
-    /// The window's longer side in points: the size pictures are made at (`picture_cache`).
+    /// The window's longer side in points: the size pictures are made at (`pictures`).
     window_long_side: f32,
-    /// Opt-in data collection: the player's answer and Settings' section (`collection`).
-    collection: collection::Collection,
-    /// Settings' "Connect an AI agent" (`agents_page`).
-    agents: agents_page::AgentsUi,
+    /// Opt-in data collection: the player's answer and Settings' section (`settings_data_collection`).
+    collection: settings_data_collection::Collection,
+    /// Settings' "Connect an AI agent" (`settings_ai`).
+    agents: settings_ai::AgentsUi,
     tx: Sender<Msg>,
     rx: Receiver<Msg>,
     _appearance: Subscription,
@@ -222,37 +237,37 @@ struct Launcher {
     /// The tab open under Home's head (`home_tabs.rs`); None opens the first one.
     home_tab: Option<home_tabs::HomeTab>,
     home_tabs_drawn: Option<Vec<home_tabs::HomeTab>>,
-    /// The selected instance's mods, for Home's Mods tab (`instance_mods.rs`).
-    instance_mods: instance_mods::InstanceMods,
-    /// Modrinth projects' icon URLs (`instance_mods.rs`).
-    project_icons: instance_mods::ProjectIcons,
+    /// The selected instance's mods, for Home's Mods tab (`home_mods_state.rs`).
+    instance_mods: home_mods_state::InstanceMods,
+    /// Modrinth projects' icon URLs (`mod_rows.rs`).
+    project_icons: mod_rows::ProjectIcons,
     /// `eclipse-launcher benchmark` started this window to measure it.
     bench: Option<perf::Bench>,
-    modpacks: modpacks_page::Modpacks,
-    /// The Mods page: the browser's search, installs and updates (`mods_page.rs`).
-    mods: mods_page::Mods,
-    github: github_mods_page::Github,
+    modpacks: mods_modpacks::Modpacks,
+    /// The Mods page: the browser's search, installs and updates (`mods_state.rs`).
+    mods: mods_state::Mods,
+    github: mods_github::Github,
     /// The instances, for the sidebar and Play, and their dialog (`instance_state.rs`).
     instances: instance_state::Instances,
     /// Home's Worlds section, of the selected instance (`home_worlds_state.rs`).
     worlds: home_worlds_state::Worlds,
     multiplayer: home_multiplayer_state::Multiplayer,
     screenshots: home_screenshots_state::Screenshots,
-    shot_blur: shot_blur::ShotBlur,
-    /// Pictures from disk made at their drawn size (`picture_cache`).
-    pictures: picture_cache::Pictures,
+    shot_blur: home_screenshots_state::ShotBlur,
+    /// Pictures from disk made at their drawn size (`pictures`).
+    pictures: pictures::Pictures,
     game_packs: home_packs_state::Packs,
-    world_packs: datapacks_page::WorldPacks,
-    export: Option<export_page::ExportPanel>,
-    launch: Option<launch_page::LaunchDraft>,
+    world_packs: home_world_packs::WorldPacks,
+    export: Option<instance_export::ExportPanel>,
+    launch: Option<instance_launch::LaunchDraft>,
     /// The memory row on Edit instance.
-    memory_slider: launch_page::MemorySlider,
-    importing: import_page::Importing,
-    console: console_page::Console,
-    /// What the window did when the game started (`while_playing.rs`).
-    aside: while_playing::Aside,
-    /// The selected instance's desktop shortcut (`shortcut_page.rs`).
-    shortcuts: shortcut_page::Shortcuts,
+    memory_slider: instance_launch::MemorySlider,
+    importing: dropped_files::Importing,
+    console: home_console::Console,
+    /// What the window did when the game started (`window_aside.rs`).
+    aside: window_aside::Aside,
+    /// The selected instance's desktop shortcut (`instance_shortcut.rs`).
+    shortcuts: instance_shortcut::Shortcuts,
     /// The name the game made up for an offline player (`eclipse-player.txt`), for the sidebar's
     /// account chip.
     offline_name: Option<String>,
@@ -301,7 +316,7 @@ impl Launcher {
         // Pin the window's chrome (macOS title bar) to the choice before the theme reads
         // `window.appearance()`, so both draw the same look.
         titlebar::apply_appearance(window, settings.appearance);
-        let location_error = location_page::startup_error();
+        let location_error = startup_location::startup_error();
         let preview = preview::preview();
         let (page, section) = preview::start_at(preview, location_error.is_some());
         let mut this = Self {
@@ -339,8 +354,8 @@ impl Launcher {
             links: backend::Links::default(),
             game: Default::default(),
             fields: Default::default(),
-            servers: servers_page::Servers::new(),
-            internet: internet::Internet::new(),
+            servers: servers_state::Servers::new(),
+            internet: servers_internet::Internet::new(),
             root_focus: cx.focus_handle(),
             frame_focus: cx.focus_handle(),
             side_focus: cx.focus_handle().tab_index(0).tab_stop(false),
@@ -360,8 +375,8 @@ impl Launcher {
             dev_options: false,
             window_width: 0.,
             window_long_side: 0.,
-            collection: collection::Collection::load(),
-            agents: agents_page::AgentsUi::default(),
+            collection: settings_data_collection::Collection::load(),
+            agents: settings_ai::AgentsUi::default(),
             tx,
             rx,
             _appearance: appearance,
@@ -377,8 +392,8 @@ impl Launcher {
             project_icons: Default::default(),
             bench: perf::Bench::from_env(),
             modpacks: Default::default(),
-            mods: mods_page::Mods::new(),
-            github: github_mods_page::Github::new(),
+            mods: mods_state::Mods::new(),
+            github: mods_github::Github::new(),
             instances: instance_state::Instances::default(),
             worlds: home_worlds_state::Worlds::default(),
             multiplayer: home_multiplayer_state::Multiplayer::default(),
@@ -386,13 +401,13 @@ impl Launcher {
             shot_blur: Default::default(),
             pictures: Default::default(),
             game_packs: home_packs_state::Packs::default(),
-            world_packs: datapacks_page::WorldPacks::default(),
+            world_packs: home_world_packs::WorldPacks::default(),
             export: None,
             launch: None,
             memory_slider: Default::default(),
             importing: Default::default(),
             console: Default::default(),
-            aside: while_playing::Aside::new(window.window_handle()),
+            aside: window_aside::Aside::new(window.window_handle()),
             shortcuts: Default::default(),
             offline_name: offline_name(),
             scene: cx.new(|_| scene::Scene::new()),
@@ -558,28 +573,41 @@ impl Launcher {
     }
 
     fn choose_folder(&mut self, cx: &mut Context<Self>) {
+        self.pick_paths(Pick::Folder, tr("Choose"), cx, |this, mut paths, _| {
+            let Some(path) = paths.pop() else {
+                return;
+            };
+            crate::toast::say(trf(
+                "Eclipse looks for Minecraft in {path}",
+                &[("path", &short(&path))],
+            ));
+            this.settings.minecraft_dir = Some(path);
+            this.save_settings();
+            if this.page == Page::Home && this.shown_prepare_error().is_some() {
+                this.press_play();
+            }
+        });
+    }
+
+    fn pick_paths(
+        &self,
+        pick: Pick,
+        prompt: &str,
+        cx: &mut Context<Self>,
+        then: impl FnOnce(&mut Self, Vec<std::path::PathBuf>, &mut Context<Self>) + 'static,
+    ) {
         let paths = cx.prompt_for_paths(PathPromptOptions {
-            files: false,
-            directories: true,
-            multiple: false,
-            prompt: Some(tr("Choose").into()),
+            files: pick != Pick::Folder,
+            directories: pick == Pick::Folder,
+            multiple: pick == Pick::Files,
+            prompt: Some(prompt.to_string().into()),
         });
         cx.spawn(async move |this, cx| {
-            if let Ok(Ok(Some(mut paths))) = paths.await {
-                if let Some(path) = paths.pop() {
-                    let _ = this.update(cx, |this, cx| {
-                        crate::toast::say(trf(
-                            "Eclipse looks for Minecraft in {path}",
-                            &[("path", &short(&path))],
-                        ));
-                        this.settings.minecraft_dir = Some(path);
-                        this.save_settings();
-                        if this.page == Page::Home && this.shown_prepare_error().is_some() {
-                            this.press_play();
-                        }
-                        cx.notify();
-                    });
-                }
+            if let Ok(Ok(Some(paths))) = paths.await {
+                let _ = this.update(cx, |this, cx| {
+                    then(this, paths, cx);
+                    cx.notify();
+                });
             }
         })
         .detach();
@@ -842,7 +870,7 @@ actions!(eclipse_launcher, [Quit, CloseWindow]);
 /// What closing the last window does: stop the servers this launcher started, send the telemetry,
 /// exit. A game that is running keeps running. Cmd+Q goes through here too.
 fn shut_down(cx: &mut App) {
-    servers_page::stop_on_quit();
+    servers_state::stop_on_quit();
     telemetry::send_before_exit();
     // A staged launcher update goes in once this process has exited.
     eclipse_launcher::update_handoff::on_quit();
@@ -909,19 +937,19 @@ fn main() {
     // not CLI commands: asked of the CLI parser first, `uninstall` was refused as an unknown
     // subcommand, with the error going to the console that Control Panel's start doesn't have.
     #[cfg(windows)]
-    let setup_window = eclipse_launcher::installer::window_mode();
+    let setup = eclipse_launcher::installer::window_mode();
     #[cfg(not(windows))]
-    let setup_window: Option<eclipse_launcher::setup_args::Mode> = None;
-    if setup_window.is_none() {
+    let setup: Option<eclipse_launcher::setup_args::Mode> = None;
+    if setup.is_none() {
         if let Some(code) = cli::run() {
             std::process::exit(code);
         }
     }
-    // The GPU's texture limit, which caps the pictures made from disk (`picture_cache`).
+    // The GPU's texture limit, which caps the pictures made from disk (`pictures`).
     pictures::probe_gpu_limit();
     gpui_platform::application()
         .with_assets(icons::Assets)
-        // `move`: the closure owns `setup_window`; `run` wants it to outlive this frame.
+        // `move`: the closure owns `setup`; `run` wants it to outlive this frame.
         .run(move |cx: &mut App| {
             cx.set_text_rendering_mode(gpui::TextRenderingMode::Grayscale);
             cx.text_system()
@@ -947,12 +975,12 @@ fn main() {
             cx.set_menus(menu_bar());
             // The setup exe (and `eclipse-launcher.exe uninstall`) opens its own window instead.
             #[cfg(windows)]
-            if let Some(mode) = setup_window {
-                setup_page::open(mode, cx);
+            if let Some(mode) = setup {
+                setup_window::open(mode, cx);
                 return;
             }
             #[cfg(not(windows))]
-            let _ = setup_window;
+            let _ = setup;
             let display = cx.primary_display().map(|d| {
                 let shown = d.visible_bounds().size;
                 (f32::from(shown.width), f32::from(shown.height))

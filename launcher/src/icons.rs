@@ -47,6 +47,10 @@ meanings!(
     COPY = "copy-01",
 );
 
+pub const OPEN_FOLDER: &str = FOLDERS;
+pub const DOWNLOAD: &str = UPDATES;
+pub const ADD: &str = NEW_INSTANCE;
+
 macro_rules! large_icons {
     ($($name:literal),* $(,)?) => {
         const LARGE: &[(&str, &[u8])] = &[

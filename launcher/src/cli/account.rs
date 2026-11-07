@@ -56,6 +56,85 @@ pub(super) enum AccountCmd {
     },
 }
 
+#[derive(serde::Serialize)]
+pub(crate) struct Listing {
+    accounts: Vec<Listed>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    offline: Option<Vec<OfflineName>>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    plays_as: Option<Option<String>>,
+    sign_in_configured: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    keychain: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    secrets_file: Option<bool>,
+    owner: bool,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    sign_in: Option<Option<serde_json::Value>>,
+}
+
+#[derive(serde::Serialize)]
+struct Listed {
+    name: String,
+    uuid: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    selected: Option<bool>,
+    authentication: account::session::Status,
+}
+
+#[derive(serde::Serialize)]
+struct OfflineName {
+    name: String,
+    selected: bool,
+}
+
+impl Listing {
+    fn of(accounts: &Accounts) -> Listing {
+        let listed = |a: &account::Account| Listed {
+            name: a.name.clone(),
+            uuid: a.uuid.clone(),
+            selected: None,
+            authentication: account::session::status(account::store(), &a.uuid),
+        };
+        Listing {
+            accounts: accounts.accounts.iter().map(listed).collect(),
+            offline: None,
+            plays_as: None,
+            sign_in_configured: account::client_id().is_some(),
+            keychain: None,
+            secrets_file: None,
+            // Play needs an account that owns the game (the owner gate).
+            owner: accounts.has_owner(account::store()),
+            sign_in: None,
+        }
+    }
+
+    fn cli(accounts: &Accounts) -> Listing {
+        let mut listing = Listing::of(accounts);
+        for listed in &mut listing.accounts {
+            listed.selected = Some(accounts.selected.as_ref() == Some(&listed.uuid));
+        }
+        let offline = accounts.offline.iter().map(|n| OfflineName {
+            name: n.clone(),
+            selected: accounts.player() == account::Player::Offline(n.clone()),
+        });
+        listing.offline = Some(offline.collect());
+        listing
+    }
+
+    pub(crate) fn session(accounts: &Accounts, sign_in: Option<serde_json::Value>) -> Listing {
+        Listing {
+            plays_as: Some(accounts.selected().map(|a| a.name.clone())),
+            // Sign-ins outlast the launcher: in the keychain, or in the secrets file
+            // where it refused them (`secrets_file`: the file holds a sign-in).
+            keychain: Some(account::store().persistent()),
+            secrets_file: Some(eclipse_launcher::secrets::in_secrets_file()),
+            sign_in: Some(sign_in),
+            ..Listing::of(accounts)
+        }
+    }
+}
+
 /// `account …`: names and UUIDs only; tokens are never printed.
 pub(super) fn account(action: AccountCmd, as_json: bool) -> Result<(), String> {
     let mut accounts = Accounts::load();
@@ -68,19 +147,7 @@ pub(super) fn account(action: AccountCmd, as_json: bool) -> Result<(), String> {
     match action {
         AccountCmd::List => {
             if as_json {
-                json(serde_json::json!({
-                    "accounts": accounts.accounts.iter().map(|a| serde_json::json!({
-                        "name": a.name, "uuid": a.uuid,
-                        "selected": accounts.selected.as_ref() == Some(&a.uuid),
-                        "authentication": account::session::status(account::store(), &a.uuid),
-                    })).collect::<Vec<_>>(),
-                    "offline": accounts.offline.iter().map(|n| serde_json::json!({
-                        "name": n,
-                        "selected": accounts.player() == account::Player::Offline(n.clone()),
-                    })).collect::<Vec<_>>(),
-                    "sign_in_configured": account::client_id().is_some(),
-                    "owner": accounts.has_owner(account::store()),
-                }));
+                json(serde_json::to_value(Listing::cli(&accounts)).map_err(|e| e.to_string())?);
             } else if accounts.accounts.is_empty() && accounts.offline.is_empty() {
                 println!(
                     "No Microsoft account signed in. Play needs one that owns Minecraft: Java \
@@ -273,4 +340,75 @@ pub(super) fn account(action: AccountCmd, as_json: bool) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::{json, Value};
+
+    fn signed_in() -> Accounts {
+        let account = |uuid: &str, name: &str| account::Account {
+            uuid: uuid.into(),
+            name: name.into(),
+            skin: None,
+            cape: None,
+        };
+        Accounts {
+            accounts: vec![account("u1", "Alex"), account("u2", "Sam")],
+            selected: Some("u2".into()),
+            offline: vec!["Offy".into(), "Two".into()],
+            offline_selected: Some("Two".into()),
+            ..Accounts::default()
+        }
+    }
+
+    fn keys(value: &Value) -> Vec<&str> {
+        value
+            .as_object()
+            .unwrap()
+            .keys()
+            .map(String::as_str)
+            .collect()
+    }
+
+    #[test]
+    fn the_cli_and_mcp_list_accounts_with_their_own_fields() {
+        let accounts = signed_in();
+        let cli = serde_json::to_value(Listing::cli(&accounts)).unwrap();
+        assert_eq!(
+            keys(&cli),
+            ["accounts", "offline", "sign_in_configured", "owner"]
+        );
+        assert_eq!(
+            keys(&cli["accounts"][0]),
+            ["name", "uuid", "selected", "authentication"]
+        );
+        assert_eq!(cli["accounts"][1]["selected"], true);
+        assert_eq!(
+            cli["offline"][1],
+            json!({ "name": "Two", "selected": false })
+        );
+        let starting = Some(json!({ "state": "starting" }));
+        let session = serde_json::to_value(Listing::session(&accounts, starting)).unwrap();
+        assert_eq!(
+            keys(&session),
+            [
+                "accounts",
+                "plays_as",
+                "sign_in_configured",
+                "keychain",
+                "secrets_file",
+                "owner",
+                "sign_in"
+            ]
+        );
+        assert_eq!(
+            keys(&session["accounts"][0]),
+            ["name", "uuid", "authentication"]
+        );
+        assert_eq!(session["plays_as"], "Sam");
+        let idle = serde_json::to_value(Listing::session(&accounts, None)).unwrap();
+        assert_eq!(idle["sign_in"], Value::Null);
+    }
 }

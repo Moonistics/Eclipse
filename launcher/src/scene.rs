@@ -1130,6 +1130,10 @@ impl Render for Scene {
     }
 }
 
+pub fn sky_under_title(night: &Night) -> gpui::Hsla {
+    gpui::rgb(over(night.sky[1], 0.5, night.sky[0])).into()
+}
+
 pub fn track_home_head(scene: &Entity<Scene>) -> impl IntoElement {
     let scene = scene.clone();
     canvas(

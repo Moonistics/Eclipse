@@ -1,12 +1,16 @@
 //! Home's Mods tab: one row per mod, its icon, name and "version · source". The filter, Update
 //! all and Find mods sit in the head, a mod's update, its on/off switch and Remove… at the row's end.
-use super::*;
+use crate::fields::Field;
 use crate::menus::Asking;
-use crate::ui::{self, white};
+use crate::mod_rows::ModRow;
+use crate::ui::{self, white, ButtonKind, Press};
+use crate::{layout, mods_state, Launcher};
 use eclipse_launcher::browser::{self, java_instance, Kind as PackKind};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::native_status;
 use eclipse_theme::glass::{ink, space};
-use fields::Field;
-use instance_mods::ModRow;
+use gpui::prelude::*;
+use gpui::{div, px, ClickEvent, Div, SharedString, Stateful};
 
 impl Launcher {
     /// Home's Mods tab, for the selected instance.
@@ -35,7 +39,7 @@ impl Launcher {
                 ButtonKind::Secondary,
                 ui::ButtonSize::Md,
             )
-            .on_press(find_on_mods_page(PackKind::Mod, cx));
+            .on_press(mods_state::find_on_mods_page(PackKind::Mod, cx));
             return body.child(ui::empty_state(
                 "instance-mods-empty",
                 crate::icons::MODS,
@@ -97,7 +101,7 @@ impl Launcher {
                             ButtonKind::Secondary,
                             ui::ButtonSize::Md,
                         )
-                        .on_press(find_on_mods_page(PackKind::Mod, cx)),
+                        .on_press(mods_state::find_on_mods_page(PackKind::Mod, cx)),
                     ),
             ),
         );
@@ -281,7 +285,7 @@ impl Launcher {
             .into_iter()
             .find(|j| j.file == row.file);
         let said = match (browser::try_lock_home(&home), jar) {
-            (None, _) => Err(tr("Wait for the current operation to finish.").into()),
+            (None, _) => Err(mods_state::folder_busy()),
             (Some(_lock), Some(jar)) => eclipse_launcher::desktop_seams::to_trash(&jar.path)
                 .map(|()| trf("{name} moved to the trash", &[("name", &row.name)])),
             (Some(_), None) => Ok(trf("Removed {name}", &[("name", &row.name)])),
@@ -290,14 +294,4 @@ impl Launcher {
         self.stop_asking(|a| matches!(a, Asking::ModFile(_)));
         self.instance_mods_changed();
     }
-}
-
-pub(super) fn find_on_mods_page(
-    kind: PackKind,
-    cx: &Context<Launcher>,
-) -> ui::Listener<ClickEvent> {
-    Box::new(cx.listener(move |this, _: &ClickEvent, _, cx| {
-        this.show_mods(kind);
-        cx.notify();
-    }))
 }

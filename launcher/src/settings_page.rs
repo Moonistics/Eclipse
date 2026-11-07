@@ -2,10 +2,19 @@
 //! and a list of the sections beside it (a row of tabs under the title in a narrow window, with
 //! More tabs for those that don't fit).
 
-use super::*;
+use crate::fields::Field;
+use crate::launcher_update::SelfUpdate;
+use crate::page::Page;
+use crate::play_state::PlayState;
+use crate::scrollbar::Scrollbar;
 use crate::tab_strip::{Strip, StripTab};
-use crate::ui::{self, white};
+use crate::ui::{self, white, ButtonKind, Press};
+use crate::{dates, layout, scene, short, Launcher};
+use eclipse_launcher::i18n::{tr, trf};
+use eclipse_launcher::{backend, instances};
 use eclipse_theme::glass::{ink, radius, space, step};
+use gpui::prelude::*;
+use gpui::{div, px, AnyElement, ClickEvent, Div, FocusHandle, SharedString, Stateful};
 use std::cell::Cell;
 use std::rc::Rc;
 
@@ -192,7 +201,7 @@ impl Launcher {
             .flex_col()
             .pb(px(space::SM))
             .child(card);
-        let clip_line = self.sky_under_title();
+        let clip_line = scene::sky_under_title(&self.theme.night);
         let pane = div()
             .relative()
             .flex_1()
@@ -290,11 +299,6 @@ impl Launcher {
             .child(body)
     }
 
-    pub(super) fn sky_under_title(&self) -> Hsla {
-        let sky = self.theme.night.sky;
-        ui::color(eclipse_theme::night::over(sky[1], 0.5, sky[0]))
-    }
-
     pub(super) fn show_settings(&mut self, section: SettingsSection) {
         self.go(Page::Settings);
         self.open_settings_section(section, true);
@@ -322,16 +326,6 @@ impl Launcher {
         }))
     }
 
-    pub(super) fn wide_controls_beside(&self) -> bool {
-        let content = layout::content_width(self.window_width);
-        let list = if self.window_width < layout::SETTINGS_LIST_BESIDE {
-            0.
-        } else {
-            layout::SETTINGS_RAIL + layout::CARD_GAP
-        };
-        content - list >= layout::SETTINGS_CONTROL_BESIDE
-    }
-
     /// The Updates card's switch for registry mods' automatic updates (`eclipse::auto`).
     fn mods_auto_update_row(&mut self, cx: &mut Context<Self>) -> Stateful<Div> {
         let on = self.settings.auto_updates_mods();
@@ -346,41 +340,6 @@ impl Launcher {
             this.save_settings();
             cx.notify();
         }))
-    }
-
-    pub(super) fn native_profile_picker(
-        &self,
-        id: &'static str,
-        cx: &mut Context<Self>,
-    ) -> (Stateful<Div>, &'static str) {
-        let profile = native_mods::Profile::chosen(&self.settings);
-        let picker = ui::segments(
-            id,
-            tr("Build profile"),
-            &ui::translated(&[
-                (native_mods::Profile::Performance, "Performance"),
-                (native_mods::Profile::Dev, "Dev"),
-                (native_mods::Profile::Release, "Release"),
-            ]),
-            profile,
-            {
-                let this = cx.entity().downgrade();
-                move |choice, _, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        this.settings.set_native_profile(Some(choice));
-                        this.native.done = None;
-                        this.save_settings();
-                        cx.notify();
-                    });
-                }
-            },
-        );
-        let said = match profile {
-            native_mods::Profile::Performance => tr("The everyday build for playing with mods"),
-            native_mods::Profile::Dev => tr("For mod authors: faster rebuilds, slower game"),
-            native_mods::Profile::Release => tr("Slower to build, slightly faster game"),
-        };
-        (picker, said)
     }
 
     fn reduce_motion_row(&mut self, cx: &mut Context<Self>) -> Div {
@@ -449,7 +408,7 @@ impl Launcher {
             .map(|_| {
                 ui::button(
                     "settings-install",
-                    Some("download-04"),
+                    Some(crate::icons::DOWNLOAD),
                     tr("Install"),
                     ButtonKind::Secondary,
                     ui::ButtonSize::Md,
@@ -678,7 +637,7 @@ impl Launcher {
             .into_any_element();
         let choose = ui::button(
             "minecraft-folder-choose",
-            Some("folder-01"),
+            Some(crate::icons::OPEN_FOLDER),
             tr("Choose folder…"),
             ButtonKind::Secondary,
             ui::ButtonSize::Md,
@@ -769,68 +728,6 @@ impl Launcher {
             },
         );
         ui::setting_row(tr("Colour mode"), None, Some(appearance.into_any_element()))
-    }
-
-    /// Settings' Windows ARM game architecture choice; release installation, updates and launch
-    /// use the saved choice, while launcher updates continue to follow this process.
-    pub(super) fn game_architecture_row(&self, cx: &mut Context<Self>) -> Div {
-        if !backend::can_choose_game_architecture() {
-            return div();
-        }
-        let picker = crate::ui::segments(
-            "game-architecture",
-            tr("Game architecture"),
-            &ui::translated(&[
-                (backend::GameArchitecture::Auto, "Automatic"),
-                (backend::GameArchitecture::X64, "x64"),
-                (backend::GameArchitecture::Arm64, "ARM64"),
-            ]),
-            self.settings.game_architecture,
-            {
-                let this = cx.entity().downgrade();
-                move |choice, _, cx| {
-                    let _ = this.update(cx, |this, cx| {
-                        if this.settings.game_architecture == choice {
-                            return;
-                        }
-                        this.settings.game_architecture = choice;
-                        this.save_settings();
-                        // The release and update lists contain the selected game's assets.
-                        this.versions.releases = Load::Loading;
-                        this.updates = backend::Updates::default();
-                        this.fetch_startup_releases();
-                        cx.notify();
-                    });
-                }
-            },
-        );
-        crate::ui::setting_row(
-            tr("Game architecture"),
-            Some(
-                div()
-                    .child(tr("Only change this on Windows on ARM."))
-                    .into_any_element(),
-            ),
-            Some(picker.into_any_element()),
-        )
-    }
-
-    pub(super) fn game_args_row(&mut self, cx: &mut Context<Self>) -> Div {
-        let field = self
-            .field(
-                Field::GameArgs,
-                tr("For example --server-thread"),
-                layout::FIELD_XL,
-                ui::ButtonSize::Md,
-                cx,
-            )
-            .w_full()
-            .max_w(px(layout::FIELD_XL));
-        ui::setting_row_stacked(
-            tr("Default Eclipse game arguments"),
-            None,
-            field.into_any_element(),
-        )
     }
 
     /// Settings' Proxy row: the proxy every download and sign-in goes through, kept in

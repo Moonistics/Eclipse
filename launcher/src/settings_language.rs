@@ -1,10 +1,13 @@
 //! Settings' Language row (`eclipse_launcher::i18n`): a dropdown of the system's language and the
 //! ones the launcher has, each named in itself. A list rather than a segment per language: nine
 //! segments took the row's whole width and left the row's own sentence a character wide.
-use super::*;
 use crate::menus::Menu;
-use crate::ui;
-use eclipse_launcher::i18n::Language;
+use crate::ui::Press;
+use crate::{ui, Launcher};
+use eclipse_launcher::i18n;
+use eclipse_launcher::i18n::{tr, trf, Language};
+use gpui::prelude::*;
+use gpui::{div, ClickEvent, Div};
 
 /// What the dropdown shows for a choice: the system's, in the launcher's language with the
 /// language it follows, or a language's name in itself (never through the table: a table entry

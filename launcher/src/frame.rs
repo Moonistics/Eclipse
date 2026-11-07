@@ -581,7 +581,7 @@ impl Launcher {
                 .into_any_element()
         };
         let card = |body: AnyElement, actions| {
-            ui::notice(ui::Notice::Info, "download-04", body, actions).mb(px(space::SM))
+            ui::notice(ui::Notice::Info, crate::icons::DOWNLOAD, body, actions).mb(px(space::SM))
         };
         let titled = |title: String, body: AnyElement| {
             div()
@@ -731,7 +731,7 @@ impl Launcher {
             let chosen = who == now;
             let face = match &who {
                 Player::Microsoft(uuid) => Some(uuid.clone()),
-                _ => Some(profile_heads::offline_key(&name)),
+                _ => Some(eclipse_launcher::heads::offline_key(&name)),
             };
             let row = ui::menu_item(
                 format!("account-pick-{name}"),
@@ -847,22 +847,25 @@ impl Launcher {
             )
             .when(instance_state::duplicable(&instance), |menu| {
                 menu.child(
-                    item("duplicate", "copy-01", tr("Duplicate…").into()).on_press(cx.listener(
-                        move |this, _: &ClickEvent, _, cx| {
+                    item("duplicate", crate::icons::COPY, tr("Duplicate…").into()).on_press(
+                        cx.listener(move |this, _: &ClickEvent, _, cx| {
                             this.show_duplicate(&copy);
                             cx.notify();
-                        },
-                    )),
+                        }),
+                    ),
                 )
             })
             .child(
-                item("folder", "folder-01", tr("Open instance folder").into()).on_press(
-                    cx.listener(move |this, _: &ClickEvent, _, cx| {
-                        this.close_menu();
-                        ui::open_folder(&home, cx);
-                        cx.notify();
-                    }),
-                ),
+                item(
+                    "folder",
+                    crate::icons::OPEN_FOLDER,
+                    tr("Open instance folder").into(),
+                )
+                .on_press(cx.listener(move |this, _: &ClickEvent, _, cx| {
+                    this.close_menu();
+                    ui::open_folder(&home, cx);
+                    cx.notify();
+                })),
             )
             .child(
                 item("export", "upload-04", tr("Export…").into()).on_press(cx.listener(
